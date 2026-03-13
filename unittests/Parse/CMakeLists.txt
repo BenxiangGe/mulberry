@@ -5,4 +5,6 @@ add_cherry_unittest(CherryParseTests
 target_link_libraries(CherryParseTests
         PRIVATE
         cherryParse
+        LLVMSupport
+        LLVMDemangle
 )
