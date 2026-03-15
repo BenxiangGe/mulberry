@@ -4,7 +4,7 @@
 CHERRY_PRESET=debug
 
 LLVM_COMMIT=llvmorg-19.1.0
-LLVM_PRESET=release
+LLVM_PRESET=Debug
 LLVM_SRC_DIR=${PROJECT_DIR}/llvm-project
 LLVM_BUILD_DIR=${LLVM_SRC_DIR}/build/${LLVM_PRESET}
 LLVM_PYTHON_ENV=${HOME}/.venv/mlirdev
@@ -77,8 +77,8 @@ llvm-generate-python-env:
 	echo "LLVM - Generate Python Environment"
 	/usr/bin/python3 -m venv ${LLVM_PYTHON_ENV} && \
 		source ${LLVM_PYTHON_ENV}/bin/activate && \
-		python -m pip install --upgrade pip && \
-		python -m pip install -r ${LLVM_SRC_DIR}/mlir/python/requirements.txt
+		python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip && \
+		python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r ${LLVM_SRC_DIR}/mlir/python/requirements.txt
 
 .PHONY: llvm-generate-project - Generate LLVM Project.
 llvm-generate-project:
