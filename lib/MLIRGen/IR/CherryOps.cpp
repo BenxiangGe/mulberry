@@ -13,18 +13,6 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto ConstantOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
-                       uint64_t value) -> void {
-  auto dataAttribute = builder.getI64IntegerAttr(value);
-  ConstantOp::build(builder, state, dataAttribute.getType(), dataAttribute);
-}
-
-auto ConstantOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
-                       bool value) -> void {
-  auto dataAttribute = builder.getBoolAttr(value);
-  ConstantOp::build(builder, state, builder.getI1Type(), dataAttribute);
-}
-
 auto CallOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
                    StringRef callee, ArrayRef<mlir::Value> arguments,
                    ArrayRef<Type> results) -> void {

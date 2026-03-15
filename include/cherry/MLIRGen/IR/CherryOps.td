@@ -15,27 +15,6 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 
 def Cherry_Type : AnyTypeOf<[I64, I1, Cherry_Struct]>;
 
-def ConstantOp : Cherry_Op<"constant", [Pure]> {
-  let summary = "Constant operation";
-  let description = [{
-    Constant operation turns a literal into an SSA value. The data is attached
-    to the operation as an attribute. For example:
-    ```mlir
-    %0 = "cherry.constant"() {value = 1 : i64} : () -> iI64
-    ```
-  }];
-
-  let arguments = (ins TypedAttrInterface:$value);
-  let results = (outs Cherry_Type);
-
-  let builders = [
-    OpBuilder<(ins "uint64_t":$value)>,
-    OpBuilder<(ins "bool":$value)>
-  ];
-
-  let assemblyFormat = "$value attr-dict `:` type(results)";
-}
-
 def ReturnOp : Cherry_Op<"return", [Pure, Terminator]> {
   let summary = "Return operation";
   let description = [{

@@ -7,12 +7,14 @@
 
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/AST/AST.h"
+#include "cherry/Basic/Logging.h"
 #include "cherry/Basic/Builtins.h"
 #include "cherry/Basic/CherryResult.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
 #include "cherry/MLIRGen/IR/CherryTypes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -23,10 +25,14 @@
 
 namespace {
 using namespace mlir::cherry;
+using namespace mlir::arith;
 using namespace cherry;
 using llvm::cast;
 using llvm::failure;
 using llvm::success;
+
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "MLIRGen"
 
 class MLIRGenImpl {
 public:
@@ -299,11 +305,19 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
-  return _builder.create<ConstantOp>(loc(node), node->value());
+  mlir::Type type = getType(node->type());
+  DBG("type: {0}", type);
+  mlir::TypedAttr attr = _builder.getIntegerAttr(type, node->value());
+  DBG("attr: {0}", attr);
+  return _builder.create<mlir::arith::ConstantOp>(loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
-  return _builder.create<ConstantOp>(loc(node), node->value());
+  mlir::Type type = getType(node->type());
+  DBG("type: {0}", type);
+  mlir::TypedAttr attr = _builder.getIntegerAttr(type, node->value());
+  DBG("attr: {0}", attr);
+  return _builder.create<mlir::arith::ConstantOp>(loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {

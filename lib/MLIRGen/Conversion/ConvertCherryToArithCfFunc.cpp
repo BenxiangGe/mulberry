@@ -22,16 +22,6 @@ namespace {
 // Arith
 //===----------------------------------------------------------------------===//
 
-struct ConstantOpLowering : public OpRewritePattern<cherry::ConstantOp> {
-  using OpRewritePattern<cherry::ConstantOp>::OpRewritePattern;
-
-  auto matchAndRewrite(cherry::ConstantOp op, PatternRewriter &rewriter) const
-      -> LogicalResult final {
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, op.getValueAttr());
-    return success();
-  }
-};
-
 struct ArithmeticLogicOpLowering : public ConversionPattern {
   ArithmeticLogicOpLowering(MLIRContext *ctx)
       : ConversionPattern(cherry::ArithmeticLogicOp::getOperationName(), 1,
@@ -194,7 +184,7 @@ struct ConvertCherryToArithCfFunc
     target.addLegalOp<cherry::StructWriteOp>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConstantOpLowering, ArithmeticLogicOpLowering, WhileOpLowering,
+    patterns.add<ArithmeticLogicOpLowering, WhileOpLowering,
                  CallOpLowering, ReturnOpLowering>(&getContext());
 
     auto f = getOperation();
