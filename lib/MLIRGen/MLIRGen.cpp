@@ -98,11 +98,11 @@ private:
     }
   }
 
-  auto createEntryBlockAlloca(mlir::Type mlirtType, mlir::Location loc)
+  auto createEntryBlockAlloca(mlir::Type mlirType, mlir::Location loc)
       -> mlir::Value {
-    if (mlirtType == getType(builtins::UnitType))
+    if (mlirType == getType(builtins::UnitType))
       return nullptr;
-    auto memRefType = mlir::MemRefType::get({}, mlirtType);
+    auto memRefType = mlir::MemRefType::get({}, mlirType);
     auto alloca = _builder.create<mlir::memref::AllocaOp>(loc, memRefType);
     auto *parentBlock = alloca.getOperation()->getBlock();
     alloca.getOperation()->moveBefore(&parentBlock->front());
@@ -180,9 +180,9 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
 
   auto location = loc(node->body()->expression().get());
   if (value)
-    _builder.create<ReturnOp>(location, value);
+    _builder.create<mlir::func::ReturnOp>(location, value);
   else
-    _builder.create<ReturnOp>(location, std::nullopt);
+    _builder.create<mlir::func::ReturnOp>(location, std::nullopt);
 
   return func;
 }

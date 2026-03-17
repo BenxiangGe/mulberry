@@ -142,24 +142,6 @@ struct CallOpLowering : public ConversionPattern {
   }
 };
 
-struct ReturnOpLowering : public ConversionPattern {
-  ReturnOpLowering(MLIRContext *ctx)
-      : ConversionPattern(cherry::ReturnOp::getOperationName(), 1, ctx) {}
-
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    if (operands.size() == 0) {
-      rewriter.replaceOpWithNewOp<func::ReturnOp>(op, std::nullopt);
-    } else {
-      Value operand = operands.front();
-      rewriter.replaceOpWithNewOp<func::ReturnOp>(op, llvm::ArrayRef<Type>(),
-                                                  operand);
-    }
-    return success();
-  }
-};
-
 //===----------------------------------------------------------------------===//
 // ConvertCherryToArithCfFunc
 //===----------------------------------------------------------------------===//
@@ -185,7 +167,7 @@ struct ConvertCherryToArithCfFunc
 
     RewritePatternSet patterns(&getContext());
     patterns.add<ArithmeticLogicOpLowering, WhileOpLowering,
-                 CallOpLowering, ReturnOpLowering>(&getContext());
+                 CallOpLowering>(&getContext());
 
     auto f = getOperation();
     FrozenRewritePatternSet patternSet(std::move(patterns));

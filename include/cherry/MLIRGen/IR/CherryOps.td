@@ -15,25 +15,6 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 
 def Cherry_Type : AnyTypeOf<[I64, I1, Cherry_Struct]>;
 
-def ReturnOp : Cherry_Op<"return", [Pure, Terminator]> {
-  let summary = "Return operation";
-  let description = [{
-    The "return" operation represents a return operation within a function.
-    The operation produces no results.
-    For example:
-    ```mlir
-    func @bar() {
-      ...
-      "cherry.return"(%1) : (i64) -> ()
-    }
-    ```
-  }];
-
-  let arguments = (ins Variadic<Cherry_Type>:$input);
-
-  let assemblyFormat = "($input^ `:` type($input))? attr-dict ";
-}
-
 def CallOp : Cherry_Op<"call"> {
   let summary = "Call operation";
   let description = [{
