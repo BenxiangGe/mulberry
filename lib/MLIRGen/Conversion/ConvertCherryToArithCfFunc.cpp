@@ -120,29 +120,6 @@ struct WhileOpLowering : public ConversionPattern {
 };
 
 //===----------------------------------------------------------------------===//
-// Func
-//===----------------------------------------------------------------------===//
-
-struct CallOpLowering : public ConversionPattern {
-
-  CallOpLowering(MLIRContext *ctx)
-      : ConversionPattern(cherry::CallOp::getOperationName(), 1, ctx) {}
-
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    auto callOp = dyn_cast<cherry::CallOp>(op);
-    llvm::SmallVector<Type, 1> results;
-    if (callOp.getResults().size() != 0)
-      results.push_back(callOp.getResult(0).getType());
-
-    rewriter.replaceOpWithNewOp<func::CallOp>(op, callOp.getCallee(), results,
-                                              operands);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ConvertCherryToArithCfFunc
 //===----------------------------------------------------------------------===//
 
@@ -166,8 +143,7 @@ struct ConvertCherryToArithCfFunc
     target.addLegalOp<cherry::StructWriteOp>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<ArithmeticLogicOpLowering, WhileOpLowering,
-                 CallOpLowering>(&getContext());
+    patterns.add<ArithmeticLogicOpLowering, WhileOpLowering>(&getContext());
 
     auto f = getOperation();
     FrozenRewritePatternSet patternSet(std::move(patterns));

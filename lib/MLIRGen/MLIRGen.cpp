@@ -52,6 +52,7 @@ private:
   std::map<llvm::StringRef, mlir::Value> _variableSymbols;
   std::map<llvm::StringRef, mlir::Type> _typeSymbols;
   std::map<llvm::StringRef, mlir::Type> _functionSymbols;
+  std::map<llvm::StringRef, mlir::func::FuncOp> _functionOps;
   llvm::StringRef _fileNameIdentifier;
 
   // Declarations
@@ -169,6 +170,10 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
   }
 
   _functionSymbols[funcName] = getType(node->type()->name());
+  _functionOps[funcName] = func;
+
+  DBG("funcName: {0}", funcName);
+
   return func;
 }
 
@@ -289,8 +294,17 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   llvm::SmallVector<mlir::Type, 4> results;
   if (result != _builder.getNoneType())
     results.push_back(result);
-  auto op = _builder.create<CallOp>(loc(node), node->name(), operands, results);
-  return node->type() == builtins::UnitType ? nullptr : op.getResult(0);
+
+  auto calleeOpIter = _functionOps.find(node->name());
+  if (calleeOpIter == _functionOps.end()) {
+    // todo: placeholder for functions implemented after the caller
+    ERR("callee {0} DOESN'T exist.", node->name());
+    return nullptr;
+  }
+
+  auto callOp = _builder.create<mlir::func::CallOp>(loc(node), calleeOpIter->second, operands);
+
+  return node->type() == builtins::UnitType ? nullptr : callOp.getResult(0);
 }
 
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {

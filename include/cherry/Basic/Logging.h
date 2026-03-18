@@ -14,4 +14,10 @@
                      __VA_OPT__(<< " " << llvm::formatv(__VA_ARGS__)) << "\n" \
     )
 
+#define ERR(...) \
+    LLVM_DEBUG( \
+        llvm::errs() << "[" << __FILE__ << ":" << __LINE__ << " | " << __func__ << "]" \
+                     __VA_OPT__(<< " " << llvm::formatv(__VA_ARGS__)) << "\n" \
+    )
+
 #endif // CHERRY_LOGGING_H

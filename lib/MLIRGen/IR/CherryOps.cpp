@@ -13,15 +13,6 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto CallOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
-                   StringRef callee, ArrayRef<mlir::Value> arguments,
-                   ArrayRef<Type> results) -> void {
-  state.addTypes(results);
-  state.addOperands(arguments);
-  state.addAttribute("callee",
-                     mlir::SymbolRefAttr::get(builder.getContext(), callee));
-}
-
 auto IfOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state,
     mlir::Type resultType, mlir::Value cond,

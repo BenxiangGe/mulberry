@@ -15,32 +15,6 @@ include "mlir/IR/BuiltinAttributeInterfaces.td"
 
 def Cherry_Type : AnyTypeOf<[I64, I1, Cherry_Struct]>;
 
-def CallOp : Cherry_Op<"call"> {
-  let summary = "Call operation";
-  let description = [{
-    Calls represent calls to a user defined function. The callee name is
-    attached as a symbol reference via an attribute. The arguments list must
-    match the arguments expected by the callee. For example:
-    ```mlir
-    %1 = "cherry.call"() {callee = @bar} : () -> i64
-    ```
-    This is only valid if a function named "bar" exists and takes two
-    arguments.
-  }];
-
-  let arguments = (ins FlatSymbolRefAttr:$callee,  Variadic<Cherry_Type>:$inputs);
-  let results = (outs Variadic<Cherry_Type>);
-
-  let builders = [
-    OpBuilder<(ins "StringRef":$callee, "ArrayRef<Value>":$arguments,
-                      "ArrayRef<Type>":$results)>
-  ];
-
-  let assemblyFormat = [{
-    $callee `(` $inputs `)` attr-dict `:` functional-type($inputs, results)
-  }];
-}
-
 def PrintOp : Cherry_Op<"print"> {
   let summary = "Print operation";
   let description = [{

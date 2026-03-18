@@ -1,0 +1,13 @@
+# RUN: cherry-driver -b=llvm %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -b=mlir %s 2>&1 | FileCheck %s
+
+fn foo(k: UInt64): UInt64 {
+  k + 1
+}
+
+fn main(): UInt64 {
+  foo(10)
+}
+
+# CHECK: 10
+# CHECK: 20
