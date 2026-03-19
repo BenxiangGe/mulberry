@@ -13,25 +13,6 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto IfOp::build(
-    mlir::OpBuilder &builder, mlir::OperationState &state,
-    mlir::Type resultType, mlir::Value cond,
-    function_ref<void(mlir::OpBuilder &, mlir::Location)> thenBuilder,
-    function_ref<void(OpBuilder &, mlir::Location)> elseBuilder) -> void {
-  state.addTypes(resultType);
-  state.addOperands(cond);
-
-  OpBuilder::InsertionGuard guard(builder);
-
-  Region *thenRegion = state.addRegion();
-  builder.createBlock(thenRegion);
-  thenBuilder(builder, state.location);
-
-  Region *elseRegion = state.addRegion();
-  builder.createBlock(elseRegion);
-  elseBuilder(builder, state.location);
-}
-
 auto WhileOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state,
     function_ref<void(mlir::OpBuilder &, mlir::Location)> conditionBuilder,

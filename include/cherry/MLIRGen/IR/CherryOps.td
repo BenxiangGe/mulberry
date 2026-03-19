@@ -39,36 +39,6 @@ def CastOp : Cherry_Op<"cast"> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
 
-def IfOp : Cherry_Op<"if"> {
-  let summary = "If-then-else operation";
-
-  let arguments = (ins I1:$condition);
-  let results = (outs Cherry_Type:$result);
-  let regions = (region SizedRegion<1>:$thenRegion, SizedRegion<1>:$elseRegion);
-
-  let builders = [
-    OpBuilder<(ins "Type":$resultType, "Value":$cond,
-                    "function_ref<void(OpBuilder &, Location)>":$thenBuilder,
-                    "function_ref<void(OpBuilder &, Location)>":$elseBuilder)>
-  ];
-
-  let assemblyFormat = [{
-    $condition `:` type($result) $thenRegion `else` $elseRegion attr-dict 
-  }];
-}
-
-def YieldIfOp : Cherry_Op<"yield_if", [Pure, Terminator]> {
-  let summary = "Yield if operation";
-
-  let arguments = (ins Variadic<Cherry_Type>:$result);
-
-  let builders = [
-    OpBuilder<(ins ), [{ /* nothing to do */ }]>
-  ];
-
-  let assemblyFormat = "($result^ `:` type($result))? attr-dict";
-}
-
 def WhileOp : Cherry_Op<"while"> {
   let summary = "While operation";
 

@@ -1,0 +1,27 @@
+# _______________________________________________________
+# Generate object file
+# RUN: cherry-driver %s --b=mlir -dump=mlir-llvm 2>&1 | mlir-cpu-runner --entry-point-result=i64 | FileCheck %s
+# _______________________________________________________
+
+fn bar(x: UInt64, y: Bool): Bool {
+  var k: Bool = y;
+
+  k = if k {
+    print(18446744073709551615);
+    false
+  } else {
+    print(1);
+    true
+  };
+
+  k
+}
+
+fn main(): UInt64 {
+  bar(18446744073709551615, false);
+  0
+}
+
+# Return value CHECK: 0
+# CHECK: 1
+# CHECK: 0

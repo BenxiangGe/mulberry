@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -240,19 +241,25 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
   auto cond = gen(node->conditionExpr().get());
 
   auto thenBlock = node->thenBlock().get();
-  auto thenExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location) {
-    auto value = gen(thenBlock);
-    builder.create<YieldIfOp>(loc(thenBlock->expression().get()), value);
-  };
+
+  auto ifOp = _builder.create<mlir::scf::IfOp>(loc(node), getType(node->type()), cond, true);
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    _builder.setInsertionPointToStart(ifOp.thenBlock());
+
+    auto thenValue = gen(thenBlock);
+    _builder.create<mlir::scf::YieldOp>(loc(thenBlock->expression().get()), thenValue);
+  }
 
   auto elseBlock = node->elseBlock().get();
-  auto elseExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location) {
-    auto value = gen(elseBlock);
-    builder.create<YieldIfOp>(loc(elseBlock->expression().get()), value);
-  };
-  auto ifOp = _builder.create<IfOp>(loc(node), getType(node->type()), cond,
-                                    thenExprBuilder, elseExprBuilder);
-  return ifOp.getResult();
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    _builder.setInsertionPointToStart(ifOp.elseBlock());
+    auto elseValue = gen(elseBlock);
+    _builder.create<mlir::scf::YieldOp>(loc(elseBlock->expression().get()), elseValue);
+  }
+
+  return ifOp.getResult(0);
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {

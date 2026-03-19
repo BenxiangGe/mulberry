@@ -84,9 +84,7 @@ struct ConvertCherryToArithCfFunc
                            func::FuncDialect, scf::SCFDialect>();
     target.addIllegalDialect<cherry::CherryDialect>();
     target.addLegalOp<cherry::CastOp>();
-    target.addLegalOp<cherry::IfOp>();
     target.addLegalOp<cherry::PrintOp>();
-    target.addLegalOp<cherry::YieldIfOp>();
     target.addLegalOp<cherry::StructInitOp>();
     target.addLegalOp<cherry::StructReadOp>();
     target.addLegalOp<cherry::StructWriteOp>();
