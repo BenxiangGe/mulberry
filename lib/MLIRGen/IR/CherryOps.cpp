@@ -50,15 +50,6 @@ auto WhileOp::build(
   bodyBuilder(builder, state.location);
 }
 
-auto ArithmeticLogicOp::build(mlir::OpBuilder &builder,
-                              mlir::OperationState &state, mlir::Value lhs,
-                              mlir::Value rhs, StringRef op, mlir::Type type)
-    -> void {
-  state.addTypes(type);
-  state.addOperands({lhs, rhs});
-  state.addAttribute("op", builder.getStringAttr(op));
-}
-
 auto StructReadOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
                          mlir::Value structValue, int64_t index) -> void {
   CherryStructType structTy =

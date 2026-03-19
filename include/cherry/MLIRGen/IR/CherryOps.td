@@ -94,21 +94,6 @@ def YieldWhileOp : Cherry_Op<"yield_while", [Pure, Terminator]> {
   let assemblyFormat = "($result^ `:` type($result))? attr-dict";
 }
 
-def ArithmeticLogicOp : Cherry_Op<"arithmetic-logic", [Pure]> {
-  let summary = "Arithmetic logic operation";
-
-  let arguments = (ins Cherry_Type:$lhs, Cherry_Type:$rhs, StrAttr:$op);
-  let results = (outs Cherry_Type:$result);
-
-  let builders = [
-    OpBuilder<(ins "Value":$lhs, "Value":$rhs, "StringRef":$op, "Type":$type)>
-  ];
-
-  let assemblyFormat = [{
-    $rhs $op $lhs attr-dict `:` `(` type($rhs) `,` type($lhs) `)` `->` type($result)
-  }];
-}
-
 def StructInitOp : Cherry_Op<"struct_init"> {
   let summary = "Struct initializer";
 

@@ -297,7 +297,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
 
   auto calleeOpIter = _functionOps.find(node->name());
   if (calleeOpIter == _functionOps.end()) {
-    // todo: placeholder for functions implemented after the caller
+    // TODO: placeholder for functions implemented after the caller
     ERR("callee {0} DOESN'T exist.", node->name());
     return nullptr;
   }
@@ -351,23 +351,33 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
 
   auto lhs = gen(node->lhs().get());
   auto rhs = gen(node->rhs().get());
-  auto type = getType(node->type());
   switch (op) {
   case Operator::Add:
+    return _builder.create<mlir::arith::AddIOp>(loc(node), lhs, rhs);
   case Operator::Diff:
+    return _builder.create<mlir::arith::SubIOp>(loc(node), lhs, rhs);
   case Operator::Mul:
+    return _builder.create<mlir::arith::MulIOp>(loc(node), lhs, rhs);
   case Operator::Div:
+    return _builder.create<mlir::arith::DivUIOp>(loc(node), lhs, rhs);
   case Operator::Rem:
+    return _builder.create<mlir::arith::RemUIOp>(loc(node), lhs, rhs);
   case Operator::And:
+    return _builder.create<mlir::arith::AndIOp>(loc(node), lhs, rhs);
   case Operator::Or:
+    return _builder.create<mlir::arith::OrIOp>(loc(node), lhs, rhs);
   case Operator::EQ:
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::eq, lhs, rhs);
   case Operator::NEQ:
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::ne, lhs, rhs);
   case Operator::LT:
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::ult, lhs, rhs);
   case Operator::LE:
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::ule, lhs, rhs);
   case Operator::GT:
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::ugt, lhs, rhs);
   case Operator::GE:
-    return _builder.create<ArithmeticLogicOp>(loc(node), lhs, rhs, node->op(),
-                                              type);
+    return _builder.create<mlir::arith::CmpIOp>(loc(node), mlir::arith::CmpIPredicate::uge, lhs, rhs);
   default:
     llvm_unreachable("Unexpected statement");
   }

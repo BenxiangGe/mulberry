@@ -19,57 +19,6 @@ namespace mlir::cherry {
 
 namespace {
 //===----------------------------------------------------------------------===//
-// Arith
-//===----------------------------------------------------------------------===//
-
-struct ArithmeticLogicOpLowering : public ConversionPattern {
-  ArithmeticLogicOpLowering(MLIRContext *ctx)
-      : ConversionPattern(cherry::ArithmeticLogicOp::getOperationName(), 1,
-                          ctx) {}
-
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    auto resultTypes = op->getResultTypes();
-    auto arithmeticLogicOp = dyn_cast<cherry::ArithmeticLogicOp>(op);
-    auto oper = arithmeticLogicOp.getOp();
-    if (oper == "+")
-      rewriter.replaceOpWithNewOp<arith::AddIOp>(op, resultTypes, operands);
-    else if (oper == "-")
-      rewriter.replaceOpWithNewOp<arith::SubIOp>(op, resultTypes, operands);
-    else if (oper == "*")
-      rewriter.replaceOpWithNewOp<arith::MulIOp>(op, resultTypes, operands);
-    else if (oper == "/")
-      rewriter.replaceOpWithNewOp<arith::DivUIOp>(op, resultTypes, operands);
-    else if (oper == "%")
-      rewriter.replaceOpWithNewOp<arith::RemUIOp>(op, resultTypes, operands);
-    else if (oper == "and")
-      rewriter.replaceOpWithNewOp<arith::AndIOp>(op, resultTypes, operands);
-    else if (oper == "or")
-      rewriter.replaceOpWithNewOp<arith::OrIOp>(op, resultTypes, operands);
-    else if (oper == "eq")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::eq, operands[0], operands[1]);
-    else if (oper == "neq")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::ne, operands[0], operands[1]);
-    else if (oper == "lt")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::ult, operands[0], operands[1]);
-    else if (oper == "le")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::ule, operands[0], operands[1]);
-    else if (oper == "gt")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::ugt, operands[0], operands[1]);
-    else if (oper == "ge")
-      rewriter.replaceOpWithNewOp<arith::CmpIOp>(
-          op, resultTypes, arith::CmpIPredicate::uge, operands[0], operands[1]);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // Cf
 //===----------------------------------------------------------------------===//
 
@@ -143,7 +92,7 @@ struct ConvertCherryToArithCfFunc
     target.addLegalOp<cherry::StructWriteOp>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<ArithmeticLogicOpLowering, WhileOpLowering>(&getContext());
+    patterns.add<WhileOpLowering>(&getContext());
 
     auto f = getOperation();
     FrozenRewritePatternSet patternSet(std::move(patterns));
