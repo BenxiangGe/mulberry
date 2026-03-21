@@ -263,19 +263,20 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
-  auto conditionExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location) {
+  auto conditionExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location, mlir::ValueRange args) {
     auto cond = gen(node->conditionExpr().get());
-    builder.create<YieldWhileOp>(loc(node->conditionExpr().get()), cond);
+    builder.create<mlir::scf::ConditionOp>(loc(node->conditionExpr().get()), cond, args);
   };
 
   auto bodyBlock = node->bodyBlock().get();
-  auto bodyExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location) {
+  auto bodyExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location, mlir::ValueRange args) {
     gen(bodyBlock);
-    builder.create<YieldWhileOp>(loc(bodyBlock->expression().get()),
-                                 std::nullopt);
+    builder.create<mlir::scf::YieldOp>(loc(bodyBlock->expression().get()), std::nullopt);
   };
 
-  _builder.create<WhileOp>(loc(node), conditionExprBuilder, bodyExprBuilder);
+  _builder.create<mlir::scf::WhileOp>(loc(node), mlir::TypeRange{}, mlir::ValueRange{},
+                                      conditionExprBuilder, bodyExprBuilder);
+
   return nullptr;
 }
 

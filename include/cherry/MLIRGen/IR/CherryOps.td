@@ -39,31 +39,6 @@ def CastOp : Cherry_Op<"cast"> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
 
-def WhileOp : Cherry_Op<"while"> {
-  let summary = "While operation";
-
-  let regions = (region SizedRegion<1>:$conditionRegion, SizedRegion<1>:$bodyRegion);
-
-  let builders = [
-    OpBuilder<(ins "function_ref<void(OpBuilder &, Location)>":$conditionBuilder,
-                    "function_ref<void(OpBuilder &, Location)>":$bodyBuilder)>
-  ];
-
-  let assemblyFormat = "$conditionRegion `do` $bodyRegion attr-dict";
-}
-
-def YieldWhileOp : Cherry_Op<"yield_while", [Pure, Terminator]> {
-  let summary = "Yield while operation";
-
-  let arguments = (ins Variadic<Cherry_Type>:$result);
-
-  let builders = [
-    OpBuilder<(ins ), [{ /* nothing to do */ }]>
-  ];
-
-  let assemblyFormat = "($result^ `:` type($result))? attr-dict";
-}
-
 def StructInitOp : Cherry_Op<"struct_init"> {
   let summary = "Struct initializer";
 

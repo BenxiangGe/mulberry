@@ -13,24 +13,6 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto WhileOp::build(
-    mlir::OpBuilder &builder, mlir::OperationState &state,
-    function_ref<void(mlir::OpBuilder &, mlir::Location)> conditionBuilder,
-    function_ref<void(mlir::OpBuilder &, mlir::Location)> bodyBuilder) -> void {
-  state.addTypes({});
-  state.addOperands({});
-
-  OpBuilder::InsertionGuard guard(builder);
-
-  Region *conditionRegion = state.addRegion();
-  builder.createBlock(conditionRegion);
-  conditionBuilder(builder, state.location);
-
-  Region *bodyRegion = state.addRegion();
-  builder.createBlock(bodyRegion);
-  bodyBuilder(builder, state.location);
-}
-
 auto StructReadOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
                          mlir::Value structValue, int64_t index) -> void {
   CherryStructType structTy =

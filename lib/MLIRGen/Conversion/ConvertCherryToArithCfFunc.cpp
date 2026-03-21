@@ -19,56 +19,6 @@ namespace mlir::cherry {
 
 namespace {
 //===----------------------------------------------------------------------===//
-// Cf
-//===----------------------------------------------------------------------===//
-
-struct WhileOpLowering : public ConversionPattern {
-  WhileOpLowering(MLIRContext *ctx)
-      : ConversionPattern(cherry::WhileOp::getOperationName(), 1, ctx) {}
-
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    Location loc = op->getLoc();
-    auto whileOp = dyn_cast<cherry::WhileOp>(op);
-
-    auto *initialBlock = rewriter.getInsertionBlock();
-    auto opPosition = rewriter.getInsertionPoint();
-    auto *afterLoopBlock = rewriter.splitBlock(initialBlock, opPosition);
-
-    auto &bodyRegion = whileOp.getBodyRegion();
-    auto *bodyBlock = &bodyRegion.front();
-
-    // Emit condition block
-    auto &conditionRegion = whileOp.getConditionRegion();
-    Block *conditionBlock = &conditionRegion.front();
-    Operation *conditionTerminator = conditionRegion.back().getTerminator();
-    ValueRange conditionTerminatorOperands = conditionTerminator->getOperands();
-    rewriter.setInsertionPointToEnd(&conditionRegion.back());
-    Value operand = conditionTerminatorOperands.front();
-    rewriter.create<mlir::cf::CondBranchOp>(loc, operand, bodyBlock,
-                                            ArrayRef<Value>(), afterLoopBlock,
-                                            ArrayRef<Value>());
-    rewriter.eraseOp(conditionTerminator);
-    rewriter.inlineRegionBefore(conditionRegion, afterLoopBlock);
-
-    // Emit body block
-    Operation *bodyTerminator = bodyRegion.back().getTerminator();
-    rewriter.eraseOp(bodyTerminator);
-    rewriter.setInsertionPointToEnd(&bodyRegion.back());
-    rewriter.create<mlir::cf::BranchOp>(loc, conditionBlock, std::nullopt);
-    rewriter.inlineRegionBefore(bodyRegion, afterLoopBlock);
-
-    // Emit branch to condition block
-    rewriter.setInsertionPointToEnd(initialBlock);
-    rewriter.create<mlir::cf::BranchOp>(loc, conditionBlock);
-
-    rewriter.replaceOp(whileOp, afterLoopBlock->getArguments());
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ConvertCherryToArithCfFunc
 //===----------------------------------------------------------------------===//
 
@@ -90,7 +40,6 @@ struct ConvertCherryToArithCfFunc
     target.addLegalOp<cherry::StructWriteOp>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<WhileOpLowering>(&getContext());
 
     auto f = getOperation();
     FrozenRewritePatternSet patternSet(std::move(patterns));
