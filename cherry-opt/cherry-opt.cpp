@@ -7,6 +7,7 @@
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"

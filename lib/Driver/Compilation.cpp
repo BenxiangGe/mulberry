@@ -36,6 +36,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/Triple.h"
 
 using namespace cherry;
 
@@ -211,7 +212,7 @@ auto Compilation::genObjectFile(const char *outputFileName) -> int {
   if (genLLVM(llvmModule))
     return EXIT_FAILURE;
 
-  auto targetTriple = llvm::sys::getDefaultTargetTriple();
+  auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
 
   std::string error;
   auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);

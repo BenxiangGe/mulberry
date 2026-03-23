@@ -22,6 +22,8 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
+set(MLIR_ENABLE_BINDINGS_PYTHON OFF)
+
 if(MLIR_ENABLE_BINDINGS_PYTHON)
     include(MLIRDetectPythonEnv)
     mlir_configure_python_dev_packages()

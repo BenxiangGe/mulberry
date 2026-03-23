@@ -3,7 +3,7 @@
 
 CHERRY_PRESET=debug
 
-LLVM_COMMIT=llvmorg-19.1.0
+LLVM_COMMIT=llvmorg-22.1.0
 LLVM_PRESET=Debug
 LLVM_SRC_DIR=${PROJECT_DIR}/llvm-project
 LLVM_BUILD_DIR=${LLVM_SRC_DIR}/build/${LLVM_PRESET}
@@ -84,11 +84,11 @@ llvm-generate-python-env:
 llvm-generate-project:
 	echo "LLVM - Generate Project"
 	cmake -G Ninja -S ${LLVM_SRC_DIR}/llvm -B ${LLVM_BUILD_DIR} \
-		-DLLVM_ENABLE_PROJECTS=mlir \
+		-DLLVM_ENABLE_PROJECTS="clang;mlir" \
+		-DCLANG_ENABLE_CIR=ON \
 		-DLLVM_TARGETS_TO_BUILD=host \
 		-DCMAKE_BUILD_TYPE=${LLVM_PRESET} \
 		-DLLVM_ENABLE_ASSERTIONS=ON \
-		-DLLVM_BUILD_TESTS=ON \
 		-DMLIR_ENABLE_BINDINGS_PYTHON=ON \
 		-DPython3_EXECUTABLE=${LLVM_PYTHON_ENV}/bin/python3 \
 		-DCMAKE_C_COMPILER=clang \
