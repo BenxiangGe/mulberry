@@ -1,0 +1,14 @@
+# RUN: cherry-driver -b=llvm %s 2>&1 | FileCheck %s
+
+struct A {
+  x: Bool,
+  y: UInt64
+}
+
+fn main(): UInt64 {
+  var a: A = A(false, 1);
+
+  0
+}
+
+

@@ -38,6 +38,9 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 
+#include "clang/CIR/Dialect/IR/CIRDialect.h"
+
+using namespace cir;
 using namespace cherry;
 
 static auto makeContext() -> mlir::MLIRContext {
@@ -68,6 +71,9 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
   compilation->_mlirContext.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::memref::MemRefDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
+
+  compilation->_mlirContext.getOrLoadDialect<cir::CIRDialect>();
+
   mlir::registerBuiltinDialectTranslation(compilation->_mlirContext);
   mlir::registerLLVMDialectTranslation(compilation->_mlirContext);
   compilation->_llvmContext = std::make_unique<llvm::LLVMContext>();

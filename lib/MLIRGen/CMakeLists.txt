@@ -26,6 +26,7 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRIR
         MLIRInferTypeOpInterface
         MLIRFuncDialect
+        clangCIR
 )
 
 add_subdirectory(CAPI)

@@ -150,6 +150,7 @@ define CMAKE_PRESETS_TEMPLATE
             "cacheVariables": {
 				"LLVM_SRC_DIR": "${LLVM_SRC_DIR}",
 				"MLIR_DIR": "${LLVM_BUILD_DIR}/lib/cmake/mlir",
+				"Clang_DIR": "${LLVM_BUILD_DIR}/lib/cmake/clang",
 				"LLVM_EXTERNAL_LIT": "${LLVM_BUILD_DIR}/bin/llvm-lit",
 				"Python3_EXECUTABLE": "${LLVM_PYTHON_ENV}/bin/python3",
 				"CMAKE_C_COMPILER": "/usr/bin/clang",
