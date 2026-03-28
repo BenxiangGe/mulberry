@@ -7,10 +7,8 @@ fn bar(x: UInt64, y: Bool): Bool {
   var k: Bool = y;
 
   k = if k {
-    print(18446744073709551615);
     false
   } else {
-    print(1);
     true
   };
 

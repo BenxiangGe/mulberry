@@ -39,17 +39,6 @@ def CastOp : Cherry_Op<"cast"> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
 
-def StructInitOp : Cherry_Op<"struct_init"> {
-  let summary = "Struct initializer";
-
-  let arguments = (ins Variadic<Cherry_Type>:$values);
-  let results = (outs Cherry_Struct:$result);
-
-  let assemblyFormat = [{
-    `(` $values `)` attr-dict `:` functional-type($values, $result)
-  }];
-}
-
 def StructReadOp : Cherry_Op<"struct_read", [Pure]> {
   let summary = "Struct read";
   

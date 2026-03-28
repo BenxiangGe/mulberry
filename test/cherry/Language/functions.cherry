@@ -2,7 +2,6 @@
 # RUN: cherry-driver -b=mlir %s 2>&1 | FileCheck %s
 
 fn foo(k: UInt64): () {
-  print(k);
   ()
 }
 

@@ -131,7 +131,7 @@ cherry-copy-compile-commands:
 .PHONY: cherry-build - Build Cherry.
 cherry-build:
 	echo "Cherry - Build"
-	cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc
+	cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose
 
 # _____________________________________________________________________________
 # Presets

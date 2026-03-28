@@ -85,7 +85,10 @@ private:
   auto gen(const Stat *node) -> void;
   auto gen(const VariableStat *node) -> void;
   auto gen(const ExprStat *node) -> void;
-  auto genStruct(const VariableStat *node, cir::RecordType recordType) -> void;
+
+  auto getAlignOne() -> mlir::IntegerAttr;
+  auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
+                        cir::AllocaOp *targetPtr) -> cir::AllocaOp;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -98,9 +101,9 @@ private:
     if (name == builtins::UnitType) {
       return _builder.getNoneType();
     } else if (name == builtins::UInt64Type) {
-      return _builder.getI64Type();
+      return cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
     } else if (name == builtins::BoolType) {
-      return _builder.getI1Type();
+      return cir::BoolType::get(_builder.getContext());
     } else {
       return _typeSymbols[name];
     }
@@ -110,10 +113,14 @@ private:
       -> mlir::Value {
     if (mlirType == getType(builtins::UnitType))
       return nullptr;
-    auto memRefType = mlir::MemRefType::get({}, mlirType);
-    auto alloca = mlir::memref::AllocaOp::create(_builder, loc, memRefType);
+
+    mlir::Type ptrTy = cir::PointerType::get(mlirType);
+    cir::AllocaOp alloca = cir::AllocaOp::create(_builder, loc, ptrTy, mlirType,
+                                                 "", getAlignOne());
+
     auto *parentBlock = alloca.getOperation()->getBlock();
     alloca.getOperation()->moveBefore(&parentBlock->front());
+
     return alloca;
   }
 };
@@ -173,7 +180,11 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
     auto value = std::get<1>(var_value);
     auto alloca = createEntryBlockAlloca(getType(typeName), loc(node));
     _variableSymbols[varName] = alloca;
-    mlir::memref::StoreOp::create(_builder, loc(node), value, alloca);
+    cir::StoreOp::create(_builder, loc(node), value, alloca,
+                         /*isVolatile=*/false,
+                         /*alignment=*/mlir::IntegerAttr{},
+                         /*sync_scope=*/cir::SyncScopeKindAttr(),
+                         /*mem-order=*/cir::MemOrderAttr());
   }
 
   _functionSymbols[funcName] = getType(node->type()->name());
@@ -205,21 +216,12 @@ auto MLIRGenImpl::gen(const StructDecl *node) -> void {
   llvm::SmallVector<mlir::Type, 2> elementTypes;
   elementTypes.reserve(variables.size());
   for (auto &variable : variables) {
-    if (variable->varType()->name() == builtins::UInt64Type) {
-      auto uInt64Ty = cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
-      elementTypes.push_back(uInt64Ty);
-    } else if (variable->varType()->name() == builtins::BoolType) {
-      auto boolTy = cir::BoolType::get(_builder.getContext());
-      elementTypes.push_back(boolTy);
-    } else {
-      ERR("unknown type: {0}", variable->varType()->name());
-      exit(1);
-    }
+    elementTypes.push_back(getType(variable->varType()->name()));
   }
 
-  mlir::StringAttr structName = _builder.getStringAttr(node->id()->name());
+  mlir::StringAttr attr = _builder.getStringAttr(node->id()->name());
   cir::RecordType structTy =
-      cir::RecordType::get(_builder.getContext(), structName, cir::RecordType::RecordKind::Struct);
+      cir::RecordType::get(_builder.getContext(), attr, cir::RecordType::RecordKind::Struct);
   structTy.complete(elementTypes, false, false);
 
   _typeSymbols[node->id()->name()] = structTy;
@@ -258,44 +260,62 @@ auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
+  DBG("IfExpr node type: {0}, then type: {1}, else type: {2}", node->type(), node->thenBlock()->type(), node->elseBlock()->type());
   auto cond = gen(node->conditionExpr().get());
 
-  auto thenBlock = node->thenBlock().get();
+  auto resultType = getType(node->type());
+  auto ptrType = cir::PointerType::get(_builder.getContext(), resultType);
+  cir::AllocaOp ifYieldResult = cir::AllocaOp::create(_builder,
+      loc(node), ptrType, resultType,
+      "if_yield_result", getAlignOne());
 
-  auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), getType(node->type()), cond, true);
-  {
-    mlir::OpBuilder::InsertionGuard guard(_builder);
-    _builder.setInsertionPointToStart(ifOp.thenBlock());
+  cir::IfOp::create(
+      _builder, loc(node), cond,
+      /*withElseRegion=*/true,
 
-    auto thenValue = gen(thenBlock);
-    mlir::scf::YieldOp::create(_builder, loc(thenBlock->expression().get()), thenValue);
-  }
+      /*thenBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location loc) {
+        auto thenBlock = node->thenBlock().get();
+        auto thenValue = gen(thenBlock);
+        cir::StoreOp::create(b, loc, thenValue, ifYieldResult,
+                         /*isVolatile=*/false,
+                         /*alignment=*/mlir::IntegerAttr{},
+                         /*sync_scope=*/cir::SyncScopeKindAttr(),
+                         /*mem-order=*/cir::MemOrderAttr());
 
-  auto elseBlock = node->elseBlock().get();
-  {
-    mlir::OpBuilder::InsertionGuard guard(_builder);
-    _builder.setInsertionPointToStart(ifOp.elseBlock());
-    auto elseValue = gen(elseBlock);
-    mlir::scf::YieldOp::create(_builder, loc(elseBlock->expression().get()), elseValue);
-  }
+        cir::YieldOp::create(b, loc);
+      },
 
-  return ifOp.getResult(0);
+      /*elseBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location loc) {
+        auto elseBlock = node->elseBlock().get();
+        auto elseValue = gen(elseBlock);
+        cir::StoreOp::create(b, loc, elseValue, ifYieldResult,
+                         /*isVolatile=*/false,
+                         /*alignment=*/mlir::IntegerAttr{},
+                         /*sync_scope=*/cir::SyncScopeKindAttr(),
+                         /*mem-order=*/cir::MemOrderAttr());
+
+        cir::YieldOp::create(b, loc);
+      });
+
+  // return cir::LoadOp::create(_builder, loc(node), resultType, ifYieldResult);
+  return cir::LoadOp::create(_builder, loc(node), {ifYieldResult});
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
-  auto conditionExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location, mlir::ValueRange args) {
+  auto conditionExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location) {
     auto cond = gen(node->conditionExpr().get());
-    mlir::scf::ConditionOp::create(builder, loc(node->conditionExpr().get()), cond, args);
+    cir::ConditionOp::create(builder, loc(node->conditionExpr().get()), cond);
   };
 
   auto bodyBlock = node->bodyBlock().get();
-  auto bodyExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location, mlir::ValueRange args) {
+  auto bodyExprBuilder = [&](mlir::OpBuilder &builder, mlir::Location location) {
     gen(bodyBlock);
-    mlir::scf::YieldOp::create(builder, loc(bodyBlock->expression().get()));
+    cir::YieldOp::create(builder, loc(bodyBlock->expression().get()));
   };
 
-  mlir::scf::WhileOp::create(_builder, loc(node), mlir::TypeRange{}, mlir::ValueRange{},
-                                      conditionExprBuilder, bodyExprBuilder);
+  cir::WhileOp::create(_builder, loc(node), conditionExprBuilder, bodyExprBuilder);
 
   return nullptr;
 }
@@ -305,28 +325,18 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   if (functionName == builtins::print)
     return genPrint(node);
 
+  DBG("gen(CallExpr). functionName: {0}", functionName);
   llvm::SmallVector<mlir::Value, 4> operands;
   for (auto &expr : *node) {
     auto value = gen(expr.get());
+    DBG("gen(CallExpr). value: {0}", value);
     operands.push_back(value);
   }
 
-  if (auto type = getType(functionName))
-#if 0
-    return StructInitOp::create(_builder, 
-        loc(node), llvm::cast<CherryStructType>(type), operands);
-#endif
-  {
-#if 0
-    mlir::Type ptrTy = cir::PointerType::get(type);
-    clang::CharUnits align = clang::CharUnits::One();
-    mlir::OwningOpRef<cir::AllocaOp> varPtrOp = cir::AllocaOp::create(
-        _builder, loc(node), ptrTy, type, functionName,
-        _builder.getI64IntegerAttr(align.getQuantity()));
-    return varPtrOp.get();
-#endif
-    ERR("WHY?");
-    exit(1);
+  if (auto type = getType(functionName)) {
+    if (auto recordType = llvm::dyn_cast<cir::RecordType>(type)) {
+      return genStructLiteral(node, functionName, nullptr);
+    }
   }
 
   if (functionName == builtins::boolToUInt64)
@@ -357,23 +367,20 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   auto address = _variableSymbols[node->name()];
-  return mlir::memref::LoadOp::create(_builder, loc(node), address);
+  return cir::LoadOp::create(_builder, loc(node), address);
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getType(node->type());
-  DBG("type: {0}", type);
-  mlir::TypedAttr attr = _builder.getIntegerAttr(type, node->value());
-  DBG("attr: {0}", attr);
-  return mlir::arith::ConstantOp::create(_builder, loc(node), attr);
+  cir::IntAttr attr = cir::IntAttr::get(type, node->value());
+  DBG("type: {0}, attr: {1}", type, attr);
+  return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
-  mlir::Type type = getType(node->type());
-  DBG("type: {0}", type);
-  mlir::TypedAttr attr = _builder.getIntegerAttr(type, node->value());
+  cir::BoolAttr attr = cir::BoolAttr::get(_builder.getContext(), node->value());
   DBG("attr: {0}", attr);
-  return mlir::arith::ConstantOp::create(_builder, loc(node), attr);
+  return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
@@ -395,31 +402,31 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   auto rhs = gen(node->rhs().get());
   switch (op) {
   case Operator::Add:
-    return mlir::arith::AddIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Add, lhs, rhs);
   case Operator::Diff:
-    return mlir::arith::SubIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Sub, lhs, rhs);
   case Operator::Mul:
-    return mlir::arith::MulIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Mul, lhs, rhs);
   case Operator::Div:
-    return mlir::arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Div, lhs, rhs);
   case Operator::Rem:
-    return mlir::arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Rem, lhs, rhs);
   case Operator::And:
-    return mlir::arith::AndIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::And, lhs, rhs);
   case Operator::Or:
-    return mlir::arith::OrIOp::create(_builder, loc(node), lhs, rhs);
+    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Or, lhs, rhs);
   case Operator::EQ:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::eq, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::eq, lhs, rhs);
   case Operator::NEQ:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::ne, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::ne, lhs, rhs);
   case Operator::LT:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::ult, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::lt, lhs, rhs);
   case Operator::LE:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::ule, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::le, lhs, rhs);
   case Operator::GT:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::ugt, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::gt, lhs, rhs);
   case Operator::GE:
-    return mlir::arith::CmpIOp::create(_builder, loc(node), mlir::arith::CmpIPredicate::uge, lhs, rhs);
+    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::ge, lhs, rhs);
   default:
     llvm_unreachable("Unexpected statement");
   }
@@ -433,7 +440,11 @@ auto MLIRGenImpl::genAssignOp(const BinaryExpr *node) -> mlir::Value {
         auto name = var->name();
         auto address = _variableSymbols[name];
         if (node->lhs()->type() != builtins::UnitType)
-          mlir::memref::StoreOp::create(_builder, loc(node), rhs, address);
+          cir::StoreOp::create(_builder, loc(node), rhs, address,
+                               /*isVolatile=*/false,
+                               /*alignment=*/mlir::IntegerAttr{},
+                               /*sync_scope=*/cir::SyncScopeKindAttr(),
+                               /*mem-order=*/cir::MemOrderAttr());
       })
       .Case<BinaryExpr>([&](const auto *structRead) {
         llvm::SmallVector<int64_t, 3> indexes = {};
@@ -452,6 +463,13 @@ auto MLIRGenImpl::genAssignOp(const BinaryExpr *node) -> mlir::Value {
         auto valueToStore = StructWriteOp::create(_builder,
             loc(node), structValue, indexes, rhs);
         mlir::memref::StoreOp::create(_builder, loc(node), valueToStore, memref);
+#if 0
+        cir::StoreOp::create(_builder, loc(node), valueToStore, memref,
+                             /*isVolatile=*/false,
+                             /*alignment=*/mlir::IntegerAttr{},
+                             /*sync_scope=*/cir::SyncScopeKindAttr(),
+                             /*mem-order=*/cir::MemOrderAttr());
+#endif
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -467,27 +485,34 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
   }
 }
 
-auto MLIRGenImpl::genStruct(const VariableStat *node, cir::RecordType recordType) -> void {
+auto MLIRGenImpl::getAlignOne() -> mlir::IntegerAttr {
+  // Note that mlir::IntegerType is used instead of cir::IntType here because
+  // we don't need sign information for this to be useful, so keep it simple.
+  clang::CharUnits align = clang::CharUnits::One();
+  return _builder.getI64IntegerAttr(align.getQuantity());
+}
+
+auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typeName, cir::AllocaOp* targetPtr) -> cir::AllocaOp {
+  auto recordType = llvm::dyn_cast<cir::RecordType>(getType(typeName));
+  if (!recordType) {
+    ERR("NOT a RecordType. typeName: {0}", typeName);
+    return nullptr;
+  }
   if (recordType.getKind() != cir::RecordType::RecordKind::Struct) {
     ERR("record type kind: {0}", recordType.getKind());
-    return;
+    return nullptr;
   }
+  mlir::Type recordPtrTy = cir::PointerType::get(recordType);
 
-  auto typeName = node->varType()->name();
+  cir::AllocaOp varPtrOp;
+  if (!targetPtr) {
+    varPtrOp = cir::AllocaOp::create(_builder, loc(callExpr), recordPtrTy, recordType,
+                                     typeName, getAlignOne());
 
-  mlir::Type ptrTy = cir::PointerType::get(recordType);
-  clang::CharUnits align = clang::CharUnits::One();
-  cir::AllocaOp varPtrOp =
-      cir::AllocaOp::create(_builder, loc(node), ptrTy, recordType, typeName,
-                            _builder.getI64IntegerAttr(align.getQuantity()));
-
-  auto *parentBlock = varPtrOp->getBlock();
-  varPtrOp->moveBefore(&parentBlock->front());
-
-  CallExpr* callExpr = llvm::dyn_cast<CallExpr>(node->init().get());
-  if (!callExpr) {
-    ERR("node->init() is NOT a CallExpr.");
-    return;
+    auto *parentBlock = varPtrOp->getBlock();
+    varPtrOp->moveBefore(&parentBlock->front());
+  } else {
+    varPtrOp = *targetPtr;
   }
 
   const StructDecl *declNode = _structNodes[typeName];
@@ -496,37 +521,37 @@ auto MLIRGenImpl::genStruct(const VariableStat *node, cir::RecordType recordType
 
   int index = 0;
   for (auto& expr : *callExpr) {
-    llvm::StringRef type = expr->type();
-    cir::ConstantOp val;
-    cir::PointerType ptrTy;
-    if (type == builtins::BoolType) {
-      cir::BoolAttr attr = cir::BoolAttr::get(_builder.getContext(), false);
-      val = cir::ConstantOp::create(_builder, loc(node), attr);
-
-      cir::BoolType boolTy = cir::BoolType::get(_builder.getContext());
-      ptrTy = cir::PointerType::get(_builder.getContext(), boolTy);
-    } else if (type == builtins::UInt64Type) {
-      cir::IntType intTy = cir::IntType::get(_builder.getContext(), 64, /*isSigned*/false);
-      cir::IntAttr attr = cir::IntAttr::get(intTy, 1);
-      val = cir::ConstantOp::create(_builder, loc(node), attr);
-
-      ptrTy = cir::PointerType::get(_builder.getContext(), intTy);
-    }
+    mlir::Type fieldTy = getType(expr->type());
+    cir::PointerType fieldPtrTy = cir::PointerType::get(_builder.getContext(), fieldTy);
 
     auto& variable = variables[index]->variable();
-    DBG("index: {0}, variable name: {1}", index, variable->name());
-
+    DBG("index: {0}, variable name: {1}, expr->type(): {2}", index, variable->name(), expr->type());
     auto memberPtr =
-        cir::GetMemberOp::create(_builder, loc(node), ptrTy, varPtrOp, variable->name(), index);
+        cir::GetMemberOp::create(_builder, loc(callExpr), fieldPtrTy, varPtrOp, variable->name(), index);
 
-    cir::StoreOp::create(_builder, loc(node), val, memberPtr,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
+    if (auto type = getType(expr->type())) {
+      DBG("index: {0}, variable name: {1}, type: {2}", index, variable->name(), type);
+      if (auto nestedCallExpr = llvm::dyn_cast<CallExpr>(expr.get())) {
+        DBG("calling genStructLiteral() recursively... variable->name(): {0}", variable->name());
+        if (auto nestedTargetPtr = llvm::dyn_cast<cir::AllocaOp>(&memberPtr)) {
+          DBG("calling genStructLiteral() recursively... variable->name(): {0}",
+              variable->name());
+          genStructLiteral(nestedCallExpr, variable->name(), nestedTargetPtr);
+        }
+      }
+    } else {
+      mlir::Value val = gen(expr.get());
+      cir::StoreOp::create(_builder, loc(callExpr), val, memberPtr,
+                           /*isVolatile=*/false,
+                           /*alignment=*/mlir::IntegerAttr{},
+                           /*sync_scope=*/cir::SyncScopeKindAttr(),
+                           /*mem-order=*/cir::MemOrderAttr());
+    }
 
     index++;
   }
+
+  return varPtrOp;
 }
 
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
@@ -534,7 +559,12 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto varName = node->variable()->name();
 
   if (auto recordType = llvm::dyn_cast<cir::RecordType>(getType(typeName))) {
-    genStruct(node, recordType);
+    CallExpr *callExpr = llvm::dyn_cast<CallExpr>(node->init().get());
+    if (!callExpr) {
+      ERR("node->init() is NOT a CallExpr.");
+      return;
+    }
+    genStructLiteral(callExpr, typeName, nullptr);
     return;
   }
 
@@ -544,7 +574,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto initValue = gen(node->init().get());
 
   if (typeName != builtins::UnitType)
-    mlir::memref::StoreOp::create(_builder, loc(node), initValue, alloca);
+    cir::StoreOp::create(_builder, loc(node), initValue, alloca,
+                         /*isVolatile=*/false,
+                         /*alignment=*/mlir::IntegerAttr{},
+                         /*sync_scope=*/cir::SyncScopeKindAttr(),
+                         /*mem-order=*/cir::MemOrderAttr());
 }
 
 auto MLIRGenImpl::gen(const ExprStat *node) -> void {

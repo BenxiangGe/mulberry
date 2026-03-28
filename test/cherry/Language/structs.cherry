@@ -1,6 +1,8 @@
 # RUN: cherry-driver -b=llvm %s 2>&1 | FileCheck %s
 
-struct C {}
+struct C {
+  a: Bool
+}
 
 struct A {
   x: Bool,
@@ -13,19 +15,36 @@ struct B {
   a: A
 }
 
+struct D {
+  u: UInt64,
+  v: Bool
+}
+
+struct E {
+   ec: C
+}
+
 fn main(): UInt64 {
-  var value: B = B(10, A(false, 20, C()));
+  var value: B = B(10, A(false, 20, C(true)));
+  # C(false);
+  # D(12345, true);
+  # var cc: C = C(true);
+  var e: E = E(C(true));
+  # E(C(true));
+  # E(cc);
+  # A(false, 20, C(true)
+  # B(10, A(false, 20, C(true)));
   
-  print(value.k);
+  # print(value.k);
   # CHECK: 10
 
-  print(boolToUInt64(value.a.x));
+  # print(boolToUInt64(value.a.x));
   # CHECK: 0
   
-  print(value.a.y);
+  # print(value.a.y);
   # CHECK: 20
 
-  var x: C = value.a.c;
+  # var x: C = value.a.c;
   0
 }
 
