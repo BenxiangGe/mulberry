@@ -88,7 +88,7 @@ private:
 
   auto getAlignOne() -> mlir::IntegerAttr;
   auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
-                        cir::AllocaOp *targetPtr) -> cir::AllocaOp;
+                        mlir::Value targetPtr) -> mlir::Value;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -326,17 +326,18 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genPrint(node);
 
   DBG("gen(CallExpr). functionName: {0}", functionName);
-  llvm::SmallVector<mlir::Value, 4> operands;
-  for (auto &expr : *node) {
-    auto value = gen(expr.get());
-    DBG("gen(CallExpr). value: {0}", value);
-    operands.push_back(value);
-  }
 
   if (auto type = getType(functionName)) {
     if (auto recordType = llvm::dyn_cast<cir::RecordType>(type)) {
       return genStructLiteral(node, functionName, nullptr);
     }
+  }
+
+  llvm::SmallVector<mlir::Value, 4> operands;
+  for (auto &expr : *node) {
+    auto value = gen(expr.get());
+    DBG("gen(CallExpr). value: {0}", value);
+    operands.push_back(value);
   }
 
   if (functionName == builtins::boolToUInt64)
@@ -492,7 +493,10 @@ auto MLIRGenImpl::getAlignOne() -> mlir::IntegerAttr {
   return _builder.getI64IntegerAttr(align.getQuantity());
 }
 
-auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typeName, cir::AllocaOp* targetPtr) -> cir::AllocaOp {
+auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typeName, mlir::Value targetPtr) -> mlir::Value {
+
+  DBG("typeName: {0}, callExpr->name(): {1}", typeName, callExpr->name());
+
   auto recordType = llvm::dyn_cast<cir::RecordType>(getType(typeName));
   if (!recordType) {
     ERR("NOT a RecordType. typeName: {0}", typeName);
@@ -504,20 +508,23 @@ auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typ
   }
   mlir::Type recordPtrTy = cir::PointerType::get(recordType);
 
-  cir::AllocaOp varPtrOp;
+  mlir::Value varPtrOp;
   if (!targetPtr) {
-    varPtrOp = cir::AllocaOp::create(_builder, loc(callExpr), recordPtrTy, recordType,
+    auto alloca = cir::AllocaOp::create(_builder, loc(callExpr), recordPtrTy, recordType,
                                      typeName, getAlignOne());
+    DBG("typeName: {0}, alloca: {1}", typeName, varPtrOp);
 
-    auto *parentBlock = varPtrOp->getBlock();
-    varPtrOp->moveBefore(&parentBlock->front());
+    auto *parentBlock = alloca->getBlock();
+    alloca->moveBefore(&parentBlock->front());
+
+    varPtrOp = alloca;
   } else {
-    varPtrOp = *targetPtr;
+    varPtrOp = llvm::dyn_cast<cir::GetMemberOp>(targetPtr.getDefiningOp());
   }
 
   const StructDecl *declNode = _structNodes[typeName];
   auto& variables = declNode->variables();
-  DBG("typeName: {0}, declNode: {1}", typeName, declNode);
+  // DBG("typeName: {0}, declNode: {1}", typeName, declNode);
 
   int index = 0;
   for (auto& expr : *callExpr) {
@@ -525,20 +532,15 @@ auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typ
     cir::PointerType fieldPtrTy = cir::PointerType::get(_builder.getContext(), fieldTy);
 
     auto& variable = variables[index]->variable();
+
     DBG("index: {0}, variable name: {1}, expr->type(): {2}", index, variable->name(), expr->type());
     auto memberPtr =
         cir::GetMemberOp::create(_builder, loc(callExpr), fieldPtrTy, varPtrOp, variable->name(), index);
 
-    if (auto type = getType(expr->type())) {
-      DBG("index: {0}, variable name: {1}, type: {2}", index, variable->name(), type);
-      if (auto nestedCallExpr = llvm::dyn_cast<CallExpr>(expr.get())) {
-        DBG("calling genStructLiteral() recursively... variable->name(): {0}", variable->name());
-        if (auto nestedTargetPtr = llvm::dyn_cast<cir::AllocaOp>(&memberPtr)) {
-          DBG("calling genStructLiteral() recursively... variable->name(): {0}",
-              variable->name());
-          genStructLiteral(nestedCallExpr, variable->name(), nestedTargetPtr);
-        }
-      }
+    DBG();
+    if (auto nestedCallExpr = llvm::dyn_cast<CallExpr>(expr.get())) {
+      DBG("index: {0}, expr->type(): {1}, type: {2}", index, expr->type(), getType(expr->type()));
+      genStructLiteral(nestedCallExpr, expr->type(), memberPtr);
     } else {
       mlir::Value val = gen(expr.get());
       cir::StoreOp::create(_builder, loc(callExpr), val, memberPtr,
@@ -561,10 +563,12 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   if (auto recordType = llvm::dyn_cast<cir::RecordType>(getType(typeName))) {
     CallExpr *callExpr = llvm::dyn_cast<CallExpr>(node->init().get());
     if (!callExpr) {
-      ERR("node->init() is NOT a CallExpr.");
+      ERR("{0} is NOT a CallExpr.", varName);
       return;
     }
-    genStructLiteral(callExpr, typeName, nullptr);
+
+    auto structLiteral = genStructLiteral(callExpr, typeName, nullptr);
+    _variableSymbols[varName] = structLiteral;
     return;
   }
 
