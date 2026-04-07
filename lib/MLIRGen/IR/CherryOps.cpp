@@ -13,15 +13,6 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto StructReadOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
-                         mlir::Value structValue, int64_t index) -> void {
-  CherryStructType structTy =
-      llvm::cast<CherryStructType>(structValue.getType());
-  mlir::Type resultType = structTy.getTypes()[index];
-  IntegerAttr indexAttr = builder.getI64IntegerAttr(index);
-  build(builder, state, resultType, structValue, indexAttr);
-}
-
 auto StructWriteOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
                           mlir::Value structValue, ArrayRef<int64_t> indexes,
                           mlir::Value valueToStore) -> void {

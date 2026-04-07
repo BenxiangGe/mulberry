@@ -39,21 +39,6 @@ def CastOp : Cherry_Op<"cast"> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
 
-def StructReadOp : Cherry_Op<"struct_read", [Pure]> {
-  let summary = "Struct read";
-  
-  let arguments = (ins Cherry_Struct:$structValue, I64Attr:$index);
-  let results = (outs Cherry_Type:$result);
-
-  let builders = [
-    OpBuilder<(ins "Value":$structValue, "int64_t":$index)>
-  ];
-
-  let assemblyFormat = [{
-    $structValue `[` $index `]` attr-dict `:` functional-type($structValue, $result)
-  }];
-}
-
 def StructWriteOp : Cherry_Op<"struct_write", [Pure]> {
   let summary = "Struct write";
   

@@ -128,21 +128,6 @@ private:
   }
 };
 
-struct StructReadOpLowering : public ConvertOpToLLVMPattern<StructReadOp> {
-  explicit StructReadOpLowering(LLVMTypeConverter &typeConverter,
-                                PatternBenefit benefit = 1)
-      : ConvertOpToLLVMPattern(typeConverter, benefit) {}
-
-  auto matchAndRewrite(StructReadOp op, StructReadOp::Adaptor adaptor,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult override final {
-    SmallVector<int64_t> position = {static_cast<int64_t>(adaptor.getIndex())};
-    rewriter.replaceOpWithNewOp<mlir::LLVM::ExtractValueOp>(
-        op, adaptor.getStructValue(), position);
-    return success();
-  }
-};
-
 struct StructWriteOpLowering : public ConvertOpToLLVMPattern<StructWriteOp> {
   explicit StructWriteOpLowering(LLVMTypeConverter &typeConverter,
                                  PatternBenefit benefit = 1)
@@ -194,7 +179,7 @@ struct ConvertCherryToLLVM
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     patterns.add<CastOpLowering, PrintOpLowering>(&getContext());
     patterns
-        .add<StructReadOpLowering, StructWriteOpLowering>(
+        .add<StructWriteOpLowering>(
             typeConverter);
 
     // Conversion

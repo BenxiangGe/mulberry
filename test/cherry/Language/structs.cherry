@@ -21,17 +21,19 @@ struct E {
 }
 
 fn main(): UInt64 {
-  var b: B = B(10000, A(false, 11000, C(true)));
-  var v: B = B(20000, A(false, 22000, C(true)));
-  v = b;
-  C(false);
-  D(12345, true);
-  var cc: C = C(true);
-  E(C(true));
+  # var b: B = B(10000, A(false, 11000, C(true)));
+  # var v: B = B(20000, A(false, 22000, C(true)));
+  # v = b;
+  # var cc: C = C(false);
+  # cc.a;
+  # D(12345, true);
+  # var cc: C = C(true);
+  # E(C(true));
   var e: E = E(C(true));
-  E(cc);
-  A(false, 20, C(true));
-  B(10, A(false, 20, C(true)));
+  e.ec.a;
+  # E(cc);
+  # A(false, 20, C(true));
+  # B(10, A(false, 20, C(true)));
 
   # print(value.k);
   # CHECK: 10

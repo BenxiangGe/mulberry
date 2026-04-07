@@ -89,6 +89,7 @@ private:
   auto getAlignOne() -> mlir::IntegerAttr;
   auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
                         mlir::Value targetPtr) -> mlir::Value;
+  auto genLValue(const Expr* node) -> mlir::Value;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -135,10 +136,12 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
       module.push_back(op);
   }
 
+  #if 1
   if (failed(mlir::verify(module))) {
     module.emitError("module verification error");
     return failure();
   }
+  #endif
 
   return success();
 }
@@ -384,6 +387,42 @@ auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
   return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
+auto MLIRGenImpl::genLValue(const Expr* node) -> mlir::Value {
+  if (auto lhsVar = llvm::dyn_cast<VariableExpr>(node)) {
+    DBG("lhsVar->name(): {0}", lhsVar->name());
+    auto parentAddress = _variableSymbols[lhsVar->name()];
+    return parentAddress;
+  }
+
+  const BinaryExpr *memberAccessExpr = llvm::dyn_cast<BinaryExpr>(node);
+  if (memberAccessExpr &&
+      BinaryExpr::Operator::StructRead == memberAccessExpr->opEnum()) {
+    auto lhs = memberAccessExpr->lhs().get();
+    mlir::Value basePtr = genLValue(lhs);
+    auto index = memberAccessExpr->index();
+
+    const StructDecl *structNode = _structNodes[lhs->type()];
+    auto fieldVar = structNode->variables()[index].get();
+
+    auto fieldTy = getType(fieldVar->varType()->name());
+    // auto fieldTy = getType(node->lhs()->type());
+    DBG("fieldTy: {0}", fieldTy);
+    cir::PointerType fieldPtrTy =
+        cir::PointerType::get(_builder.getContext(), fieldTy);
+    DBG("fieldPtrTy: {0}", fieldPtrTy);
+
+    mlir::Value addr =
+        cir::GetMemberOp::create(_builder, loc(node), fieldPtrTy, basePtr,
+                                 fieldVar->variable()->name(), index);
+    return addr;
+  }
+
+  ERR("unknown EXPR");
+  exit(-1);
+
+  return nullptr;
+}
+
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   using Operator = BinaryExpr::Operator;
   auto op = node->opEnum();
@@ -391,9 +430,10 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   case Operator::Assign:
     return genAssignOp(node);
   case Operator::StructRead: {
-    auto structValue = gen(node->lhs().get());
-    auto index = node->index();
-    return StructReadOp::create(_builder, loc(node), structValue, index);
+    mlir::Value ptr = genLValue(node);
+    mlir::Value val =
+        cir::LoadOp::create(_builder, loc(node->rhs().get()), ptr);
+    return val;
   }
   default:
     break;
