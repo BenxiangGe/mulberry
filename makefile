@@ -84,7 +84,8 @@ llvm-generate-python-env:
 llvm-generate-project:
 	echo "LLVM - Generate Project"
 	cmake -G Ninja -S ${LLVM_SRC_DIR}/llvm -B ${LLVM_BUILD_DIR} \
-		-DLLVM_ENABLE_PROJECTS="clang;mlir" \
+		-DLLVM_ENABLE_PROJECTS="clang;mlir;lldb" \
+		-DLLDB_ENABLE_LIBEDIT=ON -DLLDB_ENABLE_CURSES=ON \
 		-DCLANG_ENABLE_CIR=ON \
 		-DLLVM_TARGETS_TO_BUILD=host \
 		-DCMAKE_BUILD_TYPE=${LLVM_PRESET} \
