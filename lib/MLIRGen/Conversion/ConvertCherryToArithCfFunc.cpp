@@ -35,7 +35,6 @@ struct ConvertCherryToArithCfFunc
     target.addIllegalDialect<cherry::CherryDialect>();
     target.addLegalOp<cherry::CastOp>();
     target.addLegalOp<cherry::PrintOp>();
-    target.addLegalOp<cherry::StructWriteOp>();
 
     RewritePatternSet patterns(&getContext());
 

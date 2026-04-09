@@ -13,13 +13,5 @@
 using namespace mlir;
 using namespace mlir::cherry;
 
-auto StructWriteOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
-                          mlir::Value structValue, ArrayRef<int64_t> indexes,
-                          mlir::Value valueToStore) -> void {
-  auto attrs = builder.getDenseI64ArrayAttr(indexes);
-  build(builder, state, structValue.getType(), structValue, attrs,
-        valueToStore);
-}
-
 #define GET_OP_CLASSES
 #include "cherry/MLIRGen/IR/CherryOps.cpp.inc"

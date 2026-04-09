@@ -30,7 +30,7 @@ fn main(): UInt64 {
   # var cc: C = C(true);
   # E(C(true));
   var e: E = E(C(true));
-  e.ec.a;
+  e.ec.a = false;
   # E(cc);
   # A(false, 20, C(true));
   # B(10, A(false, 20, C(true)));

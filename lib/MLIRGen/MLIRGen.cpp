@@ -90,6 +90,7 @@ private:
   auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
                         mlir::Value targetPtr) -> mlir::Value;
   auto genLValue(const Expr* node) -> mlir::Value;
+  auto genRValue(const Expr* node) -> mlir::Value;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -388,9 +389,9 @@ auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::genLValue(const Expr* node) -> mlir::Value {
-  if (auto lhsVar = llvm::dyn_cast<VariableExpr>(node)) {
-    DBG("lhsVar->name(): {0}", lhsVar->name());
-    auto parentAddress = _variableSymbols[lhsVar->name()];
+  if (auto varExpr = llvm::dyn_cast<VariableExpr>(node)) {
+    DBG("varExpr->name(): {0}", varExpr->name());
+    auto parentAddress = _variableSymbols[varExpr->name()];
     return parentAddress;
   }
 
@@ -415,6 +416,26 @@ auto MLIRGenImpl::genLValue(const Expr* node) -> mlir::Value {
         cir::GetMemberOp::create(_builder, loc(node), fieldPtrTy, basePtr,
                                  fieldVar->variable()->name(), index);
     return addr;
+  }
+
+  ERR("unknown EXPR");
+  exit(-1);
+
+  return nullptr;
+}
+
+auto MLIRGenImpl::genRValue(const Expr* node) -> mlir::Value {
+  const BinaryExpr *memberAccessExpr = llvm::dyn_cast<BinaryExpr>(node);
+  if (!memberAccessExpr) {
+    return gen(node);
+  }
+
+  if (memberAccessExpr &&
+      BinaryExpr::Operator::StructRead == memberAccessExpr->opEnum()) {
+    mlir::Value ptr = genLValue(memberAccessExpr);
+    mlir::Value val =
+        cir::LoadOp::create(_builder, loc(memberAccessExpr), ptr);
+    return val;
   }
 
   ERR("unknown EXPR");
@@ -488,29 +509,17 @@ auto MLIRGenImpl::genAssignOp(const BinaryExpr *node) -> mlir::Value {
                                /*mem-order=*/cir::MemOrderAttr());
       })
       .Case<BinaryExpr>([&](const auto *structRead) {
-        llvm::SmallVector<int64_t, 3> indexes = {};
         auto variable = structRead->lhs().get();
-        indexes.push_back(structRead->index());
-        while ((structRead = llvm::dyn_cast<BinaryExpr>(variable))) {
-          variable = structRead->lhs().get();
-          indexes.push_back(structRead->index());
-        }
-        std::reverse(indexes.begin(), indexes.end());
+        // mlir::Value lhsPtr = genLValue(variable);
+        mlir::Value lhsPtr = genLValue(structRead);
 
-        auto memref =
-            _variableSymbols[static_cast<VariableExpr *>(variable)->name()];
-        auto structValue =
-            mlir::memref::LoadOp::create(_builder, loc(node), memref);
-        auto valueToStore = StructWriteOp::create(_builder,
-            loc(node), structValue, indexes, rhs);
-        mlir::memref::StoreOp::create(_builder, loc(node), valueToStore, memref);
-#if 0
-        cir::StoreOp::create(_builder, loc(node), valueToStore, memref,
+        // mlir::Value rhsData = genRValue(structRead->rhs().get());
+        cir::StoreOp::create(_builder, loc(node), rhs, lhsPtr,
+        // cir::StoreOp::create(_builder, loc(node), rhsData, lhsPtr,
                              /*isVolatile=*/false,
                              /*alignment=*/mlir::IntegerAttr{},
                              /*sync_scope=*/cir::SyncScopeKindAttr(),
                              /*mem-order=*/cir::MemOrderAttr());
-#endif
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });

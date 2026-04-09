@@ -36,7 +36,7 @@ public:
 
   auto getKind() const -> ExpressionKind { return _kind; }
 
-  virtual auto isLvalue() -> bool { return false; }
+  virtual auto isLvalue() const -> bool { return false; }
   virtual auto isStatement() -> bool { return false; };
 
   virtual auto type() const -> llvm::StringRef final {
@@ -76,7 +76,7 @@ public:
 
   auto name() const -> llvm::StringRef { return _name; }
 
-  auto isLvalue() -> bool override { return true; }
+  auto isLvalue() const -> bool override { return true; }
 
 private:
   std::string _name;
@@ -224,7 +224,7 @@ public:
 
   auto opEnum() const -> Operator { return _op; }
 
-  auto isLvalue() -> bool override { return _op == Operator::StructRead; }
+  auto isLvalue() const -> bool override { return _op == Operator::StructRead; }
 
   auto index() const -> int { return _index; }
 
