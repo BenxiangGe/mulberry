@@ -15,6 +15,32 @@ namespace {
 using namespace cherry;
 using llvm::cast;
 
+auto listContainsUnitType(llvm::StringRef type) -> bool {
+  if (auto listType = parseListTypeName(type))
+    return listType->elementType == builtins::UnitType ||
+           listContainsUnitType(listType->elementType);
+  return false;
+}
+
+auto typesMatch(llvm::StringRef expected, llvm::StringRef actual) -> bool {
+  auto expectedList = parseListTypeName(expected);
+  auto actualList = parseListTypeName(actual);
+  if (!expectedList || !actualList)
+    return expected == actual;
+
+  if (!typesMatch(expectedList->elementType, actualList->elementType))
+    return false;
+  if (expectedList->shape.size() != actualList->shape.size())
+    return false;
+
+  for (auto [expectedDim, actualDim] :
+       llvm::zip(expectedList->shape, actualList->shape)) {
+    if (expectedDim >= 0 && actualDim >= 0 && expectedDim != actualDim)
+      return false;
+  }
+  return true;
+}
+
 class SemaImpl {
 public:
   SemaImpl(const llvm::SourceMgr &sourceManager)
@@ -60,6 +86,8 @@ private:
   auto semaRhsLhsSameType(BinaryExpr *node, llvm::StringRef &type)
       -> CherryResult;
   auto semaStructReadOp(BinaryExpr *node) -> CherryResult;
+  auto sema(ListLiteralExpr *expr) -> CherryResult;
+  auto sema(ListAccessExpr *expr) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -97,7 +125,7 @@ auto SemaImpl::sema(Prototype *node) -> CherryResult {
   for (auto &par : node->parameters()) {
     auto type = par->varType().get();
     auto typeName = type->name();
-    if (typeName == builtins::UnitType)
+    if (typeName == builtins::UnitType || listContainsUnitType(typeName))
       return emitError(type, diag::unexpected_unit_type);
     if (_symbols.checkType(typeName))
       return emitError(type, diag::undefined_type);
@@ -127,7 +155,7 @@ auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
 
   auto expression = node->body()->expression().get();
   auto returnType = expression->type();
-  if (returnType != node->proto()->type()->name())
+  if (!typesMatch(node->proto()->type()->name(), returnType))
     return emitError(expression, diag::wrong_return_type);
 
   return success();
@@ -139,7 +167,7 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   for (auto &varDecl : *node) {
     auto type = varDecl->varType().get();
     auto var = varDecl->variable().get();
-    if (type->name() == builtins::UnitType)
+    if (type->name() == builtins::UnitType || listContainsUnitType(type->name()))
       return emitError(type, diag::unexpected_unit_type);
     if (_symbols.checkType(type->name()))
       return emitError(type, diag::undefined_type);
@@ -166,6 +194,10 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<CallExpr>(node));
   case Expr::Expr_Variable:
     return sema(cast<VariableExpr>(node));
+  case Expr::Expr_ListLiteral:
+    return sema(cast<ListLiteralExpr>(node));
+  case Expr::Expr_ListAccess:
+    return sema(cast<ListAccessExpr>(node));
   case Expr::Expr_Binary:
     return sema(cast<BinaryExpr>(node));
   case Expr::Expr_If:
@@ -219,7 +251,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
     auto type = std::get<1>(expr_type);
     if (sema(expr.get()))
       return failure();
-    if (expr->type() != type)
+    if (!typesMatch(type, expr->type()))
       return emitError(expr.get(), diag::mismatch_type);
   }
 
@@ -241,7 +273,7 @@ auto SemaImpl::semaStructInitializer(CallExpr *node) -> CherryResult {
     auto fieldType = std::get<1>(expr_type)->varType()->name();
     if (sema(expr.get()))
       return failure();
-    if (expr->type() != fieldType)
+    if (!typesMatch(fieldType, expr->type()))
       return emitError(expr.get(), diag::mismatch_type);
   }
 
@@ -334,7 +366,7 @@ auto SemaImpl::semaRhsLhsSameType(BinaryExpr *node, llvm::StringRef &type)
     return failure();
   auto lhsType = node->lhs()->type();
   auto rhsType = node->rhs()->type();
-  if (lhsType != rhsType)
+  if (!typesMatch(lhsType, rhsType))
     return emitError(node->lhs().get(), diag::mismatch_type);
   type = lhsType;
   return success();
@@ -369,6 +401,59 @@ auto SemaImpl::semaStructReadOp(BinaryExpr *node) -> CherryResult {
   return emitError(node->rhs().get(), diag::undefined_field);
 }
 
+auto SemaImpl::sema(ListLiteralExpr *expr) -> CherryResult {
+  auto &elements = expr->getElements();
+  if (elements.empty())
+    return emitError(expr, diag::expected_expr);
+
+  if (sema(elements.front().get()))
+    return failure();
+
+  auto firstType = elements.front()->type();
+  std::string elementType = firstType.str();
+  std::vector<int64_t> currentShape{static_cast<int64_t>(elements.size())};
+
+  if (auto nestedList = parseListTypeName(firstType)) {
+    elementType = nestedList->elementType;
+    currentShape.insert(currentShape.end(), nestedList->shape.begin(),
+                        nestedList->shape.end());
+  }
+
+  for (auto &element : llvm::drop_begin(elements)) {
+    if (sema(element.get()))
+      return failure();
+    if (!typesMatch(firstType, element->type()))
+      return emitError(element.get(), diag::mismatch_type);
+  }
+
+  expr->setInferredShape(currentShape);
+  expr->setType(formatListTypeName(elementType, currentShape));
+  return success();
+}
+
+auto SemaImpl::sema(ListAccessExpr *expr) -> CherryResult {
+  llvm::StringRef listTypeName;
+  if (_symbols.getVariableType(expr->getVarName(), listTypeName))
+    return emitError(expr, diag::undefined_var);
+
+  auto listType = parseListTypeName(listTypeName);
+  if (!listType)
+    return emitError(expr, diag::mismatch_type);
+
+  if (expr->getIndices().size() != listType->shape.size())
+    return emitError(expr, diag::mismatch_type);
+
+  for (auto &index : expr->getIndices()) {
+    if (sema(index.get()))
+      return failure();
+    if (index->type() != builtins::UInt64Type)
+      return emitError(index.get(), diag::mismatch_type);
+  }
+
+  expr->setType(listType->elementType);
+  return success();
+}
+
 auto SemaImpl::sema(IfExpr *node) -> CherryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
@@ -384,7 +469,7 @@ auto SemaImpl::sema(IfExpr *node) -> CherryResult {
   auto elseExpr = elseBlock->expression().get();
   auto elseType = elseExpr->type();
   auto thenType = thenBlock->expression()->type();
-  if (thenType != elseType)
+  if (!typesMatch(thenType, elseType))
     return emitError(elseExpr, diag::mismatch_type_then_else);
 
   node->setType(elseType);
@@ -423,6 +508,8 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
   auto var = node->variable().get();
   auto varType = node->varType().get();
   auto varTypeName = varType->name();
+  if (listContainsUnitType(varTypeName))
+    return emitError(varType, diag::unexpected_unit_type);
   if (_symbols.checkType(varTypeName))
     return emitError(varType, diag::undefined_type);
   if (_symbols.declareVariable(var, varTypeName))
@@ -431,7 +518,7 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
   auto initExpr = node->init().get();
   if (sema(initExpr))
     return failure();
-  if (varTypeName != initExpr->type())
+  if (!typesMatch(varTypeName, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
   return success();
 }

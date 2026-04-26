@@ -23,6 +23,8 @@ public:
     Expr_Call,
     Expr_DecimalLiteral,
     Expr_BoolLiteral,
+    Expr_ListLiteral,
+    Expr_ListAccess,
     Expr_Variable,
     Expr_Struct,
     Expr_Binary,

@@ -16,6 +16,7 @@ ERROR(unexpected_unit_type, "unexpected unit type")
 
 ERROR(expected_bool, "expected Bool")
 ERROR(expected_field, "expected struct field")
+ERROR(expected_expr, "expected expression")
 ERROR(expected_lvalue, "expected lvalue")
 
 ERROR(undefined_field, "undefined field")

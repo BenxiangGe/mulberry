@@ -24,9 +24,11 @@ private:
   std::string _name;
 };
 
-class Type final : public Identifier {
+class Type : public Identifier {
 public:
-  using Identifier::Identifier;
+  // using Identifier::Identifier;
+  explicit Type(llvm::SMLoc location, llvm::StringRef name)
+      : Identifier(location, name) {}
 };
 
 class FunctionName final : public Identifier {

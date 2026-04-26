@@ -89,8 +89,22 @@ private:
   auto getAlignOne() -> mlir::IntegerAttr;
   auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
                         mlir::Value targetPtr) -> mlir::Value;
+  auto gen(const ListLiteralExpr *expr) -> mlir::Value;
+  void storeListElements(const ListLiteralExpr *expr, mlir::Value memref,
+                         mlir::Type elementType,
+                         llvm::SmallVectorImpl<mlir::Value> &indices);
+  mlir::Value gen(const ListAccessExpr *expr, bool isLValue = false);
+  void genAssignment(const ListAccessExpr *lhs, const Expr *rhs);
+
   auto genLValue(const Expr* node) -> mlir::Value;
   auto genRValue(const Expr* node) -> mlir::Value;
+  auto genIndexValue(const Expr *node) -> mlir::Value;
+  auto genMemRefElementValue(const Expr *node, mlir::Type elementType)
+      -> mlir::Value;
+  auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
+      -> mlir::Value;
+  auto getMemRefElementType(llvm::StringRef name) -> mlir::Type;
+  auto getMemRefType(llvm::StringRef name) -> mlir::MemRefType;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -106,6 +120,8 @@ private:
       return cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
     } else if (name == builtins::BoolType) {
       return cir::BoolType::get(_builder.getContext());
+    } else if (isListTypeName(name)) {
+      return getMemRefType(name);
     } else {
       return _typeSymbols[name];
     }
@@ -182,6 +198,11 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
     auto varName = var->variable()->name();
     auto typeName = var->varType()->name();
     auto value = std::get<1>(var_value);
+    if (isListTypeName(typeName)) {
+      _variableSymbols[varName] = value;
+      continue;
+    }
+
     auto alloca = createEntryBlockAlloca(getType(typeName), loc(node));
     _variableSymbols[varName] = alloca;
     cir::StoreOp::create(_builder, loc(node), value, alloca,
@@ -206,10 +227,12 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
   auto value = gen(node->body().get());
 
   auto location = loc(node->body()->expression().get());
-  if (value)
+  if (value) {
+    value = castToType(value, getType(node->proto()->type()->name()), location);
     mlir::func::ReturnOp::create(_builder, location, value);
-  else
+  } else {
     mlir::func::ReturnOp::create(_builder, location);
+  }
 
   return func;
 }
@@ -244,6 +267,10 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<CallExpr>(node));
   case Expr::Expr_Variable:
     return gen(cast<VariableExpr>(node));
+  case Expr::Expr_ListLiteral:
+    return gen(cast<ListLiteralExpr>(node));
+  case Expr::Expr_ListAccess:
+    return gen(cast<ListAccessExpr>(node));
   case Expr::Expr_Binary:
     return gen(cast<BinaryExpr>(node));
   case Expr::Expr_If:
@@ -345,7 +372,9 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   }
 
   if (functionName == builtins::boolToUInt64)
-    return CastOp::create(_builder, loc(node), operands.front());
+    return CastOp::create(_builder, loc(node),
+                          castToType(operands.front(), _builder.getI1Type(),
+                                     loc(node)));
 
   auto result = _functionSymbols[functionName];
   llvm::SmallVector<mlir::Type, 4> results;
@@ -367,11 +396,17 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto operand = gen(expressions.front().get());
+  if (auto cirIntType = llvm::dyn_cast<cir::IntType>(operand.getType())) {
+    if (cirIntType.getWidth() == 64)
+      operand = castToType(operand, _builder.getI64Type(), loc(node));
+  }
   return PrintOp::create(_builder, loc(node), operand);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   auto address = _variableSymbols[node->name()];
+  if (isListTypeName(node->type()))
+    return address;
   return cir::LoadOp::create(_builder, loc(node), address);
 }
 
@@ -460,8 +495,10 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
     break;
   }
 
-  auto lhs = gen(node->lhs().get());
-  auto rhs = gen(node->rhs().get());
+  auto lhs = castToType(gen(node->lhs().get()), getType(node->lhs()->type()),
+                        loc(node->lhs().get()));
+  auto rhs = castToType(gen(node->rhs().get()), getType(node->rhs()->type()),
+                        loc(node->rhs().get()));
   switch (op) {
   case Operator::Add:
     return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Add, lhs, rhs);
@@ -495,31 +532,38 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::genAssignOp(const BinaryExpr *node) -> mlir::Value {
-  auto rhs = gen(node->rhs().get());
-
   llvm::TypeSwitch<const Expr *>(node->lhs().get())
       .Case<VariableExpr>([&](const auto *var) {
         auto name = var->name();
+        auto rhs = gen(node->rhs().get());
+        if (isListTypeName(var->type())) {
+          _variableSymbols[name] = rhs;
+          return;
+        }
+
         auto address = _variableSymbols[name];
-        if (node->lhs()->type() != builtins::UnitType)
+        if (node->lhs()->type() != builtins::UnitType) {
+          rhs = castToType(rhs, getType(node->lhs()->type()), loc(node));
           cir::StoreOp::create(_builder, loc(node), rhs, address,
                                /*isVolatile=*/false,
                                /*alignment=*/mlir::IntegerAttr{},
                                /*sync_scope=*/cir::SyncScopeKindAttr(),
                                /*mem-order=*/cir::MemOrderAttr());
+        }
       })
       .Case<BinaryExpr>([&](const auto *structRead) {
-        auto variable = structRead->lhs().get();
-        // mlir::Value lhsPtr = genLValue(variable);
         mlir::Value lhsPtr = genLValue(structRead);
+        auto rhs = castToType(gen(node->rhs().get()),
+                              getType(structRead->type()), loc(node));
 
-        // mlir::Value rhsData = genRValue(structRead->rhs().get());
         cir::StoreOp::create(_builder, loc(node), rhs, lhsPtr,
-        // cir::StoreOp::create(_builder, loc(node), rhsData, lhsPtr,
                              /*isVolatile=*/false,
                              /*alignment=*/mlir::IntegerAttr{},
                              /*sync_scope=*/cir::SyncScopeKindAttr(),
                              /*mem-order=*/cir::MemOrderAttr());
+      })
+      .Case<ListAccessExpr>([&](const auto *listAccess) {
+        genAssignment(listAccess, node->rhs().get());
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -586,7 +630,6 @@ auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typ
     auto memberPtr =
         cir::GetMemberOp::create(_builder, loc(callExpr), fieldPtrTy, varPtrOp, variable->name(), index);
 
-    DBG();
     if (auto nestedCallExpr = llvm::dyn_cast<CallExpr>(expr.get())) {
       DBG("index: {0}, expr->type(): {1}, type: {2}", index, expr->type(), getType(expr->type()));
       genStructLiteral(nestedCallExpr, expr->type(), memberPtr);
@@ -605,9 +648,137 @@ auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typ
   return varPtrOp;
 }
 
+auto MLIRGenImpl::getMemRefElementType(llvm::StringRef name) -> mlir::Type {
+  if (name == builtins::UInt64Type)
+    return _builder.getI64Type();
+  if (name == builtins::BoolType)
+    return _builder.getI1Type();
+  llvm_unreachable("unsupported list element type");
+}
+
+auto MLIRGenImpl::getMemRefType(llvm::StringRef name) -> mlir::MemRefType {
+  auto listType = parseListTypeName(name);
+  assert(listType && "expected list type");
+  return mlir::MemRefType::get(listType->shape,
+                               getMemRefElementType(listType->elementType));
+}
+
+auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
+                             mlir::Location location) -> mlir::Value {
+  if (!value || value.getType() == type)
+    return value;
+  if (auto previousCast =
+          value.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+    if (previousCast.getInputs().size() == 1 &&
+        previousCast.getInputs().front().getType() == type)
+      return previousCast.getInputs().front();
+  }
+  auto cast =
+      mlir::UnrealizedConversionCastOp::create(_builder, location, type, value);
+  return cast.getResult(0);
+}
+
+auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
+  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node))
+    return mlir::arith::ConstantIndexOp::create(_builder, loc(node),
+                                                decimal->value());
+
+  auto value = gen(node);
+  if (value.getType().isIndex())
+    return value;
+
+  if (!llvm::isa<mlir::IntegerType>(value.getType()))
+    value = castToType(value, _builder.getI64Type(), loc(node));
+  return mlir::arith::IndexCastOp::create(_builder, loc(node),
+                                          _builder.getIndexType(), value);
+}
+
+auto MLIRGenImpl::genMemRefElementValue(const Expr *node,
+                                        mlir::Type elementType) -> mlir::Value {
+  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node)) {
+    auto intType = llvm::cast<mlir::IntegerType>(elementType);
+    return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                              decimal->value(),
+                                              intType.getWidth());
+  }
+
+  if (auto *boolean = llvm::dyn_cast<BoolLiteralExpr>(node)) {
+    auto intType = llvm::cast<mlir::IntegerType>(elementType);
+    return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                              boolean->value(),
+                                              intType.getWidth());
+  }
+
+  return castToType(gen(node), elementType, loc(node));
+}
+
+auto MLIRGenImpl::gen(const ListLiteralExpr *expr) -> mlir::Value {
+  auto memRefType = getMemRefType(expr->type());
+  mlir::Value allocatedList =
+      mlir::memref::AllocOp::create(_builder, loc(expr), memRefType);
+
+  llvm::SmallVector<mlir::Value, 4> currentIndices;
+  storeListElements(expr, allocatedList, memRefType.getElementType(),
+                    currentIndices);
+
+  return allocatedList;
+}
+
+void MLIRGenImpl::storeListElements(
+    const ListLiteralExpr *expr, mlir::Value memref, mlir::Type elementType,
+    llvm::SmallVectorImpl<mlir::Value> &indices) {
+  for (size_t i = 0; i < expr->getElements().size(); ++i) {
+    mlir::Value indexVal =
+        mlir::arith::ConstantIndexOp::create(_builder, loc(expr), i);
+    indices.push_back(indexVal);
+
+    auto *childExpr = expr->getElements()[i].get();
+    if (auto *nestedList = llvm::dyn_cast<ListLiteralExpr>(childExpr)) {
+      storeListElements(nestedList, memref, elementType, indices);
+    } else {
+      mlir::Value val = genMemRefElementValue(childExpr, elementType);
+      mlir::memref::StoreOp::create(_builder, loc(childExpr), val, memref,
+                                    indices);
+    }
+    indices.pop_back();
+  }
+}
+
+mlir::Value MLIRGenImpl::gen(const ListAccessExpr *expr, bool isLValue) {
+  mlir::Value memref = _variableSymbols[expr->getVarName()];
+
+  llvm::SmallVector<mlir::Value, 4> mlirIndices;
+  for (auto &idxExpr : expr->getIndices())
+    mlirIndices.push_back(genIndexValue(idxExpr.get()));
+
+  if (isLValue)
+    return nullptr;
+  auto loaded =
+      mlir::memref::LoadOp::create(_builder, loc(expr), memref, mlirIndices);
+  return castToType(loaded, getType(expr->type()), loc(expr));
+}
+
+void MLIRGenImpl::genAssignment(const ListAccessExpr *lhs, const Expr *rhs) {
+  mlir::Value memref = _variableSymbols[lhs->getVarName()];
+  auto memRefType = llvm::cast<mlir::MemRefType>(memref.getType());
+
+  llvm::SmallVector<mlir::Value, 4> mlirIndices;
+  for (auto &idxExpr : lhs->getIndices())
+    mlirIndices.push_back(genIndexValue(idxExpr.get()));
+
+  auto rhsValue = genMemRefElementValue(rhs, memRefType.getElementType());
+  mlir::memref::StoreOp::create(_builder, loc(lhs), rhsValue, memref,
+                                mlirIndices);
+}
+
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto typeName = node->varType()->name();
   auto varName = node->variable()->name();
+
+  if (isListTypeName(typeName)) {
+    _variableSymbols[varName] = gen(node->init().get());
+    return;
+  }
 
   if (auto recordType = llvm::dyn_cast<cir::RecordType>(getType(typeName))) {
     CallExpr *callExpr = llvm::dyn_cast<CallExpr>(node->init().get());

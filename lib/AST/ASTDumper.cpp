@@ -40,6 +40,8 @@ private:
   auto dump(const VariableExpr *node) -> void;
   auto dump(const DecimalLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
+  auto dump(const ListLiteralExpr *node) -> void;
+  auto dump(const ListAccessExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
   auto dump(const IfExpr *node) -> void;
   auto dump(const WhileExpr *node) -> void;
@@ -116,7 +118,8 @@ auto Dumper::dump(const StructDecl *node) -> void {
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, DecimalLiteralExpr, BoolLiteralExpr,
-            VariableExpr, IfExpr, WhileExpr, BinaryExpr>(
+            ListLiteralExpr, ListAccessExpr, VariableExpr, IfExpr, WhileExpr,
+            BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -159,6 +162,22 @@ auto Dumper::dump(const BoolLiteralExpr *node) -> void {
   INDENT();
   errs() << "BoolLiteralExpr " << loc(node) << " type=" << node->type()
          << " value=" << node->value() << "\n";
+}
+
+auto Dumper::dump(const ListLiteralExpr *node) -> void {
+  INDENT();
+  errs() << "ListLiteralExpr " << loc(node) << " type=" << node->type()
+         << "\n";
+  for (auto &element : node->getElements())
+    dump(element.get());
+}
+
+auto Dumper::dump(const ListAccessExpr *node) -> void {
+  INDENT();
+  errs() << "ListAccessExpr " << loc(node) << " type=" << node->type()
+         << " name=" << node->getVarName() << "\n";
+  for (auto &index : node->getIndices())
+    dump(index.get());
 }
 
 auto Dumper::dump(const BinaryExpr *node) -> void {

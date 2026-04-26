@@ -1,0 +1,27 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+# fn first(t: list<UInt64, 3>): UInt64 {
+#   t[0]
+# }
+
+fn main(): UInt64 {
+  var t: list<UInt64, 3> = [1, 2, 3];
+#  t[0] = 42;
+#  var x: UInt64 = first(t);
+#  print(x);
+
+  # x
+  12345
+}
+
+# CHECK: func.func @first(%arg0: memref<3xi64>) -> !cir.int<u, 64>
+# CHECK: memref.load
+# CHECK-SAME: memref<3xi64>
+# CHECK: memref.alloc() : memref<3xi64>
+# CHECK: memref.store
+# CHECK-SAME: memref<3xi64>
+# CHECK: arith.constant 42 : i64
+# CHECK: memref.store
+# CHECK-SAME: memref<3xi64>
+# CHECK: call @first
+# CHECK-SAME: memref<3xi64>

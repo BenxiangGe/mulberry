@@ -64,6 +64,9 @@ public:
   }
 
   auto checkType(llvm::StringRef type) -> CherryResult {
+    if (auto listType = parseListTypeName(type))
+      return checkType(listType->elementType);
+
     if (_typeSymbols.find(type) == _typeSymbols.end())
       return failure();
     return success();
@@ -91,7 +94,12 @@ public:
 
   auto getVariableType(const VariableExpr *node, llvm::StringRef &type)
       -> CherryResult {
-    auto symbol = _variableSymbols.find(node->name());
+    return getVariableType(node->name(), type);
+  }
+
+  auto getVariableType(llvm::StringRef name, llvm::StringRef &type)
+      -> CherryResult {
+    auto symbol = _variableSymbols.find(name);
     if (symbol == _variableSymbols.end()) {
       return failure();
     }

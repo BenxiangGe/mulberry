@@ -40,14 +40,24 @@ auto Lexer::lexToken() -> Token {
       return formToken(Token::semi, tokStart);
     case ',':
       return formToken(Token::comma, tokStart);
+    case '?':
+      return formToken(Token::question, tokStart);
     case '(':
       return formToken(Token::l_paren, tokStart);
     case ')':
       return formToken(Token::r_paren, tokStart);
+    case '<':
+      return formToken(Token::less, tokStart);
+    case '>':
+      return formToken(Token::greater, tokStart);
     case '{':
       return formToken(Token::l_brace, tokStart);
     case '}':
       return formToken(Token::r_brace, tokStart);
+    case '[':
+      return formToken(Token::l_square, tokStart);
+    case ']':
+      return formToken(Token::r_square, tokStart);
     case ':':
       return formToken(Token::colon, tokStart);
     case '.':
