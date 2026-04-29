@@ -1,0 +1,30 @@
+# RUN: cherry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn add(x: Float32, y: Float32): Float32 {
+  x + y
+}
+
+fn main(): UInt64 {
+  var x: Float32 = 1.25;
+  var y: Float32 = add(x, 2.5e1);
+  y lt 30.0;
+
+  0
+}
+
+# TOKENS: float_literal '1.25'
+# TOKENS: float_literal '2.5e1'
+# TOKENS: float_literal '30.0'
+
+# AST: FloatLiteralExpr
+# AST-SAME: type=Float32
+
+# MLIR: func.func @add(%arg0: !cir.float, %arg1: !cir.float) -> !cir.float
+# MLIR: cir.binop(add
+# MLIR-SAME: !cir.float
+# MLIR: cir.const
+# MLIR-SAME: !cir.float
+# MLIR: cir.cmp(lt
+# MLIR-SAME: !cir.float, !cir.bool

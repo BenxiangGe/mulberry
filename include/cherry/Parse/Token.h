@@ -8,9 +8,11 @@
 #ifndef CHERRY_TOKEN_H
 #define CHERRY_TOKEN_H
 
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SMLoc.h"
+#include <optional>
 
 namespace cherry {
 
@@ -34,6 +36,7 @@ public:
   auto is(Kind K) const -> bool { return _kind == K; }
 
   auto getUInt64IntegerValue() const -> std::optional<uint64_t>;
+  auto getFloat32Value() const -> std::optional<llvm::APFloat>;
 
   llvm::SMLoc getLoc() const;
   llvm::SMLoc getEndLoc() const;

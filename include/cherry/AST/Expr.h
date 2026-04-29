@@ -9,6 +9,7 @@
 #define CHERRY_EXPR_H
 
 #include "cherry/AST/Node.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace cherry {
@@ -22,6 +23,7 @@ public:
     Expr_Unit,
     Expr_Call,
     Expr_DecimalLiteral,
+    Expr_FloatLiteral,
     Expr_BoolLiteral,
     Expr_ListLiteral,
     Expr_ListAccess,
@@ -133,6 +135,24 @@ public:
 
 private:
   uint64_t _value;
+};
+
+// _____________________________________________________________________________
+// Float expression
+
+class FloatLiteralExpr final : public Expr {
+public:
+  explicit FloatLiteralExpr(llvm::SMLoc location, llvm::APFloat value)
+      : Expr{Expr_FloatLiteral, location}, _value(std::move(value)){};
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_FloatLiteral;
+  }
+
+  auto value() const -> const llvm::APFloat & { return _value; }
+
+private:
+  llvm::APFloat _value;
 };
 
 // _____________________________________________________________________________

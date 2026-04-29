@@ -7,8 +7,19 @@
 
 #include "cherry/Parse/Lexer.h"
 #include "llvm/ADT/StringSwitch.h"
+#include <cctype>
 
 using namespace cherry;
+
+namespace {
+auto isDigit(char c) -> bool {
+  return std::isdigit(static_cast<unsigned char>(c));
+}
+
+auto isAlpha(char c) -> bool {
+  return std::isalpha(static_cast<unsigned char>(c));
+}
+} // namespace
 
 Lexer::Lexer(const llvm::SourceMgr &sourceMgr) {
   auto bufferID = sourceMgr.getMainFileID();
@@ -22,7 +33,7 @@ auto Lexer::lexToken() -> Token {
     const char *tokStart = _curPtr;
     switch (*_curPtr++) {
     default:
-      if (isalpha(_curPtr[-1]))
+      if (isAlpha(_curPtr[-1]))
         return lexIdentifierOrKeyword(tokStart);
 
       return formToken(Token::error, tokStart);
@@ -84,7 +95,7 @@ auto Lexer::lexToken() -> Token {
     case '7':
     case '8':
     case '9':
-      return lexDecimal(tokStart);
+      return lexNumber(tokStart);
     case '#': {
       while (true) {
         if (*_curPtr == '\n' || *_curPtr == 0) {
@@ -99,7 +110,7 @@ auto Lexer::lexToken() -> Token {
 
 auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
   // Match [0-9a-zA-Z]*
-  while (isalpha(*_curPtr) || isdigit(*_curPtr))
+  while (isAlpha(*_curPtr) || isDigit(*_curPtr))
     ++_curPtr;
 
   llvm::StringRef spelling(tokStart, _curPtr - tokStart);
@@ -112,9 +123,28 @@ auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
   return Token(kind, spelling);
 }
 
-auto Lexer::lexDecimal(const char *tokStart) -> Token {
-  while (isdigit(*_curPtr))
+auto Lexer::lexNumber(const char *tokStart) -> Token {
+  while (isDigit(*_curPtr))
     ++_curPtr;
 
-  return formToken(Token::decimal, tokStart);
+  bool isFloat = false;
+  if (*_curPtr == '.' && isDigit(_curPtr[1])) {
+    isFloat = true;
+    ++_curPtr;
+    while (isDigit(*_curPtr))
+      ++_curPtr;
+  }
+
+  if ((*_curPtr == 'e' || *_curPtr == 'E') &&
+      (isDigit(_curPtr[1]) ||
+       ((_curPtr[1] == '+' || _curPtr[1] == '-') && isDigit(_curPtr[2])))) {
+    isFloat = true;
+    ++_curPtr;
+    if (*_curPtr == '+' || *_curPtr == '-')
+      ++_curPtr;
+    while (isDigit(*_curPtr))
+      ++_curPtr;
+  }
+
+  return formToken(isFloat ? Token::float_literal : Token::decimal, tokStart);
 }

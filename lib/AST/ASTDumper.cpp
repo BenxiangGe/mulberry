@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/AST/AST.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -39,6 +40,7 @@ private:
   auto dump(const CallExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
   auto dump(const DecimalLiteralExpr *node) -> void;
+  auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const ListLiteralExpr *node) -> void;
   auto dump(const ListAccessExpr *node) -> void;
@@ -117,7 +119,8 @@ auto Dumper::dump(const StructDecl *node) -> void {
 
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
-      .Case<UnitExpr, CallExpr, DecimalLiteralExpr, BoolLiteralExpr,
+      .Case<UnitExpr, CallExpr, DecimalLiteralExpr, FloatLiteralExpr,
+            BoolLiteralExpr,
             ListLiteralExpr, ListAccessExpr, VariableExpr, IfExpr, WhileExpr,
             BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -156,6 +159,14 @@ auto Dumper::dump(const DecimalLiteralExpr *node) -> void {
   INDENT();
   errs() << "DecimalExpr " << loc(node) << " type=" << node->type()
          << " value=" << node->value() << "\n";
+}
+
+auto Dumper::dump(const FloatLiteralExpr *node) -> void {
+  INDENT();
+  llvm::SmallString<32> value;
+  node->value().toString(value);
+  errs() << "FloatLiteralExpr " << loc(node) << " type=" << node->type()
+         << " value=" << value << "\n";
 }
 
 auto Dumper::dump(const BoolLiteralExpr *node) -> void {

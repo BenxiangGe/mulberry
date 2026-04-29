@@ -82,6 +82,7 @@ private:
   auto genStructInitializer(const CallExpr *node) -> llvm::Value *;
   auto gen(const VariableExpr *node) -> llvm::Value *;
   auto gen(const DecimalLiteralExpr *node) -> llvm::Value *;
+  auto gen(const FloatLiteralExpr *node) -> llvm::Value *;
   auto gen(const BoolLiteralExpr *node) -> llvm::Value *;
   auto gen(const BinaryExpr *node) -> llvm::Value *;
   auto genAssignOp(const BinaryExpr *node) -> llvm::Value *;
@@ -110,6 +111,8 @@ private:
       return llvm::Type::getVoidTy(_context);
     } else if (name == builtins::UInt64Type) {
       return llvm::Type::getInt64Ty(_context);
+    } else if (name == builtins::Float32Type) {
+      return llvm::Type::getFloatTy(_context);
     } else if (name == builtins::BoolType) {
       return llvm::Type::getInt1Ty(_context);
     } else {
@@ -135,10 +138,13 @@ private:
                                                   llvm::dwarf::DW_ATE_unsigned);
       auto dUInt1Ty = _dBuilder->createBasicType(builtins::BoolType, 1,
                                                  llvm::dwarf::DW_ATE_unsigned);
+      auto dFloat32Ty = _dBuilder->createBasicType(builtins::Float32Type, 32,
+                                                   llvm::dwarf::DW_ATE_float);
       auto dUnitTy = _dBuilder->createBasicType(builtins::UnitType, 0,
                                                 llvm::dwarf::DW_ATE_unsigned);
       _dTypeSymbols[builtins::UInt64Type] = dUInt64Ty;
       _dTypeSymbols[builtins::BoolType] = dUInt1Ty;
+      _dTypeSymbols[builtins::Float32Type] = dFloat32Ty;
       _dTypeSymbols[builtins::UnitType] = dUnitTy;
     }
 
@@ -353,6 +359,8 @@ auto LLVMGenImpl::gen(const Expr *node) -> llvm::Value * {
     return gen(cast<UnitExpr>(node));
   case Expr::Expr_DecimalLiteral:
     return gen(cast<DecimalLiteralExpr>(node));
+  case Expr::Expr_FloatLiteral:
+    return gen(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
     return gen(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
@@ -442,6 +450,11 @@ auto LLVMGenImpl::gen(const DecimalLiteralExpr *node) -> llvm::Value * {
   return llvm::ConstantInt::get(getType(builtins::UInt64Type), node->value());
 }
 
+auto LLVMGenImpl::gen(const FloatLiteralExpr *node) -> llvm::Value * {
+  emitLocation(node);
+  return llvm::ConstantFP::get(getType(builtins::Float32Type), node->value());
+}
+
 auto LLVMGenImpl::gen(const BoolLiteralExpr *node) -> llvm::Value * {
   emitLocation(node);
   return llvm::ConstantInt::get(getType(builtins::BoolType), node->value());
@@ -461,14 +474,23 @@ auto LLVMGenImpl::gen(const BinaryExpr *node) -> llvm::Value * {
 
   auto lhs = gen(node->lhs().get());
   auto rhs = gen(node->rhs().get());
+  auto isFloat32 = node->lhs()->type() == builtins::Float32Type;
   switch (op) {
   case Operator::Add:
+    if (isFloat32)
+      return _builder.CreateFAdd(lhs, rhs);
     return _builder.CreateAdd(lhs, rhs);
   case Operator::Mul:
+    if (isFloat32)
+      return _builder.CreateFMul(lhs, rhs);
     return _builder.CreateMul(lhs, rhs);
   case Operator::Diff:
+    if (isFloat32)
+      return _builder.CreateFSub(lhs, rhs);
     return _builder.CreateSub(lhs, rhs);
   case Operator::Div:
+    if (isFloat32)
+      return _builder.CreateFDiv(lhs, rhs);
     return _builder.CreateUDiv(lhs, rhs);
   case Operator::Rem:
     return _builder.CreateURem(lhs, rhs);
@@ -477,16 +499,28 @@ auto LLVMGenImpl::gen(const BinaryExpr *node) -> llvm::Value * {
   case Operator::Or:
     return _builder.CreateOr(lhs, rhs);
   case Operator::LT:
+    if (isFloat32)
+      return _builder.CreateFCmpOLT(lhs, rhs);
     return _builder.CreateICmpULT(lhs, rhs);
   case Operator::LE:
+    if (isFloat32)
+      return _builder.CreateFCmpOLE(lhs, rhs);
     return _builder.CreateICmpULE(lhs, rhs);
   case Operator::GT:
+    if (isFloat32)
+      return _builder.CreateFCmpOGT(lhs, rhs);
     return _builder.CreateICmpUGT(lhs, rhs);
   case Operator::GE:
+    if (isFloat32)
+      return _builder.CreateFCmpOGE(lhs, rhs);
     return _builder.CreateICmpUGE(lhs, rhs);
   case Operator::EQ:
+    if (isFloat32)
+      return _builder.CreateFCmpOEQ(lhs, rhs);
     return _builder.CreateICmpEQ(lhs, rhs);
   case Operator::NEQ:
+    if (isFloat32)
+      return _builder.CreateFCmpONE(lhs, rhs);
     return _builder.CreateICmpNE(lhs, rhs);
   default:
     llvm_unreachable("Unexpected expression");

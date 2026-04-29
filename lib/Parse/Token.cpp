@@ -18,6 +18,11 @@ auto Token::getUInt64IntegerValue() const -> std::optional<uint64_t> {
     return std::nullopt;
   return result;
 }
+
+auto Token::getFloat32Value() const -> std::optional<llvm::APFloat> {
+  return llvm::APFloat(llvm::APFloat::IEEEsingle(), _spelling);
+}
+
 SMLoc Token::getLoc() const { return SMLoc::getFromPointer(_spelling.data()); }
 
 SMLoc Token::getEndLoc() const {

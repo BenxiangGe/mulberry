@@ -81,6 +81,7 @@ private:
   auto semaStructInitializer(CallExpr *node) -> CherryResult;
   auto sema(VariableExpr *node) -> CherryResult;
   auto sema(DecimalLiteralExpr *node) -> CherryResult;
+  auto sema(FloatLiteralExpr *node) -> CherryResult;
   auto sema(BoolLiteralExpr *node) -> CherryResult;
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaRhsLhsSameType(BinaryExpr *node, llvm::StringRef &type)
@@ -188,6 +189,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<UnitExpr>(node));
   case Expr::Expr_DecimalLiteral:
     return sema(cast<DecimalLiteralExpr>(node));
+  case Expr::Expr_FloatLiteral:
+    return sema(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
@@ -294,6 +297,11 @@ auto SemaImpl::sema(DecimalLiteralExpr *node) -> CherryResult {
   return success();
 }
 
+auto SemaImpl::sema(FloatLiteralExpr *node) -> CherryResult {
+  node->setType(builtins::Float32Type);
+  return success();
+}
+
 auto SemaImpl::sema(BoolLiteralExpr *node) -> CherryResult {
   node->setType(builtins::BoolType);
   return success();
@@ -325,7 +333,12 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
   case Operator::Add:
   case Operator::Mul:
   case Operator::Diff:
-  case Operator::Div:
+  case Operator::Div: {
+    if (type != builtins::UInt64Type && type != builtins::Float32Type)
+      return emitError(node->lhs().get(), diag::mismatch_type);
+    node->setType(type);
+    return success();
+  }
   case Operator::Rem: {
     if (type != builtins::UInt64Type)
       return emitError(node->lhs().get(), diag::mismatch_type);
@@ -341,7 +354,8 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
   }
   case Operator::EQ:
   case Operator::NEQ: {
-    if (type != builtins::UInt64Type && type != builtins::BoolType)
+    if (type != builtins::UInt64Type && type != builtins::BoolType &&
+        type != builtins::Float32Type)
       return emitError(node->lhs().get(), diag::mismatch_type);
     node->setType(builtins::BoolType);
     return success();
@@ -350,7 +364,7 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
   case Operator::LE:
   case Operator::GT:
   case Operator::GE: {
-    if (type != builtins::UInt64Type)
+    if (type != builtins::UInt64Type && type != builtins::Float32Type)
       return emitError(node->lhs().get(), diag::mismatch_type);
     node->setType(builtins::BoolType);
     return success();

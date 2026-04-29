@@ -24,6 +24,7 @@ ERROR(expected_type, "expected type")
 ERROR(expected_id, "expected identifier")
 ERROR(expected_expr, "expected expression")
 ERROR(integer_literal_overflows, "integer literal overflows")
+ERROR(float_literal_invalid, "invalid Float32 literal")
 
 // ___________________________________________________________________________
 #undef ERROR

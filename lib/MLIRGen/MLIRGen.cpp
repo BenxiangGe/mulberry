@@ -77,6 +77,7 @@ private:
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
+  auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const BinaryExpr *node) -> mlir::Value;
   auto genAssignOp(const BinaryExpr *node) -> mlir::Value;
@@ -118,6 +119,8 @@ private:
       return _builder.getNoneType();
     } else if (name == builtins::UInt64Type) {
       return cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
+    } else if (name == builtins::Float32Type) {
+      return cir::SingleType::get(_builder.getContext());
     } else if (name == builtins::BoolType) {
       return cir::BoolType::get(_builder.getContext());
     } else if (isListTypeName(name)) {
@@ -261,6 +264,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<UnitExpr>(node));
   case Expr::Expr_DecimalLiteral:
     return gen(cast<DecimalLiteralExpr>(node));
+  case Expr::Expr_FloatLiteral:
+    return gen(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
     return gen(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
@@ -413,6 +418,13 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getType(node->type());
   cir::IntAttr attr = cir::IntAttr::get(type, node->value());
+  DBG("type: {0}, attr: {1}", type, attr);
+  return cir::ConstantOp::create(_builder, loc(node), attr);
+}
+
+auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
+  mlir::Type type = getType(node->type());
+  cir::FPAttr attr = cir::FPAttr::get(type, node->value());
   DBG("type: {0}, attr: {1}", type, attr);
   return cir::ConstantOp::create(_builder, loc(node), attr);
 }
@@ -651,6 +663,8 @@ auto MLIRGenImpl::genStructLiteral(const CallExpr* callExpr, llvm::StringRef typ
 auto MLIRGenImpl::getMemRefElementType(llvm::StringRef name) -> mlir::Type {
   if (name == builtins::UInt64Type)
     return _builder.getI64Type();
+  if (name == builtins::Float32Type)
+    return _builder.getF32Type();
   if (name == builtins::BoolType)
     return _builder.getI1Type();
   llvm_unreachable("unsupported list element type");
@@ -707,6 +721,12 @@ auto MLIRGenImpl::genMemRefElementValue(const Expr *node,
     return mlir::arith::ConstantIntOp::create(_builder, loc(node),
                                               boolean->value(),
                                               intType.getWidth());
+  }
+
+  if (auto *floating = llvm::dyn_cast<FloatLiteralExpr>(node)) {
+    return mlir::arith::ConstantFloatOp::create(
+        _builder, loc(node), llvm::cast<mlir::FloatType>(elementType),
+        floating->value());
   }
 
   return castToType(gen(node), elementType, loc(node));

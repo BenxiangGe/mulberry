@@ -41,7 +41,7 @@ private:
   }
 
   auto lexIdentifierOrKeyword(const char *tokStart) -> Token;
-  auto lexDecimal(const char *tokStart) -> Token;
+  auto lexNumber(const char *tokStart) -> Token;
 
   llvm::StringRef _curBuffer;
   const char *_curPtr;

@@ -23,9 +23,10 @@ const llvm::StringRef boolToUInt64 = "boolToUInt64";
 const llvm::StringRef UnitType = "Unit";
 const llvm::StringRef BoolType = "Bool";
 const llvm::StringRef UInt64Type = "UInt64";
+const llvm::StringRef Float32Type = "Float32";
 
-inline auto primitiveTypes() -> llvm::SmallVector<llvm::StringRef, 2> {
-  return {UnitType, BoolType, UInt64Type};
+inline auto primitiveTypes() -> llvm::SmallVector<llvm::StringRef, 4> {
+  return {UnitType, BoolType, UInt64Type, Float32Type};
 }
 
 } // end namespace builtins
