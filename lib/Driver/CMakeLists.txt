@@ -5,7 +5,11 @@ add_library(cherryDriver STATIC
         Compilation.cpp
 )
 
-target_link_libraries(cherryDriver ${targets} MLIRExecutionEngine)
+target_link_libraries(cherryDriver
+        ${targets}
+        MLIRExecutionEngine
+        clangCIRLoweringDirectToLLVM
+)
 
 target_include_directories(cherryDriver PUBLIC
         ${LIB_HEADERS}

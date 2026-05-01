@@ -19,6 +19,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "clang/CIR/Dialect/IR/CIRDialect.h"
 
 namespace mlir::cherry {
 
@@ -27,20 +28,20 @@ namespace mlir::cherry {
 
 namespace {
 
-class CastOpLowering : public ConversionPattern {
+class CastOpLowering : public OpConversionPattern<cherry::CastOp> {
 public:
-  explicit CastOpLowering(MLIRContext *context)
-      : ConversionPattern(cherry::CastOp::getOperationName(), 1, context) {}
+  explicit CastOpLowering(LLVMTypeConverter &typeConverter,
+                          MLIRContext *context)
+      : OpConversionPattern<cherry::CastOp>(typeConverter, context) {}
 
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+  auto matchAndRewrite(cherry::CastOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter &rewriter) const
       -> LogicalResult final {
     auto loc = op->getLoc();
-    auto castOp = cast<cherry::CastOp>(op);
-    auto operand = castOp.getInput();
+    auto operand = op.getInput();
     Value newOperand = llvm::isa<MemRefType>(operand.getType())
                            ? rewriter.create<memref::LoadOp>(loc, operand)
-                           : operand;
+                           : adaptor.getInput();
 
     auto cast =
         rewriter.create<LLVM::ZExtOp>(loc, rewriter.getI64Type(), newOperand);
@@ -49,12 +50,13 @@ public:
   }
 };
 
-class PrintOpLowering : public ConversionPattern {
+class PrintOpLowering : public OpConversionPattern<cherry::PrintOp> {
 public:
-  explicit PrintOpLowering(MLIRContext *context)
-      : ConversionPattern(cherry::PrintOp::getOperationName(), 1, context) {}
+  explicit PrintOpLowering(LLVMTypeConverter &typeConverter,
+                           MLIRContext *context)
+      : OpConversionPattern<cherry::PrintOp>(typeConverter, context) {}
 
-  auto matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+  auto matchAndRewrite(cherry::PrintOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter &rewriter) const
       -> LogicalResult final {
     auto loc = op->getLoc();
@@ -65,11 +67,10 @@ public:
     Value formatSpecifierCst = getOrCreateGlobalString(
         loc, rewriter, "frmt_spec", StringRef("%llu\n\0", 6), parentModule);
 
-    auto printOp = cast<cherry::PrintOp>(op);
-    auto operand = printOp.getInput();
+    auto operand = op.getInput();
     Value newOperand = llvm::isa<MemRefType>(operand.getType())
                            ? rewriter.create<memref::LoadOp>(loc, operand)
-                           : operand;
+                           : adaptor.getInput();
 
     rewriter.replaceOpWithNewOp<LLVM::CallOp>(
         op, getPrintfType(rewriter.getContext()), printfRef,
@@ -128,6 +129,31 @@ private:
   }
 };
 
+class UnrealizedConversionCastOpLowering
+    : public OpConversionPattern<UnrealizedConversionCastOp> {
+public:
+  explicit UnrealizedConversionCastOpLowering(LLVMTypeConverter &typeConverter,
+                                              MLIRContext *context)
+      : OpConversionPattern<UnrealizedConversionCastOp>(typeConverter,
+                                                        context) {}
+
+  auto matchAndRewrite(UnrealizedConversionCastOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter &rewriter) const
+      -> LogicalResult final {
+    if (op.getInputs().size() != 1 || op.getResults().size() != 1)
+      return failure();
+
+    auto convertedType =
+        getTypeConverter()->convertType(op.getResultTypes()[0]);
+    if (!convertedType ||
+        convertedType != adaptor.getInputs().front().getType())
+      return failure();
+
+    rewriter.replaceOp(op, adaptor.getInputs().front());
+    return success();
+  }
+};
+
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -141,6 +167,19 @@ struct ConvertCherryToLLVM
 
     // Types conversions
     LLVMTypeConverter typeConverter(&getContext());
+
+    typeConverter.addConversion([&](cir::IntType type) -> Type {
+      return IntegerType::get(type.getContext(), type.getWidth());
+    });
+    typeConverter.addConversion([&](cir::BoolType type) -> Type {
+      return IntegerType::get(type.getContext(), 1);
+    });
+    typeConverter.addConversion([&](cir::SingleType type) -> Type {
+      return Float32Type::get(type.getContext());
+    });
+    typeConverter.addConversion([&](cir::VoidType type) -> Type {
+      return LLVM::LLVMVoidType::get(type.getContext());
+    });
 
     typeConverter.addConversion([&](mlir::cherry::CherryStructType type) {
       SmallVector<Type, 2> types;
@@ -162,7 +201,9 @@ struct ConvertCherryToLLVM
     populateSCFToControlFlowConversionPatterns(patterns);
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<CastOpLowering, PrintOpLowering>(&getContext());
+    patterns.add<CastOpLowering, PrintOpLowering,
+                 UnrealizedConversionCastOpLowering>(typeConverter,
+                                                     &getContext());
 
     // Conversion
     auto module = getOperation();

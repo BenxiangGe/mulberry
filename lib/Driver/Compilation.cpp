@@ -14,6 +14,7 @@
 #include "cherry/Parse/Lexer.h"
 #include "cherry/Parse/Parser.h"
 #include "cherry/Sema/Sema.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/Extensions/AllExtensions.h"
@@ -39,6 +40,7 @@
 #include "llvm/TargetParser/Triple.h"
 
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "clang/CIR/Passes.h"
 
 using namespace cir;
 using namespace cherry;
@@ -112,7 +114,10 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     optPM.addPass(mlir::cherry::createConvertCherryToArithCfFunc());
 
   if (lowering >= Lowering::LLVM) {
+    cir::direct::populateCIRToLLVMPasses(pm);
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
+    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+    pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::LLVM::createDIScopeForLLVMFuncOpPass());
   }
   return pm.run(*module);

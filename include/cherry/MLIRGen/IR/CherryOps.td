@@ -21,7 +21,7 @@ def PrintOp : Cherry_Op<"print"> {
       The "print" builtin operation prints a given input
   }];
 
-  let arguments = (ins AnyTypeOf<[I64, I64MemRef]>:$input);
+  let arguments = (ins AnyType:$input);
   let results = (outs I64:$result);
 
   let assemblyFormat = "$input attr-dict `:` functional-type($input, $result)";
@@ -33,7 +33,7 @@ def CastOp : Cherry_Op<"cast"> {
     Casts from I64 to I1
   }];
 
-  let arguments = (ins AnyTypeOf<[I1, I1MemRef]>:$input);
+  let arguments = (ins AnyType:$input);
   let results = (outs I64:$result);
 
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";

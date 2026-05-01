@@ -21,7 +21,7 @@ fn main(): UInt64 {
 # AST: FloatLiteralExpr
 # AST-SAME: type=Float32
 
-# MLIR: func.func @add(%arg0: !cir.float, %arg1: !cir.float) -> !cir.float
+# MLIR: cir.func @add(%arg0: !cir.float, %arg1: !cir.float) -> !cir.float
 # MLIR: cir.binop(add
 # MLIR-SAME: !cir.float
 # MLIR: cir.const
