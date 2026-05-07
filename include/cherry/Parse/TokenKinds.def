@@ -63,7 +63,6 @@ TOK_PUNCTUATION(rem, "%")
 
 TOK_KEYWORD(fn)
 TOK_KEYWORD(struct)
-TOK_KEYWORD(list)
 TOK_KEYWORD(var)
 TOK_KEYWORD(true)
 TOK_KEYWORD(false)

@@ -1,7 +1,7 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var t: list<UInt64, 2, 3> = [[1, 2, 3], [4, 5, 6]];
+  var t: UInt64[2, 3] = [[1, 2, 3], [4, 5, 6]];
   print(t[1, 2]);
 
   56789

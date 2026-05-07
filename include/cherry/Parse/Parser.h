@@ -111,7 +111,6 @@ private:
 
   auto parseStructDecl_c(std::unique_ptr<Decl> &elem) -> CherryResult;
 
-  auto parseListType(std::unique_ptr<Type> &list) -> CherryResult;
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseListLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseListAccess(llvm::SMLoc location, llvm::StringRef name,

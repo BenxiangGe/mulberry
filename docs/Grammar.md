@@ -100,10 +100,19 @@ parameter-list → parameter `,` parameter-list
 parameter → parameter-name type-annotation  
 parameter-name → identifier  
 type-annotation → `:` type  
+type → identifier
+type → identifier list-type-suffix
+
 function-body → block-expression  
 
-**GRAMMAR OF A STRUCT DECLARATION**    
-type → identifier  
+**GRAMMAR OF A LIST DECLARATION**  
+list-type-suffix → `[` list-dimension-list `]`
+list-dimension-list → list-dimension
+list-dimension-list → list-dimension `,` list-dimension-list
+list-dimension → decimal-literal
+list-dimension → `?`
+
+**GRAMMAR OF A STRUCT DECLARATION**  
 struct-declaration → `struct` type `{`  struct-members<sub>opt</sub> `}`  
 struct-members → struct-member `,`<sub>opt</sub>  
 struct-members → struct-member `,` struct-members  

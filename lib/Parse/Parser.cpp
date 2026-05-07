@@ -59,10 +59,6 @@ auto Parser::parseUnitType(unique_ptr<Type> &unit) -> CherryResult {
 }
 
 auto Parser::parseType(unique_ptr<Type> &type) -> CherryResult {
-  if (tokenIs(Token::kw_list)) {
-    return parseListType(type);
-  }
-
   if (tokenIs(Token::l_paren))
     return parseUnitType(type);
 
@@ -223,43 +219,6 @@ auto Parser::parseStructDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
   return success();
 }
 
-auto Parser::parseListType(unique_ptr<Type> &list) -> CherryResult {
-  auto location = tokenLoc();
-  consume(Token::kw_list);
-  if (parseToken(Token::less, diag::expected_less))
-    return failure();
-
-  unique_ptr<Type> elementType;
-  if (parseType(elementType))
-    return failure();
-
-  std::vector<int64_t> shape;
-  while (tokenIs(Token::comma)) {
-    consume(Token::comma);
-    if (auto number = token().getUInt64IntegerValue()) {
-      shape.push_back(*number);
-      consume(Token::decimal);
-    } else if (tokenIs(Token::question)) {
-      shape.push_back(-1);
-      consume(Token::question);
-    } else {
-      return emitError(diag::expected_expr);
-    }
-
-    if (tokenIs(Token::greater))
-      break;
-  }
-
-  if (shape.empty())
-    return emitError(diag::expected_expr);
-  if (parseToken(Token::greater, diag::expected_greater))
-    return failure();
-
-  list = make_unique<ListType>(std::move(elementType), std::move(shape),
-                               location);
-  return success();
-}
-
 auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
     -> CherryResult {
   consume(Token::l_square);
@@ -286,46 +245,46 @@ auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
 }
 
 auto Parser::parseListLiteral(unique_ptr<Expr> &expr) -> CherryResult {
-    auto loc = tokenLoc();
-    consume(Token::l_square); // '['
-    std::vector<std::unique_ptr<Expr>> elements;
+  auto loc = tokenLoc();
+  consume(Token::l_square); // '['
+  std::vector<std::unique_ptr<Expr>> elements;
 
-    if (!tokenIs(Token::r_square)) {
-      do {
-        unique_ptr<Expr> subExpr;
+  if (!tokenIs(Token::r_square)) {
+    do {
+      unique_ptr<Expr> subExpr;
 
-        if (tokenIs(Token::l_square)) {
-          if (parseListLiteral(subExpr))
-            return failure();
-        } else {
-          if (parseExpression(subExpr))
-            return failure();
-        }
-        elements.push_back(std::move(subExpr));
-      } while (consumeIf(Token::comma));
-    }
-    if (parseToken(Token::r_square, diag::expected_r_square))
-      return failure();
-    expr = make_unique<ListLiteralExpr>(loc, std::move(elements));
+      if (tokenIs(Token::l_square)) {
+        if (parseListLiteral(subExpr))
+          return failure();
+      } else {
+        if (parseExpression(subExpr))
+          return failure();
+      }
+      elements.push_back(std::move(subExpr));
+    } while (consumeIf(Token::comma));
+  }
+  if (parseToken(Token::r_square, diag::expected_r_square))
+    return failure();
+  expr = make_unique<ListLiteralExpr>(loc, std::move(elements));
 
-    return success();
+  return success();
 }
 
 auto Parser::parseListAccess(llvm::SMLoc location, llvm::StringRef name,
                              unique_ptr<Expr> &expr) -> CherryResult {
-    consume(Token::l_square); // '['
-    std::vector<std::unique_ptr<Expr>> indices;
-    do {
-      unique_ptr<Expr> subExpr;
-      if (parseExpression(subExpr))
-        return failure();
-      indices.push_back(std::move(subExpr));
-    } while (consumeIf(Token::comma) && !tokenIs(Token::r_square));
-    if (parseToken(Token::r_square, diag::expected_r_square))
+  consume(Token::l_square); // '['
+  std::vector<std::unique_ptr<Expr>> indices;
+  do {
+    unique_ptr<Expr> subExpr;
+    if (parseExpression(subExpr))
       return failure();
+    indices.push_back(std::move(subExpr));
+  } while (consumeIf(Token::comma) && !tokenIs(Token::r_square));
+  if (parseToken(Token::r_square, diag::expected_r_square))
+    return failure();
 
-    expr = std::make_unique<ListAccessExpr>(location, name, std::move(indices));
-    return success();
+  expr = std::make_unique<ListAccessExpr>(location, name, std::move(indices));
+  return success();
 }
 
 // _____________________________________________________________________________
