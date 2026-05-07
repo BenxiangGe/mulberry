@@ -89,6 +89,7 @@ private:
   auto semaStructReadOp(BinaryExpr *node) -> CherryResult;
   auto sema(ListLiteralExpr *expr) -> CherryResult;
   auto sema(ListAccessExpr *expr) -> CherryResult;
+  auto semaMatmul(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -230,6 +231,10 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 
   if (llvm::succeeded(_symbols.checkType(name)))
     return semaStructInitializer(node);
+
+  if (name == nn::matmul) {
+    return semaMatmul(node);
+  }
 
   llvm::ArrayRef<llvm::StringRef> parametersTypes;
   llvm::StringRef returnType;
@@ -465,6 +470,36 @@ auto SemaImpl::sema(ListAccessExpr *expr) -> CherryResult {
   }
 
   expr->setType(listType->elementType);
+  return success();
+}
+
+auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  for (auto &expr : expressions)
+    if (sema(expr.get()))
+      return failure();
+
+  auto lhsType = parseListTypeName(expressions[0]->type());
+  auto rhsType = parseListTypeName(expressions[1]->type());
+  if (!lhsType || !rhsType)
+    return emitError(node, diag::mismatch_type);
+  if (lhsType->elementType != builtins::Float32Type ||
+      rhsType->elementType != builtins::Float32Type)
+    return emitError(node, diag::mismatch_type);
+  if (lhsType->shape.size() != 2 || rhsType->shape.size() != 2)
+    return emitError(node, diag::mismatch_type);
+
+  auto lhsCols = lhsType->shape[1];
+  auto rhsRows = rhsType->shape[0];
+  if (lhsCols >= 0 && rhsRows >= 0 && lhsCols != rhsRows)
+    return emitError(node, diag::mismatch_type);
+
+  node->setType(formatListTypeName(builtins::Float32Type,
+      llvm::ArrayRef<int64_t>{lhsType->shape[0], rhsType->shape[1]}));
+
   return success();
 }
 

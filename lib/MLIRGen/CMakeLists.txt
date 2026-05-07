@@ -15,11 +15,16 @@ add_mlir_dialect_library(cherryMLIRGen
         IR/CherryDialect.cpp
         ${LIB_HEADERS}/IR/CherryOps.h
         IR/CherryOps.cpp
+        ${LIB_HEADERS}/IR/CherryNNDialect.h
+        IR/CherryNNDialect.cpp
+        ${LIB_HEADERS}/IR/CherryNNOps.h
+        IR/CherryNNOps.cpp
         ${LIB_HEADERS}/IR/CherryTypes.h
         IR/CherryTypes.cpp
 
         DEPENDS
         MLIRCherryOpsIncGen
+        MLIRCherryNNOpsIncGen
         MLIRCherryConversionPassIncGen
 
         LINK_LIBS PUBLIC

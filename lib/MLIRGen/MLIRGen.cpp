@@ -12,6 +12,7 @@
 #include "cherry/Basic/Logging.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
 #include "cherry/MLIRGen/IR/CherryTypes.h"
+#include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -74,6 +75,7 @@ private:
   auto gen(const IfExpr *node) -> mlir::Value;
   auto gen(const WhileExpr *node) -> mlir::Value;
   auto genPrint(const CallExpr *node) -> mlir::Value;
+  auto genMatmul(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
@@ -363,10 +365,12 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   auto functionName = node->name();
+  DBG("gen(CallExpr). functionName: {0}", functionName);
+
   if (functionName == builtins::print)
     return genPrint(node);
-
-  DBG("gen(CallExpr). functionName: {0}", functionName);
+  if (functionName == nn::matmul)
+    return genMatmul(node);
 
   if (auto type = getType(functionName)) {
     if (auto recordType = llvm::dyn_cast<cir::RecordType>(type)) {
@@ -414,6 +418,16 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
                      ? genMemRefLoadValue(llvm::cast<ListAccessExpr>(expr))
                      : gen(expr);
   return PrintOp::create(_builder, loc(node), operand);
+}
+
+auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
+  auto& expressions = node->expressions();
+  auto lhs = gen(expressions[0].get());
+  auto rhs = gen(expressions[1].get());
+  auto outType = getMemRefType(node->type());
+  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  mlir::cherry_nn::MatmulOp::create(_builder, loc(node), lhs, rhs, out);
+  return out;
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {

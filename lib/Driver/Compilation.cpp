@@ -9,6 +9,7 @@
 #include "KaleidoscopeJIT.h"
 #include "cherry/LLVMGen/LLVMGen.h"
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
+#include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/Parse/Lexer.h"
@@ -67,6 +68,7 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
 
   auto compilation = std::make_unique<Compilation>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();

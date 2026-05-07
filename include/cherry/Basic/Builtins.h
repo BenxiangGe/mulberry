@@ -30,6 +30,11 @@ inline auto primitiveTypes() -> llvm::SmallVector<llvm::StringRef, 4> {
 }
 
 } // end namespace builtins
+
+namespace nn {
+const std::string matmul = "matmul";
+} // end namespace nn
+
 } // end namespace cherry
 
 #endif // CHERRY_BUILTINS_H
