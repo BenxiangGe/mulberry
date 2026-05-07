@@ -15,6 +15,7 @@ enum Action {
   Dump_MLIR,
   Dump_MLIR_SCF,
   Dump_MLIR_ARITH_CF_FUNC,
+  Dump_LINALG,
   Dump_MLIR_LLVM,
   Dump_LLVM,
 };
@@ -51,6 +52,8 @@ static cl::opt<enum Action> dumpAction(
     cl::values(
         clEnumValN(Dump_MLIR_ARITH_CF_FUNC, "mlir2",
                    "output the MLIR dump (cherry + scf + arith + cf + func)")),
+    cl::values(clEnumValN(Dump_LINALG, "linalg",
+                          "output the MLIR dump (cherry + linalg)")),
     cl::values(clEnumValN(Dump_MLIR_LLVM, "mlir-llvm",
                           "output the MLIR dump (llvm)")),
     cl::values(clEnumValN(Dump_LLVM, "llvm", "output the LLVM dump")));
@@ -90,6 +93,8 @@ auto main(int argc, const char **argv) -> int {
     return compilation->dumpMLIR(Compilation::Lowering::SCF);
   case Action::Dump_MLIR_ARITH_CF_FUNC:
     return compilation->dumpMLIR(Compilation::Lowering::ArithCfFunc);
+  case Action::Dump_LINALG:
+    return compilation->dumpMLIR(Compilation::Lowering::Linalg);
   case Action::Dump_MLIR_LLVM:
     return compilation->dumpMLIR(Compilation::Lowering::LLVM);
   case Action::Dump_LLVM:

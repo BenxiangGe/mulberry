@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
@@ -75,6 +76,7 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
   compilation->_mlirContext.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::memref::MemRefDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
 
   compilation->_mlirContext.getOrLoadDialect<cir::CIRDialect>();
 
@@ -114,6 +116,9 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::ArithCfFunc)
     optPM.addPass(mlir::cherry::createConvertCherryToArithCfFunc());
+
+  if (lowering >= Lowering::Linalg)
+    pm.addPass(mlir::cherry::createConvertCherryNNToLinalg());
 
   if (lowering >= Lowering::LLVM) {
     cir::direct::populateCIRToLLVMPasses(pm);

@@ -20,6 +20,11 @@ def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
   let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect"];
 }
 
+def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
+  let summary = "Convert Cherry NN operations to Linalg operations";
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect"];
+}
+
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let summary = "Convert Cherry ops to llvm ops";
   let dependentDialects = ["LLVM::LLVMDialect"];

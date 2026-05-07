@@ -28,7 +28,7 @@ class CherryResult;
 
 class Compilation {
 public:
-  enum Lowering { None, SCF, ArithCfFunc, LLVM };
+  enum Lowering { None, SCF, ArithCfFunc, Linalg, LLVM };
 
   Compilation();
 
