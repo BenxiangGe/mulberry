@@ -23,6 +23,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
@@ -121,6 +122,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     pm.addPass(mlir::cherry::createConvertCherryNNToLinalg());
 
   if (lowering >= Lowering::LLVM) {
+    pm.addPass(mlir::createConvertLinalgToLoopsPass());
     cir::direct::populateCIRToLLVMPasses(pm);
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());

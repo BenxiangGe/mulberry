@@ -29,9 +29,14 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRCherryConversionPassIncGen
 
         LINK_LIBS PUBLIC
+        MLIRArithDialect
         MLIRIR
         MLIRInferTypeOpInterface
         MLIRFuncDialect
+        MLIRLinalgDialect
+        MLIRLinalgTransforms
+        MLIRMemRefDialect
+        MLIRSCFDialect
         clangCIR
 )
 
