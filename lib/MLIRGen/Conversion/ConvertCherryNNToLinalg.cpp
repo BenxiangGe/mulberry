@@ -24,10 +24,15 @@ public:
     auto loc = op.getLoc();
     auto outType = cast<MemRefType>(op.getOut().getType());
     auto elementType = cast<FloatType>(outType.getElementType());
-    auto zero = arith::ConstantFloatOp::create(rewriter, loc, elementType, llvm::APFloat::getZero(elementType.getFloatSemantics()));
+    auto zero = arith::ConstantFloatOp::create(
+        rewriter, loc, elementType,
+        llvm::APFloat::getZero(elementType.getFloatSemantics()));
 
-    linalg::FillOp::create(rewriter, loc, ValueRange{zero}, ValueRange{op.getOut()});
-    linalg::MatmulOp::create(rewriter, loc, TypeRange{}, ValueRange{op.getLhs(), op.getRhs()}, ValueRange{op.getOut()});
+    linalg::FillOp::create(rewriter, loc, ValueRange{zero},
+                           ValueRange{op.getOut()});
+    linalg::MatmulOp::create(rewriter, loc, TypeRange{},
+                             ValueRange{op.getLhs(), op.getRhs()},
+                             ValueRange{op.getOut()});
 
     rewriter.eraseOp(op);
 
@@ -35,7 +40,25 @@ public:
   }
 };
 
-struct ConvertCherryNNToLinalg : public impl::ConvertCherryNNToLinalgBase<ConvertCherryNNToLinalg> {
+class MataddOpLowering : public OpRewritePattern<cherry_nn::MataddOp> {
+public:
+  using OpRewritePattern<cherry_nn::MataddOp>::OpRewritePattern;
+
+  auto matchAndRewrite(cherry_nn::MataddOp op, PatternRewriter &rewriter) const
+      -> LogicalResult final {
+    auto loc = op.getLoc();
+    linalg::AddOp::create(rewriter, loc, TypeRange{},
+                          ValueRange{op.getLhs(), op.getRhs()},
+                          ValueRange{op.getOut()});
+
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
+struct ConvertCherryNNToLinalg
+    : public impl::ConvertCherryNNToLinalgBase<ConvertCherryNNToLinalg> {
 
   using impl::ConvertCherryNNToLinalgBase<
       ConvertCherryNNToLinalg>::ConvertCherryNNToLinalgBase;
@@ -46,7 +69,7 @@ struct ConvertCherryNNToLinalg : public impl::ConvertCherryNNToLinalgBase<Conver
     target.addIllegalDialect<cherry_nn::CherryNNDialect>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<MatmulOpLowering>(&getContext());
+    patterns.add<MatmulOpLowering, MataddOpLowering>(&getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPartialConversion(getOperation(), target, patternSet)))

@@ -19,5 +19,18 @@ def MatmulOp : CherryNN_Op<"matmul"> {
   let hasVerifier = 0;
 }
 
+def MataddOp : CherryNN_Op<"matadd"> {
+  let summary = "matrix add operation";
+  let description = [{
+      The "matadd" operation does elementwise matrix addition
+  }];
+
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+
+  let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
 
 #endif // CHERRY_NN_OPS

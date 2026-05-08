@@ -33,6 +33,7 @@ inline auto primitiveTypes() -> llvm::SmallVector<llvm::StringRef, 4> {
 
 namespace nn {
 const std::string matmul = "matmul";
+const std::string matadd = "matadd";
 } // end namespace nn
 
 } // end namespace cherry

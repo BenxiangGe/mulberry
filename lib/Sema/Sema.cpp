@@ -90,6 +90,7 @@ private:
   auto sema(ListLiteralExpr *expr) -> CherryResult;
   auto sema(ListAccessExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
+  auto semaMatadd(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -169,7 +170,8 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   for (auto &varDecl : *node) {
     auto type = varDecl->varType().get();
     auto var = varDecl->variable().get();
-    if (type->name() == builtins::UnitType || listContainsUnitType(type->name()))
+    if (type->name() == builtins::UnitType ||
+        listContainsUnitType(type->name()))
       return emitError(type, diag::unexpected_unit_type);
     if (_symbols.checkType(type->name()))
       return emitError(type, diag::undefined_type);
@@ -234,6 +236,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 
   if (name == nn::matmul) {
     return semaMatmul(node);
+  }
+  if (name == nn::matadd) {
+    return semaMatadd(node);
   }
 
   llvm::ArrayRef<llvm::StringRef> parametersTypes;
@@ -497,8 +502,41 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
   if (lhsCols >= 0 && rhsRows >= 0 && lhsCols != rhsRows)
     return emitError(node, diag::mismatch_type);
 
-  node->setType(formatListTypeName(builtins::Float32Type,
+  node->setType(formatListTypeName(
+      builtins::Float32Type,
       llvm::ArrayRef<int64_t>{lhsType->shape[0], rhsType->shape[1]}));
+
+  return success();
+}
+
+auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  for (auto &expr : expressions)
+    if (sema(expr.get()))
+      return failure();
+
+  auto lhsType = parseListTypeName(expressions[0]->type());
+  auto rhsType = parseListTypeName(expressions[1]->type());
+  if (!lhsType || !rhsType)
+    return emitError(node, diag::mismatch_type);
+  if (lhsType->elementType != builtins::Float32Type ||
+      rhsType->elementType != builtins::Float32Type)
+    return emitError(node, diag::mismatch_type);
+  if (lhsType->shape.size() != 2 || rhsType->shape.size() != 2)
+    return emitError(node, diag::mismatch_type);
+
+  llvm::SmallVector<int64_t, 2> resultShape;
+  resultShape.reserve(lhsType->shape.size());
+  for (auto [lhsDim, rhsDim] : llvm::zip(lhsType->shape, rhsType->shape)) {
+    if (lhsDim >= 0 && rhsDim >= 0 && lhsDim != rhsDim)
+      return emitError(node, diag::mismatch_type);
+    resultShape.push_back(lhsDim >= 0 ? lhsDim : rhsDim);
+  }
+
+  node->setType(formatListTypeName(builtins::Float32Type, resultShape));
 
   return success();
 }
