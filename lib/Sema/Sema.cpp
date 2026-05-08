@@ -91,6 +91,7 @@ private:
   auto sema(ListAccessExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
   auto semaMatadd(CallExpr *node) -> CherryResult;
+  auto semaTranspose(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -239,6 +240,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == nn::matadd) {
     return semaMatadd(node);
+  }
+  if (name == nn::transpose) {
+    return semaTranspose(node);
   }
 
   llvm::ArrayRef<llvm::StringRef> parametersTypes;
@@ -537,6 +541,29 @@ auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
   }
 
   node->setType(formatListTypeName(builtins::Float32Type, resultShape));
+
+  return success();
+}
+
+auto SemaImpl::semaTranspose(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+
+  auto inputType = parseListTypeName(expressions[0]->type());
+  if (!inputType)
+    return emitError(node, diag::mismatch_type);
+  if (inputType->elementType != builtins::Float32Type)
+    return emitError(node, diag::mismatch_type);
+  if (inputType->shape.size() != 2)
+    return emitError(node, diag::mismatch_type);
+
+  node->setType(formatListTypeName(
+      builtins::Float32Type,
+      llvm::ArrayRef<int64_t>{inputType->shape[1], inputType->shape[0]}));
 
   return success();
 }

@@ -1,0 +1,19 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
+
+fn main(): UInt64 {
+  var a: Float32[2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+  var b: Float32[3, 2] = transpose(a);
+
+  0
+}
+
+# MLIR: memref.alloc() : memref<2x3xf32>
+# MLIR: memref.alloc() : memref<3x2xf32>
+# MLIR: cherry_nn.transpose
+
+# LINALG-NOT: cherry_nn.transpose
+# LINALG: linalg.transpose
+# LINALG-SAME: memref<2x3xf32>
+# LINALG-SAME: memref<3x2xf32>
+# LINALG-SAME: permutation = [1, 0]

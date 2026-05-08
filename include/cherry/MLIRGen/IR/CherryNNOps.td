@@ -33,4 +33,18 @@ def MataddOp : CherryNN_Op<"matadd"> {
   let hasVerifier = 0;
 }
 
+def TransposeOp : CherryNN_Op<"transpose"> {
+  let summary = "matrix transpose operation";
+  let description = [{
+      The "transpose" operation transposes a matrix
+  }];
+
+  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+
+  let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
 #endif // CHERRY_NN_OPS

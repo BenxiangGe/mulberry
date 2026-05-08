@@ -77,6 +77,7 @@ private:
   auto genPrint(const CallExpr *node) -> mlir::Value;
   auto genMatmul(const CallExpr *node) -> mlir::Value;
   auto genMatadd(const CallExpr *node) -> mlir::Value;
+  auto genTranspose(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
@@ -374,6 +375,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genMatmul(node);
   if (functionName == nn::matadd)
     return genMatadd(node);
+  if (functionName == nn::transpose)
+    return genTranspose(node);
 
   if (auto type = getType(functionName)) {
     if (auto recordType = llvm::dyn_cast<cir::RecordType>(type)) {
@@ -440,6 +443,15 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
   auto outType = getMemRefType(node->type());
   auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
   mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
+  return out;
+}
+
+auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto input = gen(expressions[0].get());
+  auto outType = getMemRefType(node->type());
+  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  mlir::cherry_nn::TransposeOp::create(_builder, loc(node), input, out);
   return out;
 }
 

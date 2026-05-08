@@ -57,6 +57,22 @@ public:
   }
 };
 
+class TransposeOpLowering : public OpRewritePattern<cherry_nn::TransposeOp> {
+public:
+  using OpRewritePattern<cherry_nn::TransposeOp>::OpRewritePattern;
+
+  auto matchAndRewrite(cherry_nn::TransposeOp op,
+                       PatternRewriter &rewriter) const -> LogicalResult final {
+    auto loc = op.getLoc();
+    linalg::TransposeOp::create(rewriter, loc, op.getInput(), op.getOut(),
+                                llvm::ArrayRef<int64_t>{1, 0});
+
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
 struct ConvertCherryNNToLinalg
     : public impl::ConvertCherryNNToLinalgBase<ConvertCherryNNToLinalg> {
 
@@ -69,7 +85,8 @@ struct ConvertCherryNNToLinalg
     target.addIllegalDialect<cherry_nn::CherryNNDialect>();
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<MatmulOpLowering, MataddOpLowering>(&getContext());
+    patterns.add<MatmulOpLowering, MataddOpLowering, TransposeOpLowering>(
+        &getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPartialConversion(getOperation(), target, patternSet)))
