@@ -47,4 +47,32 @@ def TransposeOp : CherryNN_Op<"transpose"> {
   let hasVerifier = 0;
 }
 
+def ExpOp : CherryNN_Op<"exp"> {
+  let summary = "elementwise exponential operation";
+  let description = [{
+      The "exp" operation applies exponential elementwise to a matrix
+  }];
+
+  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+
+  let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
+def SigmoidOp : CherryNN_Op<"sigmoid"> {
+  let summary = "elementwise sigmoid operation";
+  let description = [{
+      The "sigmoid" operation applies sigmoid elementwise to a matrix
+  }];
+
+  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+
+  let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
 #endif // CHERRY_NN_OPS

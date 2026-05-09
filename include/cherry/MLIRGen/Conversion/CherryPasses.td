@@ -22,7 +22,8 @@ def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
 
 def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
   let summary = "Convert Cherry NN operations to Linalg operations";
-  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect"];
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
+                           "math::MathDialect"];
 }
 
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {

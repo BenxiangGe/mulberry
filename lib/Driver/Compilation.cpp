@@ -9,8 +9,8 @@
 #include "KaleidoscopeJIT.h"
 #include "cherry/LLVMGen/LLVMGen.h"
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
+#include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/Parse/Lexer.h"
 #include "cherry/Parse/Parser.h"
@@ -24,6 +24,7 @@
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
@@ -70,7 +71,8 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
 
   auto compilation = std::make_unique<Compilation>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
+  compilation->_mlirContext
+      .getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();
@@ -78,6 +80,7 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
   compilation->_mlirContext.getOrLoadDialect<mlir::memref::MemRefDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
 
   compilation->_mlirContext.getOrLoadDialect<cir::CIRDialect>();
 

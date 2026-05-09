@@ -35,6 +35,8 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRFuncDialect
         MLIRLinalgDialect
         MLIRLinalgTransforms
+        MLIRMathDialect
+        MLIRMathToLLVM
         MLIRMemRefDialect
         MLIRSCFDialect
         clangCIR

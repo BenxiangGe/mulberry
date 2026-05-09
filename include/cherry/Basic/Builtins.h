@@ -35,6 +35,8 @@ namespace nn {
 const std::string matmul = "matmul";
 const std::string matadd = "matadd";
 const std::string transpose = "transpose";
+const std::string exp = "exp";
+const std::string sigmoid = "sigmoid";
 } // end namespace nn
 
 } // end namespace cherry
