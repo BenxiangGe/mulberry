@@ -136,6 +136,7 @@ private:
 
   auto parseDecimal_c(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseFloat_c(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseNegativeFloat_c(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseFuncStructVar_c(std::unique_ptr<Expr> &expr) -> CherryResult;
 

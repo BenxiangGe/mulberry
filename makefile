@@ -7,7 +7,8 @@ LLVM_COMMIT=llvmorg-22.1.0
 LLVM_PRESET=Debug
 LLVM_SRC_DIR=${PROJECT_DIR}/llvm-project
 LLVM_BUILD_DIR=${LLVM_SRC_DIR}/build/${LLVM_PRESET}
-LLVM_PYTHON_ENV=${HOME}/.venv/mlirdev
+# LLVM_PYTHON_ENV=${HOME}/.venv/mlirdev
+LLVM_PYTHON_ENV=/usr
 
 # _____________________________________________________________________________
 # Paths

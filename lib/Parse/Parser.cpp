@@ -315,6 +315,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseDecimal_c(expr);
   case Token::float_literal:
     return parseFloat_c(expr);
+  case Token::diff:
+    return parseNegativeFloat_c(expr);
   case Token::identifier:
     return parseFuncStructVar_c(expr);
   case Token::l_square:
@@ -405,6 +407,21 @@ auto Parser::parseFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   if (auto value = token().getFloat32Value()) {
     consume(Token::float_literal);
+    expr = make_unique<FloatLiteralExpr>(loc, std::move(*value));
+    return success();
+  }
+  return emitError(diag::float_literal_invalid);
+}
+
+auto Parser::parseNegativeFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::diff);
+  if (!tokenIs(Token::float_literal))
+    return emitError(diag::expected_expr);
+
+  if (auto value = token().getFloat32Value()) {
+    consume(Token::float_literal);
+    value->changeSign();
     expr = make_unique<FloatLiteralExpr>(loc, std::move(*value));
     return success();
   }
