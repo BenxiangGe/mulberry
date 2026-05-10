@@ -770,6 +770,10 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
+  if (llvm::isa<mlir::IntegerType>(value.getType()) &&
+      llvm::isa<cir::IntType>(type)) {
+    return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
+  }
   if (auto previousCast =
           value.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
     if (previousCast.getInputs().size() == 1 &&

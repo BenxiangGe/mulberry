@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
+#include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryTypes.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
@@ -48,6 +49,24 @@ public:
         rewriter.create<LLVM::ZExtOp>(loc, rewriter.getI64Type(), newOperand);
     rewriter.replaceOp(op, cast.getRes());
     return llvm::success();
+  }
+};
+
+class NNCastOpLowering : public OpConversionPattern<cherry_nn::CastOp> {
+public:
+  explicit NNCastOpLowering(LLVMTypeConverter &typeConverter,
+                            MLIRContext *context)
+      : OpConversionPattern<cherry_nn::CastOp>(typeConverter, context) {}
+
+  auto matchAndRewrite(cherry_nn::CastOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter &rewriter) const
+      -> LogicalResult final {
+    if (!llvm::isa<IntegerType>(op.getInput().getType()) ||
+        !llvm::isa<cir::IntType>(op.getResult().getType()))
+      return failure();
+
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
   }
 };
 
@@ -203,7 +222,7 @@ struct ConvertCherryToLLVM
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<CastOpLowering, PrintOpLowering,
+    patterns.add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
                  UnrealizedConversionCastOpLowering>(typeConverter,
                                                      &getContext());
 
