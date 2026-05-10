@@ -93,6 +93,7 @@ private:
   auto semaMatadd(CallExpr *node) -> CherryResult;
   auto semaTranspose(CallExpr *node) -> CherryResult;
   auto semaElementwiseNN(CallExpr *node) -> CherryResult;
+  auto semaArgmax(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -247,6 +248,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == nn::exp || name == nn::sigmoid) {
     return semaElementwiseNN(node);
+  }
+  if (name == nn::argmax) {
+    return semaArgmax(node);
   }
 
   llvm::ArrayRef<llvm::StringRef> parametersTypes;
@@ -589,6 +593,30 @@ auto SemaImpl::semaElementwiseNN(CallExpr *node) -> CherryResult {
     return emitError(node, diag::mismatch_type);
 
   node->setType(formatListTypeName(builtins::Float32Type, inputType->shape));
+
+  return success();
+}
+
+auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+
+  auto inputType = parseListTypeName(expressions[0]->type());
+  if (!inputType)
+    return emitError(node, diag::mismatch_type);
+  if (inputType->elementType != builtins::Float32Type)
+    return emitError(node, diag::mismatch_type);
+  if (inputType->shape.size() != 1 && inputType->shape.size() != 2)
+    return emitError(node, diag::mismatch_type);
+  for (auto dim : inputType->shape)
+    if (dim < 0)
+      return emitError(node, diag::mismatch_type);
+
+  node->setType(builtins::UInt64Type);
 
   return success();
 }

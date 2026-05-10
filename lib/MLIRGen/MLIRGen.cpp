@@ -79,6 +79,7 @@ private:
   auto genMatadd(const CallExpr *node) -> mlir::Value;
   auto genTranspose(const CallExpr *node) -> mlir::Value;
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
+  auto genArgmax(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
@@ -380,6 +381,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genTranspose(node);
   if (functionName == nn::exp || functionName == nn::sigmoid)
     return genElementwiseNN(node);
+  if (functionName == nn::argmax)
+    return genArgmax(node);
 
   if (auto type = getType(functionName)) {
     if (auto recordType = llvm::dyn_cast<cir::RecordType>(type)) {
@@ -471,6 +474,14 @@ auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
 
   mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
   return out;
+}
+
+auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto input = gen(expressions[0].get());
+  auto op = mlir::cherry_nn::ArgmaxOp::create(_builder, loc(node),
+                                              _builder.getI64Type(), input);
+  return op.getResult();
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
@@ -919,12 +930,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
 
   auto initValue = gen(node->init().get());
 
-  if (typeName != builtins::UnitType)
+  if (typeName != builtins::UnitType) {
+    initValue = castToType(initValue, getType(typeName), loc(node));
     cir::StoreOp::create(_builder, loc(node), initValue, alloca,
                          /*isVolatile=*/false,
                          /*alignment=*/mlir::IntegerAttr{},
                          /*sync_scope=*/cir::SyncScopeKindAttr(),
                          /*mem-order=*/cir::MemOrderAttr());
+  }
 }
 
 auto MLIRGenImpl::gen(const ExprStat *node) -> void {

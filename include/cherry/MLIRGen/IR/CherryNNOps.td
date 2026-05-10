@@ -75,6 +75,20 @@ def SigmoidOp : CherryNN_Op<"sigmoid"> {
   let hasVerifier = 0;
 }
 
+def ArgmaxOp : CherryNN_Op<"argmax"> {
+  let summary = "argmax operation";
+  let description = [{
+    The "argmax" operation returns the flat index of the maximum element.
+  }];
+
+  let arguments = (ins AnyMemRef:$input);
+  let results = (outs I64:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+
+  let hasVerifier = 0;
+}
+
 def CastOp : CherryNN_Op<"cast"> {
   let summary = "Cherry NN bridge cast operation";
   let description = [{

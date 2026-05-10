@@ -37,6 +37,7 @@ const std::string matadd = "matadd";
 const std::string transpose = "transpose";
 const std::string exp = "exp";
 const std::string sigmoid = "sigmoid";
+const std::string argmax = "argmax";
 } // end namespace nn
 
 } // end namespace cherry

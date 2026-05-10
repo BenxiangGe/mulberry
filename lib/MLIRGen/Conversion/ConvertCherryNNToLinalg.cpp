@@ -4,6 +4,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/APFloat.h"
 
@@ -128,6 +129,99 @@ public:
   }
 };
 
+class ArgmaxOpLowering : public OpRewritePattern<cherry_nn::ArgmaxOp> {
+public:
+  using OpRewritePattern<cherry_nn::ArgmaxOp>::OpRewritePattern;
+
+  auto matchAndRewrite(cherry_nn::ArgmaxOp op, PatternRewriter &rewriter) const
+      -> LogicalResult final {
+    auto loc = op.getLoc();
+    auto input = op.getInput();
+    auto inputType = dyn_cast<MemRefType>(input.getType());
+    if (!inputType || !inputType.hasStaticShape())
+      return failure();
+
+    auto rank = inputType.getRank();
+    if (rank != 1 && rank != 2)
+      return failure();
+
+    auto elementType = dyn_cast<FloatType>(inputType.getElementType());
+    if (!elementType)
+      return failure();
+
+    auto makeIndex = [&](int64_t value) -> Value {
+      return arith::ConstantIndexOp::create(rewriter, loc, value);
+    };
+
+    SmallVector<Value, 2> firstIndices{makeIndex(0)};
+    if (rank == 2)
+      firstIndices.push_back(makeIndex(0));
+
+    auto bestValueType = MemRefType::get({}, elementType);
+    auto bestIndexType = MemRefType::get({}, rewriter.getIndexType());
+    auto bestValue = memref::AllocOp::create(rewriter, loc, bestValueType);
+    auto bestIndex = memref::AllocOp::create(rewriter, loc, bestIndexType);
+    auto firstValue =
+        memref::LoadOp::create(rewriter, loc, input, firstIndices).getResult();
+    auto zeroIndex = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    memref::StoreOp::create(rewriter, loc, firstValue, bestValue);
+    memref::StoreOp::create(rewriter, loc, zeroIndex, bestIndex);
+
+    auto inputMap =
+        AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    auto scalarMap = AffineMap::get(rank, 0, {}, rewriter.getContext());
+    SmallVector<AffineMap, 3> indexingMaps{inputMap, scalarMap, scalarMap};
+    SmallVector<utils::IteratorType, 2> iteratorTypes(
+        rank, utils::IteratorType::reduction);
+
+    linalg::GenericOp::create(
+        rewriter, loc, ValueRange{input}, ValueRange{bestValue, bestIndex},
+        indexingMaps, iteratorTypes,
+        [&](OpBuilder &builder, Location location, ValueRange args) {
+          auto candidate = args[0];
+          auto previousBestValue = args[1];
+          auto previousBestIndex = args[2];
+
+          Value currentIndex = linalg::IndexOp::create(builder, location, 0);
+          if (rank == 2) {
+            auto row = currentIndex;
+            auto col = linalg::IndexOp::create(builder, location, 1);
+            auto dim1 = arith::ConstantIndexOp::create(
+                builder, location, inputType.getDimSize(1));
+            auto rowOffset =
+                arith::MulIOp::create(builder, location, row, dim1);
+            currentIndex =
+                arith::AddIOp::create(builder, location, rowOffset, col);
+          }
+
+          auto isGreater = arith::CmpFOp::create(
+              builder, location, arith::CmpFPredicate::OGT, candidate,
+              previousBestValue);
+          auto nextBestValue =
+              arith::SelectOp::create(builder, location, isGreater.getResult(),
+                                      candidate, previousBestValue)
+                  .getResult();
+          auto nextBestIndex =
+              arith::SelectOp::create(builder, location, isGreater.getResult(),
+                                      currentIndex, previousBestIndex)
+                  .getResult();
+          linalg::YieldOp::create(builder, location,
+                                  ValueRange{nextBestValue, nextBestIndex});
+        });
+
+    auto resultIndex =
+        memref::LoadOp::create(rewriter, loc, bestIndex, ValueRange{})
+            .getResult();
+    auto result =
+        arith::IndexCastOp::create(rewriter, loc, op.getResult().getType(),
+                                   resultIndex)
+            .getResult();
+    rewriter.replaceOp(op, result);
+
+    return success();
+  }
+};
+
 struct ConvertCherryNNToLinalg
     : public impl::ConvertCherryNNToLinalgBase<ConvertCherryNNToLinalg> {
 
@@ -137,13 +231,14 @@ struct ConvertCherryNNToLinalg
   auto runOnOperation() -> void final {
     ConversionTarget target(getContext());
     target.addLegalDialect<arith::ArithDialect, linalg::LinalgDialect,
-                           math::MathDialect>();
+                           math::MathDialect, memref::MemRefDialect>();
     target.addIllegalDialect<cherry_nn::CherryNNDialect>();
     target.addLegalOp<cherry_nn::CastOp>();
 
     RewritePatternSet patterns(&getContext());
     patterns.add<MatmulOpLowering, MataddOpLowering, TransposeOpLowering,
-                 ExpOpLowering, SigmoidOpLowering>(&getContext());
+                 ExpOpLowering, SigmoidOpLowering, ArgmaxOpLowering>(
+        &getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPartialConversion(getOperation(), target, patternSet)))

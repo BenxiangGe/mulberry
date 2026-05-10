@@ -1,0 +1,18 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn main(): UInt64 {
+  var t: UInt64[3] = [1, 2, 3];
+  var x: UInt64 = t[1];
+
+  x
+}
+
+# MLIR: memref.load
+# MLIR-SAME: memref<3xi64>
+# MLIR: cherry_nn.cast
+# MLIR-SAME: i64 to !cir.int<u, 64>
+
+# LLVM-NOT: cherry_nn.cast
+# LLVM: llvm.load
+# LLVM-SAME: i64

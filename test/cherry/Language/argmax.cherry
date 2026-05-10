@@ -1,0 +1,32 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn main(): UInt64 {
+  var a: Float32[4] = [1.0, 9.0, 3.0, 2.0];
+  var i: UInt64 = argmax(a);
+
+  i
+}
+
+# MLIR: cherry_nn.argmax
+# MLIR-SAME: memref<4xf32> -> i64
+# MLIR: cherry_nn.cast
+# MLIR-SAME: i64 to !cir.int<u, 64>
+
+# LINALG-NOT: cherry_nn.argmax
+# LINALG: memref.alloc() : memref<f32>
+# LINALG: memref.alloc() : memref<index>
+# LINALG: linalg.generic
+# LINALG-SAME: iterator_types = ["reduction"]
+# LINALG: linalg.index 0
+# LINALG: arith.cmpf ogt
+# LINALG: arith.select
+# LINALG: linalg.yield
+# LINALG-NOT: arith.index_castui
+# LINALG: arith.index_cast
+
+# LLVM-NOT: cherry_nn.argmax
+# LLVM-NOT: cherry_nn.cast
+# LLVM: llvm.fcmp "ogt"
+# LLVM: llvm.select
