@@ -785,19 +785,8 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
       llvm::isa<cir::IntType>(type)) {
     return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
   }
-  if (auto previousCast =
-          value.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
-    if (previousCast.getInputs().size() == 1 &&
-        previousCast.getInputs().front().getType() == type) {
-      auto input = previousCast.getInputs().front();
-      if (previousCast->use_empty())
-        previousCast.erase();
-      return input;
-    }
-  }
-  auto cast =
-      mlir::UnrealizedConversionCastOp::create(_builder, location, type, value);
-  return cast.getResult(0);
+
+  return nullptr;
 }
 
 auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {

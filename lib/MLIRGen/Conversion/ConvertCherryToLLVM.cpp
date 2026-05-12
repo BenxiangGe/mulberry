@@ -149,31 +149,6 @@ private:
   }
 };
 
-class UnrealizedConversionCastOpLowering
-    : public OpConversionPattern<UnrealizedConversionCastOp> {
-public:
-  explicit UnrealizedConversionCastOpLowering(LLVMTypeConverter &typeConverter,
-                                              MLIRContext *context)
-      : OpConversionPattern<UnrealizedConversionCastOp>(typeConverter,
-                                                        context) {}
-
-  auto matchAndRewrite(UnrealizedConversionCastOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    if (op.getInputs().size() != 1 || op.getResults().size() != 1)
-      return failure();
-
-    auto convertedType =
-        getTypeConverter()->convertType(op.getResultTypes()[0]);
-    if (!convertedType ||
-        convertedType != adaptor.getInputs().front().getType())
-      return failure();
-
-    rewriter.replaceOp(op, adaptor.getInputs().front());
-    return success();
-  }
-};
-
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -222,8 +197,7 @@ struct ConvertCherryToLLVM
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
-                 UnrealizedConversionCastOpLowering>(typeConverter,
+    patterns.add<CastOpLowering, NNCastOpLowering, PrintOpLowering>(typeConverter,
                                                      &getContext());
 
     // Conversion
