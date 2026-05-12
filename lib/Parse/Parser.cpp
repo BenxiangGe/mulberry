@@ -565,6 +565,8 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
   switch (tokenKind()) {
   case Token::kw_var:
     return parseVarDecl_c(stat);
+  case Token::kw_const:
+    return parseConstDecl_c(stat);
   default: {
     auto loc = tokenLoc();
     unique_ptr<Expr> expr;
@@ -577,8 +579,17 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
 }
 
 auto Parser::parseVarDecl_c(unique_ptr<Stat> &stat) -> CherryResult {
+  return parseVariableDecl_c(stat, /*isConst=*/false);
+}
+
+auto Parser::parseConstDecl_c(unique_ptr<Stat> &stat) -> CherryResult {
+  return parseVariableDecl_c(stat, /*isConst=*/true);
+}
+
+auto Parser::parseVariableDecl_c(unique_ptr<Stat> &stat, bool isConst)
+    -> CherryResult {
   auto loc = tokenLoc();
-  consume(Token::kw_var);
+  consume(isConst ? Token::kw_const : Token::kw_var);
   unique_ptr<VariableExpr> var;
   unique_ptr<Type> type;
   unique_ptr<Expr> e;
@@ -587,6 +598,6 @@ auto Parser::parseVarDecl_c(unique_ptr<Stat> &stat) -> CherryResult {
       parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
     return failure();
   stat = make_unique<VariableStat>(loc, std::move(var), std::move(type),
-                                   std::move(e));
+                                   std::move(e), isConst);
   return success();
 }

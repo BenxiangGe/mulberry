@@ -1,0 +1,23 @@
+# RUN: cherry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn main(): UInt64 {
+  const answer: UInt64 = 42;
+  const weights: Float32[2, 2] = [[1.0, 2.0], [3.0, 4.0]];
+  var pred: UInt64 = argmax(weights);
+
+  answer + pred
+}
+
+# TOKENS: kw_const 'const'
+# TOKENS: kw_const 'const'
+
+# AST: VariableStat const
+# AST-SAME: id=answer
+# AST: VariableStat const
+# AST-SAME: id=weights
+
+# MLIR: cir.const #cir.int<42>
+# MLIR: cherry_nn.argmax
+# MLIR-SAME: memref<2x2xf32> -> i64

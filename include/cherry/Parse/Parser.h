@@ -155,6 +155,9 @@ private:
   auto parseStatementWithoutSemi(std::unique_ptr<Stat> &stat) -> CherryResult;
 
   auto parseVarDecl_c(std::unique_ptr<Stat> &stat) -> CherryResult;
+  auto parseConstDecl_c(std::unique_ptr<Stat> &stat) -> CherryResult;
+  auto parseVariableDecl_c(std::unique_ptr<Stat> &stat, bool isConst)
+      -> CherryResult;
 };
 
 } // end namespace cherry

@@ -18,6 +18,11 @@ namespace cherry {
 using llvm::failure;
 using llvm::success;
 
+struct VariableSymbol {
+  llvm::StringRef type;
+  bool isConst = false;
+};
+
 class Symbols {
 public:
   auto addBuiltins() -> void {
@@ -83,12 +88,12 @@ public:
 
   auto resetVariables() { _variableSymbols = {}; }
 
-  auto declareVariable(const VariableExpr *var, llvm::StringRef type)
-      -> CherryResult {
+  auto declareVariable(const VariableExpr *var, llvm::StringRef type,
+                       bool isConst = false) -> CherryResult {
     auto name = var->name();
     if (_variableSymbols.find(name) != _variableSymbols.end())
       return failure();
-    _variableSymbols.insert(std::make_pair(name, type));
+    _variableSymbols.insert(std::make_pair(name, VariableSymbol{type, isConst}));
     return success();
   }
 
@@ -103,7 +108,15 @@ public:
     if (symbol == _variableSymbols.end()) {
       return failure();
     }
-    type = symbol->second;
+    type = symbol->second.type;
+    return success();
+  }
+
+  auto isConstVariable(llvm::StringRef name, bool &isConst) -> CherryResult {
+    auto symbol = _variableSymbols.find(name);
+    if (symbol == _variableSymbols.end())
+      return failure();
+    isConst = symbol->second.isConst;
     return success();
   }
 
@@ -118,7 +131,7 @@ private:
   std::map</*name*/ llvm::StringRef,
            /*types*/ const VectorUniquePtr<VariableStat> *>
       _typeSymbols;
-  std::map</*name*/ llvm::StringRef, /*type*/ llvm::StringRef> _variableSymbols;
+  std::map</*name*/ llvm::StringRef, VariableSymbol> _variableSymbols;
 };
 
 } // end namespace cherry

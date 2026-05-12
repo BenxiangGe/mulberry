@@ -86,6 +86,9 @@ private:
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaRhsLhsSameType(BinaryExpr *node, llvm::StringRef &type)
       -> CherryResult;
+  auto checkAssignable(const Expr *expr) -> CherryResult;
+  auto checkConstListUseAsMutable(const Expr *expr) -> CherryResult;
+  auto checkConstListBinding(const VariableStat *node) -> CherryResult;
   auto semaStructReadOp(BinaryExpr *node) -> CherryResult;
   auto sema(ListLiteralExpr *expr) -> CherryResult;
   auto sema(ListAccessExpr *expr) -> CherryResult;
@@ -278,6 +281,8 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
       return failure();
     if (!typesMatch(type, expr->type()))
       return emitError(expr.get(), diag::mismatch_type);
+    if (isListTypeName(type) && checkConstListUseAsMutable(expr.get()))
+      return failure();
   }
 
   node->setType(returnType);
@@ -338,6 +343,10 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
       return llvm::failure();
     if (!node->lhs()->isLvalue())
       return emitError(node->lhs().get(), diag::expected_lvalue);
+    if (checkAssignable(node->lhs().get()))
+      return failure();
+    if (isListTypeName(type) && checkConstListUseAsMutable(node->rhs().get()))
+      return failure();
     node->setType(builtins::UnitType);
     return success();
   }
@@ -406,6 +415,53 @@ auto SemaImpl::semaRhsLhsSameType(BinaryExpr *node, llvm::StringRef &type)
     return emitError(node->lhs().get(), diag::mismatch_type);
   type = lhsType;
   return success();
+}
+
+auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
+  if (auto *var = llvm::dyn_cast<VariableExpr>(expr)) {
+    bool isConst = false;
+    if (_symbols.isConstVariable(var->name(), isConst))
+      return emitError(var->location(), diag::undefined_var);
+    if (isConst)
+      return emitError(var->location(), diag::assign_const);
+    return success();
+  }
+
+  if (auto *listAccess = llvm::dyn_cast<ListAccessExpr>(expr)) {
+    bool isConst = false;
+    if (_symbols.isConstVariable(listAccess->getVarName(), isConst))
+      return emitError(listAccess->location(), diag::undefined_var);
+    if (isConst)
+      return emitError(listAccess->location(), diag::assign_const);
+    return success();
+  }
+
+  if (auto *memberAccess = llvm::dyn_cast<BinaryExpr>(expr)) {
+    if (memberAccess->opEnum() == BinaryExpr::Operator::StructRead)
+      return checkAssignable(memberAccess->lhs().get());
+  }
+
+  return success();
+}
+
+auto SemaImpl::checkConstListUseAsMutable(const Expr *expr) -> CherryResult {
+  auto *var = llvm::dyn_cast<VariableExpr>(expr);
+  if (!var)
+    return success();
+
+  bool isConst = false;
+  if (_symbols.isConstVariable(var->name(), isConst))
+    return emitError(var->location(), diag::undefined_var);
+  if (isConst)
+    return emitError(var->location(), diag::const_to_mutable);
+  return success();
+}
+
+auto SemaImpl::checkConstListBinding(const VariableStat *node)
+    -> CherryResult {
+  if (node->isConst() || !isListTypeName(node->varType()->name()))
+    return success();
+  return checkConstListUseAsMutable(node->init().get());
 }
 
 auto SemaImpl::semaStructReadOp(BinaryExpr *node) -> CherryResult {
@@ -679,7 +735,7 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
     return emitError(varType, diag::unexpected_unit_type);
   if (_symbols.checkType(varTypeName))
     return emitError(varType, diag::undefined_type);
-  if (_symbols.declareVariable(var, varTypeName))
+  if (_symbols.declareVariable(var, varTypeName, node->isConst()))
     return emitError(var, diag::redefinition_var);
 
   auto initExpr = node->init().get();
@@ -687,6 +743,8 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
     return failure();
   if (!typesMatch(varTypeName, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
+  if (checkConstListBinding(node))
+    return failure();
   return success();
 }
 

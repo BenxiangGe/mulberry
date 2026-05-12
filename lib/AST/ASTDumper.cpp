@@ -224,7 +224,10 @@ auto Dumper::dump(const VariableStat *node) -> void {
   auto id = node->variable().get();
   auto varType = node->varType().get();
   INDENT();
-  errs() << "VariableStat (id=" << id->name() << " " << loc(id)
+  errs() << "VariableStat ";
+  if (node->isConst())
+    errs() << "const ";
+  errs() << "(id=" << id->name() << " " << loc(id)
          << ") (type=" << varType->name() << " " << loc(varType) << ")\n";
   if (node->init())
     dump(node->init().get());
