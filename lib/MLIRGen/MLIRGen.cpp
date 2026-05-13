@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -28,6 +29,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <map>
+#include <string>
 
 namespace {
 using namespace mlir::cherry;
@@ -39,6 +41,8 @@ using llvm::success;
 
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "MLIRGen"
+
+constexpr int64_t kGlobalListLiteralElementThreshold = 64;
 
 class MLIRGenImpl {
 public:
@@ -61,6 +65,7 @@ private:
   std::map<llvm::StringRef, cir::FuncOp> _functionOps;
   std::map<llvm::StringRef, const StructDecl *> _structNodes;
   llvm::StringRef _fileNameIdentifier;
+  int _globalListCounter = 0;
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
@@ -97,6 +102,8 @@ private:
   auto genStructLiteral(const CallExpr *callExpr, llvm::StringRef typeName,
                         mlir::Value targetPtr) -> mlir::Value;
   auto gen(const ListLiteralExpr *expr) -> mlir::Value;
+  auto genGlobalListLiteral(const ListLiteralExpr *expr,
+                            llvm::StringRef varName) -> mlir::Value;
   void storeListElements(const ListLiteralExpr *expr, mlir::Value memref,
                          mlir::Type elementType,
                          llvm::SmallVectorImpl<mlir::Value> &indices);
@@ -113,6 +120,14 @@ private:
       -> mlir::Value;
   auto getMemRefElementType(llvm::StringRef name) -> mlir::Type;
   auto getMemRefType(llvm::StringRef name) -> mlir::MemRefType;
+  auto getMemRefElementCount(mlir::MemRefType memRefType) -> int64_t;
+  auto isConstantListLiteral(const ListLiteralExpr *expr) -> bool;
+  auto shouldPromoteConstListLiteral(const ListLiteralExpr *expr) -> bool;
+  auto getDenseElementAttr(const Expr *expr, mlir::Type elementType)
+      -> mlir::Attribute;
+  void collectDenseElementAttrs(const ListLiteralExpr *expr,
+                                mlir::Type elementType,
+                                llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   auto getCIRFunctionReturnType(llvm::StringRef name) -> mlir::Type;
 
   // Utility
@@ -770,6 +785,80 @@ auto MLIRGenImpl::getMemRefType(llvm::StringRef name) -> mlir::MemRefType {
                                getMemRefElementType(listType->elementType));
 }
 
+auto MLIRGenImpl::getMemRefElementCount(mlir::MemRefType memRefType)
+    -> int64_t {
+  int64_t count = 1;
+  for (auto dim : memRefType.getShape()) {
+    if (dim < 0)
+      return -1;
+    count *= dim;
+  }
+  return count;
+}
+
+auto MLIRGenImpl::isConstantListLiteral(const ListLiteralExpr *expr) -> bool {
+  for (auto &element : expr->getElements()) {
+    auto *childExpr = element.get();
+    if (auto *nestedList = llvm::dyn_cast<ListLiteralExpr>(childExpr)) {
+      if (!isConstantListLiteral(nestedList))
+        return false;
+      continue;
+    }
+
+    if (!llvm::isa<DecimalLiteralExpr, FloatLiteralExpr, BoolLiteralExpr>(
+            childExpr))
+      return false;
+  }
+  return true;
+}
+
+auto MLIRGenImpl::shouldPromoteConstListLiteral(const ListLiteralExpr *expr)
+    -> bool {
+  auto memRefType = getMemRefType(expr->type());
+  auto elementCount = getMemRefElementCount(memRefType);
+  if (elementCount < kGlobalListLiteralElementThreshold)
+    return false;
+  return isConstantListLiteral(expr);
+}
+
+auto MLIRGenImpl::getDenseElementAttr(const Expr *expr,
+                                      mlir::Type elementType)
+    -> mlir::Attribute {
+  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(expr)) {
+    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(elementType))
+      return mlir::IntegerAttr::get(
+          elementType, llvm::APInt(intType.getWidth(), decimal->value()));
+    if (llvm::isa<mlir::FloatType>(elementType))
+      return mlir::FloatAttr::get(elementType,
+                                  static_cast<double>(decimal->value()));
+  }
+
+  if (auto *boolean = llvm::dyn_cast<BoolLiteralExpr>(expr)) {
+    auto intType = llvm::cast<mlir::IntegerType>(elementType);
+    return mlir::IntegerAttr::get(
+        elementType, llvm::APInt(intType.getWidth(), boolean->value()));
+  }
+
+  if (auto *floating = llvm::dyn_cast<FloatLiteralExpr>(expr))
+    return mlir::FloatAttr::get(elementType, floating->value());
+
+  llvm_unreachable("expected constant list element");
+}
+
+void MLIRGenImpl::collectDenseElementAttrs(
+    const ListLiteralExpr *expr, mlir::Type elementType,
+    llvm::SmallVectorImpl<mlir::Attribute> &attrs) {
+  for (auto &element : expr->getElements()) {
+    auto *childExpr = element.get();
+    if (auto *nestedList = llvm::dyn_cast<ListLiteralExpr>(childExpr)) {
+      collectDenseElementAttrs(nestedList, elementType, attrs);
+      continue;
+    }
+
+    attrs.push_back(getDenseElementAttr(childExpr, elementType));
+  }
+}
+
 auto MLIRGenImpl::getCIRFunctionReturnType(llvm::StringRef name) -> mlir::Type {
   auto type = getType(name);
   if (type == _builder.getNoneType())
@@ -842,6 +931,37 @@ auto MLIRGenImpl::gen(const ListLiteralExpr *expr) -> mlir::Value {
   return allocatedList;
 }
 
+auto MLIRGenImpl::genGlobalListLiteral(const ListLiteralExpr *expr,
+                                       llvm::StringRef varName)
+    -> mlir::Value {
+  auto memRefType = getMemRefType(expr->type());
+  llvm::SmallVector<mlir::Attribute, 8> attrs;
+  collectDenseElementAttrs(expr, memRefType.getElementType(), attrs);
+
+  auto tensorType = mlir::RankedTensorType::get(
+      memRefType.getShape(), memRefType.getElementType());
+  auto initialValue = mlir::DenseElementsAttr::get(tensorType, attrs);
+  std::string symbolName = "__cherry_global_" + varName.str() + "_" +
+                           std::to_string(_globalListCounter++);
+
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    auto &body = module.getBodyRegion().front();
+    auto insertPoint = body.begin();
+    while (insertPoint != body.end() &&
+           llvm::isa<mlir::memref::GlobalOp>(*insertPoint))
+      ++insertPoint;
+    _builder.setInsertionPoint(&body, insertPoint);
+    mlir::memref::GlobalOp::create(
+        _builder, loc(expr), symbolName, _builder.getStringAttr("private"),
+        memRefType, initialValue, /*constant=*/true,
+        /*alignment=*/mlir::IntegerAttr{});
+  }
+
+  return mlir::memref::GetGlobalOp::create(_builder, loc(expr), memRefType,
+                                           symbolName);
+}
+
 void MLIRGenImpl::storeListElements(
     const ListLiteralExpr *expr, mlir::Value memref, mlir::Type elementType,
     llvm::SmallVectorImpl<mlir::Value> &indices) {
@@ -898,6 +1018,16 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto varName = node->variable()->name();
 
   if (isListTypeName(typeName)) {
+    if (node->isConst()) {
+      if (auto *listLiteral =
+              llvm::dyn_cast<ListLiteralExpr>(node->init().get())) {
+        if (shouldPromoteConstListLiteral(listLiteral)) {
+          _variableSymbols[varName] = genGlobalListLiteral(listLiteral, varName);
+          return;
+        }
+      }
+    }
+
     _variableSymbols[varName] = gen(node->init().get());
     return;
   }

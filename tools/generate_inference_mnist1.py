@@ -127,10 +127,11 @@ def formatMatrixLiteral(matrix: np.ndarray, indent: str = "    ") -> str:
     return "[\n" + ",\n".join(rows) + "\n  ]"
 
 
-def emitVariable(name: str, matrix: np.ndarray) -> str:
+def emitVariable(name: str, matrix: np.ndarray, isConst: bool = False) -> str:
     rows, cols = matrix.shape
     literal = formatMatrixLiteral(matrix)
-    return f"  var {name}: Float32[{rows}, {cols}] = {literal};"
+    keyword = "const" if isConst else "var"
+    return f"  {keyword} {name}: Float32[{rows}, {cols}] = {literal};"
 
 
 def formatPathForComment(path: Path) -> str:
@@ -155,12 +156,12 @@ def writeCherrySource(
     output.parent.mkdir(parents=True, exist_ok=True)
     body = "\n\n".join(
         [
-            emitVariable("w1", w1),
-            emitVariable("b1", b1),
-            emitVariable("w2", w2),
-            emitVariable("b2", b2),
-            emitVariable("x", x),
-            f"  var y: UInt64 = {y};",
+            emitVariable("w1", w1, isConst=True),
+            emitVariable("b1", b1, isConst=True),
+            emitVariable("w2", w2, isConst=True),
+            emitVariable("b2", b2, isConst=True),
+            emitVariable("x", x, isConst=True),
+            f"  const y: UInt64 = {y};",
             "  var z1: Float32[30, 1] = matadd(matmul(w1, x), b1);",
             "  var a1: Float32[30, 1] = sigmoid(z1);",
             "  var z2: Float32[10, 1] = matadd(matmul(w2, a1), b2);",
