@@ -75,21 +75,12 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
-  auto setStructInitializerType(const StructType *type) -> void {
-    _structInitializerType = type;
-  }
-
-  auto structInitializerType() const -> const StructType * {
-    return _structInitializerType;
-  }
-
   auto expressions() const -> const VectorUniquePtr<Expr> & {
     return _expressions;
   }
 
 private:
   std::string _name;
-  const StructType *_structInitializerType = nullptr;
   VectorUniquePtr<Expr> _expressions;
 
 public:

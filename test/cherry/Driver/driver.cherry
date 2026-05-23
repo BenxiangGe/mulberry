@@ -39,7 +39,7 @@ fn bar(x: UInt64, y: Bool): B {
   	()
   };
 
-  B(k, A())
+  B { k, A {} }
 }
 
 fn baz(): () {

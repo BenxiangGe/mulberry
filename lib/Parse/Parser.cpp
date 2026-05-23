@@ -307,6 +307,15 @@ auto Parser::parseExpression(unique_ptr<Expr> &expr) -> CherryResult {
   }
 }
 
+auto Parser::parseExpressionBeforeBlock(unique_ptr<Expr> &expr)
+    -> CherryResult {
+  auto oldStopBeforeBlockBrace = _stopBeforeBlockBrace;
+  _stopBeforeBlockBrace = true;
+  auto result = parseExpression(expr);
+  _stopBeforeBlockBrace = oldStopBeforeBlockBrace;
+  return result;
+}
+
 auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
                               Token::Kind separator, Token::Kind end,
                               const char *const separator_error,
@@ -374,7 +383,7 @@ auto Parser::parseIfExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> thenBlock;
   unique_ptr<BlockExpr> elseBlock;
-  if (parseExpression(condition) ||
+  if (parseExpressionBeforeBlock(condition) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(thenBlock) ||
       parseToken(Token::kw_else, diag::expected_else) ||
@@ -392,7 +401,7 @@ auto Parser::parseWhileExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::kw_while);
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> bodyBlock;
-  if (parseExpression(condition) ||
+  if (parseExpressionBeforeBlock(condition) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(bodyBlock))
     return failure();
@@ -443,6 +452,12 @@ auto Parser::parseFuncStructVar_c(unique_ptr<Expr> &expr) -> CherryResult {
   switch (tokenKind()) {
   case Token::l_paren:
     return parseFunctionCall_c(location, name, expr);
+  case Token::l_brace:
+    if (_stopBeforeBlockBrace) {
+      expr = make_unique<VariableExpr>(location, name);
+      return success();
+    }
+    return parseStructInit_c(location, name, expr);
   case Token::l_square:
     return parseListAccess(location, name, expr);
   default:
@@ -459,6 +474,17 @@ auto Parser::parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
                        diag::expected_comma_or_r_paren, diag::expected_r_paren))
     return failure();
   expr = make_unique<CallExpr>(location, name, std::move(expressions));
+  return success();
+}
+
+auto Parser::parseStructInit_c(llvm::SMLoc location, std::string_view name,
+                               unique_ptr<Expr> &expr) -> CherryResult {
+  consume(Token::l_brace);
+  auto expressions = VectorUniquePtr<Expr>();
+  if (parseExpressions(expressions, Token::comma, Token::r_brace,
+                       diag::expected_comma_or_r_brace, diag::expected_r_brace))
+    return failure();
+  expr = make_unique<StructInitExpr>(location, name, std::move(expressions));
   return success();
 }
 
@@ -491,6 +517,11 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
     } else if ((tokPrec == nextPrec) && isTokenRightAssociative()) {
       if (parseBinaryExpRHS(tokPrec, rhs))
         return failure();
+    }
+    if (t.is(Token::assign)) {
+      expr = std::make_unique<AssignExpr>(location, std::move(expr),
+                                          std::move(rhs));
+      continue;
     }
     expr = std::make_unique<BinaryExpr>(location, tokenToOperator(t),
                                         std::move(expr), std::move(rhs));
@@ -552,8 +583,6 @@ auto Parser::isTokenRightAssociative() -> bool {
 
 auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
   switch (token.getKind()) {
-  case Token::assign:
-    return BinaryExpr::Operator::Assign;
   case Token::add:
     return BinaryExpr::Operator::Add;
   case Token::diff:

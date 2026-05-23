@@ -18,7 +18,6 @@ namespace cherry {
 class BinaryExpr final : public Expr {
 public:
   enum class Operator {
-    Assign,
     Add,
     Mul,
     Diff,
@@ -49,8 +48,6 @@ public:
 
   auto op() const -> std::string_view {
     switch (_op) {
-    case Operator::Assign:
-      return "=";
     case Operator::Add:
       return "+";
     case Operator::Diff:
