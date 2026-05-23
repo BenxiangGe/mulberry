@@ -19,7 +19,6 @@ class BinaryExpr final : public Expr {
 public:
   enum class Operator {
     Assign,
-    StructRead,
     Add,
     Mul,
     Diff,
@@ -52,8 +51,6 @@ public:
     switch (_op) {
     case Operator::Assign:
       return "=";
-    case Operator::StructRead:
-      return ".";
     case Operator::Add:
       return "+";
     case Operator::Diff:
@@ -85,17 +82,10 @@ public:
 
   auto opEnum() const -> Operator { return _op; }
 
-  auto isLvalue() const -> bool override { return _op == Operator::StructRead; }
-
-  auto index() const -> int { return _index; }
-
-  auto setIndex(int index) { _index = index; }
-
 private:
   Operator _op;
   std::unique_ptr<Expr> _lhs;
   std::unique_ptr<Expr> _rhs;
-  int _index;
 };
 
 } // end namespace cherry

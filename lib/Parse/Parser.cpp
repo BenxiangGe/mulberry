@@ -470,6 +470,13 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
       return success();
 
     Token t = token();
+
+    if (t.is(Token::dot)) {
+      if (parseMemberExprRHS(expr))
+        return failure();
+      continue;
+    }
+
     consume(t.getKind());
     auto location = tokenLoc();
 
@@ -488,6 +495,20 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
     expr = std::make_unique<BinaryExpr>(location, tokenToOperator(t),
                                         std::move(expr), std::move(rhs));
   }
+}
+
+auto Parser::parseMemberExprRHS(std::unique_ptr<Expr> &expr)
+    -> CherryResult {
+  auto location = tokenLoc();
+  consume(Token::dot);
+
+  auto fieldName = spelling();
+  if (parseToken(Token::identifier, diag::expected_id))
+    return failure();
+
+  expr =
+      std::make_unique<MemberExpr>(location, std::move(expr), fieldName);
+  return success();
 }
 
 auto Parser::getTokenPrecedence() -> int {
@@ -533,8 +554,6 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
   switch (token.getKind()) {
   case Token::assign:
     return BinaryExpr::Operator::Assign;
-  case Token::dot:
-    return BinaryExpr::Operator::StructRead;
   case Token::add:
     return BinaryExpr::Operator::Add;
   case Token::diff:

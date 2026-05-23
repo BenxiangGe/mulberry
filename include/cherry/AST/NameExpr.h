@@ -33,6 +33,35 @@ private:
   std::string _name;
 };
 
+class MemberExpr final : public Expr {
+public:
+  MemberExpr(llvm::SMLoc location, std::unique_ptr<Expr> base,
+             std::string_view fieldName)
+      : Expr{Expr_Member, location}, _base(std::move(base)),
+        _fieldName(fieldName) {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_Member;
+  }
+
+  auto base() const -> const std::unique_ptr<Expr> & { return _base; }
+
+  auto fieldName() const -> std::string_view { return _fieldName; }
+
+  auto isLvalue() const -> bool override { return _base->isLvalue(); }
+
+  auto fieldIndex() const -> unsigned { return _fieldIndex; }
+
+  auto setFieldIndex(unsigned fieldIndex) -> void {
+    _fieldIndex = fieldIndex;
+  }
+
+private:
+  std::unique_ptr<Expr> _base;
+  std::string _fieldName;
+  unsigned _fieldIndex = 0;
+};
+
 class CallExpr final : public Expr {
 public:
   explicit CallExpr(llvm::SMLoc location, std::string_view name,

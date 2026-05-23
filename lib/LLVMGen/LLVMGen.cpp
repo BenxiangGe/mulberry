@@ -93,13 +93,13 @@ private:
                             const StructType *cherryStructType)
       -> llvm::Value *;
   auto gen(const VariableExpr *node) -> llvm::Value *;
+  auto gen(const MemberExpr *node) -> llvm::Value *;
   auto gen(const DecimalLiteralExpr *node) -> llvm::Value *;
   auto gen(const FloatLiteralExpr *node) -> llvm::Value *;
   auto gen(const BoolLiteralExpr *node) -> llvm::Value *;
   auto gen(const BinaryExpr *node) -> llvm::Value *;
   auto genAssignOp(const BinaryExpr *node) -> llvm::Value *;
-  auto genStructReadOp(const BinaryExpr *node) -> llvm::Value *;
-  auto genStructAddress(const BinaryExpr *node)
+  auto genMemberAddress(const MemberExpr *node)
       -> std::pair<llvm::Value *, llvm::Type *>;
   auto gen(const IfExpr *node) -> llvm::Value *;
   auto gen(const WhileExpr *node) -> llvm::Value *;
@@ -450,6 +450,8 @@ auto LLVMGenImpl::gen(const Expr *node) -> llvm::Value * {
     return gen(cast<CallExpr>(node));
   case Expr::Expr_Variable:
     return gen(cast<VariableExpr>(node));
+  case Expr::Expr_Member:
+    return gen(cast<MemberExpr>(node));
   case Expr::Expr_Binary:
     return gen(cast<BinaryExpr>(node));
   case Expr::Expr_If:
@@ -531,6 +533,12 @@ auto LLVMGenImpl::gen(const VariableExpr *node) -> llvm::Value * {
     return getUnit();
 }
 
+auto LLVMGenImpl::gen(const MemberExpr *node) -> llvm::Value * {
+  emitLocation(node);
+  auto [address, type] = genMemberAddress(node);
+  return _builder.CreateLoad(type, address);
+}
+
 auto LLVMGenImpl::gen(const DecimalLiteralExpr *node) -> llvm::Value * {
   emitLocation(node);
   return llvm::ConstantInt::get(
@@ -558,8 +566,6 @@ auto LLVMGenImpl::gen(const BinaryExpr *node) -> llvm::Value * {
   switch (op) {
   case Operator::Assign:
     return genAssignOp(node);
-  case Operator::StructRead:
-    return genStructReadOp(node);
   default:
     break;
   }
@@ -626,8 +632,8 @@ auto LLVMGenImpl::genAssignOp(const BinaryExpr *node) -> llvm::Value * {
       .Case<VariableExpr>([&](const auto *node) {
         address = structAddress = getVariable(node->name());
       })
-      .Case<BinaryExpr>([&](const auto *node) {
-        address = structAddress = genStructAddress(node).first;
+      .Case<MemberExpr>([&](const auto *node) {
+        address = structAddress = genMemberAddress(node).first;
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -639,29 +645,23 @@ auto LLVMGenImpl::genAssignOp(const BinaryExpr *node) -> llvm::Value * {
   return getUnit();
 }
 
-auto LLVMGenImpl::genStructReadOp(const BinaryExpr *node) -> llvm::Value * {
-  emitLocation(node);
-  auto [address, type] = genStructAddress(node);
-  return _builder.CreateLoad(type, address);
-}
-
-auto LLVMGenImpl::genStructAddress(const BinaryExpr *node)
+auto LLVMGenImpl::genMemberAddress(const MemberExpr *node)
     -> std::pair<llvm::Value *, llvm::Type *> {
   emitLocation(node);
-  auto lhs = node->lhs().get();
-  auto *structType = getLLVMStructType(lhs);
+  auto base = node->base().get();
+  auto *structType = getLLVMStructType(base);
   auto index0 = getConstantInt(32, 0);
-  auto fieldIndex = getConstantInt(32, node->index());
+  auto fieldIndex = getConstantInt(32, node->fieldIndex());
   llvm::Value *address;
-  llvm::TypeSwitch<const Expr *>(lhs)
+  llvm::TypeSwitch<const Expr *>(base)
       .Case<VariableExpr>(
           [&](auto *node) { address = getVariable(node->name()); })
-      .Case<BinaryExpr>(
-          [&](const auto *node) { address = genStructAddress(node).first; })
+      .Case<MemberExpr>(
+          [&](const auto *node) { address = genMemberAddress(node).first; })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
 
-  auto type = structType->getTypeAtIndex(node->index());
+  auto type = structType->getTypeAtIndex(node->fieldIndex());
   return std::make_pair(
       _builder.CreateGEP(structType, address, {index0, fieldIndex}), type);
 }

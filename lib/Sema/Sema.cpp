@@ -91,6 +91,7 @@ private:
   auto semaStructInitializer(CallExpr *node, const StructType *structType)
       -> CherryResult;
   auto sema(VariableExpr *node) -> CherryResult;
+  auto sema(MemberExpr *node) -> CherryResult;
   auto sema(DecimalLiteralExpr *node) -> CherryResult;
   auto sema(FloatLiteralExpr *node) -> CherryResult;
   auto sema(BoolLiteralExpr *node) -> CherryResult;
@@ -100,7 +101,6 @@ private:
   auto checkConstListUseAsMutable(const Expr *expr) -> CherryResult;
   auto checkConstListBinding(const VariableStat *node,
                              const Type *type) -> CherryResult;
-  auto semaStructReadOp(BinaryExpr *node) -> CherryResult;
   auto sema(ListLiteralExpr *expr) -> CherryResult;
   auto sema(ListAccessExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
@@ -354,6 +354,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<CallExpr>(node));
   case Expr::Expr_Variable:
     return sema(cast<VariableExpr>(node));
+  case Expr::Expr_Member:
+    return sema(cast<MemberExpr>(node));
   case Expr::Expr_ListLiteral:
     return sema(cast<ListLiteralExpr>(node));
   case Expr::Expr_ListAccess:
@@ -464,6 +466,28 @@ auto SemaImpl::sema(VariableExpr *node) -> CherryResult {
   return success();
 }
 
+auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
+  if (sema(node->base().get()))
+    return failure();
+
+  if (!node->base()->isLvalue())
+    return emitError(node->base().get(), diag::expected_lvalue);
+
+  auto *structType = cherry::getStructType(node->base()->type());
+  if (!structType)
+    return emitError(node->base().get(), diag::mismatch_type);
+
+  auto *field = structType->field(node->fieldName());
+  if (!field)
+    return emitError(node, diag::undefined_field);
+  if (!field->type())
+    return emitError(node, diag::mismatch_type);
+
+  node->setType(field->type());
+  node->setFieldIndex(field->index());
+  return success();
+}
+
 auto SemaImpl::sema(DecimalLiteralExpr *node) -> CherryResult {
   setBuiltinType(node, BuiltinTypeKind::UInt64);
   return success();
@@ -495,8 +519,6 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
     setBuiltinType(node, BuiltinTypeKind::Unit);
     return success();
   }
-  case Operator::StructRead:
-    return semaStructReadOp(node);
   default:
     break;
   }
@@ -577,10 +599,8 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
     return success();
   }
 
-  if (auto *memberAccess = llvm::dyn_cast<BinaryExpr>(expr)) {
-    if (memberAccess->opEnum() == BinaryExpr::Operator::StructRead)
-      return checkAssignable(memberAccess->lhs().get());
-  }
+  if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr))
+    return checkAssignable(memberAccess->base().get());
 
   return success();
 }
@@ -604,32 +624,6 @@ auto SemaImpl::checkConstListBinding(const VariableStat *node,
   if (node->isConst() || !cherry::isListType(type))
     return success();
   return checkConstListUseAsMutable(node->init().get());
-}
-
-auto SemaImpl::semaStructReadOp(BinaryExpr *node) -> CherryResult {
-  if (sema(node->lhs().get()))
-    return failure();
-
-  if (!node->lhs()->isLvalue())
-    return emitError(node->lhs().get(), diag::expected_lvalue);
-
-  VariableExpr *var = llvm::dyn_cast<VariableExpr>(node->rhs().get());
-  if (!var)
-    return emitError(node->rhs().get(), diag::expected_field);
-
-  auto *structType = cherry::getStructType(node->lhs()->type());
-  if (!structType)
-    return emitError(node->lhs().get(), diag::mismatch_type);
-
-  auto *field = structType->field(var->name());
-  if (!field)
-    return emitError(node->rhs().get(), diag::undefined_field);
-  if (!field->type())
-    return emitError(node->rhs().get(), diag::mismatch_type);
-
-  node->setType(field->type());
-  node->setIndex(field->index());
-  return success();
 }
 
 auto SemaImpl::sema(ListLiteralExpr *expr) -> CherryResult {
