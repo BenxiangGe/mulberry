@@ -1,12 +1,12 @@
-//===--- StructInitExpr.h - Cherry Struct Init Expression ASTs -*- C++ -*-===//
+//===--- StructLiteralExpr.h - Cherry Struct Literal Expression ASTs -*- C++ -*-===//
 //
 // This source file is part of the Cherry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CHERRY_STRUCT_INIT_EXPR_H
-#define CHERRY_STRUCT_INIT_EXPR_H
+#ifndef CHERRY_STRUCT_LITERAL_EXPR_H
+#define CHERRY_STRUCT_LITERAL_EXPR_H
 
 #include "cherry/AST/Expr.h"
 #include <string>
@@ -16,15 +16,15 @@ namespace cherry {
 
 class StructType;
 
-class StructInitExpr final : public Expr {
+class StructLiteralExpr final : public Expr {
 public:
-  explicit StructInitExpr(llvm::SMLoc location, std::string_view name,
-                          VectorUniquePtr<Expr> expressions)
-      : Expr{Expr_StructInit, location}, _name(name),
+  explicit StructLiteralExpr(llvm::SMLoc location, std::string_view name,
+                             VectorUniquePtr<Expr> expressions)
+      : Expr{Expr_StructLiteral, location}, _name(name),
         _expressions(std::move(expressions)){};
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_StructInit;
+    return node->getKind() == Expr_StructLiteral;
   }
 
   auto name() const -> std::string_view { return _name; }
@@ -53,4 +53,4 @@ public:
 
 } // end namespace cherry
 
-#endif // CHERRY_STRUCT_INIT_EXPR_H
+#endif // CHERRY_STRUCT_LITERAL_EXPR_H

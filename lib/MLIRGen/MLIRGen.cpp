@@ -89,7 +89,7 @@ private:
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
-  auto gen(const StructInitExpr *node) -> mlir::Value;
+  auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const MemberExpr *node) -> mlir::Value;
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
@@ -129,7 +129,7 @@ private:
     return _functionsByName.find(name);
   }
 
-  auto genStructLiteral(const StructInitExpr *structInit,
+  auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType,
                         mlir::Value targetPtr) -> mlir::Value;
   auto gen(const ListLiteralExpr *expr) -> mlir::Value;
@@ -306,8 +306,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
     return gen(cast<CallExpr>(node));
-  case Expr::Expr_StructInit:
-    return gen(cast<StructInitExpr>(node));
+  case Expr::Expr_StructLiteral:
+    return gen(cast<StructLiteralExpr>(node));
   case Expr::Expr_Variable:
     return gen(cast<VariableExpr>(node));
   case Expr::Expr_Member:
@@ -447,14 +447,14 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   return isUnitCall ? nullptr : callOp.getResult();
 }
 
-auto MLIRGenImpl::gen(const StructInitExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
   auto *structType = node->structType();
   if (!structType) {
-    ERR("struct init `{0}` has no Cherry struct type", node->name());
+    ERR("struct literal `{0}` has no Cherry struct type", node->name());
     return nullptr;
   }
 
-  DBG("use Cherry struct initializer `{0}`",
+  DBG("use Cherry struct literal `{0}`",
       formatType(structType));
   auto ptr = genStructLiteral(node, structType, nullptr);
   return cir::LoadOp::create(_builder, loc(node), ptr);
@@ -752,12 +752,12 @@ auto MLIRGenImpl::getAlignOne() -> mlir::IntegerAttr {
   return _builder.getI64IntegerAttr(align.getQuantity());
 }
 
-auto MLIRGenImpl::genStructLiteral(const StructInitExpr *structInit,
+auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
                                    const StructType *structType,
                                    mlir::Value targetPtr) -> mlir::Value {
-  DBG("structType: {0}, structInit->name(): {1}",
+  DBG("structType: {0}, structLiteral->name(): {1}",
       formatType(structType),
-      structInit->name());
+      structLiteral->name());
 
   auto recordType =
       llvm::dyn_cast<cir::RecordType>(getMLIRType(structType));
@@ -772,7 +772,7 @@ auto MLIRGenImpl::genStructLiteral(const StructInitExpr *structInit,
   }
 
   auto &fields = structType->fields();
-  if (fields.size() != structInit->expressions().size()) {
+  if (fields.size() != structLiteral->expressions().size()) {
     ERR("Cherry struct literal field count mismatch for `{0}`",
         formatType(structType));
     return nullptr;
@@ -790,12 +790,11 @@ auto MLIRGenImpl::genStructLiteral(const StructInitExpr *structInit,
 
   mlir::Value varPtrOp;
   if (!targetPtr) {
-    auto alloca =
-        cir::AllocaOp::create(_builder, loc(structInit), recordPtrTy, recordType,
-                              structType->name(),
-                              getAlignOne());
+    auto alloca = cir::AllocaOp::create(_builder, loc(structLiteral),
+                                        recordPtrTy, recordType,
+                                        structType->name(), getAlignOne());
     DBG("structType: {0}, alloca: {1}", formatType(structType),
-        varPtrOp);
+        alloca);
 
     auto *parentBlock = alloca->getBlock();
     alloca->moveBefore(&parentBlock->front());
@@ -806,7 +805,7 @@ auto MLIRGenImpl::genStructLiteral(const StructInitExpr *structInit,
   }
 
   unsigned index = 0;
-  for (auto &expr : *structInit) {
+  for (auto &expr : *structLiteral) {
     auto &field = fields[index];
     mlir::Type fieldTy = getMLIRType(field.type());
     cir::PointerType fieldPtrTy =
@@ -817,24 +816,25 @@ auto MLIRGenImpl::genStructLiteral(const StructInitExpr *structInit,
         field.index(), field.name(),
         formatType(expr->type()));
     auto memberPtr = cir::GetMemberOp::create(
-        _builder, loc(structInit), fieldPtrTy, varPtrOp, field.name(),
+        _builder, loc(structLiteral), fieldPtrTy, varPtrOp, field.name(),
         field.index());
 
-    if (auto *nestedStructInit = llvm::dyn_cast<StructInitExpr>(expr.get())) {
-      auto *nestedStructType = nestedStructInit->structType();
+    if (auto *nestedStructLiteral =
+            llvm::dyn_cast<StructLiteralExpr>(expr.get())) {
+      auto *nestedStructType = nestedStructLiteral->structType();
       if (nestedStructType) {
         DBG("Cherry nested struct literal index: {0}, expr type: {1}, "
             "type: {2}",
             field.index(), formatType(expr->type()),
             getMLIRType(expr.get()));
-        genStructLiteral(nestedStructInit, nestedStructType, memberPtr);
+        genStructLiteral(nestedStructLiteral, nestedStructType, memberPtr);
       } else {
         ERR("nested struct literal has no Cherry struct type");
         return nullptr;
       }
     } else {
       mlir::Value val = gen(expr.get());
-      cir::StoreOp::create(_builder, loc(structInit), val, memberPtr,
+      cir::StoreOp::create(_builder, loc(structLiteral), val, memberPtr,
                            /*isVolatile=*/false,
                            /*alignment=*/mlir::IntegerAttr{},
                            /*sync_scope=*/cir::SyncScopeKindAttr(),
@@ -1117,11 +1117,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   }
 
   if (structType) {
-    auto *structInit = llvm::dyn_cast<StructInitExpr>(node->init().get());
-    if (structInit) {
+    auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
+    if (structLiteral) {
       DBG("use Cherry variable struct literal `{0}`",
           formatType(structType));
-      setVariable(varName, genStructLiteral(structInit, structType, nullptr));
+      setVariable(varName, genStructLiteral(structLiteral, structType, nullptr));
       return;
     }
 

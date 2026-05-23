@@ -43,7 +43,7 @@ private:
   auto dump(const UnitExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const CallExpr *node) -> void;
-  auto dump(const StructInitExpr *node) -> void;
+  auto dump(const StructLiteralExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
   auto dump(const MemberExpr *node) -> void;
   auto dump(const AssignExpr *node) -> void;
@@ -147,7 +147,7 @@ auto Dumper::dump(const StructDecl *node) -> void {
 
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
-      .Case<UnitExpr, CallExpr, StructInitExpr, DecimalLiteralExpr,
+      .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr,
             ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, BinaryExpr>(
@@ -179,9 +179,9 @@ auto Dumper::dump(const CallExpr *node) -> void {
     dump(expr.get());
 }
 
-auto Dumper::dump(const StructInitExpr *node) -> void {
+auto Dumper::dump(const StructLiteralExpr *node) -> void {
   INDENT();
-  errs() << "StructInitExpr " << loc(node)
+  errs() << "StructLiteralExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " name=" << node->name() << "\n";
   for (auto &expr : *node)
@@ -264,7 +264,7 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
 auto Dumper::dump(const IfExpr *node) -> void {
   INDENT();
   errs() << "IfExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "`\n";
+         << " type=" << formatType(node->type()) << "\n";
   dump(node->conditionExpr().get());
   dump(node->thenBlock().get(), "thenBlock:");
   dump(node->elseBlock().get(), "elseBlock:");
@@ -273,7 +273,7 @@ auto Dumper::dump(const IfExpr *node) -> void {
 auto Dumper::dump(const WhileExpr *node) -> void {
   INDENT();
   errs() << "WhileExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "`\n";
+         << " type=" << formatType(node->type()) << "\n";
   dump(node->conditionExpr().get());
   dump(node->bodyBlock().get(), "bodyBlock:");
 }

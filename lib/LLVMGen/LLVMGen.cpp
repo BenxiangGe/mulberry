@@ -69,8 +69,9 @@ private:
   TypeContext _typeContext;
   LLVMTypeConverter _typeConverter{_context};
 
-  llvm::Value *structAddress = nullptr;
-  const std::string tmpExpression = "0tmp";
+  llvm::Value *structLiteralTargetAddress = nullptr;
+  const std::string tmpStructLiteralName = "0tmp";
+  const std::string tmpStructLiteralIRName = "tmp";
 
   // Debug symbols
   std::unique_ptr<llvm::DIBuilder> _dBuilder;
@@ -89,7 +90,7 @@ private:
   auto gen(const UnitExpr *node) -> llvm::Value *;
   auto gen(const BlockExpr *node) -> llvm::Value *;
   auto gen(const CallExpr *node) -> llvm::Value *;
-  auto gen(const StructInitExpr *node) -> llvm::Value *;
+  auto gen(const StructLiteralExpr *node) -> llvm::Value *;
   auto gen(const VariableExpr *node) -> llvm::Value *;
   auto gen(const MemberExpr *node) -> llvm::Value *;
   auto gen(const DecimalLiteralExpr *node) -> llvm::Value *;
@@ -101,6 +102,10 @@ private:
       -> std::pair<llvm::Value *, llvm::Type *>;
   auto gen(const IfExpr *node) -> llvm::Value *;
   auto gen(const WhileExpr *node) -> llvm::Value *;
+  auto genWithStructLiteralTarget(llvm::Value *targetAddress,
+                                  const Expr *expr) -> llvm::Value *;
+  auto getOrCreateStructLiteralTarget(llvm::StructType *structType)
+      -> std::pair<llvm::Value *, bool>;
 
   // Statements
   auto gen(const Stat *node) -> void;
@@ -417,9 +422,9 @@ auto LLVMGenImpl::gen(const FunctionDecl *node) -> void {
     if (!value) {
       auto *structType = getLLVMStructType(returnType);
       auto index0 = getConstantInt(32, 0);
-      auto alloca = getVariable(tmpExpression);
+      auto alloca = getVariable(tmpStructLiteralName);
       auto address = _builder.CreateGEP(structType, alloca, index0);
-      value = _builder.CreateLoad(structType, address, "tmp");
+      value = _builder.CreateLoad(structType, address, tmpStructLiteralIRName);
     }
     _builder.CreateRet(value);
   }
@@ -446,8 +451,8 @@ auto LLVMGenImpl::gen(const Expr *node) -> llvm::Value * {
     return gen(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
     return gen(cast<CallExpr>(node));
-  case Expr::Expr_StructInit:
-    return gen(cast<StructInitExpr>(node));
+  case Expr::Expr_StructLiteral:
+    return gen(cast<StructLiteralExpr>(node));
   case Expr::Expr_Variable:
     return gen(cast<VariableExpr>(node));
   case Expr::Expr_Member:
@@ -495,31 +500,24 @@ auto LLVMGenImpl::gen(const CallExpr *node) -> llvm::Value * {
   }
 }
 
-auto LLVMGenImpl::gen(const StructInitExpr *node) -> llvm::Value * {
+auto LLVMGenImpl::gen(const StructLiteralExpr *node) -> llvm::Value * {
   emitLocation(node);
   auto *cherryStructType = node->structType();
   auto *structType = getLLVMStructType(cherryStructType);
   auto index0 = getConstantInt(32, 0);
-  auto hasTargetAddress = structAddress != nullptr;
-
-  if (!structAddress) {
-    auto func = _builder.GetInsertBlock()->getParent();
-    auto *alloca = createEntryBlockAlloca(func, "tmp", structType);
-    setVariable(tmpExpression, alloca);
-    structAddress = alloca;
-  }
-  auto address = structAddress;
+  auto *oldTargetAddress = structLiteralTargetAddress;
+  auto [address, hasTargetAddress] = getOrCreateStructLiteralTarget(structType);
 
   auto index = 0;
   for (auto &expr : *node) {
     auto fieldIndex = getConstantInt(32, index++);
     auto fieldAddress =
         _builder.CreateGEP(structType, address, {index0, fieldIndex});
-    structAddress = fieldAddress;
-    if (llvm::Value *value = gen(expr.get()))
+    if (llvm::Value *value =
+            genWithStructLiteralTarget(fieldAddress, expr.get()))
       _builder.CreateStore(value, fieldAddress);
   }
-  structAddress = nullptr;
+  structLiteralTargetAddress = oldTargetAddress;
   if (hasTargetAddress)
     return nullptr;
 
@@ -626,18 +624,17 @@ auto LLVMGenImpl::gen(const AssignExpr *node) -> llvm::Value * {
   llvm::Value *address;
   llvm::TypeSwitch<const Expr *>(node->lhs().get())
       .Case<VariableExpr>([&](const auto *node) {
-        address = structAddress = getVariable(node->name());
+        address = getVariable(node->name());
       })
       .Case<MemberExpr>([&](const auto *node) {
-        address = structAddress = genMemberAddress(node).first;
+        address = genMemberAddress(node).first;
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
 
-  auto value = gen(node->rhs().get());
+  auto value = genWithStructLiteralTarget(address, node->rhs().get());
   if (value && !cherry::isUnitType(node->lhs()->type()))
     _builder.CreateStore(value, address);
-  structAddress = nullptr;
   return getUnit();
 }
 
@@ -728,6 +725,29 @@ auto LLVMGenImpl::gen(const WhileExpr *node) -> llvm::Value * {
   return nullptr;
 }
 
+auto LLVMGenImpl::genWithStructLiteralTarget(llvm::Value *targetAddress,
+                                             const Expr *expr)
+    -> llvm::Value * {
+  auto *oldTargetAddress = structLiteralTargetAddress;
+  structLiteralTargetAddress = targetAddress;
+  auto *value = gen(expr);
+  structLiteralTargetAddress = oldTargetAddress;
+  return value;
+}
+
+auto LLVMGenImpl::getOrCreateStructLiteralTarget(llvm::StructType *structType)
+    -> std::pair<llvm::Value *, bool> {
+  if (structLiteralTargetAddress)
+    return {structLiteralTargetAddress, true};
+
+  auto func = _builder.GetInsertBlock()->getParent();
+  auto *alloca =
+      createEntryBlockAlloca(func, tmpStructLiteralIRName, structType);
+  setVariable(tmpStructLiteralName, alloca);
+  structLiteralTargetAddress = alloca;
+  return {alloca, false};
+}
+
 auto LLVMGenImpl::gen(const Stat *node) -> void {
   switch (node->getKind()) {
   case Stat::Stat_VariableDecl:
@@ -744,11 +764,9 @@ auto LLVMGenImpl::gen(const VariableStat *node) -> void {
 
   auto func = _builder.GetInsertBlock()->getParent();
   auto alloca = createEntryBlockAlloca(func, name, llvmType);
-  structAddress = alloca;
   setVariable(name, alloca);
 
-  auto *initValue = gen(node->init().get());
-  structAddress = nullptr;
+  auto *initValue = genWithStructLiteralTarget(alloca, node->init().get());
 
   emitLocation(node);
   if (initValue && !cherry::isUnitType(varType))

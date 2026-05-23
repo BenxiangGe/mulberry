@@ -88,7 +88,7 @@ private:
   auto sema(UnitExpr *node) -> CherryResult;
   auto sema(BlockExpr *node) -> CherryResult;
   auto sema(CallExpr *node) -> CherryResult;
-  auto sema(StructInitExpr *node) -> CherryResult;
+  auto sema(StructLiteralExpr *node) -> CherryResult;
   auto sema(VariableExpr *node) -> CherryResult;
   auto sema(MemberExpr *node) -> CherryResult;
   auto sema(AssignExpr *node) -> CherryResult;
@@ -152,8 +152,7 @@ private:
     return _symbols.lookupType(name);
   }
 
-  auto lookupStructInitializerType(std::string_view name)
-      -> const StructType * {
+  auto lookupStructType(std::string_view name) -> const StructType * {
     return cherry::getStructType(lookupType(name));
   }
 
@@ -352,8 +351,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
-  case Expr::Expr_StructInit:
-    return sema(cast<StructInitExpr>(node));
+  case Expr::Expr_StructLiteral:
+    return sema(cast<StructLiteralExpr>(node));
   case Expr::Expr_Variable:
     return sema(cast<VariableExpr>(node));
   case Expr::Expr_Member:
@@ -436,8 +435,8 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(StructInitExpr *node) -> CherryResult {
-  auto *structType = lookupStructInitializerType(node->name());
+auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
+  auto *structType = lookupStructType(node->name());
   if (!structType)
     return emitError(node, diag::undefined_type);
   node->setStructType(structType);
