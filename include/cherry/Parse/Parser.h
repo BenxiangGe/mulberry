@@ -35,7 +35,7 @@ private:
   Token _token;
   std::unique_ptr<Lexer> _lexer;
   llvm::SourceMgr &_sourceManager;
-  bool _stopBeforeBlockBrace = false;
+  bool _stopBeforeStructLiteral = false;
 
   // ___________________________________________________________________________
   // Lex
@@ -104,13 +104,13 @@ private:
 
   auto parseDeclaration(std::unique_ptr<Decl> &decl) -> CherryResult;
 
-  auto parseFunctionDecl_c(std::unique_ptr<Decl> &decl) -> CherryResult;
+  auto parseFunctionDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
-  auto parsePrototype_c(std::unique_ptr<Prototype> &proto) -> CherryResult;
+  auto parsePrototype(std::unique_ptr<Prototype> &proto) -> CherryResult;
 
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> CherryResult;
 
-  auto parseStructDecl_c(std::unique_ptr<Decl> &elem) -> CherryResult;
+  auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
 
   auto parseListTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseListLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
@@ -121,8 +121,7 @@ private:
   // Parse Expressions
 
   auto parseExpression(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseExpressionBeforeBlock(std::unique_ptr<Expr> &expr)
-      -> CherryResult;
+  auto parseBlockCondition(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseExpressions(VectorUniquePtr<Expr> &elem, Token::Kind separator,
                         Token::Kind end, const char *const separator_error,
@@ -133,24 +132,24 @@ private:
   auto parseVariableExpr(std::unique_ptr<VariableExpr> &identifier)
       -> CherryResult;
 
-  auto parseIfExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
-  auto parseWhileExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
-  auto parseDecimal_c(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseFloat_c(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseNegativeFloat_c(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseDecimal(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
 
-  auto parseFuncStructVar_c(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
-  auto parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
-                           std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseStructInit_c(llvm::SMLoc location, std::string_view name,
+  auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseStructLiteral(llvm::SMLoc location, std::string_view name,
+                          std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
       -> CherryResult;
-  auto parseMemberExprRHS(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseMemberAccess(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto getTokenPrecedence() -> int;
   auto isTokenRightAssociative() -> bool;
   auto tokenToOperator(Token token) -> BinaryExpr::Operator;
@@ -160,9 +159,9 @@ private:
 
   auto parseStatementWithoutSemi(std::unique_ptr<Stat> &stat) -> CherryResult;
 
-  auto parseVarDecl_c(std::unique_ptr<Stat> &stat) -> CherryResult;
-  auto parseConstDecl_c(std::unique_ptr<Stat> &stat) -> CherryResult;
-  auto parseVariableDecl_c(std::unique_ptr<Stat> &stat, bool isConst)
+  auto parseVarDecl(std::unique_ptr<Stat> &stat) -> CherryResult;
+  auto parseConstDecl(std::unique_ptr<Stat> &stat) -> CherryResult;
+  auto parseVariableDecl(std::unique_ptr<Stat> &stat, bool isConst)
       -> CherryResult;
 };
 

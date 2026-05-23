@@ -107,19 +107,19 @@ auto Parser::parseStructName(unique_ptr<StructName> &structName,
 auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
   switch (tokenKind()) {
   case Token::kw_fn:
-    return parseFunctionDecl_c(decl);
+    return parseFunctionDecl(decl);
   case Token::kw_struct:
-    return parseStructDecl_c(decl);
+    return parseStructDecl(decl);
   default:
     return emitError(diag::expected_fun_struct);
   }
 }
 
-auto Parser::parseFunctionDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
   auto loc = tokenLoc();
   unique_ptr<Prototype> proto;
   unique_ptr<BlockExpr> body;
-  if (parsePrototype_c(proto) ||
+  if (parsePrototype(proto) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(body))
     return failure();
@@ -128,7 +128,7 @@ auto Parser::parseFunctionDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
   return success();
 }
 
-auto Parser::parsePrototype_c(unique_ptr<Prototype> &proto) -> CherryResult {
+auto Parser::parsePrototype(unique_ptr<Prototype> &proto) -> CherryResult {
   auto location = tokenLoc();
   consume(Token::kw_fn);
 
@@ -195,7 +195,7 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> CherryResult {
   }
 }
 
-auto Parser::parseStructDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
 
@@ -307,12 +307,13 @@ auto Parser::parseExpression(unique_ptr<Expr> &expr) -> CherryResult {
   }
 }
 
-auto Parser::parseExpressionBeforeBlock(unique_ptr<Expr> &expr)
-    -> CherryResult {
-  auto oldStopBeforeBlockBrace = _stopBeforeBlockBrace;
-  _stopBeforeBlockBrace = true;
+auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> CherryResult {
+  auto oldStopBeforeStructLiteral = _stopBeforeStructLiteral;
+  // In `if/while flag { ... }`, keep `{` for the block instead of parsing
+  // `flag { ... }` as a struct literal.
+  _stopBeforeStructLiteral = true;
   auto result = parseExpression(expr);
-  _stopBeforeBlockBrace = oldStopBeforeBlockBrace;
+  _stopBeforeStructLiteral = oldStopBeforeStructLiteral;
   return result;
 }
 
@@ -329,19 +330,19 @@ auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
 auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
   switch (tokenKind()) {
   case Token::decimal:
-    return parseDecimal_c(expr);
+    return parseDecimal(expr);
   case Token::float_literal:
-    return parseFloat_c(expr);
+    return parseFloat(expr);
   case Token::diff:
-    return parseNegativeFloat_c(expr);
+    return parseNegativeFloat(expr);
   case Token::identifier:
-    return parseFuncStructVar_c(expr);
+    return parseIdentifierExpr(expr);
   case Token::l_square:
     return parseListLiteral(expr);
   case Token::kw_if:
-    return parseIfExpr_c(expr);
+    return parseIfExpr(expr);
   case Token::kw_while:
-    return parseWhileExpr_c(expr);
+    return parseWhileExpr(expr);
   case Token::kw_true: {
     auto loc = tokenLoc();
     consume(Token::kw_true);
@@ -377,13 +378,13 @@ auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
   return success();
 }
 
-auto Parser::parseIfExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::kw_if);
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> thenBlock;
   unique_ptr<BlockExpr> elseBlock;
-  if (parseExpressionBeforeBlock(condition) ||
+  if (parseBlockCondition(condition) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(thenBlock) ||
       parseToken(Token::kw_else, diag::expected_else) ||
@@ -396,12 +397,12 @@ auto Parser::parseIfExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseWhileExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::kw_while);
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> bodyBlock;
-  if (parseExpressionBeforeBlock(condition) ||
+  if (parseBlockCondition(condition) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(bodyBlock))
     return failure();
@@ -410,7 +411,7 @@ auto Parser::parseWhileExpr_c(std::unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseDecimal_c(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseDecimal(unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   if (auto value = token().getUInt64IntegerValue()) {
     consume(Token::decimal);
@@ -420,7 +421,7 @@ auto Parser::parseDecimal_c(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::integer_literal_overflows);
 }
 
-auto Parser::parseFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseFloat(unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   if (auto value = token().getFloat32Value()) {
     consume(Token::float_literal);
@@ -430,7 +431,7 @@ auto Parser::parseFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseNegativeFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::diff);
   if (!tokenIs(Token::float_literal))
@@ -445,19 +446,19 @@ auto Parser::parseNegativeFloat_c(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseFuncStructVar_c(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
   auto location = tokenLoc();
   auto name = spelling();
   consume(Token::identifier);
   switch (tokenKind()) {
   case Token::l_paren:
-    return parseFunctionCall_c(location, name, expr);
+    return parseFunctionCall(location, name, expr);
   case Token::l_brace:
-    if (_stopBeforeBlockBrace) {
+    if (_stopBeforeStructLiteral) {
       expr = make_unique<VariableExpr>(location, name);
       return success();
     }
-    return parseStructInit_c(location, name, expr);
+    return parseStructLiteral(location, name, expr);
   case Token::l_square:
     return parseListAccess(location, name, expr);
   default:
@@ -466,8 +467,8 @@ auto Parser::parseFuncStructVar_c(unique_ptr<Expr> &expr) -> CherryResult {
   }
 }
 
-auto Parser::parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
+                               unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_paren);
   auto expressions = VectorUniquePtr<Expr>();
   if (parseExpressions(expressions, Token::comma, Token::r_paren,
@@ -477,14 +478,14 @@ auto Parser::parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
   return success();
 }
 
-auto Parser::parseStructInit_c(llvm::SMLoc location, std::string_view name,
-                               unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseStructLiteral(llvm::SMLoc location, std::string_view name,
+                                unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_brace);
   auto expressions = VectorUniquePtr<Expr>();
   if (parseExpressions(expressions, Token::comma, Token::r_brace,
                        diag::expected_comma_or_r_brace, diag::expected_r_brace))
     return failure();
-  expr = make_unique<StructInitExpr>(location, name, std::move(expressions));
+  expr = make_unique<StructLiteralExpr>(location, name, std::move(expressions));
   return success();
 }
 
@@ -498,7 +499,7 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
     Token t = token();
 
     if (t.is(Token::dot)) {
-      if (parseMemberExprRHS(expr))
+      if (parseMemberAccess(expr))
         return failure();
       continue;
     }
@@ -528,7 +529,7 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
   }
 }
 
-auto Parser::parseMemberExprRHS(std::unique_ptr<Expr> &expr)
+auto Parser::parseMemberAccess(std::unique_ptr<Expr> &expr)
     -> CherryResult {
   auto location = tokenLoc();
   consume(Token::dot);
@@ -620,9 +621,9 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
 auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
   switch (tokenKind()) {
   case Token::kw_var:
-    return parseVarDecl_c(stat);
+    return parseVarDecl(stat);
   case Token::kw_const:
-    return parseConstDecl_c(stat);
+    return parseConstDecl(stat);
   default: {
     auto loc = tokenLoc();
     unique_ptr<Expr> expr;
@@ -634,15 +635,15 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
   }
 }
 
-auto Parser::parseVarDecl_c(unique_ptr<Stat> &stat) -> CherryResult {
-  return parseVariableDecl_c(stat, /*isConst=*/false);
+auto Parser::parseVarDecl(unique_ptr<Stat> &stat) -> CherryResult {
+  return parseVariableDecl(stat, /*isConst=*/false);
 }
 
-auto Parser::parseConstDecl_c(unique_ptr<Stat> &stat) -> CherryResult {
-  return parseVariableDecl_c(stat, /*isConst=*/true);
+auto Parser::parseConstDecl(unique_ptr<Stat> &stat) -> CherryResult {
+  return parseVariableDecl(stat, /*isConst=*/true);
 }
 
-auto Parser::parseVariableDecl_c(unique_ptr<Stat> &stat, bool isConst)
+auto Parser::parseVariableDecl(unique_ptr<Stat> &stat, bool isConst)
     -> CherryResult {
   auto loc = tokenLoc();
   consume(isConst ? Token::kw_const : Token::kw_var);

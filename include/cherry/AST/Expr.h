@@ -23,7 +23,7 @@ public:
   enum ExpressionKind {
     Expr_Unit,
     Expr_Call,
-    Expr_StructInit,
+    Expr_StructLiteral,
     Expr_DecimalLiteral,
     Expr_FloatLiteral,
     Expr_BoolLiteral,

@@ -31,7 +31,7 @@ fn main(): UInt64 {
   # E { C { true } };
   var e: E = E { C { true } };
   e.ec.a = false;
-  # E(cc);
+  # E { cc };
   # A { false, 20, C { true } };
   # B { 10, A { false, 20, C { true } } };
 
