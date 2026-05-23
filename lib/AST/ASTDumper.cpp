@@ -43,8 +43,10 @@ private:
   auto dump(const UnitExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const CallExpr *node) -> void;
+  auto dump(const StructInitExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
   auto dump(const MemberExpr *node) -> void;
+  auto dump(const AssignExpr *node) -> void;
   auto dump(const DecimalLiteralExpr *node) -> void;
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
@@ -145,10 +147,10 @@ auto Dumper::dump(const StructDecl *node) -> void {
 
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
-      .Case<UnitExpr, CallExpr, DecimalLiteralExpr, FloatLiteralExpr,
-            BoolLiteralExpr,
-            ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr, IfExpr,
-            WhileExpr, BinaryExpr>(
+      .Case<UnitExpr, CallExpr, StructInitExpr, DecimalLiteralExpr,
+            FloatLiteralExpr, BoolLiteralExpr,
+            ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr,
+            AssignExpr, IfExpr, WhileExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -177,6 +179,15 @@ auto Dumper::dump(const CallExpr *node) -> void {
     dump(expr.get());
 }
 
+auto Dumper::dump(const StructInitExpr *node) -> void {
+  INDENT();
+  errs() << "StructInitExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " name=" << node->name() << "\n";
+  for (auto &expr : *node)
+    dump(expr.get());
+}
+
 auto Dumper::dump(const VariableExpr *node) -> void {
   INDENT();
   errs() << "VariableExpr " << loc(node)
@@ -190,6 +201,14 @@ auto Dumper::dump(const MemberExpr *node) -> void {
          << " type=" << formatType(node->type())
          << " field=" << node->fieldName() << "\n";
   dump(node->base().get());
+}
+
+auto Dumper::dump(const AssignExpr *node) -> void {
+  INDENT();
+  errs() << "AssignExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->lhs().get());
+  dump(node->rhs().get());
 }
 
 auto Dumper::dump(const DecimalLiteralExpr *node) -> void {

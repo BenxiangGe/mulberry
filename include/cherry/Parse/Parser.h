@@ -35,6 +35,7 @@ private:
   Token _token;
   std::unique_ptr<Lexer> _lexer;
   llvm::SourceMgr &_sourceManager;
+  bool _stopBeforeBlockBrace = false;
 
   // ___________________________________________________________________________
   // Lex
@@ -120,6 +121,8 @@ private:
   // Parse Expressions
 
   auto parseExpression(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseExpressionBeforeBlock(std::unique_ptr<Expr> &expr)
+      -> CherryResult;
 
   auto parseExpressions(VectorUniquePtr<Expr> &elem, Token::Kind separator,
                         Token::Kind end, const char *const separator_error,
@@ -142,6 +145,8 @@ private:
 
   auto parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
                            std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseStructInit_c(llvm::SMLoc location, std::string_view name,
+                         std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
       -> CherryResult;

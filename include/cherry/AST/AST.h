@@ -8,6 +8,7 @@
 #ifndef CHERRY_AST_H
 #define CHERRY_AST_H
 
+#include "cherry/AST/AssignExpr.h"
 #include "cherry/AST/BinaryExpr.h"
 #include "cherry/AST/Decl.h"
 #include "cherry/AST/Expr.h"
@@ -18,6 +19,7 @@
 #include "cherry/AST/Name.h"
 #include "cherry/AST/NameExpr.h"
 #include "cherry/AST/Stat.h"
+#include "cherry/AST/StructInitExpr.h"
 #include "cherry/AST/Type.h"
 #include "mlir/IR/Location.h"
 #include "llvm/Support/SourceMgr.h"
