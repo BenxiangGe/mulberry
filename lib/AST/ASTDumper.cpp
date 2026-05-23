@@ -44,6 +44,7 @@ private:
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const CallExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
+  auto dump(const MemberExpr *node) -> void;
   auto dump(const DecimalLiteralExpr *node) -> void;
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
@@ -146,8 +147,8 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, DecimalLiteralExpr, FloatLiteralExpr,
             BoolLiteralExpr,
-            ListLiteralExpr, ListAccessExpr, VariableExpr, IfExpr, WhileExpr,
-            BinaryExpr>(
+            ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr, IfExpr,
+            WhileExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -181,6 +182,14 @@ auto Dumper::dump(const VariableExpr *node) -> void {
   errs() << "VariableExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " name=" << node->name() << "\n";
+}
+
+auto Dumper::dump(const MemberExpr *node) -> void {
+  INDENT();
+  errs() << "MemberExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " field=" << node->fieldName() << "\n";
+  dump(node->base().get());
 }
 
 auto Dumper::dump(const DecimalLiteralExpr *node) -> void {
