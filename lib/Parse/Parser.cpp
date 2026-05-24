@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/Parse/Parser.h"
-
 using namespace cherry;
 using std::make_unique;
 using std::unique_ptr;
@@ -25,11 +24,12 @@ auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
   return success();
 }
 
-template <typename T>
+template <typename T, typename ParseElement>
 auto Parser::parseList(Token::Kind separator, Token::Kind end,
                        const char *const separator_error,
                        const char *const end_error,
-                       VectorUniquePtr<T> &elements, PE<T> parseElement)
+                       VectorUniquePtr<T> &elements,
+                       ParseElement parseElement)
     -> CherryResult {
   while (!tokenIs(end) && !tokenIs(Token::eof)) {
     unique_ptr<T> exp;
@@ -138,24 +138,23 @@ auto Parser::parsePrototype_c(unique_ptr<Prototype> &proto) -> CherryResult {
       parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
 
-  // Parse Element
-  PE<VariableStat> parseParam =
-      [this](unique_ptr<VariableStat> &elem) -> CherryResult {
-    unique_ptr<VariableExpr> param;
-    unique_ptr<TypeNode> typeNode;
-    if (parseVariableExpr(param) ||
-        parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
-      return failure();
-    elem = make_unique<VariableStat>(param->location(), std::move(param),
-                                     std::move(typeNode), nullptr);
-    return success();
-  };
-
   // Parse List
   VectorUniquePtr<VariableStat> parameters;
   unique_ptr<TypeNode> typeNode;
   if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
-                diag::expected_r_paren, parameters, parseParam) ||
+                diag::expected_r_paren, parameters,
+                [this](unique_ptr<VariableStat> &elem) -> CherryResult {
+                  unique_ptr<VariableExpr> param;
+                  unique_ptr<TypeNode> typeNode;
+                  if (parseVariableExpr(param) ||
+                      parseToken(Token::colon, diag::expected_colon) ||
+                      parseType(typeNode))
+                    return failure();
+                  elem = make_unique<VariableStat>(
+                      param->location(), std::move(param), std::move(typeNode),
+                      nullptr);
+                  return success();
+                }) ||
       parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
     return failure();
 
@@ -206,23 +205,22 @@ auto Parser::parseStructDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
       parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
 
-  // Parse Element
-  PE<VariableStat> parseField =
-      [this](unique_ptr<VariableStat> &elem) -> CherryResult {
-    unique_ptr<VariableExpr> var;
-    unique_ptr<TypeNode> typeNode;
-    if (parseVariableExpr(var) ||
-        parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
-      return failure();
-    elem = make_unique<VariableStat>(var->location(), std::move(var),
-                                     std::move(typeNode), nullptr);
-    return success();
-  };
-
   // Parse List
   VectorUniquePtr<VariableStat> fields;
   if (parseList(Token::comma, Token::r_brace, diag::expected_comma_or_r_brace,
-                diag::expected_r_brace, fields, parseField))
+                diag::expected_r_brace, fields,
+                [this](unique_ptr<VariableStat> &elem) -> CherryResult {
+                  unique_ptr<VariableExpr> var;
+                  unique_ptr<TypeNode> typeNode;
+                  if (parseVariableExpr(var) ||
+                      parseToken(Token::colon, diag::expected_colon) ||
+                      parseType(typeNode))
+                    return failure();
+                  elem = make_unique<VariableStat>(
+                      var->location(), std::move(var), std::move(typeNode),
+                      nullptr);
+                  return success();
+                }))
     return failure();
 
   // Make StructDecl
@@ -281,7 +279,7 @@ auto Parser::parseListLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseListAccess(llvm::SMLoc location, llvm::StringRef name,
+auto Parser::parseListAccess(llvm::SMLoc location, std::string_view name,
                              unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> indices;
@@ -313,11 +311,10 @@ auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
                               Token::Kind separator, Token::Kind end,
                               const char *const separator_error,
                               const char *const end_error) -> CherryResult {
-  PE<Expr> parseElement = [this](unique_ptr<Expr> &elem) -> CherryResult {
-    return parseExpression(elem);
-  };
   return parseList(separator, end, separator_error, end_error, expressions,
-                   parseElement);
+                   [this](unique_ptr<Expr> &elem) -> CherryResult {
+                     return parseExpression(elem);
+                   });
 }
 
 auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
@@ -454,7 +451,7 @@ auto Parser::parseFuncStructVar_c(unique_ptr<Expr> &expr) -> CherryResult {
   }
 }
 
-auto Parser::parseFunctionCall_c(llvm::SMLoc location, llvm::StringRef name,
+auto Parser::parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
                                  unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_paren);
   auto expressions = VectorUniquePtr<Expr>();

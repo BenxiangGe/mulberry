@@ -16,15 +16,12 @@
 #include "mlir/IR/Location.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
+#include <string_view>
 
 namespace cherry {
 
 using llvm::failure;
 using llvm::success;
-
-// Parse Element
-template <typename T>
-using PE = llvm::function_ref<CherryResult(std::unique_ptr<T> &)>;
 
 class Parser {
 public:
@@ -82,10 +79,10 @@ private:
     return emitError(message);
   }
 
-  template <typename T>
+  template <typename T, typename ParseElement>
   auto parseList(Token::Kind separator, Token::Kind end,
                  const char *const separator_error, const char *const end_error,
-                 VectorUniquePtr<T> &elements, PE<T> parseElement)
+                 VectorUniquePtr<T> &elements, ParseElement parseElement)
       -> CherryResult;
 
   // _____________________________________________________________________________
@@ -116,7 +113,7 @@ private:
 
   auto parseListTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseListLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseListAccess(llvm::SMLoc location, llvm::StringRef name,
+  auto parseListAccess(llvm::SMLoc location, std::string_view name,
                        std::unique_ptr<Expr> &expr) -> CherryResult;
 
   // ___________________________________________________________________________
@@ -143,7 +140,7 @@ private:
 
   auto parseFuncStructVar_c(std::unique_ptr<Expr> &expr) -> CherryResult;
 
-  auto parseFunctionCall_c(llvm::SMLoc location, llvm::StringRef name,
+  auto parseFunctionCall_c(llvm::SMLoc location, std::string_view name,
                            std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
