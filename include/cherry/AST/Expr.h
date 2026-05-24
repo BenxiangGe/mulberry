@@ -14,6 +14,8 @@
 
 namespace cherry {
 class Stat;
+class StructType;
+class Type;
 // _____________________________________________________________________________
 // Expression
 
@@ -43,15 +45,13 @@ public:
   virtual auto isLvalue() const -> bool { return false; }
   virtual auto isStatement() -> bool { return false; };
 
-  virtual auto type() const -> llvm::StringRef final {
-    return _type == "" ? llvm::StringRef("NULL") : _type;
-  }
+  auto setType(const Type *type) -> void { _type = type; }
 
-  auto setType(llvm::StringRef type) -> void { _type = type.str(); }
+  auto type() const -> const Type * { return _type; }
 
 private:
   const ExpressionKind _kind;
-  std::string _type;
+  const Type *_type = nullptr;
 };
 
 // _____________________________________________________________________________
@@ -102,12 +102,21 @@ public:
 
   auto name() const -> llvm::StringRef { return _name; }
 
+  auto setStructInitializerType(const StructType *type) -> void {
+    _structInitializerType = type;
+  }
+
+  auto structInitializerType() const -> const StructType * {
+    return _structInitializerType;
+  }
+
   auto expressions() const -> const VectorUniquePtr<Expr> & {
     return _expressions;
   }
 
 private:
   std::string _name;
+  const StructType *_structInitializerType = nullptr;
   VectorUniquePtr<Expr> _expressions;
 
 public:

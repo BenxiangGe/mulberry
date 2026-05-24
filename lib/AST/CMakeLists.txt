@@ -13,3 +13,7 @@ add_library(cherryAST STATIC
 target_include_directories(cherryAST PUBLIC
         ${LIB_HEADERS}
 )
+
+target_link_libraries(cherryAST PUBLIC
+        cherryBasic
+)
