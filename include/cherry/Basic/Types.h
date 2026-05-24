@@ -108,6 +108,7 @@ auto isEquatableType(const Type *type) -> bool;
 auto isListType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
+// Display-only formatter for diagnostics and dumps; not for type identity.
 auto formatType(const Type *type) -> std::string;
 
 class TypeContext {

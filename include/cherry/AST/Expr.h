@@ -11,6 +11,7 @@
 #include "cherry/AST/Node.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/StringRef.h"
+#include <string_view>
 
 namespace cherry {
 class Stat;
@@ -78,7 +79,7 @@ public:
     return node->getKind() == Expr_Variable;
   }
 
-  auto name() const -> llvm::StringRef { return _name; }
+  auto name() const -> std::string_view { return _name; }
 
   auto isLvalue() const -> bool override { return true; }
 
@@ -100,7 +101,7 @@ public:
     return node->getKind() == Expr_Call;
   }
 
-  auto name() const -> llvm::StringRef { return _name; }
+  auto name() const -> std::string_view { return _name; }
 
   auto setStructInitializerType(const StructType *type) -> void {
     _structInitializerType = type;
