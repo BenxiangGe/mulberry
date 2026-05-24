@@ -6,8 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/Driver/Compilation.h"
-#include "KaleidoscopeJIT.h"
-#include "cherry/LLVMGen/LLVMGen.h"
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
@@ -33,6 +31,7 @@
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -56,8 +55,8 @@ static auto makeContext() -> mlir::MLIRContext {
 
 Compilation::Compilation() : _mlirContext{makeContext()} {}
 
-auto Compilation::make(llvm::StringRef filename, bool enableOpt,
-                       bool backendLLVM) -> std::unique_ptr<Compilation> {
+auto Compilation::make(llvm::StringRef filename,
+                       bool enableOpt) -> std::unique_ptr<Compilation> {
   auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
 
   if (auto ec = fileOrErr.getError()) {
@@ -89,7 +88,6 @@ auto Compilation::make(llvm::StringRef filename, bool enableOpt,
   compilation->sourceManager().AddNewSourceBuffer(std::move(fileOrErr.get()),
                                                   llvm::SMLoc());
   compilation->_enableOpt = enableOpt;
-  compilation->_backendLLVM = backendLLVM;
   return compilation;
 }
 
@@ -135,43 +133,36 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
 auto Compilation::genLLVM(std::unique_ptr<llvm::Module> &llvmModule)
     -> CherryResult {
-  if (_backendLLVM) {
-    std::unique_ptr<Module> module;
-    if (parse(module) || cherry::sema(_sourceManager, *module.get()) ||
-        llvmGen(_sourceManager, *_llvmContext, *module, llvmModule, _enableOpt))
-      return failure();
-  } else {
-    mlir::OwningOpRef<mlir::ModuleOp> module;
-    if (genMLIR(module, Lowering::LLVM))
-      return failure();
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  if (genMLIR(module, Lowering::LLVM))
+    return failure();
 
-    llvmModule = mlir::translateModuleToLLVMIR(*module, *this->_llvmContext);
-    if (!llvmModule)
-      return failure();
+  llvmModule = mlir::translateModuleToLLVMIR(*module, *this->_llvmContext);
+  if (!llvmModule)
+    return failure();
 
-    auto tmBuilderOrError = llvm::orc::JITTargetMachineBuilder::detectHost();
-    if (!tmBuilderOrError) {
-      llvm::errs() << "Could not create JITTargetMachineBuilder\n";
-      return failure();
-    }
+  auto tmBuilderOrError = llvm::orc::JITTargetMachineBuilder::detectHost();
+  if (!tmBuilderOrError) {
+    llvm::errs() << "Could not create JITTargetMachineBuilder\n";
+    return failure();
+  }
 
-    auto tmOrError = tmBuilderOrError->createTargetMachine();
-    if (!tmOrError) {
-      llvm::errs() << "Could not create TargetMachine\n";
-      return failure();
-    }
-    mlir::ExecutionEngine::setupTargetTripleAndDataLayout(
-        llvmModule.get(), tmOrError.get().get());
+  auto tmOrError = tmBuilderOrError->createTargetMachine();
+  if (!tmOrError) {
+    llvm::errs() << "Could not create TargetMachine\n";
+    return failure();
+  }
+  mlir::ExecutionEngine::setupTargetTripleAndDataLayout(
+      llvmModule.get(), tmOrError.get().get());
 
-    auto optPipeline =
-        mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
-                                        /*sizeLevel=*/0,
-                                        /*targetMachine=*/nullptr);
+  auto optPipeline =
+      mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
+                                      /*sizeLevel=*/0,
+                                      /*targetMachine=*/nullptr);
 
-    if (auto err = optPipeline(llvmModule.get())) {
-      llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
-      return failure();
-    }
+  if (auto err = optPipeline(llvmModule.get())) {
+    llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
+    return failure();
   }
 
   return success();
@@ -186,46 +177,27 @@ auto Compilation::typecheck() -> int {
 }
 
 auto Compilation::jit() -> int {
-  llvm::ExitOnError exitOnErr;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  if (genMLIR(module, Lowering::LLVM))
+    return EXIT_FAILURE;
 
-  if (_backendLLVM) {
-    auto jit = exitOnErr(llvm::orc::KaleidoscopeJIT::Create());
-    std::unique_ptr<llvm::Module> llvmModule;
-    if (genLLVM(llvmModule))
-      return EXIT_FAILURE;
+  auto optPipeline =
+      mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
+                                      /*sizeLevel=*/0,
+                                      /*targetMachine=*/nullptr);
 
-    llvmModule->setDataLayout(jit->getDataLayout());
+  mlir::ExecutionEngineOptions engineOptions;
+  engineOptions.transformer = optPipeline;
+  auto maybeEngine = mlir::ExecutionEngine::create(*module, engineOptions);
+  assert(maybeEngine && "failed to construct an execution engine");
+  auto &engine = maybeEngine.get();
 
-    exitOnErr(jit->addModule(llvm::orc::ThreadSafeModule(
-        std::move(llvmModule), std::move(_llvmContext))));
-
-    auto symbol = exitOnErr(jit->lookup("main"));
-    uint64_t (*fp)() = symbol.getAddress().toPtr<uint64_t (*)()>();
-    fp();
-    return EXIT_SUCCESS;
-  } else {
-    mlir::OwningOpRef<mlir::ModuleOp> module;
-    if (genMLIR(module, Lowering::LLVM))
-      return EXIT_FAILURE;
-
-    auto optPipeline =
-        mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
-                                        /*sizeLevel=*/0,
-                                        /*targetMachine=*/nullptr);
-
-    mlir::ExecutionEngineOptions engineOptions;
-    engineOptions.transformer = optPipeline;
-    auto maybeEngine = mlir::ExecutionEngine::create(*module, engineOptions);
-    assert(maybeEngine && "failed to construct an execution engine");
-    auto &engine = maybeEngine.get();
-
-    int result;
-    void *pResult = static_cast<void *>(&result);
-    if (engine->invokePacked("main", {pResult})) {
-      return EXIT_FAILURE;
-    }
-    return result;
+  int result;
+  void *pResult = static_cast<void *>(&result);
+  if (engine->invokePacked("main", {pResult})) {
+    return EXIT_FAILURE;
   }
+  return result;
 }
 
 auto Compilation::genObjectFile(const char *outputFileName) -> int {

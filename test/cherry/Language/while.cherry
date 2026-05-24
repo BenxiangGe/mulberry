@@ -1,6 +1,6 @@
 # _______________________________________________________
 # Generate object file
-# RUN: cherry-driver %s --b=mlir -dump=mlir-llvm 2>&1 | mlir-cpu-runner --entry-point-result=i64 | FileCheck %s
+# RUN: cherry-driver %s -dump=mlir-llvm 2>&1 | mlir-cpu-runner --entry-point-result=i64 | FileCheck %s
 # _______________________________________________________
 
 fn bar(y: Bool): Bool {

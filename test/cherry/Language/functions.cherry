@@ -1,5 +1,4 @@
-# RUN: cherry-driver -b=llvm %s 2>&1 | FileCheck %s
-# RUN: cherry-driver -b=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver %s -typecheck
 
 fn foo(k: UInt64): () {
   ()

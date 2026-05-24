@@ -1,7 +1,6 @@
 add_subdirectory(AST)
 add_subdirectory(Basic)
 add_subdirectory(Driver)
-add_subdirectory(LLVMGen)
 add_subdirectory(MLIRGen)
 add_subdirectory(Parse)
 add_subdirectory(Sema)
