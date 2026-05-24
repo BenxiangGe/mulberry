@@ -9,9 +9,11 @@
 #define CHERRY_STAT_H
 
 #include "cherry/AST/Node.h"
-#include "llvm/ADT/StringRef.h"
+#include "cherry/AST/Type.h"
 
 namespace cherry {
+
+class Type;
 
 // _____________________________________________________________________________
 // Expression
@@ -39,10 +41,10 @@ class VariableStat final : public Stat {
 public:
   explicit VariableStat(llvm::SMLoc location,
                         std::unique_ptr<VariableExpr> variable,
-                        std::unique_ptr<Type> varType,
+                        std::unique_ptr<TypeNode> typeNode,
                         std::unique_ptr<Expr> init, bool isConst = false)
       : Stat{Stat_VariableDecl, location}, _variable(std::move(variable)),
-        _varType(std::move(varType)), _init{std::move(init)},
+        _typeNode(std::move(typeNode)), _init{std::move(init)},
         _isConst(isConst) {};
 
   static auto classof(const Stat *node) -> bool {
@@ -53,7 +55,11 @@ public:
     return _variable;
   }
 
-  auto varType() const -> const std::unique_ptr<Type> & { return _varType; }
+  auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
+
+  auto setType(const Type *type) -> void { _type = type; }
+
+  auto type() const -> const Type * { return _type; }
 
   auto init() const -> const std::unique_ptr<Expr> & { return _init; }
 
@@ -61,7 +67,8 @@ public:
 
 private:
   std::unique_ptr<VariableExpr> _variable;
-  std::unique_ptr<Type> _varType;
+  std::unique_ptr<TypeNode> _typeNode;
+  const Type *_type = nullptr;
   std::unique_ptr<Expr> _init;
   bool _isConst;
 };

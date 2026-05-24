@@ -12,93 +12,18 @@
 #include "cherry/AST/Expr.h"
 #include "cherry/AST/Identifier.h"
 #include "cherry/AST/Module.h"
+#include "cherry/AST/Name.h"
 #include "cherry/AST/Stat.h"
+#include "cherry/AST/Type.h"
 #include "mlir/IR/Location.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
 #include <cstdint>
-#include <optional>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace cherry {
-
-struct ParsedListType {
-  std::string elementType;
-  std::vector<int64_t> shape;
-};
-
-inline auto formatListTypeName(llvm::StringRef elementType,
-                               llvm::ArrayRef<int64_t> shape) -> std::string {
-  std::string name = elementType.str();
-  name += "[";
-  llvm::StringRef separator = "";
-  for (auto dim : shape) {
-    name += separator.str();
-    name += dim < 0 ? "?" : std::to_string(dim);
-    separator = ", ";
-  }
-  name += "]";
-  return name;
-}
-
-inline auto parseListTypeName(llvm::StringRef typeName)
-    -> std::optional<ParsedListType> {
-  if (!typeName.consume_back("]"))
-    return std::nullopt;
-
-  auto bracket = typeName.rfind("[");
-  if (bracket == llvm::StringRef::npos || bracket == 0)
-    return std::nullopt;
-
-  auto shapeText = typeName.substr(bracket + 1);
-  auto elementType = typeName.substr(0, bracket).trim();
-  if (shapeText.empty() || elementType.empty())
-    return std::nullopt;
-
-  ParsedListType parsed;
-  parsed.elementType = elementType.str();
-
-  llvm::SmallVector<llvm::StringRef, 4> parts;
-  shapeText.split(parts, ",");
-  for (auto part : parts) {
-    auto dimText = part.trim();
-    if (dimText == "?") {
-      parsed.shape.push_back(-1);
-      continue;
-    }
-
-    int64_t dim = 0;
-    if (dimText.getAsInteger(10, dim) || dim <= 0)
-      return std::nullopt;
-    parsed.shape.push_back(dim);
-  }
-
-  if (parsed.shape.empty())
-    return std::nullopt;
-  return parsed;
-}
-
-inline auto isListTypeName(llvm::StringRef typeName) -> bool {
-  return parseListTypeName(typeName).has_value();
-}
-
-// list type. e.g. `f64[10, 20]`
-class ListType : public Type {
-  std::unique_ptr<Type> elementType_;
-  std::vector<int64_t> shape_;
-
-public:
-  ListType(std::unique_ptr<Type> elementType, std::vector<int64_t> shape,
-           llvm::SMLoc location)
-      : Type(location, formatListTypeName(elementType->name(), shape)),
-        elementType_(std::move(elementType)), shape_(shape) {}
-
-  Type *getElementType() const { return elementType_.get(); }
-  const std::vector<int64_t> &getShape() const { return shape_; }
-};
 
 // list literal. e.g. `[[1.0, 2.0], [3.0, 4.0]]`
 class ListLiteralExpr : public Expr {

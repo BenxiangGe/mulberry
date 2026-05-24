@@ -91,12 +91,15 @@ private:
   // _____________________________________________________________________________
   // Parse Identifiers
 
-  auto parseType(std::unique_ptr<Type> &type) -> CherryResult;
+  auto parseType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
 
   auto parseFunctionName(std::unique_ptr<FunctionName> &functionName,
                          const char *const message) -> CherryResult;
 
-  auto parseUnitType(std::unique_ptr<Type> &unit) -> CherryResult;
+  auto parseStructName(std::unique_ptr<StructName> &structName,
+                       const char *const message) -> CherryResult;
+
+  auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Declarations
@@ -111,7 +114,7 @@ private:
 
   auto parseStructDecl_c(std::unique_ptr<Decl> &elem) -> CherryResult;
 
-  auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
+  auto parseListTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseListLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseListAccess(llvm::SMLoc location, llvm::StringRef name,
                        std::unique_ptr<Expr> &expr) -> CherryResult;
