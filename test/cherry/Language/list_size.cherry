@@ -1,0 +1,14 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var xs: UInt64[3] = [1, 2, 3];
+  var ys: UInt64[2, 3] = [[1, 2, 3], [4, 5, 6]];
+
+  print(size(xs));
+  print(size(ys));
+
+  0
+}
+
+# CHECK: cir.const #cir.int<3> : !cir.int<u, 64>
+# CHECK: cir.const #cir.int<2> : !cir.int<u, 64>
