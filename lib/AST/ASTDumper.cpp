@@ -8,12 +8,11 @@
 
 #include "cherry/AST/AST.h"
 #include "cherry/Basic/Types.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
+#include <string_view>
 
 using namespace cherry;
 
@@ -42,7 +41,7 @@ private:
   // Expressions
   auto dump(const Expr *node) -> void;
   auto dump(const UnitExpr *node) -> void;
-  auto dump(const BlockExpr *node, llvm::StringRef string) -> void;
+  auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const CallExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
   auto dump(const DecimalLiteralExpr *node) -> void;
@@ -67,9 +66,7 @@ private:
 
   template <typename T> auto loc(T *node) -> std::string {
     auto [line, col] = _sourceManager.getLineAndColumn(node->location());
-    return (llvm::Twine("loc=") + llvm::Twine(line) + llvm::Twine(":") +
-            llvm::Twine(col))
-        .str();
+    return "loc=" + std::to_string(line) + ":" + std::to_string(col);
   }
 
   auto formatTypeNode(const TypeNode *node) -> std::string {
@@ -139,8 +136,8 @@ auto Dumper::dump(const FunctionDecl *node) -> void {
 auto Dumper::dump(const StructDecl *node) -> void {
   INDENT();
   auto id = node->id().get();
-  errs() << "StructDecl " << loc(node) << " (name=" << id->name() << " "
-         << loc(id) << ")\n";
+  errs() << "StructDecl " << loc(node)
+         << " (name=" << id->name() << " " << loc(id) << ")\n";
   for (auto &var : node->variables())
     dump(var.get());
 }
@@ -162,7 +159,7 @@ auto Dumper::dump(const UnitExpr *node) -> void {
          << " type=" << formatType(node->type()) << "\n";
 }
 
-auto Dumper::dump(const BlockExpr *node, llvm::StringRef string) -> void {
+auto Dumper::dump(const BlockExpr *node, std::string_view string) -> void {
   INDENT();
   errs() << string << "\n";
   for (auto &expr : *node)
@@ -230,7 +227,8 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
   INDENT();
   errs() << "BinaryExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " op=`" << node->op() << "`\n";
+         << " op=`"
+         << node->op() << "`\n";
   dump(node->lhs().get());
   dump(node->rhs().get());
 }
