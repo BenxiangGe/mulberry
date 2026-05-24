@@ -435,8 +435,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return nullptr;
   }
 
-  auto callee = mlir::SymbolRefAttr::get(
-      _builder.getContext(), llvm::StringRef(name.data(), name.size()));
+  auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
   auto callResultType = isUnitCall ? mlir::Type{} : getMLIRType(node);
   auto callOp = cir::CallOp::create(_builder, loc(node), callee, callResultType,
