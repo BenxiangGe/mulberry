@@ -54,7 +54,8 @@ auto StructField::index() const -> unsigned {
 
 StructType::StructType(std::string_view name,
                        std::vector<StructField> fields)
-    : Type(TypeKind::Struct), _name(name), _fields(std::move(fields)) {}
+    : Type(TypeKind::Struct),
+      _name(name), _fields(std::move(fields)) {}
 
 auto StructType::classof(const Type *type) -> bool {
   return type && type->kind() == TypeKind::Struct;
@@ -111,7 +112,8 @@ auto formatListType(const ListType& type) -> std::string {
   return result;
 }
 
-auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs) -> bool {
+auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs)
+    -> bool {
   return lhs.builtinKind() == rhs.builtinKind();
 }
 
@@ -134,12 +136,14 @@ auto sameListType(const ListType& lhs, const ListType& rhs) -> bool {
          sameListShape(lhs.shape(), rhs.shape());
 }
 
-auto structTypeStorage() -> std::vector<std::unique_ptr<StructType>> & {
+auto structTypeStorage()
+    -> std::vector<std::unique_ptr<StructType>> & {
   static auto &types = *new std::vector<std::unique_ptr<StructType>>();
   return types;
 }
 
-auto listTypeStorage() -> std::vector<std::unique_ptr<ListType>> & {
+auto listTypeStorage()
+    -> std::vector<std::unique_ptr<ListType>> & {
   static auto &types = *new std::vector<std::unique_ptr<ListType>>();
   return types;
 }
@@ -292,7 +296,8 @@ auto TypeContext::createStructType(std::string_view name,
                                    std::vector<StructField> fields) const
     -> const StructType * {
   auto &structTypes = structTypeStorage();
-  structTypes.push_back(std::make_unique<StructType>(name, std::move(fields)));
+  structTypes.push_back(std::make_unique<StructType>(
+      name, std::move(fields)));
   return structTypes.back().get();
 }
 

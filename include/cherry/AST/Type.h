@@ -48,7 +48,8 @@ public:
 class NamedTypeNode final : public TypeNode {
 public:
   explicit NamedTypeNode(llvm::SMLoc location, std::string_view name)
-      : TypeNode(location, TypeNode::Kind::Named), _name(name) {}
+      : TypeNode(location, TypeNode::Kind::Named),
+        _name(name) {}
 
   static auto classof(const TypeNode *node) -> bool {
     return node->kind() == TypeNode::Kind::Named;
@@ -60,6 +61,7 @@ private:
   std::string _name;
 };
 
+// List type node. e.g. `Float32[10, 20]`
 class ListTypeNode final : public TypeNode {
 public:
   ListTypeNode(std::unique_ptr<TypeNode> elementType,
