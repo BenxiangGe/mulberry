@@ -9,31 +9,20 @@
 #define CHERRY_IDENTIFIER_H
 
 #include "cherry/AST/Node.h"
-#include "llvm/ADT/StringRef.h"
+#include <string>
+#include <string_view>
 
 namespace cherry {
 
 class Identifier : public Node {
 public:
-  explicit Identifier(llvm::SMLoc location, llvm::StringRef name)
-      : Node{location}, _name(name.str()){};
+  explicit Identifier(llvm::SMLoc location, std::string_view name)
+      : Node{location}, _name(name){};
 
-  auto name() const -> llvm::StringRef { return _name; }
+  auto name() const -> std::string_view { return _name; }
 
 private:
   std::string _name;
-};
-
-class Type : public Identifier {
-public:
-  // using Identifier::Identifier;
-  explicit Type(llvm::SMLoc location, llvm::StringRef name)
-      : Identifier(location, name) {}
-};
-
-class FunctionName final : public Identifier {
-public:
-  using Identifier::Identifier;
 };
 
 } // end namespace cherry

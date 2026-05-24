@@ -49,35 +49,35 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
 // _____________________________________________________________________________
 // Parse Identifiers
 
-auto Parser::parseUnitType(unique_ptr<Type> &unit) -> CherryResult {
+auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   auto location = tokenLoc();
   consume(Token::l_paren);
   if (parseToken(Token::r_paren, diag::expected_l_paren))
     return failure();
-  unit = make_unique<Type>(location, "Unit");
+  typeNode = make_unique<UnitTypeNode>(location);
   return success();
 }
 
-auto Parser::parseType(unique_ptr<Type> &type) -> CherryResult {
+auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (tokenIs(Token::l_paren))
-    return parseUnitType(type);
+    return parseUnitType(typeNode);
 
   auto location = tokenLoc();
   auto name = spelling();
   if (parseToken(Token::identifier, diag::expected_type))
     return failure();
 
-  auto elementType = make_unique<Type>(location, name);
+  auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
   if (tokenIs(Token::l_square)) {
     std::vector<int64_t> shape;
-    if (parseTensorTypeSuffix(shape))
+    if (parseListTypeSuffix(shape))
       return failure();
-    type = make_unique<ListType>(std::move(elementType), std::move(shape),
-                                 location);
+    typeNode = make_unique<ListTypeNode>(
+        std::move(elementTypeNode), std::move(shape), location);
     return success();
   }
 
-  type = std::move(elementType);
+  typeNode = std::move(elementTypeNode);
   return success();
 }
 
@@ -88,6 +88,16 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
   if (parseToken(Token::identifier, message))
     return failure();
   functionName = make_unique<FunctionName>(location, name);
+  return success();
+}
+
+auto Parser::parseStructName(unique_ptr<StructName> &structName,
+                             const char *const message) -> CherryResult {
+  auto location = tokenLoc();
+  auto name = spelling();
+  if (parseToken(Token::identifier, message))
+    return failure();
+  structName = make_unique<StructName>(location, name);
   return success();
 }
 
@@ -132,26 +142,26 @@ auto Parser::parsePrototype_c(unique_ptr<Prototype> &proto) -> CherryResult {
   PE<VariableStat> parseParam =
       [this](unique_ptr<VariableStat> &elem) -> CherryResult {
     unique_ptr<VariableExpr> param;
-    unique_ptr<Type> type;
+    unique_ptr<TypeNode> typeNode;
     if (parseVariableExpr(param) ||
-        parseToken(Token::colon, diag::expected_colon) || parseType(type))
+        parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
       return failure();
     elem = make_unique<VariableStat>(param->location(), std::move(param),
-                                     std::move(type), nullptr);
+                                     std::move(typeNode), nullptr);
     return success();
   };
 
   // Parse List
   VectorUniquePtr<VariableStat> parameters;
-  unique_ptr<Type> type;
+  unique_ptr<TypeNode> typeNode;
   if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
                 diag::expected_r_paren, parameters, parseParam) ||
-      parseToken(Token::colon, diag::expected_colon) || parseType(type))
+      parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
     return failure();
 
   // Make Proto
   proto = make_unique<Prototype>(location, std::move(name),
-                                 std::move(parameters), std::move(type));
+                                 std::move(parameters), std::move(typeNode));
   return success();
 }
 
@@ -190,21 +200,22 @@ auto Parser::parseStructDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
 
-  // Parse Type
-  unique_ptr<Type> type;
-  if (parseType(type) || parseToken(Token::l_brace, diag::expected_l_brace))
+  // Parse name
+  unique_ptr<StructName> name;
+  if (parseStructName(name, diag::expected_id) ||
+      parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
 
   // Parse Element
   PE<VariableStat> parseField =
       [this](unique_ptr<VariableStat> &elem) -> CherryResult {
     unique_ptr<VariableExpr> var;
-    unique_ptr<Type> type;
+    unique_ptr<TypeNode> typeNode;
     if (parseVariableExpr(var) ||
-        parseToken(Token::colon, diag::expected_colon) || parseType(type))
+        parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
       return failure();
     elem = make_unique<VariableStat>(var->location(), std::move(var),
-                                     std::move(type), nullptr);
+                                     std::move(typeNode), nullptr);
     return success();
   };
 
@@ -215,11 +226,11 @@ auto Parser::parseStructDecl_c(unique_ptr<Decl> &decl) -> CherryResult {
     return failure();
 
   // Make StructDecl
-  decl = make_unique<StructDecl>(loc, std::move(type), std::move(fields));
+  decl = make_unique<StructDecl>(loc, std::move(name), std::move(fields));
   return success();
 }
 
-auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
+auto Parser::parseListTypeSuffix(std::vector<int64_t> &shape)
     -> CherryResult {
   consume(Token::l_square);
   while (!tokenIs(Token::r_square) && !tokenIs(Token::eof)) {
@@ -591,13 +602,13 @@ auto Parser::parseVariableDecl_c(unique_ptr<Stat> &stat, bool isConst)
   auto loc = tokenLoc();
   consume(isConst ? Token::kw_const : Token::kw_var);
   unique_ptr<VariableExpr> var;
-  unique_ptr<Type> type;
+  unique_ptr<TypeNode> typeNode;
   unique_ptr<Expr> e;
   if (parseVariableExpr(var) ||
-      parseToken(Token::colon, diag::expected_colon) || parseType(type) ||
+      parseToken(Token::colon, diag::expected_colon) || parseType(typeNode) ||
       parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
     return failure();
-  stat = make_unique<VariableStat>(loc, std::move(var), std::move(type),
+  stat = make_unique<VariableStat>(loc, std::move(var), std::move(typeNode),
                                    std::move(e), isConst);
   return success();
 }

@@ -7,13 +7,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/AST/AST.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
 
 using namespace cherry;
 
 namespace {
+using llvm::cast;
+using llvm::dyn_cast;
 using llvm::errs;
 
 class Dumper {
@@ -65,6 +70,27 @@ private:
             llvm::Twine(col))
         .str();
   }
+
+  auto formatTypeNode(const TypeNode *node) -> std::string {
+    if (dyn_cast<UnitTypeNode>(node))
+      return "()";
+
+    if (auto *listType = dyn_cast<ListTypeNode>(node)) {
+      std::string result = formatTypeNode(listType->elementTypeNode());
+      result += "[";
+      std::string separator;
+      for (auto dim : listType->shape()) {
+        result += separator;
+        result += dim < 0 ? "?" : std::to_string(dim);
+        separator = ", ";
+      }
+      result += "]";
+      return result;
+    }
+
+    auto *namedType = cast<NamedTypeNode>(node);
+    return std::string(namedType->name());
+  }
 };
 
 struct Indent {
@@ -93,10 +119,11 @@ auto Dumper::dump(const Decl *node) -> void {
 
 auto Dumper::dump(const Prototype *node) -> void {
   auto id = node->id().get();
-  auto type = node->type().get();
+  auto typeNode = node->returnTypeNode();
   INDENT();
   errs() << "Prototype " << loc(node) << " (name=" << id->name() << " "
-         << loc(id) << " (type=" << type->name() << " " << loc(type) << ")\n";
+         << loc(id) << " (type=" << formatTypeNode(typeNode) << " "
+         << loc(typeNode) << ")\n";
   for (auto &parameter : node->parameters())
     dump(parameter.get());
 }
@@ -222,13 +249,14 @@ auto Dumper::dump(const Stat *node) -> void {
 
 auto Dumper::dump(const VariableStat *node) -> void {
   auto id = node->variable().get();
-  auto varType = node->varType().get();
+  auto typeNode = node->typeNode();
   INDENT();
   errs() << "VariableStat ";
   if (node->isConst())
     errs() << "const ";
   errs() << "(id=" << id->name() << " " << loc(id)
-         << ") (type=" << varType->name() << " " << loc(varType) << ")\n";
+         << ") (type=" << formatTypeNode(typeNode) << " "
+         << loc(typeNode) << ")\n";
   if (node->init())
     dump(node->init().get());
 }
