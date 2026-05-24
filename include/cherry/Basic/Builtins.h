@@ -8,36 +8,24 @@
 #ifndef CHERRY_BUILTINS_H
 #define CHERRY_BUILTINS_H
 
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
+#include <string_view>
 
 namespace cherry {
 namespace builtins {
 
 // Functions
-const llvm::StringRef print = "print";
-const llvm::StringRef boolToUInt64 = "boolToUInt64";
-
-// Types
-const llvm::StringRef UnitType = "Unit";
-const llvm::StringRef BoolType = "Bool";
-const llvm::StringRef UInt64Type = "UInt64";
-const llvm::StringRef Float32Type = "Float32";
-
-inline auto primitiveTypes() -> llvm::SmallVector<llvm::StringRef, 4> {
-  return {UnitType, BoolType, UInt64Type, Float32Type};
-}
+const std::string_view print = "print";
+const std::string_view boolToUInt64 = "boolToUInt64";
 
 } // end namespace builtins
 
 namespace nn {
-const std::string matmul = "matmul";
-const std::string matadd = "matadd";
-const std::string transpose = "transpose";
-const std::string exp = "exp";
-const std::string sigmoid = "sigmoid";
-const std::string argmax = "argmax";
+const std::string_view matmul = "matmul";
+const std::string_view matadd = "matadd";
+const std::string_view transpose = "transpose";
+const std::string_view exp = "exp";
+const std::string_view sigmoid = "sigmoid";
+const std::string_view argmax = "argmax";
 } // end namespace nn
 
 } // end namespace cherry
