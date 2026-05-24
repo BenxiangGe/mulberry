@@ -88,6 +88,7 @@ private:
   auto genTranspose(const CallExpr *node) -> mlir::Value;
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
+  auto genSize(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
@@ -420,6 +421,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genElementwiseNN(node);
   if (name == nn::argmax)
     return genArgmax(node);
+  if (name == builtins::size)
+    return genSize(node);
 
   llvm::SmallVector<mlir::Value, 4> operands;
   for (auto &expr : *node) {
@@ -519,6 +522,21 @@ auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
   auto op = mlir::cherry_nn::ArgmaxOp::create(_builder, loc(node),
                                               _builder.getI64Type(), input);
   return op.getResult();
+}
+
+auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto *listType = cherry::getListType(expressions.front()->type());
+  if (!listType) {
+    ERR("size() argument has no Cherry list type");
+    return nullptr;
+  }
+
+  auto size = listType->shape().front();
+  DBG("size() static list size: {0}", size);
+  auto type = getMLIRType(node);
+  auto attr = cir::IntAttr::get(type, size);
+  return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {

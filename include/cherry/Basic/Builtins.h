@@ -16,6 +16,7 @@ namespace builtins {
 // Functions
 const std::string_view print = "print";
 const std::string_view boolToUInt64 = "boolToUInt64";
+const std::string_view size = "size";
 
 } // end namespace builtins
 

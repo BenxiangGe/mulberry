@@ -108,6 +108,7 @@ private:
   auto semaTranspose(CallExpr *node) -> CherryResult;
   auto semaElementwiseNN(CallExpr *node) -> CherryResult;
   auto semaArgmax(CallExpr *node) -> CherryResult;
+  auto semaSize(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
 
@@ -290,6 +291,10 @@ auto SemaImpl::sema(Prototype *node) -> CherryResult {
   node->setType(returnType);
 
   auto name = node->id()->name();
+  if (name == builtins::size) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
+    return emitError(node->id().get(), diagnostic);
+  }
   if (declareFunction(name, std::move(parameterTypes), returnType)) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return emitError(node->id().get(), diagnostic);
@@ -404,6 +409,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == nn::argmax) {
     return semaArgmax(node);
+  }
+  if (name == builtins::size) {
+    return semaSize(node);
   }
 
   auto *signature = lookupFunction(name);
@@ -827,6 +835,26 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);
 
+  return success();
+}
+
+auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+
+  auto *listType = cherry::getListType(expressions[0]->type());
+  if (!listType)
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  auto &shape = listType->shape();
+  if (shape.empty() || shape.front() < 0)
+    return emitError(node, diag::mismatch_type);
+
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
   return success();
 }
 

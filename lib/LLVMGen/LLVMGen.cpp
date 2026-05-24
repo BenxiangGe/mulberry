@@ -90,6 +90,7 @@ private:
   auto gen(const UnitExpr *node) -> llvm::Value *;
   auto gen(const BlockExpr *node) -> llvm::Value *;
   auto gen(const CallExpr *node) -> llvm::Value *;
+  auto genSize(const CallExpr *node) -> llvm::Value *;
   auto gen(const StructLiteralExpr *node) -> llvm::Value *;
   auto gen(const VariableExpr *node) -> llvm::Value *;
   auto gen(const MemberExpr *node) -> llvm::Value *;
@@ -483,12 +484,15 @@ auto LLVMGenImpl::gen(const BlockExpr *node) -> llvm::Value * {
 
 auto LLVMGenImpl::gen(const CallExpr *node) -> llvm::Value * {
   emitLocation(node);
+  auto functionName = node->name();
+  if (functionName == builtins::size)
+    return genSize(node);
+
   llvm::SmallVector<llvm::Value *, 4> operands;
   for (auto &expr : *node) {
     auto *value = gen(expr.get());
     operands.push_back(value);
   }
-  auto functionName = node->name();
   if (functionName == builtins::boolToUInt64) {
     return _builder.CreateIntCast(operands.front(),
                                   getLLVMType(_typeContext.getBuiltinType(
@@ -498,6 +502,16 @@ auto LLVMGenImpl::gen(const CallExpr *node) -> llvm::Value * {
     auto *callee = module->getFunction(functionName);
     return _builder.CreateCall(callee, operands);
   }
+}
+
+auto LLVMGenImpl::genSize(const CallExpr *node) -> llvm::Value * {
+  auto *listType = cherry::getListType(node->expressions().front()->type());
+  if (!listType)
+    return nullptr;
+
+  return llvm::ConstantInt::get(
+      getLLVMType(_typeContext.getBuiltinType(BuiltinTypeKind::UInt64)),
+      listType->shape().front());
 }
 
 auto LLVMGenImpl::gen(const StructLiteralExpr *node) -> llvm::Value * {
