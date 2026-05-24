@@ -8,7 +8,6 @@ target_link_libraries(cherry-driver PUBLIC
         cherryBasic
         cherryDriver
         cherryParse
-        cherryLLVMGen
         cherryMLIRGen
         cherrySema
         cherryAST

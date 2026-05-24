@@ -13,5 +13,4 @@ target_link_libraries(cherryDriver
 
 target_include_directories(cherryDriver PUBLIC
         ${LIB_HEADERS}
-        ${LLVM_SRC_DIR}/llvm/examples/Kaleidoscope/include
 )

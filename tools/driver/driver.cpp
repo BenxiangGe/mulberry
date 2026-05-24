@@ -19,11 +19,6 @@ enum Action {
   Dump_MLIR_LLVM,
   Dump_LLVM,
 };
-
-enum Backend {
-  MLIR,
-  LLVM,
-};
 } // end namespace
 
 static cl::opt<std::string> inputFilename(cl::Positional,
@@ -58,18 +53,13 @@ static cl::opt<enum Action> dumpAction(
                           "output the MLIR dump (llvm)")),
     cl::values(clEnumValN(Dump_LLVM, "llvm", "output the LLVM dump")));
 
-static cl::opt<enum Backend>
-    backend("b", cl::desc("Select the backend"), cl::init(MLIR),
-            cl::values(clEnumValN(MLIR, "mlir", "select the MLIR backend")),
-            cl::values(clEnumValN(LLVM, "llvm", "select the LLVM backend")));
-
 static cl::opt<bool> enableOpt("opt", cl::desc("Enable optimizations"));
 
 auto main(int argc, const char **argv) -> int {
   cl::ParseCommandLineOptions(argc, argv, "Cherry compiler\n");
 
   std::unique_ptr<Compilation> compilation =
-      Compilation::make(inputFilename, enableOpt, backend == Backend::LLVM);
+      Compilation::make(inputFilename, enableOpt);
   if (compilation == nullptr)
     return EXIT_FAILURE;
 

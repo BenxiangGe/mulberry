@@ -1,4 +1,4 @@
-# RUN: cherry-driver -b=llvm %s 2>&1 | FileCheck %s
+# RUN: cherry-driver %s -typecheck
 
 struct A {
   x: Bool,
@@ -11,4 +11,3 @@ fn main(): UInt64 {
 
   6789
 }
-

@@ -1,9 +1,6 @@
 # _______________________________________________________
-# LLVM - JIT
-# RUN: cherry-driver %s --b=llvm 2>&1 | FileCheck %s
-# _______________________________________________________
-# MLIR - JIT
-# RUN: cherry-driver %s --b=mlir 2>&1 | FileCheck %s
+# JIT
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
 # _______________________________________________________
 
 struct A { }

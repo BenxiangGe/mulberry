@@ -32,7 +32,7 @@ public:
 
   Compilation();
 
-  static auto make(llvm::StringRef filename, bool enableOpt, bool backendLLVM)
+  static auto make(llvm::StringRef filename, bool enableOpt)
       -> std::unique_ptr<Compilation>;
 
   auto dumpTokens() -> int;
@@ -50,7 +50,6 @@ public:
 private:
   llvm::SourceMgr _sourceManager;
   bool _enableOpt;
-  bool _backendLLVM;
   mlir::MLIRContext _mlirContext;
   std::unique_ptr<llvm::LLVMContext> _llvmContext;
 
