@@ -3,6 +3,8 @@ set(LIB_HEADERS ${CHERRY_SOURCE_DIR}/include/cherry/MLIRGen)
 add_mlir_dialect_library(cherryMLIRGen
         ${LIB_HEADERS}/MLIRGen.h
         MLIRGen.cpp
+        ${LIB_HEADERS}/TypeConverter.h
+        TypeConverter.cpp
 
         # Conversion
         ${LIB_HEADERS}/Conversion/CherryPasses.h
@@ -20,8 +22,6 @@ add_mlir_dialect_library(cherryMLIRGen
         IR/CherryNNDialect.cpp
         ${LIB_HEADERS}/IR/CherryNNOps.h
         IR/CherryNNOps.cpp
-        ${LIB_HEADERS}/IR/CherryTypes.h
-        IR/CherryTypes.cpp
 
         DEPENDS
         MLIRCherryOpsIncGen
@@ -29,6 +29,7 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRCherryConversionPassIncGen
 
         LINK_LIBS PUBLIC
+        cherryBasic
         MLIRArithDialect
         MLIRIR
         MLIRInferTypeOpInterface
