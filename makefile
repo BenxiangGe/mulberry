@@ -1,14 +1,15 @@
 # _____________________________________________________________________________
 # Parameters
 
-CHERRY_PRESET=debug
+CHERRY_PRESET=release
 
 LLVM_COMMIT=llvmorg-22.1.0
-LLVM_PRESET=Debug
+LLVM_PRESET=Release
 LLVM_SRC_DIR=${PROJECT_DIR}/llvm-project
 LLVM_BUILD_DIR=${LLVM_SRC_DIR}/build/${LLVM_PRESET}
 # LLVM_PYTHON_ENV=${HOME}/.venv/mlirdev
-LLVM_PYTHON_ENV=/usr
+#LLVM_PYTHON_ENV=/usr
+LLVM_PYTHON_ENV=${HOME}/.pyenv/shims/
 
 # _____________________________________________________________________________
 # Paths
@@ -78,21 +79,21 @@ llvm-generate-python-env:
 	echo "LLVM - Generate Python Environment"
 	/usr/bin/python3 -m venv ${LLVM_PYTHON_ENV} && \
 		source ${LLVM_PYTHON_ENV}/bin/activate && \
-		python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip && \
-		python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -r ${LLVM_SRC_DIR}/mlir/python/requirements.txt
+		python -m pip install --upgrade pip && \
+		python -m pip install -r ${LLVM_SRC_DIR}/mlir/python/requirements.txt
 
 .PHONY: llvm-generate-project - Generate LLVM Project.
 llvm-generate-project:
 	echo "LLVM - Generate Project"
 	cmake -G Ninja -S ${LLVM_SRC_DIR}/llvm -B ${LLVM_BUILD_DIR} \
-		-DLLVM_ENABLE_PROJECTS="clang;mlir;lldb" \
-		-DLLDB_ENABLE_LIBEDIT=ON -DLLDB_ENABLE_CURSES=ON \
+		-DLLVM_ENABLE_PROJECTS="clang;mlir" \
 		-DCLANG_ENABLE_CIR=ON \
 		-DLLVM_TARGETS_TO_BUILD=host \
 		-DCMAKE_BUILD_TYPE=${LLVM_PRESET} \
 		-DLLVM_ENABLE_ASSERTIONS=ON \
 		-DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-		-DPython3_EXECUTABLE=${LLVM_PYTHON_ENV}/bin/python3 \
+		-DPython3_EXECUTABLE=${LLVM_PYTHON_ENV}/python3 \
+		-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
 		-DCMAKE_C_COMPILER=clang \
 		-DCMAKE_CXX_COMPILER=clang++
 
@@ -154,7 +155,7 @@ define CMAKE_PRESETS_TEMPLATE
 				"MLIR_DIR": "${LLVM_BUILD_DIR}/lib/cmake/mlir",
 				"Clang_DIR": "${LLVM_BUILD_DIR}/lib/cmake/clang",
 				"LLVM_EXTERNAL_LIT": "${LLVM_BUILD_DIR}/bin/llvm-lit",
-				"Python3_EXECUTABLE": "${LLVM_PYTHON_ENV}/bin/python3",
+				"Python3_EXECUTABLE": "${LLVM_PYTHON_ENV}/python3",
 				"CMAKE_C_COMPILER": "/usr/bin/clang",
                 "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
