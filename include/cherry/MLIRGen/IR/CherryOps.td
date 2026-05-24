@@ -8,12 +8,10 @@
 #ifndef CHERRY_OPS
 #define CHERRY_OPS
 
-include "cherry/MLIRGen/IR/CherryTypes.td"
+include "cherry/MLIRGen/IR/CherryDialect.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinAttributeInterfaces.td"
-
-def Cherry_Type : AnyTypeOf<[I64, I1, Cherry_Struct]>;
 
 def PrintOp : Cherry_Op<"print"> {
   let summary = "Print operation";
