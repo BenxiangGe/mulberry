@@ -11,3 +11,7 @@ add_library(cherrySema STATIC
 target_include_directories(cherrySema PUBLIC
         ${LIB_HEADERS}
 )
+
+target_link_libraries(cherrySema PUBLIC
+        cherryBasic
+)

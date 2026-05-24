@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/AST/AST.h"
+#include "cherry/Basic/Types.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -157,7 +158,8 @@ auto Dumper::dump(const Expr *node) -> void {
 
 auto Dumper::dump(const UnitExpr *node) -> void {
   INDENT();
-  errs() << "UnitExpr " << loc(node) << " type=" << node->type() << "\n";
+  errs() << "UnitExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
 }
 
 auto Dumper::dump(const BlockExpr *node, llvm::StringRef string) -> void {
@@ -170,7 +172,8 @@ auto Dumper::dump(const BlockExpr *node, llvm::StringRef string) -> void {
 
 auto Dumper::dump(const CallExpr *node) -> void {
   INDENT();
-  errs() << "CallExpr " << loc(node) << " type=" << node->type()
+  errs() << "CallExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " callee=" << node->name() << "\n";
   for (auto &expr : *node)
     dump(expr.get());
@@ -178,13 +181,15 @@ auto Dumper::dump(const CallExpr *node) -> void {
 
 auto Dumper::dump(const VariableExpr *node) -> void {
   INDENT();
-  errs() << "VariableExpr " << loc(node) << " type=" << node->type()
+  errs() << "VariableExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " name=" << node->name() << "\n";
 }
 
 auto Dumper::dump(const DecimalLiteralExpr *node) -> void {
   INDENT();
-  errs() << "DecimalExpr " << loc(node) << " type=" << node->type()
+  errs() << "DecimalExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " value=" << node->value() << "\n";
 }
 
@@ -192,27 +197,30 @@ auto Dumper::dump(const FloatLiteralExpr *node) -> void {
   INDENT();
   llvm::SmallString<32> value;
   node->value().toString(value);
-  errs() << "FloatLiteralExpr " << loc(node) << " type=" << node->type()
+  errs() << "FloatLiteralExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " value=" << value << "\n";
 }
 
 auto Dumper::dump(const BoolLiteralExpr *node) -> void {
   INDENT();
-  errs() << "BoolLiteralExpr " << loc(node) << " type=" << node->type()
+  errs() << "BoolLiteralExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " value=" << node->value() << "\n";
 }
 
 auto Dumper::dump(const ListLiteralExpr *node) -> void {
   INDENT();
-  errs() << "ListLiteralExpr " << loc(node) << " type=" << node->type()
-         << "\n";
+  errs() << "ListLiteralExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
   for (auto &element : node->getElements())
     dump(element.get());
 }
 
 auto Dumper::dump(const ListAccessExpr *node) -> void {
   INDENT();
-  errs() << "ListAccessExpr " << loc(node) << " type=" << node->type()
+  errs() << "ListAccessExpr " << loc(node)
+         << " type=" << formatType(node->type())
          << " name=" << node->getVarName() << "\n";
   for (auto &index : node->getIndices())
     dump(index.get());
@@ -220,15 +228,17 @@ auto Dumper::dump(const ListAccessExpr *node) -> void {
 
 auto Dumper::dump(const BinaryExpr *node) -> void {
   INDENT();
-  errs() << "BinaryExpr " << loc(node) << " type=" << node->type() << " op=`"
-         << node->op() << "`\n";
+  errs() << "BinaryExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " op=`" << node->op() << "`\n";
   dump(node->lhs().get());
   dump(node->rhs().get());
 }
 
 auto Dumper::dump(const IfExpr *node) -> void {
   INDENT();
-  errs() << "IfExpr " << loc(node) << " type=" << node->type() << "`\n";
+  errs() << "IfExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "`\n";
   dump(node->conditionExpr().get());
   dump(node->thenBlock().get(), "thenBlock:");
   dump(node->elseBlock().get(), "elseBlock:");
@@ -236,7 +246,8 @@ auto Dumper::dump(const IfExpr *node) -> void {
 
 auto Dumper::dump(const WhileExpr *node) -> void {
   INDENT();
-  errs() << "WhileExpr " << loc(node) << " type=" << node->type() << "`\n";
+  errs() << "WhileExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "`\n";
   dump(node->conditionExpr().get());
   dump(node->bodyBlock().get(), "bodyBlock:");
 }
