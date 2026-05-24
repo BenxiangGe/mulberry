@@ -19,10 +19,6 @@ def Cherry_Dialect : Dialect {
   let summary = "Cherry MLIR dialect.";
   let cppNamespace = "::mlir::cherry";
 
-  let useDefaultTypePrinterParser = 1;
-  let extraClassDeclaration = [{
-    void registerTypes();
-  }];
 }
 
 //===----------------------------------------------------------------------===//

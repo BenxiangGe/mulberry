@@ -7,7 +7,6 @@
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
-#include "cherry/MLIRGen/IR/CherryTypes.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -174,19 +173,6 @@ struct ConvertCherryToLLVM
     });
     typeConverter.addConversion([&](cir::VoidType type) -> Type {
       return LLVM::LLVMVoidType::get(type.getContext());
-    });
-
-    typeConverter.addConversion([&](mlir::cherry::CherryStructType type) {
-      SmallVector<Type, 2> types;
-      for (auto t : type.getTypes()) {
-        if (auto structType =
-                llvm::dyn_cast<mlir::cherry::CherryStructType>(t)) {
-          types.push_back(typeConverter.convertType(structType));
-        } else {
-          types.push_back(typeConverter.convertType(t));
-        }
-      }
-      return LLVM::LLVMStructType::getLiteral(&getContext(), types);
     });
 
     // Patterns

@@ -7,7 +7,6 @@
 
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
-#include "cherry/MLIRGen/IR/CherryTypes.h"
 
 using namespace mlir;
 using namespace mlir::cherry;
@@ -19,5 +18,4 @@ void CherryDialect::initialize() {
 #define GET_OP_LIST
 #include "cherry/MLIRGen/IR/CherryOps.cpp.inc"
       >();
-  registerTypes();
 }
