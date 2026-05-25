@@ -72,6 +72,10 @@ auto Lexer::lexToken() -> Token {
     case ':':
       return formToken(Token::colon, tokStart);
     case '.':
+      if (*_curPtr == '.') {
+        ++_curPtr;
+        return formToken(Token::dot_dot, tokStart);
+      }
       return formToken(Token::dot, tokStart);
     case '=':
       return formToken(Token::assign, tokStart);

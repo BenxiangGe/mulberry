@@ -14,11 +14,17 @@ auto CastOp::verify() -> LogicalResult {
   auto inputType = getInput().getType();
   auto resultType = getResult().getType();
   auto inputIntType = dyn_cast<IntegerType>(inputType);
-  auto resultIntType = dyn_cast<cir::IntType>(resultType);
+  auto inputCIRIntType = dyn_cast<cir::IntType>(inputType);
+  auto resultIntType = dyn_cast<IntegerType>(resultType);
+  auto resultCIRIntType = dyn_cast<cir::IntType>(resultType);
 
-  if (inputIntType && inputIntType.getWidth() == 64 && resultIntType &&
-      resultIntType.getWidth() == 64 && resultIntType.isUnsigned())
+  if (inputIntType && inputIntType.getWidth() == 64 && resultCIRIntType &&
+      resultCIRIntType.getWidth() == 64 && resultCIRIntType.isUnsigned())
+    return success();
+  if (inputCIRIntType && inputCIRIntType.getWidth() == 64 &&
+      inputCIRIntType.isUnsigned() && resultIntType &&
+      resultIntType.getWidth() == 64)
     return success();
 
-  return emitOpError("only supports i64 to !cir.int<u,64> for now");
+  return emitOpError("only supports i64 <-> !cir.int<u,64> for now");
 }

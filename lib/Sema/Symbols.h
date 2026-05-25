@@ -63,12 +63,27 @@ public:
     return type->second;
   }
 
-  auto resetVariables() { _variablesByName = {}; }
+  auto resetVariables() {
+    _variablesByName = {};
+    _variableScopes = {};
+  }
+
+  auto pushVariableScope() -> void { _variableScopes.push_back({}); }
+
+  auto popVariableScope() -> void {
+    for (auto &name : _variableScopes.back())
+      _variablesByName.erase(name);
+    _variableScopes.pop_back();
+  }
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConst = false)
       -> CherryResult {
-    return declareSymbol(_variablesByName, name, VariableSymbol{type, isConst});
+    if (declareSymbol(_variablesByName, name, VariableSymbol{type, isConst}))
+      return failure();
+    if (!_variableScopes.empty())
+      _variableScopes.back().push_back(std::string(name));
+    return success();
   }
 
   auto lookupVariable(std::string_view name) -> const VariableSymbol * {
@@ -91,6 +106,7 @@ private:
   NameMap<FunctionSymbol> _functionsByName;
   NameMap<const Type *> _typesByName;
   NameMap<VariableSymbol> _variablesByName;
+  std::vector<std::vector<std::string>> _variableScopes;
 };
 
 } // end namespace cherry

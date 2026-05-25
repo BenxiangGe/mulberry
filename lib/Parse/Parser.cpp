@@ -343,6 +343,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseIfExpr(expr);
   case Token::kw_while:
     return parseWhileExpr(expr);
+  case Token::kw_for:
+    return parseForExpr(expr);
   case Token::kw_true: {
     auto loc = tokenLoc();
     consume(Token::kw_true);
@@ -408,6 +410,30 @@ auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
     return failure();
   expr =
       make_unique<WhileExpr>(loc, std::move(condition), std::move(bodyBlock));
+  return success();
+}
+
+auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_for);
+
+  auto variableName = spelling();
+  if (parseToken(Token::identifier, diag::expected_id) ||
+      parseToken(Token::kw_in, diag::expected_in))
+    return failure();
+
+  unique_ptr<Expr> startExpr;
+  unique_ptr<Expr> endExpr;
+  unique_ptr<BlockExpr> bodyBlock;
+  if (parseExpression(startExpr) ||
+      parseToken(Token::dot_dot, diag::expected_dot_dot) ||
+      parseBlockCondition(endExpr) ||
+      parseToken(Token::l_brace, diag::expected_l_brace) ||
+      parseBlockExpr(bodyBlock))
+    return failure();
+
+  expr = make_unique<ForExpr>(loc, variableName, std::move(startExpr),
+                              std::move(endExpr), std::move(bodyBlock));
   return success();
 }
 

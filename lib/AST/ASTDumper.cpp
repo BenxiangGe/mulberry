@@ -55,6 +55,7 @@ private:
   auto dump(const BinaryExpr *node) -> void;
   auto dump(const IfExpr *node) -> void;
   auto dump(const WhileExpr *node) -> void;
+  auto dump(const ForExpr *node) -> void;
 
   // Statements
   auto dump(const Stat *node) -> void;
@@ -150,7 +151,7 @@ auto Dumper::dump(const Expr *node) -> void {
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr,
             ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr,
-            AssignExpr, IfExpr, WhileExpr, BinaryExpr>(
+            AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -275,6 +276,16 @@ auto Dumper::dump(const WhileExpr *node) -> void {
   errs() << "WhileExpr " << loc(node)
          << " type=" << formatType(node->type()) << "\n";
   dump(node->conditionExpr().get());
+  dump(node->bodyBlock().get(), "bodyBlock:");
+}
+
+auto Dumper::dump(const ForExpr *node) -> void {
+  INDENT();
+  errs() << "ForExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " variable=" << node->variableName() << "\n";
+  dump(node->startExpr().get());
+  dump(node->endExpr().get());
   dump(node->bodyBlock().get(), "bodyBlock:");
 }
 

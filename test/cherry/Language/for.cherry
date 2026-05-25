@@ -1,0 +1,22 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var xs: UInt64[3] = [1, 2, 3];
+  var sum: UInt64 = 0;
+
+  for i in 0 .. size(xs) {
+    sum = sum + xs[i];
+    ()
+  };
+
+  print(sum);
+  0
+}
+
+# CHECK: cir.const #cir.int<3> : !cir.int<u, 64>
+# CHECK: cir.for
+# CHECK: cir.cmp(lt
+# CHECK: cherry_nn.cast
+# CHECK-SAME: !cir.int<u, 64> to i64
+# CHECK: memref.load
+# CHECK: cir.binop(add
