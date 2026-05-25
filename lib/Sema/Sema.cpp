@@ -111,6 +111,7 @@ private:
   auto semaSize(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
+  auto sema(ForExpr *node) -> CherryResult;
 
   // Statements
   auto sema(Stat *node) -> CherryResult;
@@ -176,6 +177,18 @@ private:
       -> CherryResult {
     return _symbols.declareVariable(name, type, isConst);
   }
+
+  class VariableScope {
+  public:
+    explicit VariableScope(Symbols &symbols) : _symbols(symbols) {
+      _symbols.pushVariableScope();
+    }
+
+    ~VariableScope() { _symbols.popVariableScope(); }
+
+  private:
+    Symbols &_symbols;
+  };
 
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
@@ -374,6 +387,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<IfExpr>(node));
   case Expr::Expr_While:
     return sema(cast<WhileExpr>(node));
+  case Expr::Expr_For:
+    return sema(cast<ForExpr>(node));
   default:
     llvm_unreachable("Unexpected expression");
   }
@@ -885,6 +900,31 @@ auto SemaImpl::sema(WhileExpr *node) -> CherryResult {
     return failure();
   if (!isBoolType(conditionExpr->type()))
     return emitError(conditionExpr, diag::expected_bool);
+
+  auto bodyBlock = node->bodyBlock().get();
+  if (sema(bodyBlock))
+    return failure();
+
+  if (!isUnitType(bodyBlock->expression()->type()))
+    return emitError(bodyBlock->expression().get(), diag::mismatch_type);
+
+  setBuiltinType(node, BuiltinTypeKind::Unit);
+  return success();
+}
+
+auto SemaImpl::sema(ForExpr *node) -> CherryResult {
+  if (sema(node->startExpr().get()) || sema(node->endExpr().get()))
+    return failure();
+
+  if (!isUInt64Type(node->startExpr()->type()))
+    return emitError(node->startExpr().get(), diag::mismatch_type);
+  if (!isUInt64Type(node->endExpr()->type()))
+    return emitError(node->endExpr().get(), diag::mismatch_type);
+
+  VariableScope loopScope(_symbols);
+  auto *uint64Type = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  if (declareVariable(node->variableName(), uint64Type, /*isConst=*/true))
+    return emitError(node, diag::redefinition_var);
 
   auto bodyBlock = node->bodyBlock().get();
   if (sema(bodyBlock))

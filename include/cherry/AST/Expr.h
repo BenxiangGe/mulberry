@@ -10,6 +10,8 @@
 
 #include "cherry/AST/Node.h"
 #include <memory>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace cherry {
@@ -36,6 +38,7 @@ public:
     Expr_Block,
     Expr_If,
     Expr_While,
+    Expr_For,
   };
 
   explicit Expr(ExpressionKind kind, llvm::SMLoc location)
@@ -145,6 +148,44 @@ public:
 
 private:
   std::unique_ptr<Expr> _condition;
+  std::unique_ptr<BlockExpr> _bodyBlock;
+};
+
+// _____________________________________________________________________________
+// For expression
+
+class ForExpr final : public Expr {
+public:
+  explicit ForExpr(llvm::SMLoc location, std::string_view variableName,
+                   std::unique_ptr<Expr> startExpr,
+                   std::unique_ptr<Expr> endExpr,
+                   std::unique_ptr<BlockExpr> bodyBlock)
+      : Expr{Expr_For, location}, _variableName(variableName),
+        _startExpr(std::move(startExpr)), _endExpr(std::move(endExpr)),
+        _bodyBlock(std::move(bodyBlock)) {};
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_For;
+  }
+
+  auto variableName() const -> std::string_view { return _variableName; }
+
+  auto startExpr() const -> const std::unique_ptr<Expr> & {
+    return _startExpr;
+  }
+
+  auto endExpr() const -> const std::unique_ptr<Expr> & {
+    return _endExpr;
+  }
+
+  auto bodyBlock() const -> const std::unique_ptr<BlockExpr> & {
+    return _bodyBlock;
+  }
+
+private:
+  std::string _variableName;
+  std::unique_ptr<Expr> _startExpr;
+  std::unique_ptr<Expr> _endExpr;
   std::unique_ptr<BlockExpr> _bodyBlock;
 };
 

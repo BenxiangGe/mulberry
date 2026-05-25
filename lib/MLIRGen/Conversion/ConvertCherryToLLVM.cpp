@@ -60,8 +60,10 @@ public:
   auto matchAndRewrite(cherry_nn::CastOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter &rewriter) const
       -> LogicalResult final {
-    if (!llvm::isa<IntegerType>(op.getInput().getType()) ||
-        !llvm::isa<cir::IntType>(op.getResult().getType()))
+    if (!((llvm::isa<IntegerType>(op.getInput().getType()) &&
+           llvm::isa<cir::IntType>(op.getResult().getType())) ||
+          (llvm::isa<cir::IntType>(op.getInput().getType()) &&
+           llvm::isa<IntegerType>(op.getResult().getType()))))
       return failure();
 
     rewriter.replaceOp(op, adaptor.getInput());

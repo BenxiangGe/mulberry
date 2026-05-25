@@ -82,6 +82,7 @@ private:
   auto gen(const BlockExpr *node) -> mlir::Value;
   auto gen(const IfExpr *node) -> mlir::Value;
   auto gen(const WhileExpr *node) -> mlir::Value;
+  auto gen(const ForExpr *node) -> mlir::Value;
   auto genPrint(const CallExpr *node) -> mlir::Value;
   auto genMatmul(const CallExpr *node) -> mlir::Value;
   auto genMatadd(const CallExpr *node) -> mlir::Value;
@@ -120,6 +121,10 @@ private:
     if (variable == _variablesByName.end())
       return {};
     return variable->second;
+  }
+
+  void eraseVariable(std::string_view name) {
+    _variablesByName.erase(std::string(name));
   }
 
   void setFunction(std::string_view name, cir::FuncOp func) {
@@ -325,6 +330,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<IfExpr>(node));
   case Expr::Expr_While:
     return gen(cast<WhileExpr>(node));
+  case Expr::Expr_For:
+    return gen(cast<ForExpr>(node));
   default:
     llvm_unreachable("Unexpected expression");
   }
@@ -402,6 +409,62 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
   cir::WhileOp::create(_builder, loc(node), conditionExprBuilder,
                        bodyExprBuilder);
 
+  return nullptr;
+}
+
+auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
+  auto forLocation = loc(node);
+  auto inductionType = getMLIRType(node->startExpr().get());
+  auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
+  setVariable(node->variableName(), inductionPtr);
+
+  auto startValue =
+      castToType(gen(node->startExpr().get()), inductionType, forLocation);
+  auto endValue =
+      castToType(gen(node->endExpr().get()), inductionType, forLocation);
+  auto oneValue =
+      cir::ConstantOp::create(_builder, forLocation,
+                              cir::IntAttr::get(inductionType, 1));
+
+  cir::StoreOp::create(_builder, forLocation, startValue, inductionPtr,
+                       /*isVolatile=*/false,
+                       /*alignment=*/mlir::IntegerAttr{},
+                       /*sync_scope=*/cir::SyncScopeKindAttr(),
+                       /*mem-order=*/cir::MemOrderAttr());
+
+  auto conditionExprBuilder = [&](mlir::OpBuilder &builder,
+                                  mlir::Location location) {
+    auto currentValue =
+        cir::LoadOp::create(builder, location, inductionPtr);
+    auto cond = cir::CmpOp::create(builder, location, cir::CmpOpKind::lt,
+                                   currentValue, endValue);
+    cir::ConditionOp::create(builder, location, cond);
+  };
+
+  auto bodyBlock = node->bodyBlock().get();
+  auto bodyExprBuilder = [&](mlir::OpBuilder &builder,
+                             mlir::Location location) {
+    gen(bodyBlock);
+    cir::YieldOp::create(builder, loc(bodyBlock->expression().get()));
+  };
+
+  auto stepExprBuilder = [&](mlir::OpBuilder &builder,
+                             mlir::Location location) {
+    auto currentValue =
+        cir::LoadOp::create(builder, location, inductionPtr);
+    auto nextValue = cir::BinOp::create(builder, location, cir::BinOpKind::Add,
+                                        currentValue, oneValue);
+    cir::StoreOp::create(builder, location, nextValue, inductionPtr,
+                         /*isVolatile=*/false,
+                         /*alignment=*/mlir::IntegerAttr{},
+                         /*sync_scope=*/cir::SyncScopeKindAttr(),
+                         /*mem-order=*/cir::MemOrderAttr());
+    cir::YieldOp::create(builder, location);
+  };
+
+  cir::ForOp::create(_builder, forLocation, conditionExprBuilder,
+                     bodyExprBuilder, stepExprBuilder);
+  eraseVariable(node->variableName());
   return nullptr;
 }
 
@@ -967,8 +1030,10 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
-  if (llvm::isa<mlir::IntegerType>(value.getType()) &&
-      llvm::isa<cir::IntType>(type)) {
+  if ((llvm::isa<mlir::IntegerType>(value.getType()) &&
+       llvm::isa<cir::IntType>(type)) ||
+      (llvm::isa<cir::IntType>(value.getType()) &&
+       llvm::isa<mlir::IntegerType>(type))) {
     return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
   }
 
