@@ -181,10 +181,10 @@ private:
   class VariableScope {
   public:
     explicit VariableScope(Symbols &symbols) : _symbols(symbols) {
-      _symbols.pushVariableScope();
+      _symbols.enterVariableScope();
     }
 
-    ~VariableScope() { _symbols.popVariableScope(); }
+    ~VariableScope() { _symbols.leaveVariableScope(); }
 
   private:
     Symbols &_symbols;
@@ -400,6 +400,7 @@ auto SemaImpl::sema(UnitExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(BlockExpr *node) -> CherryResult {
+  VariableScope blockScope(_symbols);
   for (auto &expr : *node)
     if (sema(expr.get()))
       return failure();

@@ -1,0 +1,21 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var value: UInt64 = 1;
+  print(value);
+
+  var unit: () = if true {
+    var value: UInt64 = 2;
+    print(value);
+    ()
+  } else {
+    ()
+  };
+
+  print(value);
+  0
+}
+
+# CHECK: 1
+# CHECK: 2
+# CHECK: 1

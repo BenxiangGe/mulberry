@@ -1,0 +1,19 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var i: UInt64 = 7;
+  print(i);
+
+  for i in 0 .. 2 {
+    print(i);
+    ()
+  };
+
+  print(i);
+  0
+}
+
+# CHECK: 7
+# CHECK: 0
+# CHECK: 1
+# CHECK: 7

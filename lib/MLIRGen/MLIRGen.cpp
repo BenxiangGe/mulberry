@@ -10,6 +10,7 @@
 #include "cherry/Basic/Builtins.h"
 #include "cherry/Basic/CherryResult.h"
 #include "cherry/Basic/Logging.h"
+#include "cherry/Basic/ScopeStack.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
 #include "cherry/MLIRGen/TypeConverter.h"
@@ -64,7 +65,7 @@ public:
 private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
-  NameMap<mlir::Value> _variablesByName;
+  ScopeStack<NameMap<mlir::Value>> _variableScopes;
   NameMap<cir::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalListCounter = 0;
@@ -112,19 +113,25 @@ private:
     symbols[std::string(name)] = value;
   }
 
+  void resetVariableScopes() {
+    _variableScopes.reset();
+    enterVariableScope();
+  }
+
+  void enterVariableScope() { _variableScopes.enterScope(); }
+
+  void leaveVariableScope() { _variableScopes.leaveScope(); }
+
   void setVariable(std::string_view name, mlir::Value value) {
-    setSymbol(_variablesByName, name, value);
+    if (_variableScopes.empty())
+      enterVariableScope();
+    setSymbol(_variableScopes.currentScope(), name, value);
   }
 
   auto getVariable(std::string_view name) -> mlir::Value {
-    auto variable = _variablesByName.find(name);
-    if (variable == _variablesByName.end())
-      return {};
-    return variable->second;
-  }
-
-  void eraseVariable(std::string_view name) {
-    _variablesByName.erase(std::string(name));
+    if (auto *variable = _variableScopes.lookup(name))
+      return *variable;
+    return {};
   }
 
   void setFunction(std::string_view name, cir::FuncOp func) {
@@ -273,7 +280,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
 }
 
 auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
-  _variablesByName = {};
+  resetVariableScopes();
   auto func = gen(node->proto().get());
 
   auto value = gen(node->body().get());
@@ -340,9 +347,12 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const UnitExpr *node) -> mlir::Value { return nullptr; }
 
 auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
+  enterVariableScope();
   for (auto &expr : *node)
     gen(expr.get());
-  return gen(node->expression().get());
+  auto value = gen(node->expression().get());
+  leaveVariableScope();
+  return value;
 }
 
 auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
@@ -351,6 +361,25 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
       formatType(node->thenBlock()->type()),
       formatType(node->elseBlock()->type()));
   auto cond = gen(node->conditionExpr().get());
+
+  if (cherry::isUnitType(node->type())) {
+    cir::IfOp::create(
+        _builder, loc(node), cond,
+        /*withElseRegion=*/true,
+
+        /*thenBuilder=*/
+        [&](mlir::OpBuilder &b, mlir::Location loc) {
+          gen(node->thenBlock().get());
+          cir::YieldOp::create(b, loc);
+        },
+
+        /*elseBuilder=*/
+        [&](mlir::OpBuilder &b, mlir::Location loc) {
+          gen(node->elseBlock().get());
+          cir::YieldOp::create(b, loc);
+        });
+    return nullptr;
+  }
 
   auto resultType = getMLIRType(node);
   auto ptrType = cir::PointerType::get(_builder.getContext(), resultType);
@@ -416,7 +445,6 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
   auto forLocation = loc(node);
   auto inductionType = getMLIRType(node->startExpr().get());
   auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
-  setVariable(node->variableName(), inductionPtr);
 
   auto startValue =
       castToType(gen(node->startExpr().get()), inductionType, forLocation);
@@ -431,6 +459,9 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
                        /*alignment=*/mlir::IntegerAttr{},
                        /*sync_scope=*/cir::SyncScopeKindAttr(),
                        /*mem-order=*/cir::MemOrderAttr());
+
+  enterVariableScope();
+  setVariable(node->variableName(), inductionPtr);
 
   auto conditionExprBuilder = [&](mlir::OpBuilder &builder,
                                   mlir::Location location) {
@@ -464,7 +495,7 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
 
   cir::ForOp::create(_builder, forLocation, conditionExprBuilder,
                      bodyExprBuilder, stepExprBuilder);
-  eraseVariable(node->variableName());
+  leaveVariableScope();
   return nullptr;
 }
 

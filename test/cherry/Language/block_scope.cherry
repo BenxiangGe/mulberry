@@ -1,0 +1,13 @@
+# RUN: cherry-driver -typecheck %s
+
+fn main(): UInt64 {
+  var unit: () = if true {
+    var scopedValue: UInt64 = 1;
+    ()
+  } else {
+    ()
+  };
+
+  var scopedValue: UInt64 = 2;
+  scopedValue
+}
