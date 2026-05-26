@@ -9,6 +9,7 @@
 #define CHERRY_SYMBOLS_H
 
 #include "cherry/Basic/CherryResult.h"
+#include "cherry/Basic/ScopeStack.h"
 #include "cherry/Basic/Types.h"
 #include <functional>
 #include <map>
@@ -64,33 +65,30 @@ public:
   }
 
   auto resetVariables() {
-    _variablesByName = {};
-    _variableScopes = {};
+    _variableScopes.reset();
+    enterVariableScope();
   }
 
-  auto pushVariableScope() -> void { _variableScopes.push_back({}); }
+  auto enterVariableScope() -> void { _variableScopes.enterScope(); }
 
-  auto popVariableScope() -> void {
-    for (auto &name : _variableScopes.back())
-      _variablesByName.erase(name);
-    _variableScopes.pop_back();
+  auto leaveVariableScope() -> void {
+    _variableScopes.leaveScope();
   }
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConst = false)
       -> CherryResult {
-    if (declareSymbol(_variablesByName, name, VariableSymbol{type, isConst}))
+    if (_variableScopes.empty())
+      enterVariableScope();
+
+    if (declareSymbol(_variableScopes.currentScope(), name,
+                      VariableSymbol{type, isConst}))
       return failure();
-    if (!_variableScopes.empty())
-      _variableScopes.back().push_back(std::string(name));
     return success();
   }
 
   auto lookupVariable(std::string_view name) -> const VariableSymbol * {
-    auto symbol = _variablesByName.find(name);
-    if (symbol == _variablesByName.end())
-      return nullptr;
-    return &symbol->second;
+    return _variableScopes.lookup(name);
   }
 
 private:
@@ -105,8 +103,7 @@ private:
 
   NameMap<FunctionSymbol> _functionsByName;
   NameMap<const Type *> _typesByName;
-  NameMap<VariableSymbol> _variablesByName;
-  std::vector<std::vector<std::string>> _variableScopes;
+  ScopeStack<NameMap<VariableSymbol>> _variableScopes;
 };
 
 } // end namespace cherry
