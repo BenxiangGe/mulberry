@@ -13,6 +13,7 @@
 #include "cherry/AST/Decl.h"
 #include "cherry/AST/Expr.h"
 #include "cherry/AST/Identifier.h"
+#include "cherry/AST/ListExpr.h"
 #include "cherry/AST/LiteralExpr.h"
 #include "cherry/AST/Module.h"
 #include "cherry/AST/Name.h"

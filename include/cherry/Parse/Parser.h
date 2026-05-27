@@ -90,6 +90,8 @@ private:
   // Parse Identifiers
 
   auto parseType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
+  auto parseNamedOrListType(std::unique_ptr<TypeNode> &typeNode)
+      -> CherryResult;
 
   auto parseFunctionName(std::unique_ptr<FunctionName> &functionName,
                          const char *const message) -> CherryResult;
@@ -114,8 +116,8 @@ private:
 
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseTensorLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseTensorAccess(llvm::SMLoc location, std::string_view name,
-                         std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseIndexExpr(llvm::SMLoc location, std::string_view name,
+                      std::unique_ptr<Expr> &expr) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Expressions

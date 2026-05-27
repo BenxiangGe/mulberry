@@ -62,22 +62,38 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (tokenIs(Token::l_paren))
     return parseUnitType(typeNode);
 
+  if (parseNamedOrListType(typeNode))
+    return failure();
+
+  if (tokenIs(Token::l_square)) {
+    auto location = typeNode->location();
+    std::vector<int64_t> shape;
+    if (parseTensorTypeSuffix(shape))
+      return failure();
+    typeNode = make_unique<TensorTypeNode>(
+        std::move(typeNode), std::move(shape), location);
+  }
+
+  return success();
+}
+
+auto Parser::parseNamedOrListType(unique_ptr<TypeNode> &typeNode)
+    -> CherryResult {
   auto location = tokenLoc();
   auto name = spelling();
   if (parseToken(Token::identifier, diag::expected_type))
     return failure();
 
-  auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
-  if (tokenIs(Token::l_square)) {
-    std::vector<int64_t> shape;
-    if (parseTensorTypeSuffix(shape))
+  if (name == "List" && consumeIf(Token::less)) {
+    unique_ptr<TypeNode> elementTypeNode;
+    if (parseType(elementTypeNode) ||
+        parseToken(Token::greater, diag::expected_type))
       return failure();
-    typeNode = make_unique<TensorTypeNode>(
-        std::move(elementTypeNode), std::move(shape), location);
+    typeNode = make_unique<ListTypeNode>(std::move(elementTypeNode), location);
     return success();
   }
 
-  typeNode = std::move(elementTypeNode);
+  typeNode = make_unique<NamedTypeNode>(location, name);
   return success();
 }
 
@@ -279,8 +295,8 @@ auto Parser::parseTensorLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseTensorAccess(llvm::SMLoc location, std::string_view name,
-                               unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIndexExpr(llvm::SMLoc location, std::string_view name,
+                            unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> indices;
   do {
@@ -292,7 +308,7 @@ auto Parser::parseTensorAccess(llvm::SMLoc location, std::string_view name,
   if (parseToken(Token::r_square, diag::expected_r_square))
     return failure();
 
-  expr = std::make_unique<TensorAccessExpr>(location, name, std::move(indices));
+  expr = std::make_unique<IndexExpr>(location, name, std::move(indices));
   return success();
 }
 
@@ -486,7 +502,7 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
     }
     return parseStructLiteral(location, name, expr);
   case Token::l_square:
-    return parseTensorAccess(location, name, expr);
+    return parseIndexExpr(location, name, expr);
   default:
     expr = make_unique<VariableExpr>(location, name);
     return success();

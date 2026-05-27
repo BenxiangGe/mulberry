@@ -1,0 +1,12 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn read(values: List<Float32[?, ?]>): UInt64 {
+  0
+}
+
+fn main(): UInt64 {
+  0
+}
+
+# CHECK: cir.func @read
+# CHECK-SAME: !cir.record<struct  {!cir.int<u, 64>, !cir.ptr<memref<?x?xf32>>}>

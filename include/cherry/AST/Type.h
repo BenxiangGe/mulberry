@@ -22,6 +22,7 @@ public:
   enum class Kind {
     Unit,
     Named,
+    List,
     Tensor,
   };
 
@@ -59,6 +60,25 @@ public:
 
 private:
   std::string _name;
+};
+
+// List type node. e.g. `List<Float32[10, 20]>`
+class ListTypeNode final : public TypeNode {
+public:
+  ListTypeNode(std::unique_ptr<TypeNode> elementType, llvm::SMLoc location)
+      : TypeNode(location, TypeNode::Kind::List),
+        _elementType(std::move(elementType)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::List;
+  }
+
+  auto elementTypeNode() const -> const TypeNode * {
+    return _elementType.get();
+  }
+
+private:
+  std::unique_ptr<TypeNode> _elementType;
 };
 
 // Tensor type node. e.g. `Float32[10, 20]`

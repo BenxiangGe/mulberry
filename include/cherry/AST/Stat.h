@@ -62,6 +62,7 @@ public:
   auto type() const -> const Type * { return _type; }
 
   auto init() const -> const std::unique_ptr<Expr> & { return _init; }
+  auto init() -> std::unique_ptr<Expr> & { return _init; }
 
   auto isConst() const -> bool { return _isConst; }
 

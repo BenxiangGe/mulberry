@@ -1,0 +1,11 @@
+# RUN: not cherry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const w1: Float32[2] = [1.0, 2.0];
+  const bad: Float32[3] = [1.0, 2.0, 3.0];
+  const weights: List<Float32[2]> = [w1, bad];
+
+  0
+}
+
+# CHECK: error: type mismatch

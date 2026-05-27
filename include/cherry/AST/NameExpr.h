@@ -78,6 +78,7 @@ public:
   auto expressions() const -> const VectorUniquePtr<Expr> & {
     return _expressions;
   }
+  auto expressions() -> VectorUniquePtr<Expr> & { return _expressions; }
 
 private:
   std::string _name;

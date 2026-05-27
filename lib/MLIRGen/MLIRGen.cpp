@@ -151,8 +151,8 @@ private:
   void storeTensorElements(const TensorLiteralExpr *expr, mlir::Value memref,
                            mlir::Type elementType,
                            llvm::SmallVectorImpl<mlir::Value> &indices);
-  mlir::Value gen(const TensorAccessExpr *expr, bool isLValue = false);
-  void genAssignment(const TensorAccessExpr *lhs, const Expr *rhs);
+  mlir::Value gen(const IndexExpr *expr, bool isLValue = false);
+  void genAssignment(const IndexExpr *lhs, const Expr *rhs);
 
   auto genLValue(const Expr *node) -> mlir::Value;
   auto genRValue(const Expr *node) -> mlir::Value;
@@ -161,7 +161,7 @@ private:
   auto genIndexValue(const Expr *node) -> mlir::Value;
   auto genMemRefElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
-  auto genMemRefLoadValue(const TensorAccessExpr *expr) -> mlir::Value;
+  auto genMemRefLoadValue(const IndexExpr *expr) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
@@ -327,8 +327,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<MemberExpr>(node));
   case Expr::Expr_TensorLiteral:
     return gen(cast<TensorLiteralExpr>(node));
-  case Expr::Expr_TensorAccess:
-    return gen(cast<TensorAccessExpr>(node));
+  case Expr::Expr_Index:
+    return gen(cast<IndexExpr>(node));
   case Expr::Expr_Assign:
     return gen(cast<AssignExpr>(node));
   case Expr::Expr_Binary:
@@ -560,8 +560,8 @@ auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto *expr = expressions.front().get();
-  auto operand = llvm::isa<TensorAccessExpr>(expr)
-                     ? genMemRefLoadValue(llvm::cast<TensorAccessExpr>(expr))
+  auto operand = llvm::isa<IndexExpr>(expr)
+                     ? genMemRefLoadValue(llvm::cast<IndexExpr>(expr))
                      : gen(expr);
   return PrintOp::create(_builder, loc(node), operand);
 }
@@ -840,8 +840,8 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
                              /*sync_scope=*/cir::SyncScopeKindAttr(),
                              /*mem-order=*/cir::MemOrderAttr());
       })
-      .Case<TensorAccessExpr>([&](const auto *tensorAccess) {
-        genAssignment(tensorAccess, node->rhs().get());
+      .Case<IndexExpr>([&](const auto *indexExpr) {
+        genAssignment(indexExpr, node->rhs().get());
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -1106,8 +1106,8 @@ auto MLIRGenImpl::genMemRefElementValue(const Expr *node,
         floating->value());
   }
 
-  if (auto *tensorAccess = llvm::dyn_cast<TensorAccessExpr>(node))
-    return genMemRefLoadValue(tensorAccess);
+  if (auto *indexExpr = llvm::dyn_cast<IndexExpr>(node))
+    return genMemRefLoadValue(indexExpr);
 
   return castToType(gen(node), elementType, loc(node));
 }
@@ -1175,8 +1175,13 @@ void MLIRGenImpl::storeTensorElements(
   }
 }
 
-mlir::Value MLIRGenImpl::genMemRefLoadValue(const TensorAccessExpr *expr) {
+mlir::Value MLIRGenImpl::genMemRefLoadValue(const IndexExpr *expr) {
   mlir::Value memref = getVariable(expr->getVarName());
+  if (!memref || !llvm::isa<mlir::MemRefType>(memref.getType())) {
+    ERR("List index lowering is not implemented yet: {0}",
+        formatType(expr->type()));
+    return nullptr;
+  }
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
   for (auto &idxExpr : expr->getIndices())
@@ -1186,7 +1191,7 @@ mlir::Value MLIRGenImpl::genMemRefLoadValue(const TensorAccessExpr *expr) {
                                       mlirIndices);
 }
 
-mlir::Value MLIRGenImpl::gen(const TensorAccessExpr *expr, bool isLValue) {
+mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
   if (isLValue)
     return nullptr;
 
@@ -1194,8 +1199,14 @@ mlir::Value MLIRGenImpl::gen(const TensorAccessExpr *expr, bool isLValue) {
   return castToType(loaded, getMLIRType(expr), loc(expr));
 }
 
-void MLIRGenImpl::genAssignment(const TensorAccessExpr *lhs, const Expr *rhs) {
+void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
   mlir::Value memref = getVariable(lhs->getVarName());
+  if (!memref || !llvm::isa<mlir::MemRefType>(memref.getType())) {
+    ERR("List index assignment lowering is not implemented yet: {0}",
+        formatType(lhs->type()));
+    return;
+  }
+
   auto memRefType = llvm::cast<mlir::MemRefType>(memref.getType());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;

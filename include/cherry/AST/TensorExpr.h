@@ -33,6 +33,10 @@ public:
     return _elements;
   }
 
+  auto takeElements() -> std::vector<std::unique_ptr<Expr>> {
+    return std::move(_elements);
+  }
+
   auto setInferredShape(std::vector<int64_t> shape) -> void {
     _inferredShape = std::move(shape);
   }
@@ -46,16 +50,15 @@ private:
   std::vector<int64_t> _inferredShape;
 };
 
-// Tensor access. e.g. `myTensor[i, j]`
-class TensorAccessExpr final : public Expr {
+class IndexExpr final : public Expr {
 public:
-  TensorAccessExpr(llvm::SMLoc loc, std::string_view varName,
-                   std::vector<std::unique_ptr<Expr>> indices)
-      : Expr(Expr_TensorAccess, loc), _varName(varName),
+  IndexExpr(llvm::SMLoc loc, std::string_view varName,
+            std::vector<std::unique_ptr<Expr>> indices)
+      : Expr(Expr_Index, loc), _varName(varName),
         _indices(std::move(indices)) {}
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_TensorAccess;
+    return node->getKind() == Expr_Index;
   }
 
   auto getVarName() const -> std::string_view { return _varName; }
