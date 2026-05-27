@@ -1,0 +1,24 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn length(values: List<UInt64>): UInt64 {
+  size(values)
+}
+
+fn main(): UInt64 {
+  var xs: List<UInt64> = [1, 2, 3];
+  var ys: List<UInt64> = xs;
+  ys[1] = 4;
+  length(ys)
+}
+
+# CHECK-LABEL: cir.func @length
+# CHECK: cir.get_member
+# CHECK-SAME: name = "length"
+# CHECK: cir.load
+# CHECK-SAME: !cir.ptr<!cir.int<u, 64>>
+# CHECK-LABEL: cir.func @main
+# CHECK: cir.alloca !cir.array<!cir.int<u, 64> x 3>
+# CHECK: cir.get_member {{.*}}name = "data"
+# CHECK: cir.ptr_stride
+# CHECK: cir.store
+# CHECK: cir.call @length

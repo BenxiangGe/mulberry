@@ -929,8 +929,13 @@ auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
     return failure();
 
   auto *tensorType = cherry::getTensorType(expressions[0]->type());
-  if (!tensorType)
-    return emitError(expressions[0].get(), diag::mismatch_type);
+  if (!tensorType) {
+    if (!cherry::isListType(expressions[0]->type()))
+      return emitError(expressions[0].get(), diag::mismatch_type);
+
+    setBuiltinType(node, BuiltinTypeKind::UInt64);
+    return success();
+  }
 
   auto &shape = tensorType->shape();
   if (shape.empty() || shape.front() < 0)

@@ -9,4 +9,4 @@ fn main(): UInt64 {
 }
 
 # CHECK: cir.func @read
-# CHECK-SAME: !cir.record<struct  {!cir.int<u, 64>, !cir.ptr<memref<?x?xf32>>}>
+# CHECK-SAME: !cir.record<struct  {!cir.int<u, 64>, !cir.ptr<!cir.record<struct  {!cir.ptr<memref<?x?xf32>>}>>}>

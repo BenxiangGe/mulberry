@@ -59,9 +59,30 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
                                mlirElementType);
 }
 
+auto MLIRTypeConverter::convertTensorListElement(const TensorType& type) const
+    -> cir::RecordType {
+  auto memrefType = convert(type);
+  if (!memrefType)
+    return {};
+
+  auto storageType = cir::PointerType::get(memrefType);
+  mlir::Type fields[] = {storageType};
+  return cir::RecordType::get(_builder.getContext(), fields,
+                             /*packed=*/false, /*padded=*/false,
+                             cir::RecordType::RecordKind::Struct);
+}
+
+auto MLIRTypeConverter::convertListElement(const Type *type) const
+    -> mlir::Type {
+  if (auto *tensorType = cherry::getTensorType(type))
+    return convertTensorListElement(*tensorType);
+
+  return convert(type);
+}
+
 auto MLIRTypeConverter::convert(const ListType& type) const
     -> cir::RecordType {
-  auto elementType = convert(type.elementType());
+  auto elementType = convertListElement(type.elementType());
   if (!elementType)
     return {};
 
