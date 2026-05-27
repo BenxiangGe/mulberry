@@ -20,7 +20,7 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
   }
 }
 
-auto MLIRTypeConverter::convertListElement(const BuiltinType& type) const
+auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
     -> mlir::Type {
   switch (type.builtinKind()) {
   case BuiltinTypeKind::UInt64:
@@ -34,13 +34,13 @@ auto MLIRTypeConverter::convertListElement(const BuiltinType& type) const
   }
 }
 
-auto MLIRTypeConverter::convert(const ListType& type) const
+auto MLIRTypeConverter::convert(const TensorType& type) const
     -> mlir::MemRefType {
   auto *elementType = cherry::getBuiltinType(type.elementType());
   if (!elementType)
     return {};
 
-  auto mlirElementType = convertListElement(*elementType);
+  auto mlirElementType = convertTensorElement(*elementType);
   if (!mlirElementType)
     return {};
 
@@ -68,8 +68,8 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
   if (auto *builtinType = cherry::getBuiltinType(type))
     return convert(*builtinType);
 
-  if (auto *listType = cherry::getListType(type))
-    return convert(*listType);
+  if (auto *tensorType = cherry::getTensorType(type))
+    return convert(*tensorType);
 
   if (auto *structType = cherry::getStructType(type))
     return convert(*structType);

@@ -112,10 +112,10 @@ private:
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
 
-  auto parseListTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
-  auto parseListLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseListAccess(llvm::SMLoc location, std::string_view name,
-                       std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
+  auto parseTensorLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseTensorAccess(llvm::SMLoc location, std::string_view name,
+                         std::unique_ptr<Expr> &expr) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Expressions

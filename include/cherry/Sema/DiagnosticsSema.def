@@ -19,7 +19,7 @@ ERROR(expected_field, "expected struct field")
 ERROR(expected_expr, "expected expression")
 ERROR(expected_lvalue, "expected lvalue")
 ERROR(assign_const, "cannot assign to const variable")
-ERROR(const_to_mutable, "cannot bind const list to mutable variable")
+ERROR(const_to_mutable, "cannot bind const tensor to mutable variable")
 
 ERROR(undefined_field, "undefined field")
 ERROR(undefined_func, "cannot find function `%s`")
