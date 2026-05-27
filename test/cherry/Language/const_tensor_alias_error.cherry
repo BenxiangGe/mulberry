@@ -7,4 +7,4 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: error: cannot bind const list to mutable variable
+# CHECK: error: cannot bind const tensor to mutable variable

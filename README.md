@@ -16,11 +16,11 @@ Mulberry 目前已经具备一个可工作的端到端 MLIR compiler pipeline：
 - Lexer / Parser / AST / Sema / Driver。
 - 结构化 semantic type system，不再使用旧的 string-based type system。
 - 基础类型：`Unit`、`Bool`、`UInt64`、`Float32`。
-- 复合类型：`struct` 和静态 shape 的 list，例如 `Float32[2, 3]`。
-- `const` list 绑定检查。
+- 复合类型：`struct` 和静态 shape 的 tensor，例如 `Float32[2, 3]`。
+- `const` tensor 绑定检查。
 - Struct literal 语法：`A { ... }`。
 - Struct member read/write 使用独立 AST node，不再伪装成普通 call/binary expr。
-- List literal、list access，以及 `size(xs)` builtin。
+- Tensor literal、tensor access，以及 `size(xs)` builtin。
 - 普通语言结构 lowering 到 Clang CIR、SCF、arith、cf、func、memref。
 - `cherry_nn` 深度学习 dialect，并支持 lowering 到 Linalg/Math/Arith/MemRef。
 - 通过 MLIR LLVM dialect 支持 x64 Linux JIT 和 object file 输出。
@@ -33,7 +33,7 @@ Mulberry source
   -> Sema / semantic type checking
   -> MLIRGen
        - Clang CIR: scalar values, functions, control flow, structs
-       - memref: list storage
+       - memref: tensor storage
        - cherry_nn: neural-network operations
   -> optional lowering
        - cherry_nn -> linalg / math / arith / memref

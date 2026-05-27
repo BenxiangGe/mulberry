@@ -77,19 +77,19 @@ auto StructType::field(std::string_view fieldName) const
   return nullptr;
 }
 
-ListType::ListType(const Type *elementType, std::vector<int64_t> shape)
-    : Type(TypeKind::List), _elementType(elementType),
+TensorType::TensorType(const Type *elementType, std::vector<int64_t> shape)
+    : Type(TypeKind::Tensor), _elementType(elementType),
       _shape(std::move(shape)) {}
 
-auto ListType::classof(const Type *type) -> bool {
-  return type && type->kind() == TypeKind::List;
+auto TensorType::classof(const Type *type) -> bool {
+  return type && type->kind() == TypeKind::Tensor;
 }
 
-auto ListType::elementType() const -> const Type * {
+auto TensorType::elementType() const -> const Type * {
   return _elementType;
 }
 
-auto ListType::shape() const -> const std::vector<int64_t> & {
+auto TensorType::shape() const -> const std::vector<int64_t> & {
   return _shape;
 }
 
@@ -99,7 +99,7 @@ auto formatBuiltinType(const BuiltinType& type) -> std::string {
   return std::string(type.name());
 }
 
-auto formatListType(const ListType& type) -> std::string {
+auto formatTensorType(const TensorType& type) -> std::string {
   std::string result = formatType(type.elementType());
   result += "[";
   std::string separator;
@@ -117,8 +117,8 @@ auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs)
   return lhs.builtinKind() == rhs.builtinKind();
 }
 
-auto sameListShape(const std::vector<int64_t> &lhsShape,
-                   const std::vector<int64_t> &rhsShape) -> bool {
+auto sameTensorShape(const std::vector<int64_t> &lhsShape,
+                     const std::vector<int64_t> &rhsShape) -> bool {
   if (lhsShape.size() != rhsShape.size())
     return false;
 
@@ -131,9 +131,9 @@ auto sameListShape(const std::vector<int64_t> &lhsShape,
   return true;
 }
 
-auto sameListType(const ListType& lhs, const ListType& rhs) -> bool {
+auto sameTensorType(const TensorType& lhs, const TensorType& rhs) -> bool {
   return sameType(lhs.elementType(), rhs.elementType()) &&
-         sameListShape(lhs.shape(), rhs.shape());
+         sameTensorShape(lhs.shape(), rhs.shape());
 }
 
 auto structTypeStorage()
@@ -142,15 +142,15 @@ auto structTypeStorage()
   return types;
 }
 
-auto listTypeStorage()
-    -> std::vector<std::unique_ptr<ListType>> & {
-  static auto &types = *new std::vector<std::unique_ptr<ListType>>();
+auto tensorTypeStorage()
+    -> std::vector<std::unique_ptr<TensorType>> & {
+  static auto &types = *new std::vector<std::unique_ptr<TensorType>>();
   return types;
 }
 
-auto findListType(const Type *elementType, const std::vector<int64_t> &shape)
-    -> const ListType * {
-  for (const auto &type : listTypeStorage())
+auto findTensorType(const Type *elementType, const std::vector<int64_t> &shape)
+    -> const TensorType * {
+  for (const auto &type : tensorTypeStorage())
     if (type->elementType() == elementType && type->shape() == shape)
       return type.get();
   return nullptr;
@@ -191,9 +191,9 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
                            *llvm::cast<BuiltinType>(rhs));
   case TypeKind::Struct:
     return lhs == rhs;
-  case TypeKind::List:
-    return sameListType(*llvm::cast<ListType>(lhs),
-                        *llvm::cast<ListType>(rhs));
+  case TypeKind::Tensor:
+    return sameTensorType(*llvm::cast<TensorType>(lhs),
+                          *llvm::cast<TensorType>(rhs));
   }
 
   return false;
@@ -203,8 +203,8 @@ auto getBuiltinType(const Type *type) -> const BuiltinType * {
   return llvm::dyn_cast_if_present<BuiltinType>(type);
 }
 
-auto getListType(const Type *type) -> const ListType * {
-  return llvm::dyn_cast_if_present<ListType>(type);
+auto getTensorType(const Type *type) -> const TensorType * {
+  return llvm::dyn_cast_if_present<TensorType>(type);
 }
 
 auto getStructType(const Type *type) -> const StructType * {
@@ -240,25 +240,25 @@ auto isEquatableType(const Type *type) -> bool {
   return isUInt64Type(type) || isBoolType(type) || isFloat32Type(type);
 }
 
-auto isListType(const Type *type) -> bool {
-  return getListType(type) != nullptr;
+auto isTensorType(const Type *type) -> bool {
+  return getTensorType(type) != nullptr;
 }
 
 auto hasUnitType(const Type *type) -> bool {
   if (isUnitType(type))
     return true;
 
-  auto *listType = getListType(type);
-  if (!listType)
+  auto *tensorType = getTensorType(type);
+  if (!tensorType)
     return false;
-  return hasUnitType(listType->elementType());
+  return hasUnitType(tensorType->elementType());
 }
 
 auto hasUnitElementType(const Type *type) -> bool {
-  auto *listType = getListType(type);
-  if (!listType)
+  auto *tensorType = getTensorType(type);
+  if (!tensorType)
     return false;
-  return hasUnitType(listType->elementType());
+  return hasUnitType(tensorType->elementType());
 }
 
 auto formatType(const Type *type) -> std::string {
@@ -270,8 +270,8 @@ auto formatType(const Type *type) -> std::string {
     return formatBuiltinType(*llvm::cast<BuiltinType>(type));
   case TypeKind::Struct:
     return std::string(llvm::cast<StructType>(type)->name());
-  case TypeKind::List:
-    return formatListType(*llvm::cast<ListType>(type));
+  case TypeKind::Tensor:
+    return formatTensorType(*llvm::cast<TensorType>(type));
   }
 
   return "";
@@ -301,16 +301,16 @@ auto TypeContext::createStructType(std::string_view name,
   return structTypes.back().get();
 }
 
-auto TypeContext::createListType(const Type *elementType,
-                                 std::vector<int64_t> shape) const
-    -> const ListType * {
-  if (auto *type = findListType(elementType, shape))
+auto TypeContext::createTensorType(const Type *elementType,
+                                   std::vector<int64_t> shape) const
+    -> const TensorType * {
+  if (auto *type = findTensorType(elementType, shape))
     return type;
 
-  auto &listTypes = listTypeStorage();
-  listTypes.push_back(
-      std::make_unique<ListType>(elementType, std::move(shape)));
-  return listTypes.back().get();
+  auto &tensorTypes = tensorTypeStorage();
+  tensorTypes.push_back(
+      std::make_unique<TensorType>(elementType, std::move(shape)));
+  return tensorTypes.back().get();
 }
 
 } // namespace cherry

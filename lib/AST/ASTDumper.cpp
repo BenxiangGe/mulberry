@@ -50,8 +50,8 @@ private:
   auto dump(const DecimalLiteralExpr *node) -> void;
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
-  auto dump(const ListLiteralExpr *node) -> void;
-  auto dump(const ListAccessExpr *node) -> void;
+  auto dump(const TensorLiteralExpr *node) -> void;
+  auto dump(const TensorAccessExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
   auto dump(const IfExpr *node) -> void;
   auto dump(const WhileExpr *node) -> void;
@@ -77,11 +77,11 @@ private:
     if (dyn_cast<UnitTypeNode>(node))
       return "()";
 
-    if (auto *listType = dyn_cast<ListTypeNode>(node)) {
-      std::string result = formatTypeNode(listType->elementTypeNode());
+    if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
+      std::string result = formatTypeNode(tensorType->elementTypeNode());
       result += "[";
       std::string separator;
-      for (auto dim : listType->shape()) {
+      for (auto dim : tensorType->shape()) {
         result += separator;
         result += dim < 0 ? "?" : std::to_string(dim);
         separator = ", ";
@@ -150,7 +150,7 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr,
-            ListLiteralExpr, ListAccessExpr, VariableExpr, MemberExpr,
+            TensorLiteralExpr, TensorAccessExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
@@ -235,17 +235,17 @@ auto Dumper::dump(const BoolLiteralExpr *node) -> void {
          << " value=" << node->value() << "\n";
 }
 
-auto Dumper::dump(const ListLiteralExpr *node) -> void {
+auto Dumper::dump(const TensorLiteralExpr *node) -> void {
   INDENT();
-  errs() << "ListLiteralExpr " << loc(node)
+  errs() << "TensorLiteralExpr " << loc(node)
          << " type=" << formatType(node->type()) << "\n";
   for (auto &element : node->getElements())
     dump(element.get());
 }
 
-auto Dumper::dump(const ListAccessExpr *node) -> void {
+auto Dumper::dump(const TensorAccessExpr *node) -> void {
   INDENT();
-  errs() << "ListAccessExpr " << loc(node)
+  errs() << "TensorAccessExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " name=" << node->getVarName() << "\n";
   for (auto &index : node->getIndices())

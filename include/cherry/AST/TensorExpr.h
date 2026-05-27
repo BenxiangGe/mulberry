@@ -1,12 +1,12 @@
-//===--- ListExpr.h - Cherry Language List Expression ASTs ------*- C++ -*-===//
+//===--- TensorExpr.h - Cherry Language Tensor Expression ASTs --*- C++ -*-===//
 //
 // This source file is part of the Cherry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CHERRY_LIST_EXPR_H
-#define CHERRY_LIST_EXPR_H
+#ifndef CHERRY_TENSOR_EXPR_H
+#define CHERRY_TENSOR_EXPR_H
 
 #include "cherry/AST/Expr.h"
 #include <cstdint>
@@ -17,14 +17,15 @@
 
 namespace cherry {
 
-// List literal. e.g. `[[1.0, 2.0], [3.0, 4.0]]`
-class ListLiteralExpr final : public Expr {
+// Tensor literal. e.g. `[[1.0, 2.0], [3.0, 4.0]]`
+class TensorLiteralExpr final : public Expr {
 public:
-  ListLiteralExpr(llvm::SMLoc loc, std::vector<std::unique_ptr<Expr>> elements)
-      : Expr(Expr_ListLiteral, loc), _elements(std::move(elements)) {}
+  TensorLiteralExpr(llvm::SMLoc loc,
+                    std::vector<std::unique_ptr<Expr>> elements)
+      : Expr(Expr_TensorLiteral, loc), _elements(std::move(elements)) {}
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_ListLiteral;
+    return node->getKind() == Expr_TensorLiteral;
   }
 
   auto getElements() const
@@ -45,16 +46,16 @@ private:
   std::vector<int64_t> _inferredShape;
 };
 
-// List access. e.g. `myList[i, j]`
-class ListAccessExpr final : public Expr {
+// Tensor access. e.g. `myTensor[i, j]`
+class TensorAccessExpr final : public Expr {
 public:
-  ListAccessExpr(llvm::SMLoc loc, std::string_view varName,
-                 std::vector<std::unique_ptr<Expr>> indices)
-      : Expr(Expr_ListAccess, loc), _varName(varName),
+  TensorAccessExpr(llvm::SMLoc loc, std::string_view varName,
+                   std::vector<std::unique_ptr<Expr>> indices)
+      : Expr(Expr_TensorAccess, loc), _varName(varName),
         _indices(std::move(indices)) {}
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_ListAccess;
+    return node->getKind() == Expr_TensorAccess;
   }
 
   auto getVarName() const -> std::string_view { return _varName; }
@@ -72,4 +73,4 @@ private:
 
 } // end namespace cherry
 
-#endif // CHERRY_LIST_EXPR_H
+#endif // CHERRY_TENSOR_EXPR_H

@@ -98,11 +98,11 @@ private:
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
   auto checkAssignable(const Expr *expr) -> CherryResult;
-  auto checkConstListUseAsMutable(const Expr *expr) -> CherryResult;
-  auto checkConstListBinding(const VariableStat *node,
-                             const Type *type) -> CherryResult;
-  auto sema(ListLiteralExpr *expr) -> CherryResult;
-  auto sema(ListAccessExpr *expr) -> CherryResult;
+  auto checkConstTensorUseAsMutable(const Expr *expr) -> CherryResult;
+  auto checkConstTensorBinding(const VariableStat *node,
+                               const Type *type) -> CherryResult;
+  auto sema(TensorLiteralExpr *expr) -> CherryResult;
+  auto sema(TensorAccessExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
   auto semaMatadd(CallExpr *node) -> CherryResult;
   auto semaTranspose(CallExpr *node) -> CherryResult;
@@ -228,20 +228,20 @@ private:
     return emitError(typeNode, diag::unexpected_unit_type);
   }
 
-  auto resolveType(const ListTypeNode *typeNode) -> const Type * {
+  auto resolveType(const TensorTypeNode *typeNode) -> const Type * {
     auto *elementType = resolveType(typeNode->elementTypeNode());
     if (!elementType)
       return nullptr;
 
-    return _typeContext.createListType(elementType, typeNode->shape());
+    return _typeContext.createTensorType(elementType, typeNode->shape());
   }
 
   auto resolveType(const TypeNode *typeNode) -> const Type * {
     if (auto *unitType = dyn_cast<UnitTypeNode>(typeNode))
       return resolveType(unitType);
 
-    if (auto *listType = dyn_cast<ListTypeNode>(typeNode))
-      return resolveType(listType);
+    if (auto *tensorType = dyn_cast<TensorTypeNode>(typeNode))
+      return resolveType(tensorType);
 
     return resolveType(cast<NamedTypeNode>(typeNode));
   }
@@ -258,10 +258,10 @@ private:
     return type;
   }
 
-  auto isListParameter(const FunctionSymbol *signature, size_t index) -> bool {
+  auto isTensorParameter(const FunctionSymbol *signature, size_t index) -> bool {
     auto *parameterType = signature->parameterTypes[index];
     if (parameterType)
-      return cherry::isListType(parameterType);
+      return cherry::isTensorType(parameterType);
     return false;
   }
 
@@ -269,7 +269,7 @@ private:
     expr->setType(_typeContext.getBuiltinType(kind));
   }
 
-  static auto isFloat32ListType(const ListType *type) -> bool {
+  static auto isFloat32TensorType(const TensorType *type) -> bool {
     return type && isFloat32Type(type->elementType());
   }
 
@@ -377,10 +377,10 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<MemberExpr>(node));
   case Expr::Expr_Assign:
     return sema(cast<AssignExpr>(node));
-  case Expr::Expr_ListLiteral:
-    return sema(cast<ListLiteralExpr>(node));
-  case Expr::Expr_ListAccess:
-    return sema(cast<ListAccessExpr>(node));
+  case Expr::Expr_TensorLiteral:
+    return sema(cast<TensorLiteralExpr>(node));
+  case Expr::Expr_TensorAccess:
+    return sema(cast<TensorAccessExpr>(node));
   case Expr::Expr_Binary:
     return sema(cast<BinaryExpr>(node));
   case Expr::Expr_If:
@@ -449,8 +449,8 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
       return failure();
     if (!sameType(signature->parameterTypes[i], arg->type()))
       return emitError(arg.get(), diag::mismatch_type);
-    if (isListParameter(signature, i) &&
-        checkConstListUseAsMutable(arg.get()))
+    if (isTensorParameter(signature, i) &&
+        checkConstTensorUseAsMutable(arg.get()))
       return failure();
   }
 
@@ -537,8 +537,8 @@ auto SemaImpl::sema(AssignExpr *node) -> CherryResult {
     return emitError(node->lhs().get(), diag::expected_lvalue);
   if (checkAssignable(node->lhs().get()))
     return failure();
-  if (cherry::isListType(node->lhs()->type()) &&
-      checkConstListUseAsMutable(node->rhs().get()))
+  if (cherry::isTensorType(node->lhs()->type()) &&
+      checkConstTensorUseAsMutable(node->rhs().get()))
     return failure();
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
@@ -613,12 +613,12 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
     return success();
   }
 
-  if (auto *listAccess = llvm::dyn_cast<ListAccessExpr>(expr)) {
-    auto *symbol = lookupVariable(listAccess->getVarName());
+  if (auto *tensorAccess = llvm::dyn_cast<TensorAccessExpr>(expr)) {
+    auto *symbol = lookupVariable(tensorAccess->getVarName());
     if (!symbol)
-      return emitError(listAccess->location(), diag::undefined_var);
+      return emitError(tensorAccess->location(), diag::undefined_var);
     if (symbol->isConst)
-      return emitError(listAccess->location(), diag::assign_const);
+      return emitError(tensorAccess->location(), diag::assign_const);
     return success();
   }
 
@@ -628,7 +628,7 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::checkConstListUseAsMutable(const Expr *expr) -> CherryResult {
+auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> CherryResult {
   auto *var = llvm::dyn_cast<VariableExpr>(expr);
   if (!var)
     return success();
@@ -641,15 +641,15 @@ auto SemaImpl::checkConstListUseAsMutable(const Expr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::checkConstListBinding(const VariableStat *node,
-                                     const Type *type)
+auto SemaImpl::checkConstTensorBinding(const VariableStat *node,
+                                       const Type *type)
     -> CherryResult {
-  if (node->isConst() || !cherry::isListType(type))
+  if (node->isConst() || !cherry::isTensorType(type))
     return success();
-  return checkConstListUseAsMutable(node->init().get());
+  return checkConstTensorUseAsMutable(node->init().get());
 }
 
-auto SemaImpl::sema(ListLiteralExpr *expr) -> CherryResult {
+auto SemaImpl::sema(TensorLiteralExpr *expr) -> CherryResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
@@ -661,10 +661,10 @@ auto SemaImpl::sema(ListLiteralExpr *expr) -> CherryResult {
   auto *elementType = firstElementType;
   std::vector<int64_t> currentShape{static_cast<int64_t>(elements.size())};
 
-  if (auto *nestedListType = cherry::getListType(elementType)) {
-    elementType = nestedListType->elementType();
-    currentShape.insert(currentShape.end(), nestedListType->shape().begin(),
-                        nestedListType->shape().end());
+  if (auto *nestedTensorType = cherry::getTensorType(elementType)) {
+    elementType = nestedTensorType->elementType();
+    currentShape.insert(currentShape.end(), nestedTensorType->shape().begin(),
+                        nestedTensorType->shape().end());
   }
 
   if (!elementType)
@@ -679,22 +679,22 @@ auto SemaImpl::sema(ListLiteralExpr *expr) -> CherryResult {
   }
 
   expr->setInferredShape(currentShape);
-  auto *listType =
-      _typeContext.createListType(elementType, std::move(currentShape));
-  expr->setType(listType);
+  auto *tensorType =
+      _typeContext.createTensorType(elementType, std::move(currentShape));
+  expr->setType(tensorType);
   return success();
 }
 
-auto SemaImpl::sema(ListAccessExpr *expr) -> CherryResult {
+auto SemaImpl::sema(TensorAccessExpr *expr) -> CherryResult {
   auto *symbol = lookupVariable(expr->getVarName());
   if (!symbol)
     return emitError(expr, diag::undefined_var);
-  auto *listType = cherry::getListType(symbol->type);
-  if (!listType)
+  auto *tensorType = cherry::getTensorType(symbol->type);
+  if (!tensorType)
     return emitError(expr, diag::mismatch_type);
 
-  auto listRank = listType->shape().size();
-  if (expr->getIndices().size() != listRank)
+  auto tensorRank = tensorType->shape().size();
+  if (expr->getIndices().size() != tensorRank)
     return emitError(expr, diag::mismatch_type);
 
   for (auto &index : expr->getIndices()) {
@@ -704,7 +704,7 @@ auto SemaImpl::sema(ListAccessExpr *expr) -> CherryResult {
       return emitError(index.get(), diag::mismatch_type);
   }
 
-  expr->setType(listType->elementType());
+  expr->setType(tensorType->elementType());
   return success();
 }
 
@@ -717,11 +717,11 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  auto *lhsType = cherry::getListType(expressions[0]->type());
-  auto *rhsType = cherry::getListType(expressions[1]->type());
+  auto *lhsType = cherry::getTensorType(expressions[0]->type());
+  auto *rhsType = cherry::getTensorType(expressions[1]->type());
   if (!lhsType || !rhsType)
     return emitError(node, diag::mismatch_type);
-  if (!isFloat32ListType(lhsType) || !isFloat32ListType(rhsType))
+  if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
     return emitError(node, diag::mismatch_type);
   auto &lhsShape = lhsType->shape();
   auto &rhsShape = rhsType->shape();
@@ -734,7 +734,7 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
     return emitError(node, diag::mismatch_type);
 
   auto *resultType =
-      _typeContext.createListType(
+      _typeContext.createTensorType(
           _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
           std::vector<int64_t>{lhsShape[0], rhsShape[1]});
   node->setType(resultType);
@@ -751,11 +751,11 @@ auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  auto *lhsType = cherry::getListType(expressions[0]->type());
-  auto *rhsType = cherry::getListType(expressions[1]->type());
+  auto *lhsType = cherry::getTensorType(expressions[0]->type());
+  auto *rhsType = cherry::getTensorType(expressions[1]->type());
   if (!lhsType || !rhsType)
     return emitError(node, diag::mismatch_type);
-  if (!isFloat32ListType(lhsType) || !isFloat32ListType(rhsType))
+  if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
     return emitError(node, diag::mismatch_type);
   auto &lhsShape = lhsType->shape();
   auto &rhsShape = rhsType->shape();
@@ -771,7 +771,7 @@ auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
     resultShape.push_back(lhsDim >= 0 ? lhsDim : rhsDim);
   }
 
-  auto *resultType = _typeContext.createListType(
+  auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       std::move(resultShape));
   node->setType(resultType);
@@ -787,17 +787,17 @@ auto SemaImpl::semaTranspose(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getListType(expressions[0]->type());
+  auto *inputType = cherry::getTensorType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
-  if (!isFloat32ListType(inputType))
+  if (!isFloat32TensorType(inputType))
     return emitError(node, diag::mismatch_type);
   auto &inputShape = inputType->shape();
   if (inputShape.size() != 2)
     return emitError(node, diag::mismatch_type);
 
   auto *resultType =
-      _typeContext.createListType(
+      _typeContext.createTensorType(
           _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
           std::vector<int64_t>{inputShape[1], inputShape[0]});
   node->setType(resultType);
@@ -813,15 +813,15 @@ auto SemaImpl::semaElementwiseNN(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getListType(expressions[0]->type());
+  auto *inputType = cherry::getTensorType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
-  if (!isFloat32ListType(inputType))
+  if (!isFloat32TensorType(inputType))
     return emitError(node, diag::mismatch_type);
   if (inputType->shape().size() != 2)
     return emitError(node, diag::mismatch_type);
 
-  auto *resultType = _typeContext.createListType(
+  auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       inputType->shape());
   node->setType(resultType);
@@ -837,10 +837,10 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getListType(expressions[0]->type());
+  auto *inputType = cherry::getTensorType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
-  if (!isFloat32ListType(inputType))
+  if (!isFloat32TensorType(inputType))
     return emitError(node, diag::mismatch_type);
   auto &inputShape = inputType->shape();
   if (inputShape.size() != 1 && inputShape.size() != 2)
@@ -862,11 +862,11 @@ auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *listType = cherry::getListType(expressions[0]->type());
-  if (!listType)
+  auto *tensorType = cherry::getTensorType(expressions[0]->type());
+  if (!tensorType)
     return emitError(expressions[0].get(), diag::mismatch_type);
 
-  auto &shape = listType->shape();
+  auto &shape = tensorType->shape();
   if (shape.empty() || shape.front() < 0)
     return emitError(node, diag::mismatch_type);
 
@@ -961,7 +961,7 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
     return failure();
   if (!sameType(varType, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
-  if (checkConstListBinding(node, varType))
+  if (checkConstTensorBinding(node, varType))
     return failure();
   return success();
 }

@@ -10,4 +10,4 @@ fn main(): UInt64 {
   consume(weights)
 }
 
-# CHECK: error: cannot bind const list to mutable variable
+# CHECK: error: cannot bind const tensor to mutable variable
