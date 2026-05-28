@@ -24,9 +24,9 @@ public:
 private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
   auto convert(const TensorType& type) const -> mlir::MemRefType;
-  auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
-  auto convertTensorListElement(const TensorType& type) const
+  auto convertTensorDescriptor(const TensorType& type) const
       -> cir::RecordType;
+  auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
   auto convertListElement(const Type *type) const -> mlir::Type;
   auto convert(const ListType& type) const -> cir::RecordType;
   auto convert(const StructType& type) const -> cir::RecordType;

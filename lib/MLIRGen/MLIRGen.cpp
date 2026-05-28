@@ -28,6 +28,8 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/ADT/Twine.h"
+#include "llvm/Support/SourceMgr.h"
 
 #include <functional>
 #include <map>
@@ -72,13 +74,14 @@ private:
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
-  auto gen(const Decl *node) -> mlir::Operation *;
+  auto gen(const Decl *node, mlir::Operation *&op) -> CherryResult;
   auto gen(const Prototype *node) -> cir::FuncOp;
   auto gen(const FunctionDecl *node) -> cir::FuncOp;
-  auto gen(const StructDecl *node) -> void;
+  auto gen(const StructDecl *node) -> CherryResult;
 
   // Expressions
   auto gen(const Expr *node) -> mlir::Value;
+  auto genBlock(const BlockExpr *node) -> llvm::FailureOr<mlir::Value>;
   auto gen(const UnitExpr *node) -> mlir::Value;
   auto gen(const BlockExpr *node) -> mlir::Value;
   auto gen(const IfExpr *node) -> mlir::Value;
@@ -103,9 +106,9 @@ private:
   auto gen(const BinaryExpr *node) -> mlir::Value;
 
   // Statements
-  auto gen(const Stat *node) -> void;
-  auto gen(const VariableStat *node) -> void;
-  auto gen(const ExprStat *node) -> void;
+  auto gen(const Stat *node) -> CherryResult;
+  auto gen(const VariableStat *node) -> CherryResult;
+  auto gen(const ExprStat *node) -> CherryResult;
 
   auto getAlignOne() -> mlir::IntegerAttr;
 
@@ -151,7 +154,8 @@ private:
   auto getListDescriptorField(mlir::Value descriptorPtr, unsigned index,
                               mlir::Type fieldType, mlir::Location location,
                               std::string_view name) -> mlir::Value;
-  auto getListElementType(const ListType *listType) -> mlir::Type;
+  auto getListElementType(const ListType *listType,
+                          const Node *node) -> mlir::Type;
   auto getListDescriptorPointer(const IndexExpr *expr) -> mlir::Value;
   auto genListElementPointer(const IndexExpr *expr) -> mlir::Value;
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
@@ -176,6 +180,8 @@ private:
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
+  auto containsTensorList(const Type *type) const -> bool;
+  auto rejectTensorList(const Type *type, const Node *node) -> CherryResult;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
@@ -193,6 +199,13 @@ private:
     auto [line, col] = _sourceManager.getLineAndColumn(node->location());
     return mlir::FileLineColLoc::get(
         _builder.getStringAttr(_fileNameIdentifier), line, col);
+  }
+
+  auto emitError(const Node *node, const llvm::Twine& message) -> CherryResult {
+    _sourceManager.PrintMessage(node->location(),
+                                llvm::SourceMgr::DiagKind::DK_Error,
+                                message);
+    return failure();
   }
 
   auto createEntryBlockAlloca(mlir::Type mlirType, mlir::Location loc)
@@ -214,7 +227,10 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
 
   for (auto &decl : node) {
-    if (auto *op = gen(decl.get()))
+    mlir::Operation *op = nullptr;
+    if (gen(decl.get(), op))
+      return failure();
+    if (op)
       module.push_back(op);
   }
 
@@ -228,14 +244,15 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
   return success();
 }
 
-auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
+auto MLIRGenImpl::gen(const Decl *node, mlir::Operation *&op) -> CherryResult {
   switch (node->getKind()) {
   case Decl::Decl_Function: {
-    return gen(cast<FunctionDecl>(node));
+    op = gen(cast<FunctionDecl>(node));
+    return op ? success() : failure();
   }
   case Decl::Decl_Struct: {
-    gen(cast<StructDecl>(node));
-    return nullptr;
+    op = nullptr;
+    return gen(cast<StructDecl>(node));
   }
   }
 }
@@ -244,11 +261,15 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
+    if (rejectTensorList(paramType, param.get()))
+      return nullptr;
     argTypes.push_back(getMLIRType(paramType));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
+  if (rejectTensorList(returnType, node))
+    return nullptr;
   auto funcType = cir::FuncType::get(argTypes,
                                      getFunctionReturnType(returnType));
   mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
@@ -292,8 +313,13 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
 auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
   resetVariableScopes();
   auto func = gen(node->proto().get());
+  if (!func)
+    return nullptr;
 
-  auto value = gen(node->body().get());
+  auto result = genBlock(node->body().get());
+  if (failed(result))
+    return nullptr;
+  auto value = *result;
 
   auto location = loc(node->body()->expression().get());
   if (value) {
@@ -308,13 +334,17 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
   return func;
 }
 
-auto MLIRGenImpl::gen(const StructDecl *node) -> void {
+auto MLIRGenImpl::gen(const StructDecl *node) -> CherryResult {
   if (auto *structType = cherry::getStructType(node->id()->type())) {
+    if (rejectTensorList(structType, node))
+      return failure();
+
     getMLIRType(structType);
-    return;
+    return success();
   }
 
   ERR("struct `{0}` has no Cherry type", node->id()->name());
+  return failure();
 }
 
 auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
@@ -358,13 +388,25 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const UnitExpr *node) -> mlir::Value { return nullptr; }
 
-auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
+auto MLIRGenImpl::genBlock(const BlockExpr *node)
+    -> llvm::FailureOr<mlir::Value> {
   enterVariableScope();
-  for (auto &expr : *node)
-    gen(expr.get());
+  for (auto &expr : *node) {
+    if (gen(expr.get())) {
+      leaveVariableScope();
+      return failure();
+    }
+  }
   auto value = gen(node->expression().get());
   leaveVariableScope();
   return value;
+}
+
+auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
+  auto result = genBlock(node);
+  if (failed(result))
+    return nullptr;
+  return *result;
 }
 
 auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
@@ -916,7 +958,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
   return nullptr;
 }
 
-auto MLIRGenImpl::gen(const Stat *node) -> void {
+auto MLIRGenImpl::gen(const Stat *node) -> CherryResult {
   switch (node->getKind()) {
   case Stat::Stat_VariableDecl:
     return gen(cast<VariableStat>(node));
@@ -1038,11 +1080,14 @@ auto MLIRGenImpl::getListDescriptorField(mlir::Value descriptorPtr,
                                   descriptorPtr, name, index);
 }
 
-auto MLIRGenImpl::getListElementType(const ListType *listType) -> mlir::Type {
+auto MLIRGenImpl::getListElementType(const ListType *listType,
+                                     const Node *node) -> mlir::Type {
+  if (rejectTensorList(listType, node))
+    return {};
+
   auto elementType = getMLIRType(listType->elementType());
   if (!cir::isSized(elementType)) {
-    ERR("List element type lowering is not implemented yet: {0}",
-        formatType(listType->elementType()));
+    emitError(node, "unsupported list element type lowering");
     return {};
   }
   return elementType;
@@ -1051,7 +1096,7 @@ auto MLIRGenImpl::getListElementType(const ListType *listType) -> mlir::Type {
 auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                                  const ListType *listType) -> mlir::Value {
   auto &elements = listLiteral->elements();
-  auto elementType = getListElementType(listType);
+  auto elementType = getListElementType(listType, listLiteral);
   if (!elementType)
     return nullptr;
 
@@ -1132,6 +1177,29 @@ auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
 
 auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
+}
+
+auto MLIRGenImpl::containsTensorList(const Type *type) const -> bool {
+  if (auto *listType = cherry::getListType(type)) {
+    auto *elementType = listType->elementType();
+    return cherry::isTensorType(elementType) || containsTensorList(elementType);
+  }
+
+  if (auto *structType = cherry::getStructType(type)) {
+    for (const auto& field : structType->fields())
+      if (containsTensorList(field.type()))
+        return true;
+  }
+
+  return false;
+}
+
+auto MLIRGenImpl::rejectTensorList(const Type *type, const Node *node)
+    -> CherryResult {
+  if (!containsTensorList(type))
+    return success();
+
+  return emitError(node, "List<Tensor> lowering requires tensor descriptors");
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1414,7 +1482,7 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
                                 mlirIndices);
 }
 
-auto MLIRGenImpl::gen(const VariableStat *node) -> void {
+auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
   auto *varType = node->type();
   auto *tensorType = cherry::getTensorType(varType);
   auto *listType = cherry::getListType(varType);
@@ -1430,28 +1498,34 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
               llvm::dyn_cast<TensorLiteralExpr>(node->init().get())) {
         if (shouldPromoteConstTensorData(tensorLiteral)) {
           setVariable(varName, genGlobalTensorLiteral(tensorLiteral, varName));
-          return;
+          return success();
         }
       }
     }
 
     setVariable(varName, gen(node->init().get()));
-    return;
+    return success();
   }
 
   if (listType) {
     DBG("use Cherry variable list type `{0}`", formatType(listType));
+    if (rejectTensorList(varType, node))
+      return failure();
+
     auto mlirType = getMLIRType(varType);
     auto alloca = createEntryBlockAlloca(mlirType, loc(node));
     setVariable(varName, alloca);
 
     auto initValue = gen(node->init().get());
+    if (!initValue)
+      return failure();
+
     cir::StoreOp::create(_builder, loc(node), initValue, alloca,
                          /*isVolatile=*/false,
                          /*alignment=*/mlir::IntegerAttr{},
                          /*sync_scope=*/cir::SyncScopeKindAttr(),
                          /*mem-order=*/cir::MemOrderAttr());
-    return;
+    return success();
   }
 
   if (structType) {
@@ -1460,7 +1534,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
       DBG("use Cherry variable struct literal `{0}`",
           formatType(structType));
       setVariable(varName, genStructLiteral(structLiteral, structType, nullptr));
-      return;
+      return success();
     }
 
     DBG("use Cherry variable struct value `{0}`",
@@ -1475,13 +1549,13 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
                          /*alignment=*/mlir::IntegerAttr{},
                          /*sync_scope=*/cir::SyncScopeKindAttr(),
                          /*mem-order=*/cir::MemOrderAttr());
-    return;
+    return success();
   }
 
   if (cherry::isUnitType(varType)) {
     setVariable(varName, nullptr);
     gen(node->init().get());
-    return;
+    return success();
   }
 
   auto mlirType = getMLIRType(varType);
@@ -1496,10 +1570,12 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
                        /*alignment=*/mlir::IntegerAttr{},
                        /*sync_scope=*/cir::SyncScopeKindAttr(),
                        /*mem-order=*/cir::MemOrderAttr());
+  return success();
 }
 
-auto MLIRGenImpl::gen(const ExprStat *node) -> void {
+auto MLIRGenImpl::gen(const ExprStat *node) -> CherryResult {
   gen(node->expression().get());
+  return success();
 }
 
 namespace cherry {

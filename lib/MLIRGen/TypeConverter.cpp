@@ -59,14 +59,25 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
                                mlirElementType);
 }
 
-auto MLIRTypeConverter::convertTensorListElement(const TensorType& type) const
+auto MLIRTypeConverter::convertTensorDescriptor(const TensorType& type) const
     -> cir::RecordType {
   auto memrefType = convert(type);
   if (!memrefType)
     return {};
 
-  auto storageType = cir::PointerType::get(memrefType);
-  mlir::Type fields[] = {storageType};
+  auto pointerType = cir::PointerType::get(memrefType.getElementType());
+  auto indexType =
+      cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
+
+  // Mirror MLIR's ranked memref descriptor layout:
+  // {allocated pointer, aligned pointer, offset, sizes[rank], strides[rank]}.
+  // See: https://mlir.llvm.org/docs/TargetLLVMIR/#ranked-memref-types
+  std::vector<mlir::Type> fields{pointerType, pointerType, indexType};
+  for (size_t i = 0; i < type.shape().size(); ++i)
+    fields.push_back(indexType);
+  for (size_t i = 0; i < type.shape().size(); ++i)
+    fields.push_back(indexType);
+
   return cir::RecordType::get(_builder.getContext(), fields,
                              /*packed=*/false, /*padded=*/false,
                              cir::RecordType::RecordKind::Struct);
@@ -75,7 +86,7 @@ auto MLIRTypeConverter::convertTensorListElement(const TensorType& type) const
 auto MLIRTypeConverter::convertListElement(const Type *type) const
     -> mlir::Type {
   if (auto *tensorType = cherry::getTensorType(type))
-    return convertTensorListElement(*tensorType);
+    return convertTensorDescriptor(*tensorType);
 
   return convert(type);
 }
