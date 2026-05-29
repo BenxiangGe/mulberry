@@ -239,7 +239,13 @@ private:
     if (!elementType)
       return nullptr;
 
-    return _typeContext.createTensorType(elementType, typeNode->shape());
+    auto *builtinElementType = cherry::getBuiltinType(elementType);
+    if (!builtinElementType) {
+      emitError(typeNode->elementTypeNode(), diag::mismatch_type);
+      return nullptr;
+    }
+
+    return _typeContext.createTensorType(builtinElementType, typeNode->shape());
   }
 
   auto resolveType(const ListTypeNode *typeNode) -> const Type * {
@@ -717,10 +723,10 @@ auto SemaImpl::sema(TensorLiteralExpr *expr) -> CherryResult {
     return failure();
 
   auto *firstElementType = elements.front()->type();
-  auto *elementType = firstElementType;
+  auto *elementType = cherry::getBuiltinType(firstElementType);
   std::vector<int64_t> currentShape{static_cast<int64_t>(elements.size())};
 
-  if (auto *nestedTensorType = cherry::getTensorType(elementType)) {
+  if (auto *nestedTensorType = cherry::getTensorType(firstElementType)) {
     elementType = nestedTensorType->elementType();
     currentShape.insert(currentShape.end(), nestedTensorType->shape().begin(),
                         nestedTensorType->shape().end());

@@ -5,6 +5,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Types.h"
 
+#include <array>
+
 namespace mlir {
 class MemRefType;
 } // namespace mlir
@@ -15,6 +17,20 @@ class RecordType;
 
 namespace cherry {
 
+struct ListStorageLayout {
+  static constexpr unsigned lengthIndex = 0;
+  static constexpr unsigned dataPtrIndex = 1;
+
+  mlir::Type lengthType;
+  mlir::Type dataPtrType;
+
+  // List values lower to {length, dataPtr}. This is separate from MLIR's
+  // ranked memref descriptor layout used by tensors.
+  auto fields() const -> std::array<mlir::Type, 2> {
+    return {lengthType, dataPtrType};
+  }
+};
+
 class MLIRTypeConverter {
 public:
   explicit MLIRTypeConverter(mlir::OpBuilder& builder) : _builder(builder) {}
@@ -22,14 +38,14 @@ public:
   auto convert(const Type *type) const -> mlir::Type;
 
 private:
-  auto convert(const BuiltinType& type) const -> mlir::Type;
-  auto convert(const TensorType& type) const -> mlir::MemRefType;
+  auto convertBuiltin(const BuiltinType& type) const -> mlir::Type;
+  auto convertTensor(const TensorType& type) const -> mlir::MemRefType;
   auto convertTensorDescriptor(const TensorType& type) const
       -> cir::RecordType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
   auto convertListElement(const Type *type) const -> mlir::Type;
-  auto convert(const ListType& type) const -> cir::RecordType;
-  auto convert(const StructType& type) const -> cir::RecordType;
+  auto convertList(const ListType& type) const -> cir::RecordType;
+  auto convertStruct(const StructType& type) const -> cir::RecordType;
 
   mlir::OpBuilder& _builder;
 };

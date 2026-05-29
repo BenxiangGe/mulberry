@@ -77,7 +77,8 @@ auto StructType::field(std::string_view fieldName) const
   return nullptr;
 }
 
-TensorType::TensorType(const Type *elementType, std::vector<int64_t> shape)
+TensorType::TensorType(const BuiltinType *elementType,
+                       std::vector<int64_t> shape)
     : Type(TypeKind::Tensor), _elementType(elementType),
       _shape(std::move(shape)) {}
 
@@ -85,7 +86,7 @@ auto TensorType::classof(const Type *type) -> bool {
   return type && type->kind() == TypeKind::Tensor;
 }
 
-auto TensorType::elementType() const -> const Type * {
+auto TensorType::elementType() const -> const BuiltinType * {
   return _elementType;
 }
 
@@ -179,8 +180,8 @@ auto findListType(const Type *elementType) -> const ListType * {
   return nullptr;
 }
 
-auto findTensorType(const Type *elementType, const std::vector<int64_t> &shape)
-    -> const TensorType * {
+auto findTensorType(const BuiltinType *elementType,
+                    const std::vector<int64_t> &shape) -> const TensorType * {
   for (const auto &type : tensorTypeStorage())
     if (type->elementType() == elementType && type->shape() == shape)
       return type.get();
@@ -358,7 +359,7 @@ auto TypeContext::createListType(const Type *elementType) const
   return listTypes.back().get();
 }
 
-auto TypeContext::createTensorType(const Type *elementType,
+auto TypeContext::createTensorType(const BuiltinType *elementType,
                                    std::vector<int64_t> shape) const
     -> const TensorType * {
   if (auto *type = findTensorType(elementType, shape))

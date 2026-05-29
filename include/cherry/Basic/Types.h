@@ -82,16 +82,18 @@ private:
 
 class TensorType final : public Type {
 public:
-  TensorType(const Type *elementType, std::vector<int64_t> shape);
+  TensorType(const BuiltinType *elementType, std::vector<int64_t> shape);
 
   static auto classof(const Type *type) -> bool;
 
-  auto elementType() const -> const Type *;
+  auto elementType() const -> const BuiltinType *;
 
   auto shape() const -> const std::vector<int64_t> &;
 
 private:
-  const Type *_elementType;
+  // Tensor elements must map directly to MLIR memref element types, so the core
+  // TensorType only accepts builtin scalar types for now.
+  const BuiltinType *_elementType;
   std::vector<int64_t> _shape;
 };
 
@@ -136,7 +138,7 @@ public:
 
   auto createListType(const Type *elementType) const -> const ListType *;
 
-  auto createTensorType(const Type *elementType,
+  auto createTensorType(const BuiltinType *elementType,
                         std::vector<int64_t> shape) const
       -> const TensorType *;
 };

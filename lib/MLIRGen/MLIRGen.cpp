@@ -151,12 +151,8 @@ private:
                         mlir::Value targetPtr) -> mlir::Value;
   auto genListLiteral(const ListLiteralExpr *listLiteral,
                       const ListType *listType) -> mlir::Value;
-  auto getListDescriptorField(mlir::Value descriptorPtr, unsigned index,
-                              mlir::Type fieldType, mlir::Location location,
-                              std::string_view name) -> mlir::Value;
-  auto getListElementType(const ListType *listType,
-                          const Node *node) -> mlir::Type;
-  auto getListDescriptorPointer(const IndexExpr *expr) -> mlir::Value;
+  auto getListElementType(const ListType *listType) -> mlir::Type;
+  auto getListStoragePointer(const IndexExpr *expr) -> mlir::Value;
   auto genListElementPointer(const IndexExpr *expr) -> mlir::Value;
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
   auto genGlobalTensorLiteral(const TensorLiteralExpr *expr,
@@ -181,7 +177,6 @@ private:
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
   auto containsTensorList(const Type *type) const -> bool;
-  auto rejectTensorList(const Type *type, const Node *node) -> CherryResult;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
@@ -261,15 +256,19 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
-    if (rejectTensorList(paramType, param.get()))
+    if (containsTensorList(paramType)) {
+      emitError(param.get(), "List<Tensor> lowering requires tensor descriptors");
       return nullptr;
+    }
     argTypes.push_back(getMLIRType(paramType));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  if (rejectTensorList(returnType, node))
+  if (containsTensorList(returnType)) {
+    emitError(node, "List<Tensor> lowering requires tensor descriptors");
     return nullptr;
+  }
   auto funcType = cir::FuncType::get(argTypes,
                                      getFunctionReturnType(returnType));
   mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
@@ -336,8 +335,9 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
 
 auto MLIRGenImpl::gen(const StructDecl *node) -> CherryResult {
   if (auto *structType = cherry::getStructType(node->id()->type())) {
-    if (rejectTensorList(structType, node))
-      return failure();
+    if (containsTensorList(structType))
+      return emitError(node,
+                       "List<Tensor> lowering requires tensor descriptors");
 
     getMLIRType(structType);
     return success();
@@ -686,10 +686,13 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto *argument = expressions.front().get();
   if (cherry::isListType(argument->type())) {
-    auto descriptorPtr = genLValue(argument);
+    auto listStoragePtr = genLValue(argument);
     auto lengthType = getMLIRType(node);
-    auto lengthPtr = getListDescriptorField(descriptorPtr, 0, lengthType,
-                                           loc(node), "length");
+    auto lengthPtrType =
+        cir::PointerType::get(_builder.getContext(), lengthType);
+    mlir::Value lengthPtr = cir::GetMemberOp::create(
+        _builder, loc(node), lengthPtrType, listStoragePtr, "length",
+        ListStorageLayout::lengthIndex);
     DBG("size() loads Cherry list length");
     return cir::LoadOp::create(_builder, loc(node), lengthPtr);
   }
@@ -772,18 +775,18 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   return nullptr;
 }
 
-auto MLIRGenImpl::getListDescriptorPointer(const IndexExpr *expr)
+auto MLIRGenImpl::getListStoragePointer(const IndexExpr *expr)
     -> mlir::Value {
-  auto descriptorPtr = getVariable(expr->getVarName());
-  if (!descriptorPtr) {
-    ERR("List index has no descriptor pointer: {0}", expr->getVarName());
+  auto listStoragePtr = getVariable(expr->getVarName());
+  if (!listStoragePtr) {
+    ERR("List index has no storage pointer: {0}", expr->getVarName());
     return nullptr;
   }
 
-  if (llvm::isa<cir::PointerType>(descriptorPtr.getType()))
-    return descriptorPtr;
+  if (llvm::isa<cir::PointerType>(listStoragePtr.getType()))
+    return listStoragePtr;
 
-  ERR("List index lowering expected descriptor pointer: {0}",
+  ERR("List index lowering expected storage pointer: {0}",
       expr->getVarName());
   return nullptr;
 }
@@ -796,13 +799,16 @@ auto MLIRGenImpl::genListElementPointer(const IndexExpr *expr) -> mlir::Value {
     return nullptr;
   }
 
-  auto descriptorPtr = getListDescriptorPointer(expr);
-  if (!descriptorPtr)
+  auto listStoragePtr = getListStoragePointer(expr);
+  if (!listStoragePtr)
     return nullptr;
 
   auto dataFieldType = cir::PointerType::get(elementType);
-  auto dataPtrField = getListDescriptorField(descriptorPtr, 1, dataFieldType,
-                                            loc(expr), "data");
+  auto dataFieldPtrType =
+      cir::PointerType::get(_builder.getContext(), dataFieldType);
+  mlir::Value dataPtrField = cir::GetMemberOp::create(
+      _builder, loc(expr), dataFieldPtrType, listStoragePtr, "data",
+      ListStorageLayout::dataPtrIndex);
   auto dataPtr = cir::LoadOp::create(_builder, loc(expr), dataPtrField);
   auto index = genCIRIndexValue(expr->getIndices().front().get());
   return cir::PtrStrideOp::create(_builder, loc(expr), dataFieldType,
@@ -1069,46 +1075,41 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
   return varPtrOp;
 }
 
-auto MLIRGenImpl::getListDescriptorField(mlir::Value descriptorPtr,
-                                         unsigned index,
-                                         mlir::Type fieldType,
-                                         mlir::Location location,
-                                         std::string_view name)
-    -> mlir::Value {
-  auto fieldPtrType = cir::PointerType::get(_builder.getContext(), fieldType);
-  return cir::GetMemberOp::create(_builder, location, fieldPtrType,
-                                  descriptorPtr, name, index);
-}
-
-auto MLIRGenImpl::getListElementType(const ListType *listType,
-                                     const Node *node) -> mlir::Type {
-  if (rejectTensorList(listType, node))
-    return {};
-
-  auto elementType = getMLIRType(listType->elementType());
-  if (!cir::isSized(elementType)) {
-    emitError(node, "unsupported list element type lowering");
-    return {};
-  }
-  return elementType;
+auto MLIRGenImpl::getListElementType(const ListType *listType) -> mlir::Type {
+  return getMLIRType(listType->elementType());
 }
 
 auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                                  const ListType *listType) -> mlir::Value {
   auto &elements = listLiteral->elements();
-  auto elementType = getListElementType(listType, listLiteral);
+  if (containsTensorList(listType)) {
+    // TODO: lower List<Tensor> once list storage can hold tensor descriptors.
+    // This is an intentional fail-fast path: tensor values lower to memrefs,
+    // while generic list elements are stored in CIR storage. Treating a tensor
+    // as a normal list element would fake the IR model and hide the missing
+    // descriptor materialization.
+    emitError(listLiteral,
+              "List<Tensor> lowering requires tensor descriptors");
+    return nullptr;
+  }
+
+  auto elementType = getListElementType(listType);
   if (!elementType)
     return nullptr;
+  if (!cir::isSized(elementType)) {
+    emitError(listLiteral, "unsupported list element type lowering");
+    return nullptr;
+  }
 
-  auto storageType = cir::ArrayType::get(elementType, elements.size());
-  auto storagePtrType = cir::PointerType::get(storageType);
-  auto storage = cir::AllocaOp::create(_builder, loc(listLiteral),
-                                       storagePtrType, storageType,
-                                       "list_storage", getAlignOne());
+  auto elementStorageType = cir::ArrayType::get(elementType, elements.size());
+  auto elementStoragePtrType = cir::PointerType::get(elementStorageType);
+  auto elementStorage = cir::AllocaOp::create(
+      _builder, loc(listLiteral), elementStoragePtrType, elementStorageType,
+      "list_elements", getAlignOne());
 
-  auto *parentBlock = storage->getBlock();
-  storage->moveBefore(&parentBlock->front());
-  mlir::Value storagePtr = storage.getAddr();
+  auto *parentBlock = elementStorage->getBlock();
+  elementStorage->moveBefore(&parentBlock->front());
+  mlir::Value elementStoragePtr = elementStorage.getAddr();
 
   auto indexType =
       cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
@@ -1116,7 +1117,7 @@ auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
   auto dataPtr = cir::CastOp::create(_builder, loc(listLiteral),
                                      elementPtrType,
                                      cir::CastKind::array_to_ptrdecay,
-                                     storagePtr);
+                                     elementStoragePtr);
 
   for (size_t i = 0; i < elements.size(); ++i) {
     auto indexValue =
@@ -1134,18 +1135,21 @@ auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                          /*mem-order=*/cir::MemOrderAttr());
   }
 
-  auto descriptorType =
+  auto listStorageType =
       llvm::cast<cir::RecordType>(getMLIRType(listType));
-  auto descriptorPtrType = cir::PointerType::get(descriptorType);
-  auto descriptor =
-      cir::AllocaOp::create(_builder, loc(listLiteral), descriptorPtrType,
-                            descriptorType, "list", getAlignOne());
+  auto listStoragePtrType = cir::PointerType::get(listStorageType);
+  auto listStorage =
+      cir::AllocaOp::create(_builder, loc(listLiteral), listStoragePtrType,
+                            listStorageType, "list", getAlignOne());
 
-  descriptor->moveBefore(&parentBlock->front());
-  mlir::Value descriptorPtr = descriptor.getAddr();
+  listStorage->moveBefore(&parentBlock->front());
+  mlir::Value listStoragePtr = listStorage.getAddr();
 
-  auto lengthPtr = getListDescriptorField(descriptorPtr, 0, indexType,
-                                         loc(listLiteral), "length");
+  auto lengthPtrType =
+      cir::PointerType::get(_builder.getContext(), indexType);
+  mlir::Value lengthPtr = cir::GetMemberOp::create(
+      _builder, loc(listLiteral), lengthPtrType, listStoragePtr, "length",
+      ListStorageLayout::lengthIndex);
   auto lengthValue =
       cir::ConstantOp::create(_builder, loc(listLiteral),
                               cir::IntAttr::get(indexType, elements.size()));
@@ -1156,15 +1160,18 @@ auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                        /*mem-order=*/cir::MemOrderAttr());
 
   auto dataFieldType = cir::PointerType::get(elementType);
-  auto dataPtrField = getListDescriptorField(descriptorPtr, 1, dataFieldType,
-                                            loc(listLiteral), "data");
+  auto dataFieldPtrType =
+      cir::PointerType::get(_builder.getContext(), dataFieldType);
+  mlir::Value dataPtrField = cir::GetMemberOp::create(
+      _builder, loc(listLiteral), dataFieldPtrType, listStoragePtr, "data",
+      ListStorageLayout::dataPtrIndex);
   cir::StoreOp::create(_builder, loc(listLiteral), dataPtr, dataPtrField,
                        /*isVolatile=*/false,
                        /*alignment=*/mlir::IntegerAttr{},
                        /*sync_scope=*/cir::SyncScopeKindAttr(),
                        /*mem-order=*/cir::MemOrderAttr());
 
-  return cir::LoadOp::create(_builder, loc(listLiteral), descriptorPtr);
+  return cir::LoadOp::create(_builder, loc(listLiteral), listStoragePtr);
 }
 
 auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
@@ -1192,14 +1199,6 @@ auto MLIRGenImpl::containsTensorList(const Type *type) const -> bool {
   }
 
   return false;
-}
-
-auto MLIRGenImpl::rejectTensorList(const Type *type, const Node *node)
-    -> CherryResult {
-  if (!containsTensorList(type))
-    return success();
-
-  return emitError(node, "List<Tensor> lowering requires tensor descriptors");
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1509,8 +1508,9 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
 
   if (listType) {
     DBG("use Cherry variable list type `{0}`", formatType(listType));
-    if (rejectTensorList(varType, node))
-      return failure();
+    if (containsTensorList(listType))
+      return emitError(node,
+                       "List<Tensor> lowering requires tensor descriptors");
 
     auto mlirType = getMLIRType(varType);
     auto alloca = createEntryBlockAlloca(mlirType, loc(node));
