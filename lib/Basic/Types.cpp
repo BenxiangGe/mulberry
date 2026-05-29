@@ -135,13 +135,20 @@ auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs)
 
 auto sameTensorShape(const std::vector<int64_t> &lhsShape,
                      const std::vector<int64_t> &rhsShape) -> bool {
-  if (lhsShape.size() != rhsShape.size())
+  return lhsShape == rhsShape;
+}
+
+auto compatibleTensorShape(const std::vector<int64_t> &targetShape,
+                           const std::vector<int64_t> &sourceShape) -> bool {
+  if (targetShape.size() != sourceShape.size())
     return false;
 
-  for (size_t i = 0; i < lhsShape.size(); ++i) {
-    auto lhsDim = lhsShape[i];
-    auto rhsDim = rhsShape[i];
-    if (lhsDim >= 0 && rhsDim >= 0 && lhsDim != rhsDim)
+  // Dynamic dimensions in the target type accept any runtime dimension.
+  // Source-side dynamic dimensions only fit an explicitly dynamic target.
+  for (size_t i = 0; i < targetShape.size(); ++i) {
+    auto targetDim = targetShape[i];
+    auto sourceDim = sourceShape[i];
+    if (targetDim >= 0 && targetDim != sourceDim)
       return false;
   }
   return true;
@@ -154,6 +161,42 @@ auto sameTensorType(const TensorType& lhs, const TensorType& rhs) -> bool {
 
 auto sameListType(const ListType& lhs, const ListType& rhs) -> bool {
   return sameType(lhs.elementType(), rhs.elementType());
+}
+
+auto assignableTensorType(const TensorType& target, const TensorType& source)
+    -> bool {
+  return sameType(target.elementType(), source.elementType()) &&
+         compatibleTensorShape(target.shape(), source.shape());
+}
+
+auto assignableListType(const ListType& target, const ListType& source)
+    -> bool {
+  return isAssignableType(target.elementType(), source.elementType());
+}
+
+auto sameOrAssignableType(const Type *targetType, const Type *sourceType)
+    -> bool {
+  if (!targetType || !sourceType)
+    return false;
+
+  if (targetType->kind() != sourceType->kind())
+    return false;
+
+  switch (targetType->kind()) {
+  case TypeKind::Builtin:
+    return sameBuiltinType(*llvm::cast<BuiltinType>(targetType),
+                           *llvm::cast<BuiltinType>(sourceType));
+  case TypeKind::Struct:
+    return targetType == sourceType;
+  case TypeKind::List:
+    return assignableListType(*llvm::cast<ListType>(targetType),
+                              *llvm::cast<ListType>(sourceType));
+  case TypeKind::Tensor:
+    return assignableTensorType(*llvm::cast<TensorType>(targetType),
+                                *llvm::cast<TensorType>(sourceType));
+  }
+
+  return false;
 }
 
 auto structTypeStorage()
@@ -232,6 +275,11 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
   }
 
   return false;
+}
+
+auto isAssignableType(const Type *targetType, const Type *sourceType)
+    -> bool {
+  return sameOrAssignableType(targetType, sourceType);
 }
 
 auto getBuiltinType(const Type *type) -> const BuiltinType * {

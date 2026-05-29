@@ -110,6 +110,7 @@ private:
 };
 
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
+auto isAssignableType(const Type *targetType, const Type *sourceType) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getListType(const Type *type) -> const ListType *;
 auto getTensorType(const Type *type) -> const TensorType *;

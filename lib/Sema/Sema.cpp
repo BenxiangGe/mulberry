@@ -499,7 +499,7 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
     auto &field = fields[i];
     if (semaExpected(expr, field.type()))
       return failure();
-    if (!sameType(field.type(), expr->type()))
+    if (!isAssignableType(field.type(), expr->type()))
       return emitError(expr.get(), diag::mismatch_type);
   }
 
@@ -557,7 +557,7 @@ auto SemaImpl::sema(AssignExpr *node) -> CherryResult {
     return failure();
   if (semaExpected(node->rhs(), node->lhs()->type()))
     return failure();
-  if (!sameType(node->lhs()->type(), node->rhs()->type()))
+  if (!isAssignableType(node->lhs()->type(), node->rhs()->type()))
     return emitError(node->lhs().get(), diag::mismatch_type);
   if (!node->lhs()->isLvalue())
     return emitError(node->lhs().get(), diag::expected_lvalue);
@@ -685,7 +685,7 @@ auto SemaImpl::semaListLiteral(ListLiteralExpr *expr, const ListType *type)
   for (auto &element : elements) {
     if (semaExpected(element, elementType))
       return failure();
-    if (!sameType(elementType, element->type()))
+    if (!isAssignableType(elementType, element->type()))
       return emitError(element.get(), diag::mismatch_type);
   }
 
@@ -1038,7 +1038,7 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
     return failure();
 
   auto *initExpr = init.get();
-  if (!sameType(varType, initExpr->type()))
+  if (!isAssignableType(varType, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
   if (checkConstTensorBinding(node, varType))
     return failure();

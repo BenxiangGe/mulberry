@@ -256,6 +256,14 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
+    if (cherry::isTensorType(paramType)) {
+      // TODO: Tensor values lower to MLIR memrefs, but CIR call operands cannot carry
+      // memrefs. Keep Tensor function ABI disabled until the function boundary
+      // moves to func.func or gains a descriptor ABI.
+      emitError(param.get(),
+                "Tensor function parameters require function memref ABI");
+      return nullptr;
+    }
     if (containsTensorList(paramType)) {
       emitError(param.get(), "List<Tensor> lowering requires tensor descriptors");
       return nullptr;
@@ -265,6 +273,13 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
+  if (cherry::isTensorType(returnType)) {
+    // TODO: Tensor values lower to MLIR memrefs, but CIR return operands cannot carry
+    // memrefs. Keep Tensor function ABI disabled until the function boundary
+    // moves to func.func or gains a descriptor ABI.
+    emitError(node, "Tensor function returns require function memref ABI");
+    return nullptr;
+  }
   if (containsTensorList(returnType)) {
     emitError(node, "List<Tensor> lowering requires tensor descriptors");
     return nullptr;
@@ -283,10 +298,6 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
     auto varName = var->variable()->name();
     auto value = std::get<1>(varValue);
     auto *paramType = var->type();
-    if (cherry::isTensorType(paramType)) {
-      setVariable(varName, value);
-      continue;
-    }
     if (cherry::isUnitType(paramType)) {
       setVariable(varName, nullptr);
       continue;
@@ -930,6 +941,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
+          rhs = castToType(rhs, getMLIRType(var), loc(node));
           setVariable(name, rhs);
           return;
         }
@@ -1062,6 +1074,7 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
       }
     } else {
       mlir::Value val = gen(expr.get());
+      val = castToType(val, fieldTy, loc(expr.get()));
       cir::StoreOp::create(_builder, loc(structLiteral), val, memberPtr,
                            /*isVolatile=*/false,
                            /*alignment=*/mlir::IntegerAttr{},
@@ -1298,6 +1311,13 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
     return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
   }
 
+  if (llvm::isa<mlir::MemRefType>(value.getType()) &&
+      llvm::isa<mlir::MemRefType>(type)) {
+    // Assignment compatibility may erase static tensor shape information.
+    // MLIR represents that explicitly with memref.cast.
+    return mlir::memref::CastOp::create(_builder, location, type, value);
+  }
+
   return nullptr;
 }
 
@@ -1496,13 +1516,16 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
       if (auto *tensorLiteral =
               llvm::dyn_cast<TensorLiteralExpr>(node->init().get())) {
         if (shouldPromoteConstTensorData(tensorLiteral)) {
-          setVariable(varName, genGlobalTensorLiteral(tensorLiteral, varName));
+          auto value = genGlobalTensorLiteral(tensorLiteral, varName);
+          setVariable(varName, castToType(value, getMLIRType(varType),
+                                          loc(node)));
           return success();
         }
       }
     }
 
-    setVariable(varName, gen(node->init().get()));
+    auto value = gen(node->init().get());
+    setVariable(varName, castToType(value, getMLIRType(varType), loc(node)));
     return success();
   }
 

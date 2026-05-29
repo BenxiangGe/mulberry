@@ -1,0 +1,15 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var staticTensor: Float32[2, 3] =
+    [[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]];
+  const dynamicTensor: Float32[?, ?] = staticTensor;
+
+  var mutableDynamicTensor: Float32[?, ?] = staticTensor;
+  mutableDynamicTensor = staticTensor;
+
+  0
+}
+
+# CHECK: memref.cast
+# CHECK-SAME: memref<2x3xf32> to memref<?x?xf32>
