@@ -15,3 +15,23 @@ using namespace mlir::mulberry;
 
 #define GET_OP_CLASSES
 #include "cherry/MLIRGen/IR/MulberryOps.cpp.inc"
+
+auto ListCreateOp::verify() -> LogicalResult {
+  auto resultType = llvm::cast<ListType>(getResult().getType());
+  auto elementType = resultType.getElementType();
+
+  for (auto element : getElements()) {
+    if (element.getType() != elementType)
+      return emitOpError("element type does not match list element type");
+  }
+
+  return success();
+}
+
+auto ListGetOp::verify() -> LogicalResult {
+  auto listType = llvm::cast<ListType>(getList().getType());
+  if (getResult().getType() != listType.getElementType())
+    return emitOpError("result type does not match list element type");
+
+  return success();
+}

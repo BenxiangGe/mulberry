@@ -23,6 +23,8 @@ namespace mlir::cherry {
 
 namespace {
 
+constexpr size_t kMaxStaticListSwitchCases = 64;
+
 auto getListCreate(Value list) -> mulberry::ListCreateOp {
   if (!list)
     return {};
@@ -63,6 +65,9 @@ public:
     auto elements = createOp.getElements();
     if (elements.empty())
       return rewriter.notifyMatchFailure(op, "cannot lower empty list.get");
+    if (elements.size() > kMaxStaticListSwitchCases)
+      return rewriter.notifyMatchFailure(
+          op, "static list.get lowering would create too many switch cases");
 
     std::vector<int64_t> cases;
     for (size_t i = 0; i < elements.size(); ++i)
