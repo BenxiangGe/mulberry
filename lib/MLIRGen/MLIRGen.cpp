@@ -13,6 +13,8 @@
 #include "cherry/Basic/ScopeStack.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
+#include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -71,7 +73,6 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
-  ScopeStack<NameMap<std::vector<mlir::Value>>> _tensorListScopes;
   NameMap<cir::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
@@ -131,18 +132,15 @@ private:
 
   void resetVariableScopes() {
     _variableScopes.reset();
-    _tensorListScopes.reset();
     enterVariableScope();
   }
 
   void enterVariableScope() {
     _variableScopes.enterScope();
-    _tensorListScopes.enterScope();
   }
 
   void leaveVariableScope() {
     _variableScopes.leaveScope();
-    _tensorListScopes.leaveScope();
   }
 
   void setVariable(std::string_view name, mlir::Value value) {
@@ -162,16 +160,6 @@ private:
     return {};
   }
 
-  void setTensorList(std::string_view name, std::vector<mlir::Value> values) {
-    if (_tensorListScopes.empty())
-      enterVariableScope();
-    _tensorListScopes.currentScope()[std::string(name)] = std::move(values);
-  }
-
-  auto getTensorList(std::string_view name) -> std::vector<mlir::Value> * {
-    return _tensorListScopes.lookup(name);
-  }
-
   void setFunction(std::string_view name, cir::FuncOp func) {
     setSymbol(_functionsByName, name, func);
   }
@@ -187,16 +175,17 @@ private:
                       const ListType *listType) -> mlir::Value;
   auto genTensorListLiteral(const ListLiteralExpr *listLiteral,
                             const ListType *listType)
-      -> std::vector<mlir::Value>;
+      -> mlir::Value;
   auto getStaticIndex(const Expr *expr) -> std::optional<uint64_t>;
   void collectAssignedTensorVariables(const Expr *expr,
                                       std::set<std::string> &names);
   void collectAssignedTensorVariables(const Stat *stat,
                                       std::set<std::string> &names);
   auto getTensorCarriedVariables(const ForExpr *node) -> std::vector<std::string>;
-  auto genTensorListIndex(const IndexExpr *expr,
-                          const std::vector<mlir::Value> &tensorList)
+  auto genTensorListIndex(const IndexExpr *expr, mlir::Value tensorList)
       -> mlir::Value;
+  auto isMulberryList(mlir::Value value) -> bool;
+  auto getMulberryListElementType(mlir::Value value) -> mlir::Type;
   auto getListElementType(const ListType *listType) -> mlir::Type;
   auto getListStoragePointer(const IndexExpr *expr) -> mlir::Value;
   auto genListElementPointer(const IndexExpr *expr) -> mlir::Value;
@@ -851,11 +840,10 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
   auto *argument = expressions.front().get();
   if (cherry::isListType(argument->type())) {
     if (auto *variable = llvm::dyn_cast<VariableExpr>(argument)) {
-      if (auto *tensorList = getTensorList(variable->name())) {
-        auto type = getMLIRType(node);
-        auto attr = cir::IntAttr::get(type, tensorList->size());
-        return cir::ConstantOp::create(_builder, loc(node), attr);
-      }
+      auto list = getVariable(variable->name());
+      if (isMulberryList(list))
+        return mlir::mulberry::ListSizeOp::create(_builder, loc(node),
+                                                  _builder.getI64Type(), list);
     }
 
     auto listStoragePtr = genLValue(argument);
@@ -1257,7 +1245,7 @@ auto MLIRGenImpl::getListElementType(const ListType *listType) -> mlir::Type {
 
 auto MLIRGenImpl::genTensorListLiteral(const ListLiteralExpr *listLiteral,
                                        const ListType *listType)
-    -> std::vector<mlir::Value> {
+    -> mlir::Value {
   auto *elementType = cherry::getTensorType(listType->elementType());
   if (!elementType)
     return {};
@@ -1270,7 +1258,12 @@ auto MLIRGenImpl::genTensorListLiteral(const ListLiteralExpr *listLiteral,
       return {};
     values.push_back(value);
   }
-  return values;
+
+  auto mlirElementType = getMemRefType(elementType);
+  auto listMLIRType =
+      mlir::mulberry::ListType::get(_builder.getContext(), mlirElementType);
+  return mlir::mulberry::ListCreateOp::create(_builder, loc(listLiteral),
+                                              listMLIRType, values);
 }
 
 auto MLIRGenImpl::getStaticIndex(const Expr *expr) -> std::optional<uint64_t> {
@@ -1374,64 +1367,33 @@ auto MLIRGenImpl::getTensorCarriedVariables(const ForExpr *node)
   return {names.begin(), names.end()};
 }
 
-auto MLIRGenImpl::genTensorListIndex(
-    const IndexExpr *expr, const std::vector<mlir::Value> &tensorList)
+auto MLIRGenImpl::genTensorListIndex(const IndexExpr *expr,
+                                     mlir::Value tensorList)
     -> mlir::Value {
   auto resultType = getMemRefType(expr);
   auto &indices = expr->getIndices();
-  auto index = getStaticIndex(indices.front().get());
-  if (index) {
-    if (*index >= tensorList.size()) {
-      emitError(expr, "List<Tensor> index out of bounds");
-      return nullptr;
-    }
-    return castToType(tensorList[*index], resultType, loc(expr));
-  }
-
   auto indexValue = genIndexValue(indices.front().get());
-  std::vector<int64_t> cases;
-  for (size_t i = 0; i < tensorList.size(); ++i)
-    cases.push_back(i);
-
-  auto switchOp = mlir::scf::IndexSwitchOp::create(
-      _builder, loc(expr), mlir::TypeRange{resultType}, indexValue, cases,
-      cases.size());
-
-  // TODO: replace this with a runtime bounds trap when Mulberry has one. MLIR
-  // requires a default region for scf.index_switch, but Sema only proves the
-  // index type, not the runtime value range.
-  {
-    mlir::OpBuilder::InsertionGuard guard(_builder);
-    auto &defaultRegion = switchOp.getDefaultRegion();
-    auto &block = defaultRegion.emplaceBlock();
-    _builder.setInsertionPointToStart(&block);
-    auto value = castToType(tensorList.front(), resultType, loc(expr));
-    mlir::scf::YieldOp::create(_builder, loc(expr), value);
+  auto listElementType = getMulberryListElementType(tensorList);
+  if (!listElementType) {
+    emitError(expr, "List<Tensor> index lowering expected mulberry.list");
+    return nullptr;
   }
 
-  for (size_t i = 0; i < tensorList.size(); ++i) {
-    mlir::OpBuilder::InsertionGuard guard(_builder);
-    auto &caseRegion = switchOp.getCaseRegions()[i];
-    auto &block = caseRegion.emplaceBlock();
-    _builder.setInsertionPointToStart(&block);
-    auto value = castToType(tensorList[i], resultType, loc(expr));
-    mlir::scf::YieldOp::create(_builder, loc(expr), value);
-  }
-
-  return switchOp.getResult(0);
+  auto element = mlir::mulberry::ListGetOp::create(
+      _builder, loc(expr), listElementType, tensorList, indexValue);
+  return castToType(element, resultType, loc(expr));
 }
 
 auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                                  const ListType *listType) -> mlir::Value {
   auto &elements = listLiteral->elements();
   if (containsTensorList(listType)) {
-    // TODO: lower List<Tensor> once list storage can hold tensor descriptors.
-    // This is an intentional fail-fast path: tensor values lower to memrefs,
-    // while generic list elements are stored in CIR storage. Treating a tensor
-    // as a normal list element would fake the IR model and hide the missing
-    // descriptor materialization.
-    emitError(listLiteral,
-              "List<Tensor> lowering requires tensor descriptors");
+    if (cherry::isTensorType(listType->elementType()))
+      return genTensorListLiteral(listLiteral, listType);
+
+    // TODO: lower nested List<Tensor> after mulberry.list supports nested list
+    // values. Generic CIR list storage still cannot hold tensor descriptors.
+    emitError(listLiteral, "nested List<Tensor> lowering is not implemented");
     return nullptr;
   }
 
@@ -1526,6 +1488,19 @@ auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
 
 auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
+}
+
+auto MLIRGenImpl::isMulberryList(mlir::Value value) -> bool {
+  return value &&
+         llvm::isa<mlir::mulberry::ListType>(value.getType());
+}
+
+auto MLIRGenImpl::getMulberryListElementType(mlir::Value value)
+    -> mlir::Type {
+  if (!isMulberryList(value))
+    return {};
+  return llvm::cast<mlir::mulberry::ListType>(value.getType())
+      .getElementType();
 }
 
 auto MLIRGenImpl::containsTensorList(const Type *type) const -> bool {
@@ -1785,11 +1760,11 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
   if (isLValue)
     return nullptr;
 
-  if (auto *tensorList = getTensorList(expr->getVarName())) {
-    return genTensorListIndex(expr, *tensorList);
+  auto variable = getVariable(expr->getVarName());
+  if (isMulberryList(variable)) {
+    return genTensorListIndex(expr, variable);
   }
 
-  mlir::Value variable = getVariable(expr->getVarName());
   if (variable && llvm::isa<cir::PointerType>(variable.getType())) {
     auto elementPtr = genListElementPointer(expr);
     if (!elementPtr)
@@ -1869,18 +1844,15 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
         return emitError(node,
                          "List<Tensor> lowering requires tensor descriptors");
 
-      auto *listLiteral =
-          llvm::dyn_cast<ListLiteralExpr>(node->init().get());
+      auto *listLiteral = llvm::dyn_cast<ListLiteralExpr>(node->init().get());
       if (!listLiteral)
         return emitError(node,
                          "List<Tensor> lowering only supports list literals");
 
-      // Keep List<Tensor> as an MLIRGen-only SSA list for now. Storing memrefs
-      // in CIR list storage would fake a descriptor ABI that does not exist.
-      auto values = genTensorListLiteral(listLiteral, listType);
-      if (values.empty())
+      auto value = genTensorListLiteral(listLiteral, listType);
+      if (!value)
         return failure();
-      setTensorList(varName, std::move(values));
+      setVariable(varName, value);
       return success();
     }
 

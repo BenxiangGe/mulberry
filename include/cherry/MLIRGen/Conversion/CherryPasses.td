@@ -26,6 +26,11 @@ def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
                            "math::MathDialect"];
 }
 
+def LowerMulberryList : Pass<"lower-mulberry-list"> {
+  let summary = "Lower Mulberry list operations";
+  let dependentDialects = ["arith::ArithDialect", "scf::SCFDialect"];
+}
+
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let summary = "Convert Cherry ops to llvm ops";
   let dependentDialects = ["LLVM::LLVMDialect"];

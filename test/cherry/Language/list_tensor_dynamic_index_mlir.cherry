@@ -1,4 +1,5 @@
-# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
 
 fn main(): UInt64 {
   const w1: Float32[2] = [1.0, 2.0];
@@ -9,13 +10,9 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: scf.index_switch
-# CHECK: case 0
-# CHECK: scf.yield
-# CHECK-SAME: memref<?xf32>
-# CHECK: case 1
-# CHECK: scf.yield
-# CHECK-SAME: memref<?xf32>
-# CHECK: default
-# CHECK: scf.yield
-# CHECK-SAME: memref<?xf32>
+# MLIR: mulberry.list.create
+# MLIR-SAME: !mulberry.list<memref<?xf32>>
+# MLIR: mulberry.list.get
+# MLIR-SAME: <memref<?xf32>> -> memref<?xf32>
+
+# LINALG-NOT: mulberry.list

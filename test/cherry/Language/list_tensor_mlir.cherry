@@ -10,6 +10,11 @@ fn main(): UInt64 {
   0
 }
 
+# CHECK: mulberry.list.create
+# CHECK-SAME: !mulberry.list<memref<2xf32>>
+# CHECK: mulberry.list.get
+# CHECK-SAME: <memref<2xf32>> -> memref<2xf32>
 # CHECK: memref.cast
 # CHECK-SAME: memref<2xf32> to memref<?xf32>
-# CHECK: cir.const #cir.int<2> : !cir.int<u, 64>
+# CHECK: mulberry.list.size
+# CHECK-SAME: <memref<2xf32>> -> i64

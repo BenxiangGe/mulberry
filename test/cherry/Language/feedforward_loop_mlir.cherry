@@ -21,7 +21,7 @@ fn main(): UInt64 {
 
 # MLIR: scf.for
 # MLIR-SAME: iter_args
-# MLIR: scf.index_switch
+# MLIR: mulberry.list.get
 # MLIR: cherry_nn.matmul
 # MLIR: cherry_nn.matadd
 # MLIR: cherry_nn.sigmoid
@@ -29,6 +29,7 @@ fn main(): UInt64 {
 
 # LINALG: scf.for
 # LINALG-SAME: iter_args
+# LINALG: scf.index_switch
 # LINALG: linalg.matmul
 # LINALG: linalg.add
 # LINALG: linalg.map
