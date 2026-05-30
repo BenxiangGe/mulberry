@@ -186,6 +186,9 @@ private:
       -> mlir::Value;
   auto isMulberryList(mlir::Value value) -> bool;
   auto getMulberryListElementType(mlir::Value value) -> mlir::Type;
+  auto isTensorList(const ListType *type) const -> bool;
+  auto needsTensorDescriptors(const Type *type) const -> bool;
+  auto canUseListStorage(const ListType *type) const -> bool;
   auto getListElementType(const ListType *listType) -> mlir::Type;
   auto getListStoragePointer(const IndexExpr *expr) -> mlir::Value;
   auto genListElementPointer(const IndexExpr *expr) -> mlir::Value;
@@ -220,7 +223,6 @@ private:
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
-  auto containsTensorList(const Type *type) const -> bool;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
@@ -308,7 +310,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
                 "Tensor function parameters require function memref ABI");
       return nullptr;
     }
-    if (containsTensorList(paramType)) {
+    if (needsTensorDescriptors(paramType)) {
       emitError(param.get(), "List<Tensor> lowering requires tensor descriptors");
       return nullptr;
     }
@@ -324,7 +326,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
     emitError(node, "Tensor function returns require function memref ABI");
     return nullptr;
   }
-  if (containsTensorList(returnType)) {
+  if (needsTensorDescriptors(returnType)) {
     emitError(node, "List<Tensor> lowering requires tensor descriptors");
     return nullptr;
   }
@@ -390,7 +392,7 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
 
 auto MLIRGenImpl::gen(const StructDecl *node) -> CherryResult {
   if (auto *structType = cherry::getStructType(node->id()->type())) {
-    if (containsTensorList(structType))
+    if (needsTensorDescriptors(structType))
       return emitError(node,
                        "List<Tensor> lowering requires tensor descriptors");
 
@@ -1387,8 +1389,8 @@ auto MLIRGenImpl::genTensorListIndex(const IndexExpr *expr,
 auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
                                  const ListType *listType) -> mlir::Value {
   auto &elements = listLiteral->elements();
-  if (containsTensorList(listType)) {
-    if (cherry::isTensorType(listType->elementType()))
+  if (!canUseListStorage(listType)) {
+    if (isTensorList(listType))
       return genTensorListLiteral(listLiteral, listType);
 
     // TODO: lower nested List<Tensor> after mulberry.list supports nested list
@@ -1503,19 +1505,31 @@ auto MLIRGenImpl::getMulberryListElementType(mlir::Value value)
       .getElementType();
 }
 
-auto MLIRGenImpl::containsTensorList(const Type *type) const -> bool {
+auto MLIRGenImpl::isTensorList(const ListType *type) const -> bool {
+  return type && cherry::isTensorType(type->elementType());
+}
+
+auto MLIRGenImpl::needsTensorDescriptors(const Type *type) const -> bool {
   if (auto *listType = cherry::getListType(type)) {
     auto *elementType = listType->elementType();
-    return cherry::isTensorType(elementType) || containsTensorList(elementType);
+    return cherry::isTensorType(elementType) ||
+           needsTensorDescriptors(elementType);
   }
 
   if (auto *structType = cherry::getStructType(type)) {
     for (const auto& field : structType->fields())
-      if (containsTensorList(field.type()))
+      if (needsTensorDescriptors(field.type()))
         return true;
   }
 
   return false;
+}
+
+auto MLIRGenImpl::canUseListStorage(const ListType *type) const -> bool {
+  // Generic CIR list storage is {length, dataPtr}. It works for sized CIR
+  // element values. Tensor elements are MLIR memrefs, so they need descriptor
+  // storage before they can use the same runtime list representation.
+  return type && !needsTensorDescriptors(type);
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1839,8 +1853,8 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
 
   if (listType) {
     DBG("use Cherry variable list type `{0}`", formatType(listType));
-    if (containsTensorList(listType)) {
-      if (!cherry::isTensorType(listType->elementType()))
+    if (!canUseListStorage(listType)) {
+      if (!isTensorList(listType))
         return emitError(node,
                          "List<Tensor> lowering requires tensor descriptors");
 

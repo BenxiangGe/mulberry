@@ -19,6 +19,7 @@ def ListCreateOp : Mulberry_Op<"list.create", [Pure]> {
   let results = (outs ListType:$result);
 
   let assemblyFormat = "$elements attr-dict `:` functional-type($elements, $result)";
+  let hasVerifier = 1;
 }
 
 def ListGetOp : Mulberry_Op<"list.get", [Pure]> {
@@ -28,6 +29,7 @@ def ListGetOp : Mulberry_Op<"list.get", [Pure]> {
   let results = (outs AnyType:$result);
 
   let assemblyFormat = "$list `[` $index `]` attr-dict `:` type($list) `->` type($result)";
+  let hasVerifier = 1;
 }
 
 def ListSizeOp : Mulberry_Op<"list.size", [Pure]> {
