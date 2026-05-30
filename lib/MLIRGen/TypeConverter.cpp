@@ -67,13 +67,9 @@ auto MLIRTypeConverter::convertTensorDescriptor(const TensorType& type) const
   auto sizesType = cir::ArrayType::get(indexType, type.shape().size());
   auto stridesType = cir::ArrayType::get(indexType, type.shape().size());
 
-  // Mirror MLIR's ranked memref descriptor layout:
-  // {allocated pointer, aligned pointer, offset, sizes[rank], strides[rank]}.
-  // See: https://mlir.llvm.org/docs/TargetLLVMIR/#ranked-memref-types
-  std::vector<mlir::Type> fields{pointerType, pointerType, indexType,
-                                 sizesType, stridesType};
-
-  return cir::RecordType::get(_builder.getContext(), fields,
+  auto layout =
+      TensorStorageLayout{pointerType, indexType, sizesType, stridesType};
+  return cir::RecordType::get(_builder.getContext(), layout.fields(),
                              /*packed=*/false, /*padded=*/false,
                              cir::RecordType::RecordKind::Struct);
 }

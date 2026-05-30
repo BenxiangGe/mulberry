@@ -35,6 +35,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 using namespace mlir::cherry;
@@ -72,6 +73,11 @@ private:
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
+
+  struct TensorDimSource {
+    mlir::Value tensor;
+    int64_t dim;
+  };
 
   // Declarations
   auto gen(const Decl *node, mlir::Operation *&op) -> CherryResult;
@@ -169,6 +175,15 @@ private:
       -> const StructField *;
   auto genIndexValue(const Expr *node) -> mlir::Value;
   auto genCIRIndexValue(const Expr *node) -> mlir::Value;
+  auto genTensorDim(mlir::Location location, TensorDimSource source)
+      -> mlir::Value;
+  auto createTensorAlloc(mlir::Location location, mlir::MemRefType memRefType,
+                         const std::vector<TensorDimSource>& resultDims)
+      -> mlir::Value;
+  auto createSameShapeTensorAlloc(mlir::Location location,
+                                  mlir::MemRefType memRefType,
+                                  mlir::Value source)
+      -> mlir::Value;
   auto genMemRefElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genMemRefLoadValue(const IndexExpr *expr) -> mlir::Value;
@@ -641,47 +656,94 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   return PrintOp::create(_builder, loc(node), operand);
 }
 
+auto MLIRGenImpl::genTensorDim(mlir::Location location,
+                               TensorDimSource source) -> mlir::Value {
+  return mlir::memref::DimOp::create(_builder, location, source.tensor,
+                                     source.dim);
+}
+
+auto MLIRGenImpl::createTensorAlloc(
+    mlir::Location location, mlir::MemRefType memRefType,
+    const std::vector<TensorDimSource>& resultDims) -> mlir::Value {
+  if (memRefType.getRank() != static_cast<int64_t>(resultDims.size())) {
+    ERR("Tensor alloc rank mismatch. type: {0}, dims: {1}",
+        memRefType, resultDims.size());
+    return nullptr;
+  }
+
+  // memref.alloc takes one size operand for each `?` dimension, in result
+  // shape order. Static dimensions are encoded in the memref type itself.
+  std::vector<mlir::Value> dynamicSizes;
+  for (int64_t dim = 0; dim < memRefType.getRank(); ++dim)
+    if (memRefType.isDynamicDim(dim))
+      dynamicSizes.push_back(genTensorDim(location, resultDims[dim]));
+
+  return mlir::memref::AllocOp::create(_builder, location, memRefType,
+                                       dynamicSizes);
+}
+
+auto MLIRGenImpl::createSameShapeTensorAlloc(
+    mlir::Location location, mlir::MemRefType memRefType,
+    mlir::Value source) -> mlir::Value {
+  std::vector<TensorDimSource> resultDims;
+  for (int64_t dim = 0; dim < memRefType.getRank(); ++dim)
+    resultDims.push_back({source, dim});
+  return createTensorAlloc(location, memRefType, resultDims);
+}
+
 auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
+  auto location = loc(node);
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
   auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
-  mlir::cherry_nn::MatmulOp::create(_builder, loc(node), lhs, rhs, out);
+  auto out = createTensorAlloc(location, outType, {{lhs, 0}, {rhs, 1}});
+  if (!out)
+    return nullptr;
+  mlir::cherry_nn::MatmulOp::create(_builder, location, lhs, rhs, out);
   return out;
 }
 
 auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
+  auto location = loc(node);
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
   auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
-  mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
+  auto out = createSameShapeTensorAlloc(location, outType, lhs);
+  if (!out)
+    return nullptr;
+  mlir::cherry_nn::MataddOp::create(_builder, location, lhs, rhs, out);
   return out;
 }
 
 auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
+  auto location = loc(node);
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
   auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
-  mlir::cherry_nn::TransposeOp::create(_builder, loc(node), input, out);
+  auto out = createTensorAlloc(location, outType, {{input, 1}, {input, 0}});
+  if (!out)
+    return nullptr;
+  mlir::cherry_nn::TransposeOp::create(_builder, location, input, out);
   return out;
 }
 
 auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
+  auto location = loc(node);
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
   auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  auto out = createSameShapeTensorAlloc(location, outType, input);
+  if (!out)
+    return nullptr;
 
   if (node->name() == nn::exp) {
-    mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
+    mlir::cherry_nn::ExpOp::create(_builder, location, input, out);
     return out;
   }
 
-  mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
+  mlir::cherry_nn::SigmoidOp::create(_builder, location, input, out);
   return out;
 }
 
@@ -941,7 +1003,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
-          rhs = castToType(rhs, getMLIRType(var), loc(node));
+          rhs = castToType(rhs, getMemRefType(var), loc(node));
           setVariable(name, rhs);
           return;
         }

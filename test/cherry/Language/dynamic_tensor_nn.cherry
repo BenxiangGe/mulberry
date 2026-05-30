@@ -1,0 +1,22 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const a: Float32[2, 3] =
+    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+  const b: Float32[3, 1] =
+    [[1.0], [2.0], [3.0]];
+  const da: Float32[?, ?] = a;
+  const c: Float32[?, 1] = matmul(da, b);
+  const t: Float32[?, ?] = transpose(da);
+  const sum: Float32[?, ?] = matadd(da, da);
+  const sig: Float32[?, ?] = sigmoid(sum);
+  0
+}
+
+# CHECK: memref.dim
+# CHECK: memref.alloc(%{{.*}}) : memref<?x1xf32>
+# CHECK: cherry_nn.matmul
+# CHECK: memref.alloc(%{{.*}}, %{{.*}}) : memref<?x?xf32>
+# CHECK: cherry_nn.transpose
+# CHECK: cherry_nn.matadd
+# CHECK: cherry_nn.sigmoid
