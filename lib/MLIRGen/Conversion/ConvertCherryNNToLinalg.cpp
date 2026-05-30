@@ -138,7 +138,7 @@ public:
     auto loc = op.getLoc();
     auto input = op.getInput();
     auto inputType = dyn_cast<MemRefType>(input.getType());
-    if (!inputType || !inputType.hasStaticShape())
+    if (!inputType)
       return failure();
 
     auto rank = inputType.getRank();
@@ -167,6 +167,15 @@ public:
     memref::StoreOp::create(rewriter, loc, firstValue, bestValue);
     memref::StoreOp::create(rewriter, loc, zeroIndex, bestIndex);
 
+    Value dim1;
+    if (rank == 2) {
+      if (inputType.isDynamicDim(1))
+        dim1 = memref::DimOp::create(rewriter, loc, input, 1);
+      else
+        dim1 = arith::ConstantIndexOp::create(rewriter, loc,
+                                              inputType.getDimSize(1));
+    }
+
     auto inputMap =
         AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
     auto scalarMap = AffineMap::get(rank, 0, {}, rewriter.getContext());
@@ -186,8 +195,6 @@ public:
           if (rank == 2) {
             auto row = currentIndex;
             auto col = linalg::IndexOp::create(builder, location, 1);
-            auto dim1 = arith::ConstantIndexOp::create(
-                builder, location, inputType.getDimSize(1));
             auto rowOffset =
                 arith::MulIOp::create(builder, location, row, dim1);
             currentIndex =

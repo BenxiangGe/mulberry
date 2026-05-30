@@ -84,7 +84,9 @@ def loadNetwork(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
 
 
 def loadTestSample(path: Path, sampleIndex: int) -> tuple[np.ndarray, int]:
-    warningClass = getattr(np.exceptions, "VisibleDeprecationWarning", Warning)
+    warningClass = getattr(
+        getattr(np, "exceptions", np), "VisibleDeprecationWarning", Warning
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", warningClass)
         with gzip.open(path, "rb") as file:
@@ -154,19 +156,27 @@ def writeCherrySource(
     y: int,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
+    feedforward = "\n".join(
+        [
+            "  for layer in 0 .. size(weights) {",
+            "    activation = sigmoid(matadd(matmul(weights[layer], activation), biases[layer]));",
+            "    ()",
+            "  };",
+        ]
+    )
     body = "\n\n".join(
         [
             emitVariable("w1", w1, isConst=True),
             emitVariable("b1", b1, isConst=True),
             emitVariable("w2", w2, isConst=True),
             emitVariable("b2", b2, isConst=True),
-            emitVariable("x", x, isConst=True),
+            emitVariable("x", x),
             f"  const y: UInt64 = {y};",
-            "  var z1: Float32[30, 1] = matadd(matmul(w1, x), b1);",
-            "  var a1: Float32[30, 1] = sigmoid(z1);",
-            "  var z2: Float32[10, 1] = matadd(matmul(w2, a1), b2);",
-            "  var a2: Float32[10, 1] = sigmoid(z2);",
-            "  var pred: UInt64 = argmax(a2);",
+            "  const weights: List<Float32[?, ?]> = [w1, w2];",
+            "  const biases: List<Float32[?, ?]> = [b1, b2];",
+            "  var activation: Float32[?, 1] = x;",
+            feedforward,
+            "  var pred: UInt64 = argmax(activation);",
             "  print(pred);",
             "  0",
         ]
@@ -216,6 +226,8 @@ def main() -> None:
     print("w2: Float32[10, 30]")
     print("b2: Float32[10, 1]")
     print("x: Float32[784, 1]")
+    print("weights: List<Float32[?, ?]>")
+    print("biases: List<Float32[?, ?]>")
     print(f"y: UInt64 = {y}")
 
 

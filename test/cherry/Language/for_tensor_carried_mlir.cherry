@@ -1,0 +1,19 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var activation: Float32[?, 1] = [[1.0], [2.0]];
+  var nextActivation: Float32[2, 1] = [[3.0], [4.0]];
+
+  for i in 0 .. 1 {
+    activation = nextActivation;
+    ()
+  };
+
+  0
+}
+
+# CHECK: scf.for
+# CHECK-SAME: iter_args
+# CHECK-SAME: memref<?x1xf32>
+# CHECK: scf.yield
+# CHECK-SAME: memref<?x1xf32>

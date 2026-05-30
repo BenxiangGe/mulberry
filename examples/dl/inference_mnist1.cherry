@@ -96,7 +96,7 @@ fn main(): UInt64 {
     [-3.38535833]
   ];
 
-  const x: Float32[784, 1] = [
+  var x: Float32[784, 1] = [
     [0.0],
     [0.0],
     [0.0],
@@ -885,15 +885,18 @@ fn main(): UInt64 {
 
   const y: UInt64 = 7;
 
-  var z1: Float32[30, 1] = matadd(matmul(w1, x), b1);
+  const weights: List<Float32[?, ?]> = [w1, w2];
 
-  var a1: Float32[30, 1] = sigmoid(z1);
+  const biases: List<Float32[?, ?]> = [b1, b2];
 
-  var z2: Float32[10, 1] = matadd(matmul(w2, a1), b2);
+  var activation: Float32[?, 1] = x;
 
-  var a2: Float32[10, 1] = sigmoid(z2);
+  for layer in 0 .. size(weights) {
+    activation = sigmoid(matadd(matmul(weights[layer], activation), biases[layer]));
+    ()
+  };
 
-  var pred: UInt64 = argmax(a2);
+  var pred: UInt64 = argmax(activation);
 
   print(pred);
 

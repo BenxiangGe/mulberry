@@ -1,0 +1,36 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
+
+fn main(): UInt64 {
+  const w1: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
+  const w2: Float32[1, 2] = [[1.0, 1.0]];
+  const b1: Float32[2, 1] = [[0.0], [0.0]];
+  const b2: Float32[1, 1] = [[0.0]];
+  const weights: List<Float32[?, ?]> = [w1, w2];
+  const biases: List<Float32[?, ?]> = [b1, b2];
+  var activation: Float32[?, 1] = [[1.0], [2.0]];
+
+  for layer in 0 .. size(weights) {
+    activation = sigmoid(matadd(matmul(weights[layer], activation), biases[layer]));
+    ()
+  };
+
+  var pred: UInt64 = argmax(activation);
+  pred
+}
+
+# MLIR: scf.for
+# MLIR-SAME: iter_args
+# MLIR: scf.index_switch
+# MLIR: cherry_nn.matmul
+# MLIR: cherry_nn.matadd
+# MLIR: cherry_nn.sigmoid
+# MLIR: cherry_nn.argmax
+
+# LINALG: scf.for
+# LINALG-SAME: iter_args
+# LINALG: linalg.matmul
+# LINALG: linalg.add
+# LINALG: linalg.map
+# LINALG: linalg.generic
+# LINALG-NOT: cherry_nn.argmax

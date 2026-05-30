@@ -2,6 +2,7 @@
 #define CHERRY_SCOPESTACK_H
 
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace cherry {
@@ -26,6 +27,18 @@ public:
         return &symbol->second;
     }
     return nullptr;
+  }
+
+  auto assign(std::string_view name, typename Scope::mapped_type value)
+      -> bool {
+    for (auto scope = _scopes.rbegin(); scope != _scopes.rend(); ++scope) {
+      auto symbol = scope->find(name);
+      if (symbol != scope->end()) {
+        symbol->second = std::move(value);
+        return true;
+      }
+    }
+    return false;
   }
 
 private:

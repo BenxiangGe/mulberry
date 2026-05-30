@@ -4,7 +4,8 @@ fn main(): UInt64 {
   const w1: Float32[2] = [1.0, 2.0];
   const w2: Float32[2] = [3.0, 4.0];
   const weights: List<Float32[2]> = [w1, w2];
-  size(weights)
+  const weightAlias: List<Float32[2]> = weights;
+  0
 }
 
-# CHECK: error: List<Tensor> lowering requires tensor descriptors
+# CHECK: error: List<Tensor> lowering only supports list literals

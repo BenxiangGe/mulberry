@@ -917,9 +917,6 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
   auto &inputShape = inputType->shape();
   if (inputShape.size() != 1 && inputShape.size() != 2)
     return emitError(node, diag::mismatch_type);
-  for (auto dim : inputShape)
-    if (dim < 0)
-      return emitError(node, diag::mismatch_type);
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);
 

@@ -33,6 +33,8 @@
 
 #include <functional>
 #include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -69,6 +71,7 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
+  ScopeStack<NameMap<std::vector<mlir::Value>>> _tensorListScopes;
   NameMap<cir::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
@@ -93,6 +96,9 @@ private:
   auto gen(const IfExpr *node) -> mlir::Value;
   auto gen(const WhileExpr *node) -> mlir::Value;
   auto gen(const ForExpr *node) -> mlir::Value;
+  auto genTensorCarriedFor(const ForExpr *node,
+                           const std::vector<std::string> &carriedNames)
+      -> mlir::Value;
   auto genPrint(const CallExpr *node) -> mlir::Value;
   auto genMatmul(const CallExpr *node) -> mlir::Value;
   auto genMatadd(const CallExpr *node) -> mlir::Value;
@@ -125,12 +131,19 @@ private:
 
   void resetVariableScopes() {
     _variableScopes.reset();
+    _tensorListScopes.reset();
     enterVariableScope();
   }
 
-  void enterVariableScope() { _variableScopes.enterScope(); }
+  void enterVariableScope() {
+    _variableScopes.enterScope();
+    _tensorListScopes.enterScope();
+  }
 
-  void leaveVariableScope() { _variableScopes.leaveScope(); }
+  void leaveVariableScope() {
+    _variableScopes.leaveScope();
+    _tensorListScopes.leaveScope();
+  }
 
   void setVariable(std::string_view name, mlir::Value value) {
     if (_variableScopes.empty())
@@ -138,10 +151,25 @@ private:
     setSymbol(_variableScopes.currentScope(), name, value);
   }
 
+  void assignVariable(std::string_view name, mlir::Value value) {
+    if (!_variableScopes.assign(name, value))
+      setVariable(name, value);
+  }
+
   auto getVariable(std::string_view name) -> mlir::Value {
     if (auto *variable = _variableScopes.lookup(name))
       return *variable;
     return {};
+  }
+
+  void setTensorList(std::string_view name, std::vector<mlir::Value> values) {
+    if (_tensorListScopes.empty())
+      enterVariableScope();
+    _tensorListScopes.currentScope()[std::string(name)] = std::move(values);
+  }
+
+  auto getTensorList(std::string_view name) -> std::vector<mlir::Value> * {
+    return _tensorListScopes.lookup(name);
   }
 
   void setFunction(std::string_view name, cir::FuncOp func) {
@@ -157,6 +185,18 @@ private:
                         mlir::Value targetPtr) -> mlir::Value;
   auto genListLiteral(const ListLiteralExpr *listLiteral,
                       const ListType *listType) -> mlir::Value;
+  auto genTensorListLiteral(const ListLiteralExpr *listLiteral,
+                            const ListType *listType)
+      -> std::vector<mlir::Value>;
+  auto getStaticIndex(const Expr *expr) -> std::optional<uint64_t>;
+  void collectAssignedTensorVariables(const Expr *expr,
+                                      std::set<std::string> &names);
+  void collectAssignedTensorVariables(const Stat *stat,
+                                      std::set<std::string> &names);
+  auto getTensorCarriedVariables(const ForExpr *node) -> std::vector<std::string>;
+  auto genTensorListIndex(const IndexExpr *expr,
+                          const std::vector<mlir::Value> &tensorList)
+      -> mlir::Value;
   auto getListElementType(const ListType *listType) -> mlir::Type;
   auto getListStoragePointer(const IndexExpr *expr) -> mlir::Value;
   auto genListElementPointer(const IndexExpr *expr) -> mlir::Value;
@@ -521,7 +561,58 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
   return nullptr;
 }
 
+auto MLIRGenImpl::genTensorCarriedFor(
+    const ForExpr *node, const std::vector<std::string> &carriedNames)
+    -> mlir::Value {
+  auto forLocation = loc(node);
+  auto lowerBound = genIndexValue(node->startExpr().get());
+  auto upperBound = genIndexValue(node->endExpr().get());
+  auto step = mlir::arith::ConstantIndexOp::create(_builder, forLocation, 1);
+
+  std::vector<mlir::Value> initArgs;
+  for (const auto &name : carriedNames) {
+    auto value = getVariable(name);
+    if (!value || !llvm::isa<mlir::MemRefType>(value.getType())) {
+      emitError(node, "tensor loop-carried variable has no memref value");
+      return nullptr;
+    }
+    initArgs.push_back(value);
+  }
+
+  // CIR for has no loop-carried results, but tensor variables are MLIR memrefs.
+  // Use scf.for only for tensor-carrying loops, so each iteration can yield the
+  // next tensor value through iter_args. Normal scalar loops stay on cir.for.
+  auto loop = mlir::scf::ForOp::create(
+      _builder, forLocation, lowerBound, upperBound, step, initArgs,
+      [&](mlir::OpBuilder &builder, mlir::Location location,
+          mlir::Value inductionVar, mlir::ValueRange iterArgs) {
+        mlir::OpBuilder::InsertionGuard guard(_builder);
+        _builder.setInsertionPointToStart(builder.getInsertionBlock());
+
+        enterVariableScope();
+        setVariable(node->variableName(), inductionVar);
+        for (const auto &value : llvm::enumerate(iterArgs))
+          setVariable(carriedNames[value.index()], value.value());
+
+        gen(node->bodyBlock().get());
+
+        std::vector<mlir::Value> yieldedValues;
+        for (const auto &name : carriedNames)
+          yieldedValues.push_back(getVariable(name));
+        mlir::scf::YieldOp::create(_builder, location, yieldedValues);
+        leaveVariableScope();
+      });
+
+  for (const auto &result : llvm::enumerate(loop.getResults()))
+    assignVariable(carriedNames[result.index()], result.value());
+  return nullptr;
+}
+
 auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
+  auto carriedNames = getTensorCarriedVariables(node);
+  if (!carriedNames.empty())
+    return genTensorCarriedFor(node, carriedNames);
+
   auto forLocation = loc(node);
   auto inductionType = getMLIRType(node->startExpr().get());
   auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
@@ -759,6 +850,14 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto *argument = expressions.front().get();
   if (cherry::isListType(argument->type())) {
+    if (auto *variable = llvm::dyn_cast<VariableExpr>(argument)) {
+      if (auto *tensorList = getTensorList(variable->name())) {
+        auto type = getMLIRType(node);
+        auto attr = cir::IntAttr::get(type, tensorList->size());
+        return cir::ConstantOp::create(_builder, loc(node), attr);
+      }
+    }
+
     auto listStoragePtr = genLValue(argument);
     auto lengthType = getMLIRType(node);
     auto lengthPtrType =
@@ -785,6 +884,8 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   auto address = getVariable(node->name());
   if (cherry::isTensorType(node->type()))
+    return address;
+  if (address && !llvm::isa<cir::PointerType>(address.getType()))
     return address;
   return cir::LoadOp::create(_builder, loc(node), address);
 }
@@ -1004,7 +1105,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
           rhs = castToType(rhs, getMemRefType(var), loc(node));
-          setVariable(name, rhs);
+          assignVariable(name, rhs);
           return;
         }
 
@@ -1152,6 +1253,172 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
 
 auto MLIRGenImpl::getListElementType(const ListType *listType) -> mlir::Type {
   return getMLIRType(listType->elementType());
+}
+
+auto MLIRGenImpl::genTensorListLiteral(const ListLiteralExpr *listLiteral,
+                                       const ListType *listType)
+    -> std::vector<mlir::Value> {
+  auto *elementType = cherry::getTensorType(listType->elementType());
+  if (!elementType)
+    return {};
+
+  std::vector<mlir::Value> values;
+  for (const auto &element : listLiteral->elements()) {
+    auto value = castToType(gen(element.get()), getMemRefType(elementType),
+                            loc(element.get()));
+    if (!value)
+      return {};
+    values.push_back(value);
+  }
+  return values;
+}
+
+auto MLIRGenImpl::getStaticIndex(const Expr *expr) -> std::optional<uint64_t> {
+  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(expr))
+    return decimal->value();
+  return std::nullopt;
+}
+
+void MLIRGenImpl::collectAssignedTensorVariables(
+    const Expr *expr, std::set<std::string> &names) {
+  if (auto *assign = llvm::dyn_cast<AssignExpr>(expr)) {
+    if (auto *var = llvm::dyn_cast<VariableExpr>(assign->lhs().get()))
+      if (cherry::isTensorType(var->type()))
+        names.insert(std::string(var->name()));
+    collectAssignedTensorVariables(assign->rhs().get(), names);
+    return;
+  }
+
+  if (auto *call = llvm::dyn_cast<CallExpr>(expr)) {
+    for (const auto &arg : call->expressions())
+      collectAssignedTensorVariables(arg.get(), names);
+    return;
+  }
+
+  if (auto *block = llvm::dyn_cast<BlockExpr>(expr)) {
+    for (const auto &stat : *block)
+      collectAssignedTensorVariables(stat.get(), names);
+    collectAssignedTensorVariables(block->expression().get(), names);
+    return;
+  }
+
+  if (auto *ifExpr = llvm::dyn_cast<IfExpr>(expr)) {
+    collectAssignedTensorVariables(ifExpr->conditionExpr().get(), names);
+    collectAssignedTensorVariables(ifExpr->thenBlock().get(), names);
+    collectAssignedTensorVariables(ifExpr->elseBlock().get(), names);
+    return;
+  }
+
+  if (auto *whileExpr = llvm::dyn_cast<WhileExpr>(expr)) {
+    collectAssignedTensorVariables(whileExpr->conditionExpr().get(), names);
+    collectAssignedTensorVariables(whileExpr->bodyBlock().get(), names);
+    return;
+  }
+
+  if (auto *forExpr = llvm::dyn_cast<ForExpr>(expr)) {
+    collectAssignedTensorVariables(forExpr->startExpr().get(), names);
+    collectAssignedTensorVariables(forExpr->endExpr().get(), names);
+    collectAssignedTensorVariables(forExpr->bodyBlock().get(), names);
+    return;
+  }
+
+  if (auto *binary = llvm::dyn_cast<BinaryExpr>(expr)) {
+    collectAssignedTensorVariables(binary->lhs().get(), names);
+    collectAssignedTensorVariables(binary->rhs().get(), names);
+    return;
+  }
+
+  if (auto *member = llvm::dyn_cast<MemberExpr>(expr)) {
+    collectAssignedTensorVariables(member->base().get(), names);
+    return;
+  }
+
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr)) {
+    for (const auto &indexExpr : index->getIndices())
+      collectAssignedTensorVariables(indexExpr.get(), names);
+    return;
+  }
+
+  if (auto *list = llvm::dyn_cast<ListLiteralExpr>(expr)) {
+    for (const auto &element : list->elements())
+      collectAssignedTensorVariables(element.get(), names);
+    return;
+  }
+
+  if (auto *tensor = llvm::dyn_cast<TensorLiteralExpr>(expr)) {
+    for (const auto &element : tensor->getElements())
+      collectAssignedTensorVariables(element.get(), names);
+    return;
+  }
+
+  if (auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(expr)) {
+    for (const auto &field : *structLiteral)
+      collectAssignedTensorVariables(field.get(), names);
+  }
+}
+
+void MLIRGenImpl::collectAssignedTensorVariables(
+    const Stat *stat, std::set<std::string> &names) {
+  if (auto *exprStat = llvm::dyn_cast<ExprStat>(stat))
+    collectAssignedTensorVariables(exprStat->expression().get(), names);
+  if (auto *varStat = llvm::dyn_cast<VariableStat>(stat))
+    collectAssignedTensorVariables(varStat->init().get(), names);
+}
+
+auto MLIRGenImpl::getTensorCarriedVariables(const ForExpr *node)
+    -> std::vector<std::string> {
+  std::set<std::string> names;
+  for (const auto &stat : *node->bodyBlock())
+    collectAssignedTensorVariables(stat.get(), names);
+  collectAssignedTensorVariables(node->bodyBlock()->expression().get(), names);
+  return {names.begin(), names.end()};
+}
+
+auto MLIRGenImpl::genTensorListIndex(
+    const IndexExpr *expr, const std::vector<mlir::Value> &tensorList)
+    -> mlir::Value {
+  auto resultType = getMemRefType(expr);
+  auto &indices = expr->getIndices();
+  auto index = getStaticIndex(indices.front().get());
+  if (index) {
+    if (*index >= tensorList.size()) {
+      emitError(expr, "List<Tensor> index out of bounds");
+      return nullptr;
+    }
+    return castToType(tensorList[*index], resultType, loc(expr));
+  }
+
+  auto indexValue = genIndexValue(indices.front().get());
+  std::vector<int64_t> cases;
+  for (size_t i = 0; i < tensorList.size(); ++i)
+    cases.push_back(i);
+
+  auto switchOp = mlir::scf::IndexSwitchOp::create(
+      _builder, loc(expr), mlir::TypeRange{resultType}, indexValue, cases,
+      cases.size());
+
+  // TODO: replace this with a runtime bounds trap when Mulberry has one. MLIR
+  // requires a default region for scf.index_switch, but Sema only proves the
+  // index type, not the runtime value range.
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    auto &defaultRegion = switchOp.getDefaultRegion();
+    auto &block = defaultRegion.emplaceBlock();
+    _builder.setInsertionPointToStart(&block);
+    auto value = castToType(tensorList.front(), resultType, loc(expr));
+    mlir::scf::YieldOp::create(_builder, loc(expr), value);
+  }
+
+  for (size_t i = 0; i < tensorList.size(); ++i) {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    auto &caseRegion = switchOp.getCaseRegions()[i];
+    auto &block = caseRegion.emplaceBlock();
+    _builder.setInsertionPointToStart(&block);
+    auto value = castToType(tensorList[i], resultType, loc(expr));
+    mlir::scf::YieldOp::create(_builder, loc(expr), value);
+  }
+
+  return switchOp.getResult(0);
 }
 
 auto MLIRGenImpl::genListLiteral(const ListLiteralExpr *listLiteral,
@@ -1518,6 +1785,10 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
   if (isLValue)
     return nullptr;
 
+  if (auto *tensorList = getTensorList(expr->getVarName())) {
+    return genTensorListIndex(expr, *tensorList);
+  }
+
   mlir::Value variable = getVariable(expr->getVarName());
   if (variable && llvm::isa<cir::PointerType>(variable.getType())) {
     auto elementPtr = genListElementPointer(expr);
@@ -1593,9 +1864,25 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
 
   if (listType) {
     DBG("use Cherry variable list type `{0}`", formatType(listType));
-    if (containsTensorList(listType))
-      return emitError(node,
-                       "List<Tensor> lowering requires tensor descriptors");
+    if (containsTensorList(listType)) {
+      if (!cherry::isTensorType(listType->elementType()))
+        return emitError(node,
+                         "List<Tensor> lowering requires tensor descriptors");
+
+      auto *listLiteral =
+          llvm::dyn_cast<ListLiteralExpr>(node->init().get());
+      if (!listLiteral)
+        return emitError(node,
+                         "List<Tensor> lowering only supports list literals");
+
+      // Keep List<Tensor> as an MLIRGen-only SSA list for now. Storing memrefs
+      // in CIR list storage would fake a descriptor ABI that does not exist.
+      auto values = genTensorListLiteral(listLiteral, listType);
+      if (values.empty())
+        return failure();
+      setTensorList(varName, std::move(values));
+      return success();
+    }
 
     auto mlirType = getMLIRType(varType);
     auto alloca = createEntryBlockAlloca(mlirType, loc(node));
