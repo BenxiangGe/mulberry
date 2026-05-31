@@ -8,4 +8,4 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: error: List<Tensor> lowering requires tensor descriptors
+# CHECK: error: function parameters containing Tensor require list/tensor descriptor ABI

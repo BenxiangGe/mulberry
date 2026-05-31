@@ -7,12 +7,17 @@ fn main(): UInt64 {
   const weights: List<Float32[?]> = [w1, w2];
   var index: UInt64 = 1;
   const selected: Float32[?] = weights[index];
-  0
+  var pred: UInt64 = argmax(selected);
+  pred
 }
 
 # MLIR: mulberry.list.create
-# MLIR-SAME: !mulberry.list<memref<?xf32>>
+# MLIR-SAME: !mulberry.list<!mulberry.tensor_desc<memref<?xf32>>>
 # MLIR: mulberry.list.get
+# MLIR-SAME: <!mulberry.tensor_desc<memref<?xf32>>> -> !mulberry.tensor_desc<memref<?xf32>>
+# MLIR: mulberry.tensor.unpack
 # MLIR-SAME: <memref<?xf32>> -> memref<?xf32>
 
 # LINALG-NOT: mulberry.list
+# LINALG-NOT: scf.index_switch
+# LINALG: memref.load

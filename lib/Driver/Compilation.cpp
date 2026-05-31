@@ -122,6 +122,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::Linalg) {
     pm.addPass(mlir::cherry::createLowerMulberryList());
+    pm.addPass(mlir::cherry::createLowerMulberryTensor());
     pm.addPass(mlir::cherry::createConvertCherryNNToLinalg());
   }
 

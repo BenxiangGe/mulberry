@@ -29,7 +29,7 @@ fn main(): UInt64 {
 
 # LINALG: scf.for
 # LINALG-SAME: iter_args
-# LINALG: scf.index_switch
+# LINALG: memref.load
 # LINALG: linalg.matmul
 # LINALG: linalg.add
 # LINALG: linalg.map

@@ -22,4 +22,10 @@ def ListType : Mulberry_Type<"List", "list"> {
   let assemblyFormat = "`<` $elementType `>`";
 }
 
+def TensorDescriptorType : Mulberry_Type<"TensorDescriptor", "tensor_desc"> {
+  let summary = "Mulberry tensor descriptor value type";
+  let parameters = (ins "mlir::MemRefType":$memrefType);
+  let assemblyFormat = "`<` $memrefType `>`";
+}
+
 #endif // MULBERRY_TYPES

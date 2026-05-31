@@ -10,7 +10,28 @@
 
 include "cherry/MLIRGen/IR/MulberryDialect.td"
 include "cherry/MLIRGen/IR/MulberryTypes.td"
+include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+
+def TensorPackOp : Mulberry_Op<"tensor.pack", [Pure]> {
+  let summary = "Pack a memref into a Mulberry tensor descriptor";
+
+  let arguments = (ins AnyMemRef:$tensor);
+  let results = (outs TensorDescriptorType:$result);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` type($result)";
+  let hasVerifier = 1;
+}
+
+def TensorUnpackOp : Mulberry_Op<"tensor.unpack", [Pure]> {
+  let summary = "Unpack a Mulberry tensor descriptor into a memref";
+
+  let arguments = (ins TensorDescriptorType:$tensor);
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` type($result)";
+  let hasVerifier = 1;
+}
 
 def ListCreateOp : Mulberry_Op<"list.create", [Pure]> {
   let summary = "Create a Mulberry list value";

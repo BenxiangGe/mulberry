@@ -16,6 +16,22 @@ using namespace mlir::mulberry;
 #define GET_OP_CLASSES
 #include "cherry/MLIRGen/IR/MulberryOps.cpp.inc"
 
+auto TensorPackOp::verify() -> LogicalResult {
+  auto resultType = llvm::cast<TensorDescriptorType>(getResult().getType());
+  if (getTensor().getType() != resultType.getMemrefType())
+    return emitOpError("result descriptor type does not match tensor type");
+
+  return success();
+}
+
+auto TensorUnpackOp::verify() -> LogicalResult {
+  auto tensorType = llvm::cast<TensorDescriptorType>(getTensor().getType());
+  if (getResult().getType() != tensorType.getMemrefType())
+    return emitOpError("result memref type does not match descriptor type");
+
+  return success();
+}
+
 auto ListCreateOp::verify() -> LogicalResult {
   auto resultType = llvm::cast<ListType>(getResult().getType());
   auto elementType = resultType.getElementType();

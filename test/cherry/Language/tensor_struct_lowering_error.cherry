@@ -1,13 +1,10 @@
 # RUN: not cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 struct Params {
-  weights: List<Float32[2]>
+  weights: Float32[2]
 }
 
 fn main(): UInt64 {
-  const w1: Float32[2] = [1.0, 2.0];
-  const w2: Float32[2] = [3.0, 4.0];
-  const params: Params = Params { [w1, w2] };
   0
 }
 

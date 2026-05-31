@@ -8,8 +8,10 @@ add_mlir_dialect_library(cherryMLIRGen
 
         # Conversion
         ${LIB_HEADERS}/Conversion/CherryPasses.h
+        ${LIB_HEADERS}/Conversion/TensorDescriptorLowering.h
         Conversion/ConvertCherryToArithCfFunc.cpp
         Conversion/LowerMulberryList.cpp
+        Conversion/LowerMulberryTensor.cpp
         Conversion/ConvertCherryNNToLinalg.cpp
         Conversion/ConvertCherryToLLVM.cpp
         Conversion/ConvertCherryToSCF.cpp

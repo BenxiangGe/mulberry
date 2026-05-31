@@ -29,7 +29,7 @@ struct TensorStorageLayout {
   mlir::Type sizesType;
   mlir::Type stridesType;
 
-  // Mirror MLIR's ranked memref descriptor layout:
+  // Tensor descriptors use MLIR's ranked memref descriptor layout:
   // {allocated pointer, aligned pointer, offset, sizes[rank], strides[rank]}.
   // See: https://mlir.llvm.org/docs/TargetLLVMIR/#ranked-memref-types
   auto fields() const -> std::array<mlir::Type, 5> {
@@ -56,14 +56,16 @@ public:
   explicit MLIRTypeConverter(mlir::OpBuilder& builder) : _builder(builder) {}
 
   auto convert(const Type *type) const -> mlir::Type;
+  // List storage may use a runtime representation different from the source
+  // element type; Tensor elements are stored as tensor descriptors.
+  auto convertListStorageElement(const Type *type) const -> mlir::Type;
 
 private:
   auto convertBuiltin(const BuiltinType& type) const -> mlir::Type;
   auto convertTensor(const TensorType& type) const -> mlir::MemRefType;
-  auto convertTensorDescriptor(const TensorType& type) const
+  auto convertTensorDescriptor(mlir::MemRefType memRefType) const
       -> cir::RecordType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
-  auto convertListElement(const Type *type) const -> mlir::Type;
   auto convertList(const ListType& type) const -> cir::RecordType;
   auto convertStruct(const StructType& type) const -> cir::RecordType;
 

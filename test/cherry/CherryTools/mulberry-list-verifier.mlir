@@ -17,3 +17,18 @@ func.func @list_get_result_type_mismatch(
       : <memref<2xf32>> -> memref<3xf32>
   return
 }
+
+func.func @tensor_pack_result_type_mismatch(%arg0: memref<2xf32>) {
+  // expected-error@+1 {{'mulberry.tensor.pack' op result descriptor type does not match tensor type}}
+  %0 = mulberry.tensor.pack %arg0
+      : memref<2xf32> -> <memref<3xf32>>
+  return
+}
+
+func.func @tensor_unpack_result_type_mismatch(
+    %arg0: !mulberry.tensor_desc<memref<2xf32>>) {
+  // expected-error@+1 {{'mulberry.tensor.unpack' op result memref type does not match descriptor type}}
+  %0 = mulberry.tensor.unpack %arg0
+      : <memref<2xf32>> -> memref<3xf32>
+  return
+}

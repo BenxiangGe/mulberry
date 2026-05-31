@@ -28,7 +28,12 @@ def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
 
 def LowerMulberryList : Pass<"lower-mulberry-list"> {
   let summary = "Lower Mulberry list operations";
-  let dependentDialects = ["arith::ArithDialect", "scf::SCFDialect"];
+  let dependentDialects = ["arith::ArithDialect", "memref::MemRefDialect"];
+}
+
+def LowerMulberryTensor : Pass<"lower-mulberry-tensor"> {
+  let summary = "Lower Mulberry tensor descriptor operations";
+  let dependentDialects = ["memref::MemRefDialect"];
 }
 
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {

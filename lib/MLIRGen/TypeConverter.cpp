@@ -55,17 +55,14 @@ auto MLIRTypeConverter::convertTensor(const TensorType& type) const
                                mlirElementType);
 }
 
-auto MLIRTypeConverter::convertTensorDescriptor(const TensorType& type) const
-    -> cir::RecordType {
-  auto mlirElementType = convertTensorElement(*type.elementType());
-  if (!mlirElementType)
-    return {};
-
-  auto pointerType = cir::PointerType::get(mlirElementType);
+auto MLIRTypeConverter::convertTensorDescriptor(
+    mlir::MemRefType memRefType) const -> cir::RecordType {
+  auto pointerType = cir::PointerType::get(memRefType.getElementType());
   auto indexType =
       cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
-  auto sizesType = cir::ArrayType::get(indexType, type.shape().size());
-  auto stridesType = cir::ArrayType::get(indexType, type.shape().size());
+  auto rank = memRefType.getShape().size();
+  auto sizesType = cir::ArrayType::get(indexType, rank);
+  auto stridesType = cir::ArrayType::get(indexType, rank);
 
   auto layout =
       TensorStorageLayout{pointerType, indexType, sizesType, stridesType};
@@ -74,17 +71,21 @@ auto MLIRTypeConverter::convertTensorDescriptor(const TensorType& type) const
                              cir::RecordType::RecordKind::Struct);
 }
 
-auto MLIRTypeConverter::convertListElement(const Type *type) const
+auto MLIRTypeConverter::convertListStorageElement(const Type *type) const
     -> mlir::Type {
-  if (auto *tensorType = cherry::getTensorType(type))
-    return convertTensorDescriptor(*tensorType);
+  if (auto *tensorType = cherry::getTensorType(type)) {
+    auto memRefType = convertTensor(*tensorType);
+    if (!memRefType)
+      return {};
+    return convertTensorDescriptor(memRefType);
+  }
 
   return convert(type);
 }
 
 auto MLIRTypeConverter::convertList(const ListType& type) const
     -> cir::RecordType {
-  auto elementType = convertListElement(type.elementType());
+  auto elementType = convertListStorageElement(type.elementType());
   if (!elementType)
     return {};
 

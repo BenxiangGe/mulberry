@@ -11,10 +11,12 @@ fn main(): UInt64 {
 }
 
 # CHECK: mulberry.list.create
-# CHECK-SAME: !mulberry.list<memref<2xf32>>
+# CHECK-SAME: !mulberry.list<!mulberry.tensor_desc<memref<2xf32>>>
 # CHECK: mulberry.list.get
+# CHECK-SAME: <!mulberry.tensor_desc<memref<2xf32>>> -> !mulberry.tensor_desc<memref<2xf32>>
+# CHECK: mulberry.tensor.unpack
 # CHECK-SAME: <memref<2xf32>> -> memref<2xf32>
 # CHECK: memref.cast
 # CHECK-SAME: memref<2xf32> to memref<?xf32>
 # CHECK: mulberry.list.size
-# CHECK-SAME: <memref<2xf32>> -> i64
+# CHECK-SAME: <!mulberry.tensor_desc<memref<2xf32>>> -> i64
