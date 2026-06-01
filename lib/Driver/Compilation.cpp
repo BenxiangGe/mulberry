@@ -9,6 +9,7 @@
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
+#include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/Parse/Lexer.h"
 #include "cherry/Parse/Parser.h"
@@ -71,6 +72,7 @@ auto Compilation::make(llvm::StringRef filename,
   compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
   compilation->_mlirContext
       .getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::mulberry::MulberryDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();
