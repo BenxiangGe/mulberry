@@ -13,6 +13,7 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 
 #include <limits>
+#include <set>
 #include <vector>
 
 namespace mlir::cherry {
@@ -21,6 +22,33 @@ namespace mlir::cherry {
 #include "cherry/MLIRGen/Conversion/CherryPasses.h.inc"
 
 namespace {
+
+auto operationUsesMulberryRecordType(Operation *op) -> bool {
+  return containsMulberryRecordType(op->getOperandTypes()) ||
+         containsMulberryRecordType(op->getResultTypes());
+}
+
+auto bodyUsesMulberryRecordType(func::FuncOp op) -> bool {
+  // A func.func with a plain scalar signature can still contain Mulberry record
+  // ops in its body. If we leave the func boundary alone, this pass creates a
+  // mixed func.func + CIR body that the downstream CIR-to-LLVM pass rejects.
+  auto result = op.walk([&](Operation *nestedOp) {
+    if (nestedOp == op.getOperation())
+      return WalkResult::advance();
+
+    if (operationUsesMulberryRecordType(nestedOp))
+      return WalkResult::interrupt();
+
+    return WalkResult::advance();
+  });
+
+  return result.wasInterrupted();
+}
+
+auto functionUsesMulberryRecordType(func::FuncOp op) -> bool {
+  return containsMulberryRecordType(op.getFunctionType()) ||
+         bodyUsesMulberryRecordType(op);
+}
 
 class MulberryRecordTypeConverter : public TypeConverter {
 public:
@@ -230,20 +258,33 @@ struct ConvertMulberryRecordToCIR
   auto runOnOperation() -> void final {
     MulberryRecordTypeConverter typeConverter;
 
+    // Dynamic legality is queried after nested ops may already have been
+    // rewritten, so remember the original func.func boundary decisions first.
+    std::set<Operation *> funcsToLower;
+    getOperation()->walk([&](func::FuncOp op) {
+      if (functionUsesMulberryRecordType(op))
+        funcsToLower.insert(op.getOperation());
+    });
+    auto needsCIRFunctionLowering = [&](func::FuncOp op) {
+      return funcsToLower.find(op.getOperation()) != funcsToLower.end();
+    };
+
     ConversionTarget target(getContext());
     target.addLegalDialect<cir::CIRDialect, func::FuncDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
-    target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) {
-      return !containsMulberryRecordType(op.getFunctionType());
+    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+      return !needsCIRFunctionLowering(op);
     });
-    target.addDynamicallyLegalOp<func::CallOp>([](func::CallOp op) {
+    target.addDynamicallyLegalOp<func::CallOp>([&](func::CallOp op) {
+      if (auto funcOp = op->getParentOfType<func::FuncOp>())
+        if (needsCIRFunctionLowering(funcOp))
+          return false;
       return !containsMulberryRecordType(op.getOperandTypes()) &&
              !containsMulberryRecordType(op.getResultTypes());
     });
-    target.addDynamicallyLegalOp<func::ReturnOp>([](func::ReturnOp op) {
+    target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
       auto funcOp = op->getParentOfType<func::FuncOp>();
-      return funcOp &&
-             !containsMulberryRecordType(funcOp.getFunctionType());
+      return funcOp && !needsCIRFunctionLowering(funcOp);
     });
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
