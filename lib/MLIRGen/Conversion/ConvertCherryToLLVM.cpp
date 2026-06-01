@@ -264,6 +264,66 @@ public:
   }
 };
 
+class MulberryTensorPackOpLowering
+    : public OpConversionPattern<mulberry::TensorPackOp> {
+public:
+  using OpConversionPattern<mulberry::TensorPackOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::TensorPackOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto descriptorType =
+        llvm::dyn_cast<mulberry::RecordType>(op.getResult().getType());
+    auto memRefType = llvm::dyn_cast<MemRefType>(op.getTensor().getType());
+    if (!descriptorType || !memRefType)
+      return failure();
+
+    auto resultType = getTypeConverter()->convertType(descriptorType);
+    auto sizesType =
+        getTypeConverter()->convertType(descriptorType.getFieldType("sizes"));
+    auto stridesType =
+        getTypeConverter()->convertType(descriptorType.getFieldType("strides"));
+    if (!resultType || !sizesType || !stridesType)
+      return failure();
+
+    auto loc = op.getLoc();
+    auto tensor = adaptor.getTensor();
+    auto allocated = LLVM::ExtractValueOp::create(rewriter, loc, tensor, 0);
+    auto aligned = LLVM::ExtractValueOp::create(rewriter, loc, tensor, 1);
+    auto offset = LLVM::ExtractValueOp::create(rewriter, loc, tensor, 2);
+
+    Value sizes = LLVM::UndefOp::create(rewriter, loc, sizesType);
+    Value strides = LLVM::UndefOp::create(rewriter, loc, stridesType);
+    for (int64_t i = 0; i < memRefType.getRank(); ++i) {
+      // MemRef-to-LLVM lowers ranked memrefs to:
+      // {allocated, aligned, offset, sizes[rank], strides[rank]}.
+      // See mlir/lib/Conversion/LLVMCommon/MemRefDescriptor.h.
+      auto size = LLVM::ExtractValueOp::create(
+          rewriter, loc, tensor, ArrayRef<int64_t>{3, i});
+      sizes = LLVM::InsertValueOp::create(rewriter, loc, sizes, size, i);
+
+      auto stride = LLVM::ExtractValueOp::create(
+          rewriter, loc, tensor, ArrayRef<int64_t>{4, i});
+      strides = LLVM::InsertValueOp::create(rewriter, loc, strides, stride, i);
+    }
+
+    Value descriptor = LLVM::UndefOp::create(rewriter, loc, resultType);
+    descriptor = LLVM::InsertValueOp::create(
+        rewriter, loc, descriptor, allocated, ArrayRef<int64_t>{0});
+    descriptor = LLVM::InsertValueOp::create(
+        rewriter, loc, descriptor, aligned, ArrayRef<int64_t>{1});
+    descriptor = LLVM::InsertValueOp::create(
+        rewriter, loc, descriptor, offset, ArrayRef<int64_t>{2});
+    descriptor = LLVM::InsertValueOp::create(
+        rewriter, loc, descriptor, sizes, ArrayRef<int64_t>{3});
+    descriptor = LLVM::InsertValueOp::create(
+        rewriter, loc, descriptor, strides, ArrayRef<int64_t>{4});
+
+    rewriter.replaceOp(op, descriptor);
+    return success();
+  }
+};
+
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -321,7 +381,7 @@ struct ConvertCherryToLLVM
         .add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
              MulberryAllocaOpLowering, MulberryLoadOpLowering,
              MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering,
-             MulberryRecordCreateOpLowering>(
+             MulberryRecordCreateOpLowering, MulberryTensorPackOpLowering>(
             typeConverter, &getContext());
 
     // Conversion
