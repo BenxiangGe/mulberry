@@ -8,6 +8,7 @@
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
+#include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -31,7 +32,8 @@ int main(int argc, char **argv) {
                   mlir::cherry::CherryDialect, mlir::cherry_nn::CherryNNDialect,
                   mlir::func::FuncDialect, mlir::linalg::LinalgDialect,
                   mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
-                  mlir::memref::MemRefDialect, mlir::scf::SCFDialect>();
+                  mlir::memref::MemRefDialect, mlir::mulberry::MulberryDialect,
+                  mlir::scf::SCFDialect>();
   // Add the following to include *all* MLIR Core dialects, or selectively
   // include what you need like above. You only need to register dialects that
   // will be *parsed* by the tool, not the one generated
