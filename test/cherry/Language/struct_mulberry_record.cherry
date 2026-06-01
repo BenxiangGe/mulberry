@@ -1,0 +1,21 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct C {
+  a: Bool
+}
+
+struct E {
+  ec: C
+}
+
+fn main(): UInt64 {
+  var e: E = E { C { true } };
+  e.ec.a = false;
+  0
+}
+
+# CHECK: mulberry.alloca !mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}> : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>>
+# CHECK: mulberry.record.get_field {{.*}}["ec"] : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>> -> !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>>
+# CHECK: mulberry.record.get_field {{.*}}["a"] : !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>> -> !mulberry.ptr<!cir.bool>
+# CHECK: mulberry.store {{.*}}, {{.*}} : !cir.bool, !mulberry.ptr<!cir.bool>
+# CHECK-NOT: cir.get_member

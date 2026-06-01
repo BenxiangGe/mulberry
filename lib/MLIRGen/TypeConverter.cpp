@@ -4,6 +4,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <vector>
+
 namespace cherry {
 
 auto MLIRTypeConverter::convert(const BuiltinType& type) const
@@ -48,20 +50,17 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
 }
 
 auto MLIRTypeConverter::convert(const StructType& type) const
-    -> cir::RecordType {
-  std::vector<mlir::Type> fieldTypes;
+    -> mlir::mulberry::RecordType {
+  std::vector<mlir::mulberry::RecordType::Field> fields;
   for (const auto& field : type.fields()) {
     auto fieldType = convert(field.type());
     if (!fieldType)
       return {};
-    fieldTypes.push_back(fieldType);
+    fields.push_back({std::string(field.name()), fieldType});
   }
 
-  auto attr = _builder.getStringAttr(type.name());
-  auto recordType = cir::RecordType::get(
-      _builder.getContext(), attr, cir::RecordType::RecordKind::Struct);
-  recordType.complete(fieldTypes, false, false);
-  return recordType;
+  return mlir::mulberry::RecordType::get(_builder.getContext(), type.name(),
+                                         fields);
 }
 
 auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {

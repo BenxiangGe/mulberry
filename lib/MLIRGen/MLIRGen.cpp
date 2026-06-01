@@ -13,6 +13,8 @@
 #include "cherry/Basic/ScopeStack.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
+#include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -145,6 +147,16 @@ private:
   auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType,
                         mlir::Value targetPtr) -> mlir::Value;
+  auto getMulberryPtrType(mlir::Type elementType) const
+      -> mlir::mulberry::PtrType;
+  auto createMulberryAlloca(mlir::Type elementType, mlir::Location location)
+      -> mlir::Value;
+  auto createStructFieldPtr(mlir::Value recordPtr, const StructField& field,
+                            mlir::Location location) -> mlir::Value;
+  auto createLoad(mlir::Value ptr, mlir::Type type, mlir::Location location)
+      -> mlir::Value;
+  void createStore(mlir::Value value, mlir::Value ptr,
+                   mlir::Location location);
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
   auto genGlobalTensorLiteral(const TensorLiteralExpr *expr,
                               std::string_view varName) -> mlir::Value;
@@ -262,14 +274,12 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
       continue;
     }
 
-    auto alloca =
-        createEntryBlockAlloca(getMLIRType(paramType), loc(node));
+    auto mlirType = getMLIRType(paramType);
+    auto alloca = cherry::getStructType(paramType)
+                      ? createMulberryAlloca(mlirType, loc(node))
+                      : createEntryBlockAlloca(mlirType, loc(node));
     setVariable(varName, alloca);
-    cir::StoreOp::create(_builder, loc(node), value, alloca,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
+    createStore(value, alloca, loc(node));
   }
 
   setFunction(funcName, func);
@@ -554,7 +564,7 @@ auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
   DBG("use Cherry struct literal `{0}`",
       formatType(structType));
   auto ptr = genStructLiteral(node, structType, nullptr);
-  return cir::LoadOp::create(_builder, loc(node), ptr);
+  return createLoad(ptr, getMLIRType(structType), loc(node));
 }
 
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
@@ -637,12 +647,14 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   auto address = getVariable(node->name());
   if (cherry::isTensorType(node->type()))
     return address;
+  if (cherry::getStructType(node->type()))
+    return createLoad(address, getMLIRType(node), loc(node));
   return cir::LoadOp::create(_builder, loc(node), address);
 }
 
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   auto ptr = genLValue(node);
-  return cir::LoadOp::create(_builder, loc(node), ptr);
+  return createLoad(ptr, getMLIRType(node), loc(node));
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
@@ -677,16 +689,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
     mlir::Value basePtr = genLValue(base);
 
     if (auto *field = getStructField(memberExpr)) {
-      auto fieldTy = getMLIRType(field->type());
-      DBG("Cherry fieldTy: {0}", fieldTy);
-      cir::PointerType fieldPtrTy =
-          cir::PointerType::get(_builder.getContext(), fieldTy);
-      DBG("Cherry fieldPtrTy: {0}", fieldPtrTy);
-
-      mlir::Value addr = cir::GetMemberOp::create(
-          _builder, loc(node), fieldPtrTy, basePtr, field->name(),
-          field->index());
-      return addr;
+      return createStructFieldPtr(basePtr, *field, loc(node));
     }
 
     ERR("struct member access has no Cherry field information");
@@ -729,7 +732,7 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
 auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
   if (auto *memberExpr = llvm::dyn_cast<MemberExpr>(node)) {
     mlir::Value ptr = genLValue(memberExpr);
-    mlir::Value val = cir::LoadOp::create(_builder, loc(memberExpr), ptr);
+    mlir::Value val = createLoad(ptr, getMLIRType(memberExpr), loc(memberExpr));
     return val;
   }
 
@@ -822,11 +825,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         if (!cherry::isUnitType(node->lhs()->type())) {
           rhs =
               castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
-          cir::StoreOp::create(_builder, loc(node), rhs, address,
-                               /*isVolatile=*/false,
-                               /*alignment=*/mlir::IntegerAttr{},
-                               /*sync_scope=*/cir::SyncScopeKindAttr(),
-                               /*mem-order=*/cir::MemOrderAttr());
+          createStore(rhs, address, loc(node));
         }
       })
       .Case<MemberExpr>([&](const auto *member) {
@@ -834,11 +833,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto rhs = castToType(gen(node->rhs().get()),
                               getMLIRType(member), loc(node));
 
-        cir::StoreOp::create(_builder, loc(node), rhs, lhsPtr,
-                             /*isVolatile=*/false,
-                             /*alignment=*/mlir::IntegerAttr{},
-                             /*sync_scope=*/cir::SyncScopeKindAttr(),
-                             /*mem-order=*/cir::MemOrderAttr());
+        createStore(rhs, lhsPtr, loc(node));
       })
       .Case<TensorAccessExpr>([&](const auto *tensorAccess) {
         genAssignment(tensorAccess, node->rhs().get());
@@ -864,6 +859,57 @@ auto MLIRGenImpl::getAlignOne() -> mlir::IntegerAttr {
   return _builder.getI64IntegerAttr(align.getQuantity());
 }
 
+auto MLIRGenImpl::getMulberryPtrType(mlir::Type elementType) const
+    -> mlir::mulberry::PtrType {
+  return mlir::mulberry::PtrType::get(_builder.getContext(), elementType);
+}
+
+auto MLIRGenImpl::createMulberryAlloca(mlir::Type elementType,
+                                       mlir::Location location)
+    -> mlir::Value {
+  auto ptrType = getMulberryPtrType(elementType);
+  auto alloca = mlir::mulberry::AllocaOp::create(_builder, location, ptrType,
+                                                 elementType);
+
+  auto *parentBlock = alloca.getOperation()->getBlock();
+  alloca.getOperation()->moveBefore(&parentBlock->front());
+
+  return alloca;
+}
+
+auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
+                                       const StructField& field,
+                                       mlir::Location location)
+    -> mlir::Value {
+  auto fieldType = getMLIRType(field.type());
+  auto fieldPtrType = getMulberryPtrType(fieldType);
+  DBG("Cherry struct field pointer type: {0}", fieldPtrType);
+  return mlir::mulberry::RecordGetFieldOp::create(
+      _builder, location, fieldPtrType, recordPtr,
+      std::string(field.name()));
+}
+
+auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
+                             mlir::Location location) -> mlir::Value {
+  if (llvm::isa<mlir::mulberry::PtrType>(ptr.getType()))
+    return mlir::mulberry::LoadOp::create(_builder, location, type, ptr);
+  return cir::LoadOp::create(_builder, location, ptr);
+}
+
+void MLIRGenImpl::createStore(mlir::Value value, mlir::Value ptr,
+                              mlir::Location location) {
+  if (llvm::isa<mlir::mulberry::PtrType>(ptr.getType())) {
+    mlir::mulberry::StoreOp::create(_builder, location, value, ptr);
+    return;
+  }
+
+  cir::StoreOp::create(_builder, location, value, ptr,
+                       /*isVolatile=*/false,
+                       /*alignment=*/mlir::IntegerAttr{},
+                       /*sync_scope=*/cir::SyncScopeKindAttr(),
+                       /*mem-order=*/cir::MemOrderAttr());
+}
+
 auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
                                    const StructType *structType,
                                    mlir::Value targetPtr) -> mlir::Value {
@@ -872,14 +918,10 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
       structLiteral->name());
 
   auto recordType =
-      llvm::dyn_cast<cir::RecordType>(getMLIRType(structType));
+      llvm::dyn_cast<mlir::mulberry::RecordType>(getMLIRType(structType));
   if (!recordType) {
     ERR("NOT a RecordType. structType: {0}",
         formatType(structType));
-    return nullptr;
-  }
-  if (recordType.getKind() != cir::RecordType::RecordKind::Struct) {
-    ERR("record type kind: {0}", recordType.getKind());
     return nullptr;
   }
 
@@ -898,38 +940,27 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
     }
   }
 
-  mlir::Type recordPtrTy = cir::PointerType::get(recordType);
-
   mlir::Value varPtrOp;
   if (!targetPtr) {
-    auto alloca = cir::AllocaOp::create(_builder, loc(structLiteral),
-                                        recordPtrTy, recordType,
-                                        structType->name(), getAlignOne());
+    auto alloca = createMulberryAlloca(recordType, loc(structLiteral));
     DBG("structType: {0}, alloca: {1}", formatType(structType),
         alloca);
 
-    auto *parentBlock = alloca->getBlock();
-    alloca->moveBefore(&parentBlock->front());
-
     varPtrOp = alloca;
   } else {
-    varPtrOp = llvm::dyn_cast<cir::GetMemberOp>(targetPtr.getDefiningOp());
+    varPtrOp = targetPtr;
   }
 
   unsigned index = 0;
   for (auto &expr : *structLiteral) {
     auto &field = fields[index];
-    mlir::Type fieldTy = getMLIRType(field.type());
-    cir::PointerType fieldPtrTy =
-        cir::PointerType::get(_builder.getContext(), fieldTy);
 
     DBG("Cherry struct literal field index: {0}, field name: {1}, "
         "expr type: {2}",
         field.index(), field.name(),
         formatType(expr->type()));
-    auto memberPtr = cir::GetMemberOp::create(
-        _builder, loc(structLiteral), fieldPtrTy, varPtrOp, field.name(),
-        field.index());
+    auto memberPtr = createStructFieldPtr(varPtrOp, field,
+                                          loc(structLiteral));
 
     if (auto *nestedStructLiteral =
             llvm::dyn_cast<StructLiteralExpr>(expr.get())) {
@@ -946,11 +977,7 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
       }
     } else {
       mlir::Value val = gen(expr.get());
-      cir::StoreOp::create(_builder, loc(structLiteral), val, memberPtr,
-                           /*isVolatile=*/false,
-                           /*alignment=*/mlir::IntegerAttr{},
-                           /*sync_scope=*/cir::SyncScopeKindAttr(),
-                           /*mem-order=*/cir::MemOrderAttr());
+      createStore(val, memberPtr, loc(structLiteral));
     }
 
     index++;
@@ -1243,15 +1270,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable struct value `{0}`",
         formatType(structType));
     auto mlirType = getMLIRType(varType);
-    auto alloca = createEntryBlockAlloca(mlirType, loc(node));
+    auto alloca = createMulberryAlloca(mlirType, loc(node));
     setVariable(varName, alloca);
 
     auto initValue = gen(node->init().get());
-    cir::StoreOp::create(_builder, loc(node), initValue, alloca,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
+    createStore(initValue, alloca, loc(node));
     return;
   }
 
