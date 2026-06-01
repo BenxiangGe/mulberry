@@ -134,6 +134,91 @@ public:
   }
 };
 
+class FuncOpLowering : public OpConversionPattern<func::FuncOp> {
+public:
+  using OpConversionPattern<func::FuncOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::FuncOp op, OpAdaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    std::vector<Type> inputs;
+    for (auto input : op.getFunctionType().getInputs()) {
+      auto convertedInput = getTypeConverter()->convertType(input);
+      if (!convertedInput)
+        return failure();
+      inputs.push_back(convertedInput);
+    }
+
+    std::vector<Type> results;
+    for (auto result : op.getFunctionType().getResults()) {
+      auto convertedResult = getTypeConverter()->convertType(result);
+      if (!convertedResult)
+        return failure();
+      results.push_back(convertedResult);
+    }
+
+    if (results.size() > 1)
+      return op.emitError("CIR functions support at most one result");
+
+    auto returnType = results.empty()
+                          ? cir::VoidType::get(rewriter.getContext())
+                          : results.front();
+    auto funcType = cir::FuncType::get(inputs, returnType);
+    auto newFunc =
+        cir::FuncOp::create(rewriter, op.getLoc(), op.getName(), funcType);
+
+    rewriter.inlineRegionBefore(op.getBody(), newFunc.getBody(),
+                                newFunc.end());
+    if (!newFunc.getBody().empty()) {
+      TypeConverter::SignatureConversion signatureConversion(
+          op.getNumArguments());
+      for (auto input : llvm::enumerate(inputs))
+        signatureConversion.addInputs(input.index(), input.value());
+      rewriter.applySignatureConversion(&newFunc.getBody().front(),
+                                        signatureConversion,
+                                        getTypeConverter());
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class FuncCallOpLowering : public OpConversionPattern<func::CallOp> {
+public:
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    Type resultType;
+    if (op.getNumResults() > 1)
+      return op.emitError("CIR calls support at most one result");
+    if (op.getNumResults() == 1) {
+      resultType = getTypeConverter()->convertType(op.getResultTypes().front());
+      if (!resultType)
+        return failure();
+    }
+
+    auto callee = SymbolRefAttr::get(rewriter.getContext(), op.getCallee());
+    rewriter.replaceOpWithNewOp<cir::CallOp>(op, callee, resultType,
+                                             adaptor.getOperands());
+    return success();
+  }
+};
+
+class FuncReturnOpLowering : public OpConversionPattern<func::ReturnOp> {
+public:
+  using OpConversionPattern<func::ReturnOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::ReturnOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    rewriter.replaceOpWithNewOp<cir::ReturnOp>(op, adaptor.getOperands());
+    return success();
+  }
+};
+
 struct ConvertMulberryRecordToCIR
     : public impl::ConvertMulberryRecordToCIRBase<
           ConvertMulberryRecordToCIR> {
@@ -145,13 +230,16 @@ struct ConvertMulberryRecordToCIR
     MulberryRecordTypeConverter typeConverter;
 
     ConversionTarget target(getContext());
-    target.addLegalDialect<cir::CIRDialect, func::FuncDialect>();
+    target.addLegalDialect<cir::CIRDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
+    target.addIllegalOp<func::FuncOp, func::CallOp, func::ReturnOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, LoadOpLowering, StoreOpLowering,
-                 RecordGetFieldOpLowering>(typeConverter, &getContext());
+                 RecordGetFieldOpLowering, FuncOpLowering,
+                 FuncCallOpLowering, FuncReturnOpLowering>(
+        typeConverter, &getContext());
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))

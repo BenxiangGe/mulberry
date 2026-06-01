@@ -9,6 +9,25 @@ module {
     %loaded = mulberry.load %age : !mulberry.ptr<!cir.int<u, 64>> -> !cir.int<u, 64>
     cir.return
   }
+
+  func.func @make_person(%ageValue: !cir.int<u, 64>, %activeValue: !cir.bool) -> !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}> {
+    %record = mulberry.alloca !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}> : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>>
+    %age = mulberry.record.get_field %record["age"] : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>> -> !mulberry.ptr<!cir.int<u, 64>>
+    mulberry.store %ageValue, %age : !cir.int<u, 64>, !mulberry.ptr<!cir.int<u, 64>>
+    %active = mulberry.record.get_field %record["active"] : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>> -> !mulberry.ptr<!cir.bool>
+    mulberry.store %activeValue, %active : !cir.bool, !mulberry.ptr<!cir.bool>
+    %value = mulberry.load %record : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>> -> !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>
+    return %value : !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>
+  }
+
+  cir.func @call_make_person() {
+    %age = cir.const #cir.int<7> : !cir.int<u, 64>
+    %active = cir.const #cir.bool<true> : !cir.bool
+    %person = func.call @make_person(%age, %active) : (!cir.int<u, 64>, !cir.bool) -> !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>
+    %record = mulberry.alloca !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}> : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>>
+    mulberry.store %person, %record : !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>, !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>>
+    cir.return
+  }
 }
 
 // CHECK: !rec_Person = !cir.record<struct "Person" {!u64i, !cir.bool}>
@@ -17,4 +36,11 @@ module {
 // CHECK: cir.get_member {{.*}}[0] {name = "age"}
 // CHECK: cir.store
 // CHECK: cir.load
+// CHECK-LABEL: cir.func @make_person
+// CHECK-SAME: (%{{.*}}: !u64i, %{{.*}}: !cir.bool) -> !rec_Person
+// CHECK: cir.return {{.*}} : !rec_Person
+// CHECK-LABEL: cir.func @call_make_person()
+// CHECK: cir.call @make_person
+// CHECK-SAME: : (!u64i, !cir.bool) -> !rec_Person
 // CHECK-NOT: mulberry.
+// CHECK-NOT: func.

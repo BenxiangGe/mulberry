@@ -52,6 +52,11 @@ constexpr int64_t kGlobalTensorLiteralElementThreshold = 64;
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
+struct FunctionInfo {
+  mlir::Operation *op = nullptr;
+  bool usesFuncDialect = false;
+};
+
 class MLIRGenImpl {
 public:
   MLIRGenImpl(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context)
@@ -68,15 +73,16 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
-  NameMap<cir::FuncOp> _functionsByName;
+  NameMap<FunctionInfo> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
+  bool _currentFunctionUsesFuncDialect = false;
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
-  auto gen(const Prototype *node) -> cir::FuncOp;
-  auto gen(const FunctionDecl *node) -> cir::FuncOp;
+  auto gen(const Prototype *node) -> mlir::Operation *;
+  auto gen(const FunctionDecl *node) -> mlir::Operation *;
   auto gen(const StructDecl *node) -> void;
 
   // Expressions
@@ -136,8 +142,9 @@ private:
     return {};
   }
 
-  void setFunction(std::string_view name, cir::FuncOp func) {
-    setSymbol(_functionsByName, name, func);
+  void setFunction(std::string_view name, mlir::Operation *op,
+                   bool usesFuncDialect) {
+    setSymbol(_functionsByName, name, FunctionInfo{op, usesFuncDialect});
   }
 
   auto findFunction(std::string_view name) {
@@ -189,6 +196,7 @@ private:
                               mlir::Type elementType,
                               llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   auto getFunctionReturnType(const Type *returnType) const -> mlir::Type;
+  auto needsFuncDialectFunction(const Prototype *node) const -> bool;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -242,7 +250,7 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
   }
 }
 
-auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
@@ -251,16 +259,39 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  auto funcType = cir::FuncType::get(argTypes,
-                                     getFunctionReturnType(returnType));
-  mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
-  cir::FuncOp::build(_builder, state, funcName, funcType);
-  auto func = llvm::cast<cir::FuncOp>(mlir::Operation::create(state));
+  auto usesFuncDialect = needsFuncDialectFunction(node);
+  _currentFunctionUsesFuncDialect = usesFuncDialect;
 
-  auto &entryBlock = *func.addEntryBlock();
-  _builder.setInsertionPointToStart(&entryBlock);
+  mlir::Operation *funcOp = nullptr;
+  mlir::Block *entryBlock = nullptr;
+  if (usesFuncDialect) {
+    // CIR verifies function signatures before Mulberry records are lowered.
+    // Use func.func as a temporary boundary IR, then convert it back to CIR
+    // after mulberry.record has become cir.record.
+    llvm::SmallVector<mlir::Type, 1> resultTypes;
+    if (!cherry::isUnitType(returnType))
+      resultTypes.push_back(getMLIRType(returnType));
+
+    auto funcType = _builder.getFunctionType(argTypes, resultTypes);
+    mlir::OperationState state(loc(node),
+                               mlir::func::FuncOp::getOperationName());
+    mlir::func::FuncOp::build(_builder, state, funcName, funcType);
+    auto func = llvm::cast<mlir::func::FuncOp>(mlir::Operation::create(state));
+    funcOp = func.getOperation();
+    entryBlock = func.addEntryBlock();
+  } else {
+    auto funcType = cir::FuncType::get(argTypes,
+                                       getFunctionReturnType(returnType));
+    mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
+    cir::FuncOp::build(_builder, state, funcName, funcType);
+    auto func = llvm::cast<cir::FuncOp>(mlir::Operation::create(state));
+    funcOp = func.getOperation();
+    entryBlock = func.addEntryBlock();
+  }
+
+  _builder.setInsertionPointToStart(entryBlock);
   for (const auto &varValue :
-       llvm::zip(node->parameters(), entryBlock.getArguments())) {
+       llvm::zip(node->parameters(), entryBlock->getArguments())) {
     auto &var = std::get<0>(varValue);
     auto varName = var->variable()->name();
     auto value = std::get<1>(varValue);
@@ -282,14 +313,14 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
     createStore(value, alloca, loc(node));
   }
 
-  setFunction(funcName, func);
+  setFunction(funcName, funcOp, usesFuncDialect);
 
   DBG("funcName: {0}", funcName);
 
-  return func;
+  return funcOp;
 }
 
-auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   resetVariableScopes();
   auto func = gen(node->proto().get());
 
@@ -300,9 +331,15 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
     auto *returnType = node->proto()->type();
     value = castToType(value, getMLIRType(returnType), location);
     llvm::SmallVector<mlir::Value, 1> returnValues{value};
-    cir::ReturnOp::create(_builder, location, returnValues);
+    if (_currentFunctionUsesFuncDialect)
+      mlir::func::ReturnOp::create(_builder, location, returnValues);
+    else
+      cir::ReturnOp::create(_builder, location, returnValues);
   } else {
-    cir::ReturnOp::create(_builder, location);
+    if (_currentFunctionUsesFuncDialect)
+      mlir::func::ReturnOp::create(_builder, location);
+    else
+      cir::ReturnOp::create(_builder, location);
   }
 
   return func;
@@ -548,6 +585,16 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
   auto callResultType = isUnitCall ? mlir::Type{} : getMLIRType(node);
+  if (calleeOpIter->second.usesFuncDialect) {
+    llvm::SmallVector<mlir::Type, 1> callResultTypes;
+    if (!isUnitCall)
+      callResultTypes.push_back(callResultType);
+
+    auto callOp = mlir::func::CallOp::create(_builder, loc(node), name,
+                                             callResultTypes, operands);
+    return isUnitCall ? nullptr : callOp.getResult(0);
+  }
+
   auto callOp = cir::CallOp::create(_builder, loc(node), callee, callResultType,
                                     operands);
 
@@ -1082,6 +1129,24 @@ auto MLIRGenImpl::getFunctionReturnType(const Type *returnType) const
   if (cherry::isUnitType(returnType))
     return cir::VoidType::get(_builder.getContext());
   return getMLIRType(returnType);
+}
+
+auto MLIRGenImpl::needsFuncDialectFunction(const Prototype *node) const
+    -> bool {
+  // Only Mulberry records currently need the temporary func.func boundary.
+  // Other Cherry types can still be verified directly by CIR.
+  auto isMulberryRecord = [](mlir::Type type) {
+    return type && llvm::isa<mlir::mulberry::RecordType>(type);
+  };
+
+  if (isMulberryRecord(getMLIRType(node->type())))
+    return true;
+
+  for (auto &param : node->parameters())
+    if (isMulberryRecord(getMLIRType(param->type())))
+      return true;
+
+  return false;
 }
 
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
