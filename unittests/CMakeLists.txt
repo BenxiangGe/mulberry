@@ -6,3 +6,4 @@ function(add_cherry_unittest test_dirname)
 endfunction()
 
 add_subdirectory(Parse)
+add_subdirectory(MLIRGen)
