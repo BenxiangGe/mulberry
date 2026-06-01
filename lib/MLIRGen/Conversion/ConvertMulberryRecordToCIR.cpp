@@ -7,6 +7,7 @@
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "cherry/MLIRGen/IR/MulberryTypeUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
@@ -230,9 +231,20 @@ struct ConvertMulberryRecordToCIR
     MulberryRecordTypeConverter typeConverter;
 
     ConversionTarget target(getContext());
-    target.addLegalDialect<cir::CIRDialect>();
+    target.addLegalDialect<cir::CIRDialect, func::FuncDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
-    target.addIllegalOp<func::FuncOp, func::CallOp, func::ReturnOp>();
+    target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) {
+      return !containsMulberryRecordType(op.getFunctionType());
+    });
+    target.addDynamicallyLegalOp<func::CallOp>([](func::CallOp op) {
+      return !containsMulberryRecordType(op.getOperandTypes()) &&
+             !containsMulberryRecordType(op.getResultTypes());
+    });
+    target.addDynamicallyLegalOp<func::ReturnOp>([](func::ReturnOp op) {
+      auto funcOp = op->getParentOfType<func::FuncOp>();
+      return funcOp &&
+             !containsMulberryRecordType(funcOp.getFunctionType());
+    });
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     RewritePatternSet patterns(&getContext());

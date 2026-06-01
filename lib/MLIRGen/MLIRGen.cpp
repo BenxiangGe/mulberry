@@ -14,6 +14,7 @@
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "cherry/MLIRGen/IR/MulberryTypeUtils.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -1135,15 +1136,11 @@ auto MLIRGenImpl::needsFuncDialectFunction(const Prototype *node) const
     -> bool {
   // Only Mulberry records currently need the temporary func.func boundary.
   // Other Cherry types can still be verified directly by CIR.
-  auto isMulberryRecord = [](mlir::Type type) {
-    return type && llvm::isa<mlir::mulberry::RecordType>(type);
-  };
-
-  if (isMulberryRecord(getMLIRType(node->type())))
+  if (containsMulberryRecordType(getMLIRType(node->type())))
     return true;
 
   for (auto &param : node->parameters())
-    if (isMulberryRecord(getMLIRType(param->type())))
+    if (containsMulberryRecordType(getMLIRType(param->type())))
       return true;
 
   return false;
