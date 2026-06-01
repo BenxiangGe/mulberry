@@ -10,5 +10,58 @@
 
 include "cherry/MLIRGen/IR/MulberryDialect.td"
 include "cherry/MLIRGen/IR/MulberryTypes.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
+
+def Mulberry_AnyPtrType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::PtrType>($_self)">,
+    "Mulberry pointer type">;
+
+def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
+  let summary = "Allocate a Mulberry value";
+
+  let arguments = (ins TypeAttr:$elementType);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$elementType attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_LoadOp : Mulberry_Op<"load"> {
+  let summary = "Load a Mulberry value";
+
+  let arguments = (ins Mulberry_AnyPtrType:$ptr);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$ptr attr-dict `:` type($ptr) `->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_StoreOp : Mulberry_Op<"store"> {
+  let summary = "Store a Mulberry value";
+
+  let arguments = (ins AnyType:$value, Mulberry_AnyPtrType:$ptr);
+
+  let assemblyFormat = "$value `,` $ptr attr-dict `:` type($value) `,` "
+                       "type($ptr)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_RecordGetFieldOp : Mulberry_Op<"record.get_field"> {
+  let summary = "Get the address of a Mulberry record field";
+
+  let arguments = (ins
+    Mulberry_AnyPtrType:$record,
+    StrAttr:$field
+  );
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$record `[` $field `]` attr-dict `:` type($record) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
 
 #endif // MULBERRY_OPS

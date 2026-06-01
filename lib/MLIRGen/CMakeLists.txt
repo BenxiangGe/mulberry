@@ -24,6 +24,8 @@ add_mlir_dialect_library(cherryMLIRGen
         IR/CherryNNOps.cpp
         ${LIB_HEADERS}/IR/MulberryDialect.h
         IR/MulberryDialect.cpp
+        ${LIB_HEADERS}/IR/MulberryOps.h
+        IR/MulberryOps.cpp
         ${LIB_HEADERS}/IR/MulberryTypes.h
         IR/MulberryTypes.cpp
 

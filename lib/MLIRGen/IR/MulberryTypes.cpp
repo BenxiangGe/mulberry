@@ -8,6 +8,7 @@
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
 
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 
 #include <set>
