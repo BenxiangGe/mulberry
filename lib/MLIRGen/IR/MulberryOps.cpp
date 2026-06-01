@@ -28,45 +28,60 @@ static auto getPtrElementType(Type type) -> Type {
 
 static auto getTensorDescriptorElementType(RecordType descriptorType)
     -> Type {
-  auto dataPtrType =
-      llvm::dyn_cast_if_present<PtrType>(descriptorType.getFieldType("data"));
-  if (!dataPtrType)
+  auto allocatedPtrType = llvm::dyn_cast_if_present<PtrType>(
+      descriptorType.getFieldType("allocated"));
+  auto alignedPtrType = llvm::dyn_cast_if_present<PtrType>(
+      descriptorType.getFieldType("aligned"));
+  if (!allocatedPtrType || !alignedPtrType)
     return {};
-  return dataPtrType.getElementType();
+  if (allocatedPtrType.getElementType() != alignedPtrType.getElementType())
+    return {};
+  return allocatedPtrType.getElementType();
 }
 
-static auto getTensorDescriptorRank(RecordType descriptorType)
+static auto getTensorMetadataRank(RecordType descriptorType, StringRef fieldName)
     -> std::optional<int64_t> {
-  auto shapeFieldType = descriptorType.getFieldType("shape");
-  auto shapeType = llvm::dyn_cast_if_present<RecordType>(shapeFieldType);
-  if (!shapeType)
+  auto metadataFieldType = descriptorType.getFieldType(fieldName);
+  auto metadataType = llvm::dyn_cast_if_present<RecordType>(metadataFieldType);
+  if (!metadataType)
     return std::nullopt;
 
-  for (const auto& field : shapeType.getFields())
+  for (const auto& field : metadataType.getFields())
     if (!field.type.isInteger(64))
       return std::nullopt;
-  return shapeType.getNumFields();
+  return metadataType.getNumFields();
 }
 
 static auto verifyTensorDescriptorMatchesMemRef(Operation *op,
                                                 RecordType descriptorType,
                                                 MemRefType memRefType)
     -> LogicalResult {
-  // Tensor descriptors are intentionally just Mulberry records at this layer.
-  // Keep the verifier shape-based so future lowering can replace pack/unpack
-  // with ordinary record field materialization.
+  // Match MLIR memref metadata instead of only shape: this keeps sliced or
+  // strided tensors representable when pack/unpack are materialized later.
   auto elementType = getTensorDescriptorElementType(descriptorType);
   if (!elementType)
-    return op->emitOpError("tensor descriptor must have data pointer field");
-  if (elementType != memRefType.getElementType())
     return op->emitOpError(
-        "tensor descriptor data element type must match memref element type");
+        "tensor descriptor must have matching allocated/aligned pointer fields");
+  if (elementType != memRefType.getElementType())
+    return op->emitOpError("tensor descriptor pointer element type must match "
+                           "memref element type");
 
-  auto rank = getTensorDescriptorRank(descriptorType);
-  if (!rank)
-    return op->emitOpError("tensor descriptor must have i64 shape record");
-  if (*rank != memRefType.getRank())
-    return op->emitOpError("tensor descriptor rank must match memref rank");
+  auto offsetType = descriptorType.getFieldType("offset");
+  if (!offsetType || !offsetType.isInteger(64))
+    return op->emitOpError("tensor descriptor must have i64 offset field");
+
+  auto sizesRank = getTensorMetadataRank(descriptorType, "sizes");
+  if (!sizesRank)
+    return op->emitOpError("tensor descriptor must have i64 sizes record");
+  if (*sizesRank != memRefType.getRank())
+    return op->emitOpError("tensor descriptor sizes rank must match memref rank");
+
+  auto stridesRank = getTensorMetadataRank(descriptorType, "strides");
+  if (!stridesRank)
+    return op->emitOpError("tensor descriptor must have i64 strides record");
+  if (*stridesRank != memRefType.getRank())
+    return op->emitOpError(
+        "tensor descriptor strides rank must match memref rank");
 
   return success();
 }

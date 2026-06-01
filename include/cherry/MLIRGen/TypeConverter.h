@@ -6,6 +6,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Types.h"
 
+#include <string_view>
+
 namespace mlir {
 class MemRefType;
 } // namespace mlir
@@ -24,7 +26,8 @@ private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
   auto convert(const TensorType& type) const -> mlir::MemRefType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
-  auto convertTensorShape(const TensorType& type) const
+  auto convertTensorMetadata(const TensorType& type,
+                             std::string_view metadataName) const
       -> mlir::mulberry::RecordType;
   auto convertTensorDataPtr(const TensorType& type) const
       -> mlir::mulberry::PtrType;

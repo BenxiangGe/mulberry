@@ -5,6 +5,7 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cherry {
@@ -24,8 +25,10 @@ auto tensorElementName(const BuiltinType& type) -> std::string {
   }
 }
 
-auto tensorShapeName(const TensorType& type) -> std::string {
-  return "TensorShapeRank" + std::to_string(type.shape().size());
+auto tensorMetadataName(const TensorType& type, std::string_view metadataName)
+    -> std::string {
+  return "Tensor" + std::string(metadataName) + "Rank" +
+         std::to_string(type.shape().size());
 }
 
 auto tensorDescriptorName(const TensorType& type) -> std::string {
@@ -80,7 +83,8 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
   return mlir::MemRefType::get(type.shape(), mlirElementType);
 }
 
-auto MLIRTypeConverter::convertTensorShape(const TensorType& type) const
+auto MLIRTypeConverter::convertTensorMetadata(
+    const TensorType& type, std::string_view metadataName) const
     -> mlir::mulberry::RecordType {
   std::vector<mlir::mulberry::RecordType::Field> fields;
   auto dimType = _builder.getI64Type();
@@ -88,7 +92,7 @@ auto MLIRTypeConverter::convertTensorShape(const TensorType& type) const
     fields.push_back({"dim" + std::to_string(i), dimType});
 
   return mlir::mulberry::RecordType::get(
-      _builder.getContext(), tensorShapeName(type), fields);
+      _builder.getContext(), tensorMetadataName(type, metadataName), fields);
 }
 
 auto MLIRTypeConverter::convertTensorDataPtr(const TensorType& type) const
@@ -107,16 +111,21 @@ auto MLIRTypeConverter::convertTensorDataPtr(const TensorType& type) const
 
 auto MLIRTypeConverter::convertTensorDescriptor(const TensorType& type) const
     -> mlir::mulberry::RecordType {
-  auto dataPtrType = convertTensorDataPtr(type);
-  auto shapeType = convertTensorShape(type);
+  auto ptrType = convertTensorDataPtr(type);
+  auto sizesType = convertTensorMetadata(type, "Sizes");
+  auto stridesType = convertTensorMetadata(type, "Strides");
   auto name = tensorDescriptorName(type);
-  if (!dataPtrType || !shapeType || name.empty())
+  if (!ptrType || !sizesType || !stridesType || name.empty())
     return {};
 
-  // Descriptor names include element type and rank so multiple tensor layouts
-  // do not collapse into one named record during CIR/LLVM lowering.
+  // Keep this descriptor aligned with memref.extract_strided_metadata:
+  // https://mlir.llvm.org/docs/Dialects/MemRef/#memrefextract_strided_metadata-memrefextractstridedmetadataop
+  // A bare data pointer plus shape cannot reconstruct sliced or strided
+  // memrefs; offset and strides are part of the tensor value.
   std::vector<mlir::mulberry::RecordType::Field> fields = {
-      {"data", dataPtrType}, {"shape", shapeType}};
+      {"allocated", ptrType}, {"aligned", ptrType},
+      {"offset", _builder.getI64Type()}, {"sizes", sizesType},
+      {"strides", stridesType}};
   return mlir::mulberry::RecordType::get(_builder.getContext(), name, fields);
 }
 
