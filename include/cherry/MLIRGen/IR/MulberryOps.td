@@ -10,11 +10,40 @@
 
 include "cherry/MLIRGen/IR/MulberryDialect.td"
 include "cherry/MLIRGen/IR/MulberryTypes.td"
+include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def Mulberry_AnyPtrType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::PtrType>($_self)">,
     "Mulberry pointer type">;
+
+def Mulberry_RecordTypeConstraint : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
+    "Mulberry record type">;
+
+def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack", [Pure]> {
+  let summary = "Pack a memref into a Mulberry tensor descriptor";
+
+  let arguments = (ins AnyMemRef:$tensor);
+  let results = (outs Mulberry_RecordTypeConstraint:$result);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorUnpackOp : Mulberry_Op<"tensor.unpack", [Pure]> {
+  let summary = "Unpack a Mulberry tensor descriptor into a memref";
+
+  let arguments = (ins Mulberry_RecordTypeConstraint:$tensor);
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
 
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";

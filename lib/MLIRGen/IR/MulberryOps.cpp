@@ -8,7 +8,10 @@
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
+
+#include <optional>
 
 using namespace mlir;
 using namespace mlir::mulberry;
@@ -20,6 +23,63 @@ static auto getPtrElementType(Type type) -> Type {
   if (auto ptrType = llvm::dyn_cast<PtrType>(type))
     return ptrType.getElementType();
   return {};
+}
+
+static auto getTensorDescriptorElementType(RecordType descriptorType)
+    -> Type {
+  auto dataPtrType =
+      llvm::dyn_cast_if_present<PtrType>(descriptorType.getFieldType("data"));
+  if (!dataPtrType)
+    return {};
+  return dataPtrType.getElementType();
+}
+
+static auto getTensorDescriptorRank(RecordType descriptorType)
+    -> std::optional<int64_t> {
+  auto shapeFieldType = descriptorType.getFieldType("shape");
+  auto shapeType = llvm::dyn_cast_if_present<RecordType>(shapeFieldType);
+  if (!shapeType)
+    return std::nullopt;
+
+  for (const auto& field : shapeType.getFields())
+    if (!field.type.isInteger(64))
+      return std::nullopt;
+  return shapeType.getNumFields();
+}
+
+static auto verifyTensorDescriptorMatchesMemRef(Operation *op,
+                                                RecordType descriptorType,
+                                                MemRefType memRefType)
+    -> LogicalResult {
+  // Tensor descriptors are intentionally just Mulberry records at this layer.
+  // Keep the verifier shape-based so future lowering can replace pack/unpack
+  // with ordinary record field materialization.
+  auto elementType = getTensorDescriptorElementType(descriptorType);
+  if (!elementType)
+    return op->emitOpError("tensor descriptor must have data pointer field");
+  if (elementType != memRefType.getElementType())
+    return op->emitOpError(
+        "tensor descriptor data element type must match memref element type");
+
+  auto rank = getTensorDescriptorRank(descriptorType);
+  if (!rank)
+    return op->emitOpError("tensor descriptor must have i64 shape record");
+  if (*rank != memRefType.getRank())
+    return op->emitOpError("tensor descriptor rank must match memref rank");
+
+  return success();
+}
+
+auto TensorPackOp::verify() -> LogicalResult {
+  return verifyTensorDescriptorMatchesMemRef(
+      getOperation(), llvm::cast<RecordType>(getResult().getType()),
+      llvm::cast<MemRefType>(getTensor().getType()));
+}
+
+auto TensorUnpackOp::verify() -> LogicalResult {
+  return verifyTensorDescriptorMatchesMemRef(
+      getOperation(), llvm::cast<RecordType>(getTensor().getType()),
+      llvm::cast<MemRefType>(getResult().getType()));
 }
 
 auto AllocaOp::verify() -> LogicalResult {
