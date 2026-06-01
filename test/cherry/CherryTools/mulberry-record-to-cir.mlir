@@ -2,6 +2,9 @@
 
 module {
   cir.func @main() {
+    %initialAge = cir.const #cir.int<7> : !cir.int<u, 64>
+    %initialActive = cir.const #cir.bool<true> : !cir.bool
+    %created = mulberry.record.create %initialAge, %initialActive : (!cir.int<u, 64>, !cir.bool) -> !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>
     %record = mulberry.alloca !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}> : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>>
     %age = mulberry.record.get_field %record["age"] : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>> -> !mulberry.ptr<!cir.int<u, 64>>
     %value = cir.const #cir.int<42> : !cir.int<u, 64>
@@ -32,6 +35,10 @@ module {
 
 // CHECK: !rec_Person = !cir.record<struct "Person" {!u64i, !cir.bool}>
 // CHECK-LABEL: cir.func @main()
+// CHECK: cir.alloca !rec_Person, !cir.ptr<!rec_Person>
+// CHECK: cir.get_member {{.*}}[0] {name = "age"}
+// CHECK: cir.get_member {{.*}}[1] {name = "active"}
+// CHECK: cir.load
 // CHECK: cir.alloca !rec_Person, !cir.ptr<!rec_Person>
 // CHECK: cir.get_member {{.*}}[0] {name = "age"}
 // CHECK: cir.store

@@ -127,6 +127,21 @@ void TensorUnpackOp::getCanonicalizationPatterns(RewritePatternSet& patterns,
   patterns.add<FoldUnpackOfPack>(context);
 }
 
+auto RecordCreateOp::verify() -> LogicalResult {
+  auto recordType = llvm::cast<RecordType>(getResult().getType());
+  if (getFields().size() != recordType.getNumFields())
+    return emitOpError("field count must match record type");
+
+  for (auto field : llvm::enumerate(recordType.getFields())) {
+    auto valueType = getFields()[field.index()].getType();
+    if (valueType != field.value().type)
+      return emitOpError("field `")
+             << field.value().name << "` type must match record type";
+  }
+
+  return success();
+}
+
 auto AllocaOp::verify() -> LogicalResult {
   auto resultElementType = getPtrElementType(getResult().getType());
   if (resultElementType != getElementType())

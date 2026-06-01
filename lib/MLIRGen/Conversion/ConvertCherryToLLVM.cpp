@@ -242,6 +242,28 @@ public:
   }
 };
 
+class MulberryRecordCreateOpLowering
+    : public OpConversionPattern<mulberry::RecordCreateOp> {
+public:
+  using OpConversionPattern<mulberry::RecordCreateOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::RecordCreateOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType)
+      return failure();
+
+    Value result = LLVM::UndefOp::create(rewriter, op.getLoc(), resultType);
+    for (auto field : llvm::enumerate(adaptor.getFields()))
+      result = LLVM::InsertValueOp::create(rewriter, op.getLoc(), result,
+                                           field.value(), field.index());
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -298,7 +320,8 @@ struct ConvertCherryToLLVM
     patterns
         .add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
              MulberryAllocaOpLowering, MulberryLoadOpLowering,
-             MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering>(
+             MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering,
+             MulberryRecordCreateOpLowering>(
             typeConverter, &getContext());
 
     // Conversion

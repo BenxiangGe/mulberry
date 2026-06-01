@@ -46,6 +46,18 @@ def Mulberry_TensorUnpackOp : Mulberry_Op<"tensor.unpack", [Pure]> {
   let hasCanonicalizer = 1;
 }
 
+def Mulberry_RecordCreateOp : Mulberry_Op<"record.create", [Pure]> {
+  let summary = "Create a Mulberry record value";
+
+  let arguments = (ins Variadic<AnyType>:$fields);
+  let results = (outs Mulberry_RecordTypeConstraint:$result);
+
+  let assemblyFormat = "$fields attr-dict `:` functional-type($fields, "
+                       "$result)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";
 

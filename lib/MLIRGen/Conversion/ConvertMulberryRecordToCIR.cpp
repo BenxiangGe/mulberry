@@ -163,6 +163,57 @@ public:
   }
 };
 
+class RecordCreateOpLowering
+    : public OpConversionPattern<mulberry::RecordCreateOp> {
+public:
+  using OpConversionPattern<mulberry::RecordCreateOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::RecordCreateOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto recordType = llvm::dyn_cast<mulberry::RecordType>(
+        op.getResult().getType());
+    if (!recordType)
+      return failure();
+
+    auto convertedRecordType = getTypeConverter()->convertType(recordType);
+    if (!convertedRecordType)
+      return failure();
+
+    auto ptrType = cir::PointerType::get(convertedRecordType);
+    // CIR has no aggregate value builder op, so construct the value through a
+    // temporary record slot and load it back. Direct LLVM lowering uses
+    // insertvalue instead.
+    auto recordAlloca = cir::AllocaOp::create(
+        rewriter, op.getLoc(), ptrType, convertedRecordType, "",
+        rewriter.getI64IntegerAttr(1));
+    auto recordPtr = recordAlloca.getAddr();
+
+    for (auto field : llvm::enumerate(recordType.getFields())) {
+      auto fieldType = getTypeConverter()->convertType(field.value().type);
+      if (!fieldType)
+        return failure();
+      auto fieldPtrType = cir::PointerType::get(fieldType);
+      auto fieldPtr = cir::GetMemberOp::create(
+          rewriter, op.getLoc(), fieldPtrType, recordPtr,
+          field.value().name, field.index());
+      cir::StoreOp::create(
+          rewriter, op.getLoc(), adaptor.getFields()[field.index()], fieldPtr,
+          /*isVolatile=*/false, /*alignment=*/IntegerAttr{},
+          /*sync_scope=*/cir::SyncScopeKindAttr(),
+          /*mem-order=*/cir::MemOrderAttr());
+    }
+
+    auto loadedRecord = cir::LoadOp::create(
+        rewriter, op.getLoc(), convertedRecordType, recordPtr,
+        /*isDeref=*/false, /*isVolatile=*/false, /*alignment=*/IntegerAttr{},
+        /*sync_scope=*/cir::SyncScopeKindAttr(),
+        /*mem-order=*/cir::MemOrderAttr());
+    rewriter.replaceOp(op, loadedRecord);
+    return success();
+  }
+};
+
 class FuncOpLowering : public OpConversionPattern<func::FuncOp> {
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
@@ -290,8 +341,8 @@ struct ConvertMulberryRecordToCIR
 
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, LoadOpLowering, StoreOpLowering,
-                 RecordGetFieldOpLowering, FuncOpLowering,
-                 FuncCallOpLowering, FuncReturnOpLowering>(
+                 RecordGetFieldOpLowering, RecordCreateOpLowering,
+                 FuncOpLowering, FuncCallOpLowering, FuncReturnOpLowering>(
         typeConverter, &getContext());
 
     if (failed(applyPartialConversion(getOperation(), target,

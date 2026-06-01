@@ -1,6 +1,31 @@
 // RUN: not cherry-opt -split-input-file %s 2>&1 | FileCheck %s
 
 module {
+  func.func @bad_create_field_count() {
+    %value = arith.constant 42 : i64
+    %record = mulberry.record.create %value : (i64) -> !mulberry.record<Person {age: i64, active: i1}>
+    return
+  }
+}
+
+// CHECK: error: 'mulberry.record.create' op field count must match record type
+
+// -----
+
+module {
+  func.func @bad_create_field_type() {
+    %age = arith.constant 42 : i64
+    %active = arith.constant 7 : i64
+    %record = mulberry.record.create %age, %active : (i64, i64) -> !mulberry.record<Person {age: i64, active: i1}>
+    return
+  }
+}
+
+// CHECK: error: 'mulberry.record.create' op field `active` type must match record type
+
+// -----
+
+module {
   func.func @bad_field(
       %record: !mulberry.ptr<!mulberry.record<Person {age: i64}>>) {
     %field = mulberry.record.get_field %record["missing"] : !mulberry.ptr<!mulberry.record<Person {age: i64}>> -> !mulberry.ptr<i64>

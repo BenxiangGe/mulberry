@@ -2,6 +2,9 @@
 
 module {
   func.func @record_ops() -> i64 {
+    %initialAge = arith.constant 7 : i64
+    %initialActive = arith.constant true
+    %created = mulberry.record.create %initialAge, %initialActive : (i64, i1) -> !mulberry.record<Person {age: i64, active: i1}>
     %record = mulberry.alloca !mulberry.record<Person {age: i64, active: i1}> : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>>
     %age = mulberry.record.get_field %record["age"] : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>> -> !mulberry.ptr<i64>
     %value = arith.constant 42 : i64
@@ -22,6 +25,9 @@ module {
 }
 
 // CHECK-LABEL: llvm.func @record_ops
+// CHECK: llvm.mlir.undef : !llvm.struct<(i64, i1)>
+// CHECK: llvm.insertvalue {{.*}}[0] : !llvm.struct<(i64, i1)>
+// CHECK: llvm.insertvalue {{.*}}[1] : !llvm.struct<(i64, i1)>
 // CHECK: llvm.alloca {{.*}} x !llvm.struct<(i64, i1)>
 // CHECK: llvm.getelementptr {{.*}}[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i64, i1)>
 // CHECK: llvm.store
