@@ -46,4 +46,16 @@ def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
   }];
 }
 
+def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
+  let summary = "Mulberry pointer type";
+  let description = [{
+    Typed address of a Mulberry value. This is an IR type, not a user-visible
+    language type. It keeps the pointee type until lowering to opaque pointer
+    dialect or LLVM pointer types.
+  }];
+
+  let parameters = (ins "mlir::Type":$elementType);
+  let assemblyFormat = "`<` $elementType `>`";
+}
+
 #endif // MULBERRY_TYPES
