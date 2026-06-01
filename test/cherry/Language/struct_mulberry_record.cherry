@@ -1,4 +1,5 @@
-# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 
 struct C {
   a: Bool
@@ -14,8 +15,15 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: mulberry.alloca !mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}> : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>>
-# CHECK: mulberry.record.get_field {{.*}}["ec"] : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>> -> !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>>
-# CHECK: mulberry.record.get_field {{.*}}["a"] : !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>> -> !mulberry.ptr<!cir.bool>
-# CHECK: mulberry.store {{.*}}, {{.*}} : !cir.bool, !mulberry.ptr<!cir.bool>
-# CHECK-NOT: cir.get_member
+# MLIR: mulberry.alloca !mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}> : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>>
+# MLIR: mulberry.record.get_field {{.*}}["ec"] : !mulberry.ptr<!mulberry.record<E {ec: !mulberry.record<C {a: !cir.bool}>}>> -> !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>>
+# MLIR: mulberry.record.get_field {{.*}}["a"] : !mulberry.ptr<!mulberry.record<C {a: !cir.bool}>> -> !mulberry.ptr<!cir.bool>
+# MLIR: mulberry.store {{.*}}, {{.*}} : !cir.bool, !mulberry.ptr<!cir.bool>
+# MLIR-NOT: cir.get_member
+
+# LLVM: llvm.func @main
+# LLVM: !llvm.struct<"struct.E", (struct<"struct.C", (i8)>)>
+# LLVM: llvm.getelementptr {{.*}}[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<"struct.E", (struct<"struct.C", (i8)>)>
+# LLVM: llvm.getelementptr {{.*}}[0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<"struct.C", (i8)>
+# LLVM: llvm.return
+# LLVM-NOT: mulberry.

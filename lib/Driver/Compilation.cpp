@@ -125,6 +125,10 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::LLVM) {
     pm.addPass(mlir::createConvertLinalgToLoopsPass());
+    // Keep production struct lowering on the CIR bridge while scalar codegen
+    // still emits CIR ops. The direct Mulberry-record-to-LLVM path is tested
+    // through cherry-opt and can replace this bridge after core scalar lowering
+    // no longer depends on CIR.
     pm.addPass(mlir::cherry::createConvertMulberryRecordToCIR());
     cir::direct::populateCIRToLLVMPasses(pm);
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
