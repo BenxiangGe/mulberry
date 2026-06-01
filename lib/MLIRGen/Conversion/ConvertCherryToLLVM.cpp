@@ -7,6 +7,7 @@
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
+#include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -21,6 +22,10 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 namespace mlir::cherry {
 
@@ -150,6 +155,93 @@ private:
   }
 };
 
+class MulberryAllocaOpLowering
+    : public OpConversionPattern<mulberry::AllocaOp> {
+public:
+  using OpConversionPattern<mulberry::AllocaOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::AllocaOp op, OpAdaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto ptrType = getTypeConverter()->convertType(op.getResult().getType());
+    auto elementType = getTypeConverter()->convertType(op.getElementType());
+    if (!ptrType || !elementType)
+      return failure();
+
+    auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(),
+                                        rewriter.getI64Type(),
+                                        rewriter.getI64IntegerAttr(1));
+    rewriter.replaceOpWithNewOp<LLVM::AllocaOp>(
+        op, ptrType, elementType, one, /*alignment=*/0);
+    return success();
+  }
+};
+
+class MulberryLoadOpLowering : public OpConversionPattern<mulberry::LoadOp> {
+public:
+  using OpConversionPattern<mulberry::LoadOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::LoadOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType)
+      return failure();
+
+    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, resultType,
+                                              adaptor.getPtr());
+    return success();
+  }
+};
+
+class MulberryStoreOpLowering : public OpConversionPattern<mulberry::StoreOp> {
+public:
+  using OpConversionPattern<mulberry::StoreOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::StoreOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(),
+                                               adaptor.getPtr());
+    return success();
+  }
+};
+
+class MulberryRecordGetFieldOpLowering
+    : public OpConversionPattern<mulberry::RecordGetFieldOp> {
+public:
+  using OpConversionPattern<mulberry::RecordGetFieldOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::RecordGetFieldOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto sourcePtrType =
+        llvm::dyn_cast<mulberry::PtrType>(op.getRecord().getType());
+    if (!sourcePtrType)
+      return failure();
+
+    auto sourceRecordType =
+        llvm::dyn_cast<mulberry::RecordType>(sourcePtrType.getElementType());
+    if (!sourceRecordType)
+      return failure();
+
+    auto fieldIndex = sourceRecordType.getFieldIndex(op.getField());
+    if (fieldIndex == std::numeric_limits<unsigned>::max() ||
+        fieldIndex > static_cast<unsigned>(std::numeric_limits<int32_t>::max()))
+      return failure();
+
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    auto recordType = getTypeConverter()->convertType(sourceRecordType);
+    if (!resultType || !recordType)
+      return failure();
+
+    std::vector<LLVM::GEPArg> indices = {0, static_cast<int32_t>(fieldIndex)};
+    rewriter.replaceOpWithNewOp<LLVM::GEPOp>(
+        op, resultType, recordType, adaptor.getRecord(), indices);
+    return success();
+  }
+};
+
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -160,6 +252,7 @@ struct ConvertCherryToLLVM
     // Target
     LLVMConversionTarget target(getContext());
     target.addLegalOp<ModuleOp>();
+    target.addIllegalDialect<mulberry::MulberryDialect>();
 
     // Types conversions
     LLVMTypeConverter typeConverter(&getContext());
@@ -176,6 +269,23 @@ struct ConvertCherryToLLVM
     typeConverter.addConversion([&](cir::VoidType type) -> Type {
       return LLVM::LLVMVoidType::get(type.getContext());
     });
+    typeConverter.addConversion([&](mulberry::PtrType type) -> Type {
+      return LLVM::LLVMPointerType::get(type.getContext());
+    });
+    typeConverter.addConversion([&](mulberry::RecordType type) -> Type {
+      std::vector<Type> fields;
+      for (const auto& field : type.getFields()) {
+        auto fieldType = typeConverter.convertType(field.type);
+        if (!fieldType)
+          return {};
+        fields.push_back(fieldType);
+      }
+
+      // This direct LLVM path is a foundation path for getting rid of the CIR
+      // record bridge later. Keep ABI naming out of it until function lowering
+      // is ready to own named LLVM structs.
+      return LLVM::LLVMStructType::getLiteral(type.getContext(), fields);
+    });
 
     // Patterns
     RewritePatternSet patterns(&getContext());
@@ -185,8 +295,11 @@ struct ConvertCherryToLLVM
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<CastOpLowering, NNCastOpLowering, PrintOpLowering>(typeConverter,
-                                                     &getContext());
+    patterns
+        .add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
+             MulberryAllocaOpLowering, MulberryLoadOpLowering,
+             MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering>(
+            typeConverter, &getContext());
 
     // Conversion
     auto module = getOperation();
