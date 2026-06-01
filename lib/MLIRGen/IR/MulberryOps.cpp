@@ -10,6 +10,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include <optional>
 
@@ -80,6 +81,35 @@ auto TensorUnpackOp::verify() -> LogicalResult {
   return verifyTensorDescriptorMatchesMemRef(
       getOperation(), llvm::cast<RecordType>(getTensor().getType()),
       llvm::cast<MemRefType>(getResult().getType()));
+}
+
+namespace {
+
+struct FoldUnpackOfPack final : public OpRewritePattern<TensorUnpackOp> {
+  using OpRewritePattern<TensorUnpackOp>::OpRewritePattern;
+
+  auto matchAndRewrite(TensorUnpackOp op,
+                       PatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto packOp = op.getTensor().getDefiningOp<TensorPackOp>();
+    if (!packOp)
+      return failure();
+
+    // Only erase the bridge when the exact memref type is preserved. Different
+    // shapes/layouts need an explicit cast or descriptor materialization.
+    if (packOp.getTensor().getType() != op.getResult().getType())
+      return failure();
+
+    rewriter.replaceOp(op, packOp.getTensor());
+    return success();
+  }
+};
+
+} // namespace
+
+void TensorUnpackOp::getCanonicalizationPatterns(RewritePatternSet& patterns,
+                                                 MLIRContext *context) {
+  patterns.add<FoldUnpackOfPack>(context);
 }
 
 auto AllocaOp::verify() -> LogicalResult {

@@ -43,6 +43,7 @@ def Mulberry_TensorUnpackOp : Mulberry_Op<"tensor.unpack", [Pure]> {
                        "type($result)";
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {

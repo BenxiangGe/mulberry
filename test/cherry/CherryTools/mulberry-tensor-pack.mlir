@@ -1,4 +1,5 @@
-// RUN: cherry-opt %s | FileCheck %s
+// RUN: cherry-opt %s | FileCheck %s --check-prefix=ROUNDTRIP
+// RUN: cherry-opt --canonicalize %s | FileCheck %s --check-prefix=CANON
 
 module {
   func.func @pack_unpack(%tensor: memref<30x?xf32>)
@@ -9,6 +10,12 @@ module {
   }
 }
 
-// CHECK-LABEL: func.func @pack_unpack
-// CHECK: mulberry.tensor.pack {{.*}} : memref<30x?xf32> -> !mulberry.record<TensorDescriptorFloat32Rank2 {data: !mulberry.ptr<f32>, shape: !mulberry.record<TensorShapeRank2 {dim0: i64, dim1: i64}>}>
-// CHECK: mulberry.tensor.unpack {{.*}} : !mulberry.record<TensorDescriptorFloat32Rank2 {data: !mulberry.ptr<f32>, shape: !mulberry.record<TensorShapeRank2 {dim0: i64, dim1: i64}>}> -> memref<30x?xf32>
+// ROUNDTRIP-LABEL: func.func @pack_unpack
+// ROUNDTRIP: mulberry.tensor.pack {{.*}} : memref<30x?xf32> -> !mulberry.record<TensorDescriptorFloat32Rank2 {data: !mulberry.ptr<f32>, shape: !mulberry.record<TensorShapeRank2 {dim0: i64, dim1: i64}>}>
+// ROUNDTRIP: mulberry.tensor.unpack {{.*}} : !mulberry.record<TensorDescriptorFloat32Rank2 {data: !mulberry.ptr<f32>, shape: !mulberry.record<TensorShapeRank2 {dim0: i64, dim1: i64}>}> -> memref<30x?xf32>
+
+// CANON-LABEL: func.func @pack_unpack
+// CANON-SAME: (%[[TENSOR:.*]]: memref<30x?xf32>)
+// CANON: return %[[TENSOR]] : memref<30x?xf32>
+// CANON-NOT: mulberry.tensor.pack
+// CANON-NOT: mulberry.tensor.unpack
