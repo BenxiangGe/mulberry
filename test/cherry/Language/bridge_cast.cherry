@@ -1,0 +1,23 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn score(): UInt64 {
+  const values: Float32[2] = [1.0, 2.0];
+  argmax(values)
+}
+
+fn main(): UInt64 {
+  score()
+}
+
+# MLIR-LABEL: func.func @score() -> i64
+# MLIR: cherry_nn.argmax
+# MLIR-LABEL: cir.func @main() -> !cir.int<u, 64>
+# MLIR: func.call @score() : () -> i64
+# MLIR: cherry.bridge_cast
+# MLIR-SAME: i64 to !cir.int<u, 64>
+
+# LLVM-NOT: cherry.bridge_cast
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @score
+# LLVM: llvm.return

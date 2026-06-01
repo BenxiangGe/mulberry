@@ -1,0 +1,44 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn identity(values: Float32[?]): Float32[?] {
+  values
+}
+
+fn make(): Float32[2] {
+  [1.0, 2.0]
+}
+
+fn score(values: Float32[?]): UInt64 {
+  argmax(values)
+}
+
+fn main(): UInt64 {
+  var values: Float32[?] = make();
+  var same: Float32[?] = identity(values);
+  score(same)
+}
+
+# MLIR-LABEL: func.func @identity(%arg0: memref<?xf32>) -> memref<?xf32>
+# MLIR: return %arg0 : memref<?xf32>
+# MLIR-LABEL: func.func @make() -> memref<2xf32>
+# MLIR: return {{.*}} : memref<2xf32>
+# MLIR-LABEL: func.func @score(%arg0: memref<?xf32>) -> i64
+# MLIR: cherry_nn.argmax
+# MLIR-LABEL: func.func @main() -> i64
+# MLIR: call @make() : () -> memref<2xf32>
+# MLIR: memref.cast {{.*}} : memref<2xf32> to memref<?xf32>
+# MLIR: call @identity({{.*}}) : (memref<?xf32>) -> memref<?xf32>
+# MLIR: call @score({{.*}}) : (memref<?xf32>) -> i64
+
+# LINALG-LABEL: func.func @score(%arg0: memref<?xf32>) -> i64
+# LINALG: linalg.generic
+# LINALG-NOT: cherry_nn.argmax
+
+# LLVM-LABEL: llvm.func @identity
+# LLVM-LABEL: llvm.func @score
+# LLVM: llvm.return {{.*}} : i64
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @score
+# LLVM-NOT: cherry.bridge_cast

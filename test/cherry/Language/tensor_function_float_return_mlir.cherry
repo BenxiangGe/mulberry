@@ -1,0 +1,25 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn first(values: Float32[2]): Float32 {
+  values[0]
+}
+
+fn main(): UInt64 {
+  var values: Float32[2] = [1.0, 2.0];
+  var y: Float32 = first(values);
+  0
+}
+
+# MLIR-LABEL: func.func @first(%arg0: memref<2xf32>) -> f32
+# MLIR: memref.load %arg0
+# MLIR: return {{.*}} : f32
+# MLIR-LABEL: func.func @main() -> i64
+# MLIR: call @first({{.*}}) : (memref<2xf32>) -> f32
+# MLIR-NOT: cherry.bridge_cast
+
+# LLVM-LABEL: llvm.func @first
+# LLVM: llvm.return {{.*}} : f32
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @first
+# LLVM-NOT: cherry.bridge_cast

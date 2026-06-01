@@ -11,4 +11,4 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: error: function returns containing Tensor require list/tensor descriptor ABI
+# CHECK: error: Tensor function ABI only supports Tensor and builtin scalar returns for now

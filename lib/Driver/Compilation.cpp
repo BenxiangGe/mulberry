@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/Pass/PassManager.h"
@@ -128,8 +129,10 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::LLVM) {
     pm.addPass(mlir::createConvertLinalgToLoopsPass());
-    cir::direct::populateCIRToLLVMPasses(pm);
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
+    cir::direct::populateCIRToLLVMPasses(pm);
+    pm.addPass(mlir::cherry::createLowerCherryBridgeCasts());
+    pm.addPass(mlir::createReconcileUnrealizedCastsPass());
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::LLVM::createDIScopeForLLVMFuncOpPass());
   }

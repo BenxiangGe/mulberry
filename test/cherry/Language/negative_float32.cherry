@@ -20,8 +20,6 @@ fn main(): UInt64 {
 # AST: FloatLiteralExpr
 # AST-SAME: type=Float32 value=-1.25
 
-# MLIR: cir.const
-# MLIR-SAME: !cir.float
 # MLIR: arith.constant -1.250000e+00 : f32
 # MLIR: arith.constant -2.500000e+01 : f32
 # MLIR-NOT: builtin.unrealized_conversion_cast {{.*}} !cir.float to f32

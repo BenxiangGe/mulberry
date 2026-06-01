@@ -41,4 +41,9 @@ def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
+def LowerCherryBridgeCasts : Pass<"lower-cherry-bridge-casts"> {
+  let summary = "Lower Cherry bridge casts after CIR lowering";
+  let dependentDialects = ["LLVM::LLVMDialect"];
+}
+
 #endif // CHERRY_PASSES_TD

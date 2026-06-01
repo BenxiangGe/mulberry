@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -39,6 +40,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -73,10 +75,22 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
-  NameMap<cir::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
+
+  struct FunctionSymbol {
+    enum class ABI {
+      CIR,
+      Func,
+    };
+
+    ABI abi = ABI::CIR;
+    std::vector<const Type *> parameterTypes;
+  };
+
+  NameMap<FunctionSymbol> _functionsByName;
+  FunctionSymbol::ABI _currentFunctionABI = FunctionSymbol::ABI::CIR;
 
   struct TensorDimSource {
     mlir::Value tensor;
@@ -85,8 +99,8 @@ private:
 
   // Declarations
   auto gen(const Decl *node, mlir::Operation *&op) -> CherryResult;
-  auto gen(const Prototype *node) -> cir::FuncOp;
-  auto gen(const FunctionDecl *node) -> cir::FuncOp;
+  auto gen(const Prototype *node, FunctionSymbol::ABI abi) -> mlir::Operation *;
+  auto gen(const FunctionDecl *node) -> mlir::Operation *;
   auto gen(const StructDecl *node) -> CherryResult;
 
   // Expressions
@@ -160,8 +174,16 @@ private:
     return {};
   }
 
-  void setFunction(std::string_view name, cir::FuncOp func) {
+  void setFunction(std::string_view name, FunctionSymbol func) {
     setSymbol(_functionsByName, name, func);
+  }
+
+  auto makeFunctionSymbol(const Prototype *node, FunctionSymbol::ABI abi)
+      -> FunctionSymbol {
+    std::vector<const Type *> parameterTypes;
+    for (const auto& param : node->parameters())
+      parameterTypes.push_back(param->type());
+    return FunctionSymbol{abi, std::move(parameterTypes)};
   }
 
   auto findFunction(std::string_view name) {
@@ -177,17 +199,36 @@ private:
                             const ListType *listType)
       -> mlir::Value;
   auto getStaticIndex(const Expr *expr) -> std::optional<uint64_t>;
+  void collectAssignedVariables(
+      const Expr *expr, std::set<std::string> &names,
+      const std::function<bool(const Type *)> &shouldCollect);
+  void collectAssignedVariables(
+      const Stat *stat, std::set<std::string> &names,
+      const std::function<bool(const Type *)> &shouldCollect);
   void collectAssignedTensorVariables(const Expr *expr,
                                       std::set<std::string> &names);
   void collectAssignedTensorVariables(const Stat *stat,
                                       std::set<std::string> &names);
   auto getTensorCarriedVariables(const ForExpr *node) -> std::vector<std::string>;
+  auto getFuncABICarriedVariables(const ForExpr *node)
+      -> std::vector<std::string>;
   auto genTensorListIndex(const IndexExpr *expr, mlir::Value tensorList)
       -> mlir::Value;
   auto isMulberryList(mlir::Value value) -> bool;
   auto getMulberryListElementType(mlir::Value value) -> mlir::Type;
   auto isTensorList(const ListType *type) const -> bool;
   auto containsTensorValue(const Type *type) const -> bool;
+  auto containsTensorValue(const BlockExpr *block) const -> bool;
+  auto containsTensorValue(const Expr *expr) const -> bool;
+  auto containsTensorValue(const Stat *stat) const -> bool;
+  auto useFuncABI(const Prototype *node) const -> bool;
+  auto useFuncABI(const FunctionDecl *node) const -> bool;
+  auto isFuncABI() const -> bool;
+  auto isFuncABIScalarType(const Type *type) const -> bool;
+  auto isFuncABIValueType(const Type *type) const -> bool;
+  auto isFuncABIScalarExpr(const Expr *expr) const -> bool;
+  auto isSupportedFuncABIParameterType(const Type *type) const -> bool;
+  auto isSupportedFuncABIReturnType(const Type *type) const -> bool;
   auto canMaterializeListStorage(const ListType *type) const -> bool;
   auto getListStorageElementType(const ListType *listType) -> mlir::Type;
   auto createListStorage(mlir::Location location, mlir::Type listStorageType,
@@ -225,10 +266,23 @@ private:
   auto genMemRefElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genMemRefLoadValue(const IndexExpr *expr) -> mlir::Value;
+  auto genFuncABIIf(const IfExpr *node) -> mlir::Value;
+  auto genFuncABIFor(const ForExpr *node) -> mlir::Value;
+  auto genFuncABIBinary(const BinaryExpr *node) -> mlir::Value;
+  auto genFuncABIBoolToUInt64(mlir::Value operand, mlir::Location location)
+      -> mlir::Value;
+  auto genFuncABISize(const CallExpr *node) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
+  auto genFuncABIArgument(const Expr *expr, const Type *paramType)
+      -> mlir::Value;
+  auto genFuncABIScalarLiteral(const DecimalLiteralExpr *node) -> mlir::Value;
+  auto genFuncABIScalarLiteral(const FloatLiteralExpr *node) -> mlir::Value;
+  auto genFuncABIScalarLiteral(const BoolLiteralExpr *node) -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
+  auto getFuncABIType(const Type *type) const -> mlir::Type;
+  auto getFuncABIType(const Expr *expr) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
@@ -304,42 +358,107 @@ auto MLIRGenImpl::gen(const Decl *node, mlir::Operation *&op) -> CherryResult {
   }
 }
 
-auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const Prototype *node, FunctionSymbol::ABI abi)
+    -> mlir::Operation * {
+  auto usesFuncABI = abi == FunctionSymbol::ABI::Func;
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
-    if (cherry::isTensorType(paramType)) {
-      // TODO: Tensor values lower to MLIR memrefs, but CIR call operands cannot carry
-      // memrefs. Keep Tensor function ABI disabled until the function boundary
-      // moves to func.func or gains a descriptor ABI.
+    if (usesFuncABI && !isSupportedFuncABIParameterType(paramType)) {
       emitError(param.get(),
-                "Tensor function parameters require function memref ABI");
+                "Tensor function ABI only supports Tensor and builtin scalar "
+                "parameters for now");
       return nullptr;
     }
-    if (containsTensorValue(paramType)) {
+    if (auto *listType = cherry::getListType(paramType)) {
+      if (containsTensorValue(listType)) {
+        emitError(param.get(),
+                  "function parameters containing Tensor require list/tensor "
+                  "descriptor ABI");
+        return nullptr;
+      }
+    }
+    if (!cherry::isTensorType(paramType) && containsTensorValue(paramType)) {
       emitError(param.get(),
-                "function parameters containing Tensor require list/tensor "
+                "function parameters containing Tensor require tensor "
                 "descriptor ABI");
       return nullptr;
     }
-    argTypes.push_back(getMLIRType(paramType));
+    argTypes.push_back(usesFuncABI ? getFuncABIType(paramType)
+                                   : getMLIRType(paramType));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  if (cherry::isTensorType(returnType)) {
-    // TODO: Tensor values lower to MLIR memrefs, but CIR return operands cannot carry
-    // memrefs. Keep Tensor function ABI disabled until the function boundary
-    // moves to func.func or gains a descriptor ABI.
-    emitError(node, "Tensor function returns require function memref ABI");
-    return nullptr;
-  }
-  if (containsTensorValue(returnType)) {
+  if (usesFuncABI && !isSupportedFuncABIReturnType(returnType)) {
     emitError(node,
-              "function returns containing Tensor require list/tensor "
-              "descriptor ABI");
+              "Tensor function ABI only supports Tensor and builtin scalar "
+              "returns for now");
     return nullptr;
   }
+  if (auto *listType = cherry::getListType(returnType)) {
+    if (containsTensorValue(listType)) {
+      emitError(node,
+                "function returns containing Tensor require list/tensor "
+                "descriptor ABI");
+      return nullptr;
+    }
+  }
+  if (!cherry::isTensorType(returnType) && containsTensorValue(returnType)) {
+    emitError(node,
+              "function returns containing Tensor require tensor descriptor "
+              "ABI");
+    return nullptr;
+  }
+
+  if (usesFuncABI) {
+    mlir::TypeRange resultTypes;
+    llvm::SmallVector<mlir::Type, 1> nonUnitResultTypes;
+    if (!cherry::isUnitType(returnType)) {
+      nonUnitResultTypes.push_back(getFuncABIType(returnType));
+      resultTypes = nonUnitResultTypes;
+    }
+
+    auto funcType =
+        mlir::FunctionType::get(_builder.getContext(), argTypes, resultTypes);
+    auto func = mlir::func::FuncOp::create(loc(node), funcName, funcType);
+
+    auto *entryBlock = func.addEntryBlock();
+    _builder.setInsertionPointToStart(entryBlock);
+    for (const auto &varValue :
+         llvm::zip(node->parameters(), entryBlock->getArguments())) {
+      auto &var = std::get<0>(varValue);
+      auto varName = var->variable()->name();
+      auto value = std::get<1>(varValue);
+      auto *paramType = var->type();
+
+      if (cherry::isUnitType(paramType)) {
+        setVariable(varName, nullptr);
+        continue;
+      }
+
+      if (isFuncABIValueType(paramType)) {
+        setVariable(varName, value);
+        continue;
+      }
+
+      auto alloca =
+          createEntryBlockAlloca(getMLIRType(paramType), loc(node));
+      setVariable(varName, alloca);
+      cir::StoreOp::create(_builder, loc(node), value, alloca,
+                           /*isVolatile=*/false,
+                           /*alignment=*/mlir::IntegerAttr{},
+                           /*sync_scope=*/cir::SyncScopeKindAttr(),
+                           /*mem-order=*/cir::MemOrderAttr());
+    }
+
+    setFunction(funcName, makeFunctionSymbol(node, abi));
+
+    DBG("funcName: {0}", funcName);
+
+    return func;
+  }
+
   auto funcType = cir::FuncType::get(argTypes,
                                      getFunctionReturnType(returnType));
   mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
@@ -369,34 +488,52 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
                          /*mem-order=*/cir::MemOrderAttr());
   }
 
-  setFunction(funcName, func);
+  setFunction(funcName, makeFunctionSymbol(node, abi));
 
   DBG("funcName: {0}", funcName);
 
   return func;
 }
 
-auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   resetVariableScopes();
-  auto func = gen(node->proto().get());
+  auto abi =
+      useFuncABI(node) ? FunctionSymbol::ABI::Func : FunctionSymbol::ABI::CIR;
+  auto func = gen(node->proto().get(), abi);
   if (!func)
     return nullptr;
 
+  auto previousFunctionABI = _currentFunctionABI;
+  _currentFunctionABI = llvm::isa<mlir::func::FuncOp>(func)
+                            ? FunctionSymbol::ABI::Func
+                            : FunctionSymbol::ABI::CIR;
+
   auto result = genBlock(node->body().get());
-  if (failed(result))
+  if (failed(result)) {
+    _currentFunctionABI = previousFunctionABI;
     return nullptr;
+  }
   auto value = *result;
 
   auto location = loc(node->body()->expression().get());
   if (value) {
     auto *returnType = node->proto()->type();
-    value = castToType(value, getMLIRType(returnType), location);
-    llvm::SmallVector<mlir::Value, 1> returnValues{value};
-    cir::ReturnOp::create(_builder, location, returnValues);
+    if (llvm::isa<mlir::func::FuncOp>(func)) {
+      value = castToType(value, getFuncABIType(returnType), location);
+      mlir::func::ReturnOp::create(_builder, location, value);
+    } else {
+      value = castToType(value, getMLIRType(returnType), location);
+      llvm::SmallVector<mlir::Value, 1> returnValues{value};
+      cir::ReturnOp::create(_builder, location, returnValues);
+    }
   } else {
-    cir::ReturnOp::create(_builder, location);
+    if (llvm::isa<mlir::func::FuncOp>(func))
+      mlir::func::ReturnOp::create(_builder, location);
+    else
+      cir::ReturnOp::create(_builder, location);
   }
 
+  _currentFunctionABI = previousFunctionABI;
   return func;
 }
 
@@ -482,6 +619,10 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
       formatType(node->type()),
       formatType(node->thenBlock()->type()),
       formatType(node->elseBlock()->type()));
+  if (isFuncABI() &&
+      (isFuncABIScalarExpr(node) || cherry::isUnitType(node->type())))
+    return genFuncABIIf(node);
+
   auto cond = gen(node->conditionExpr().get());
 
   if (cherry::isUnitType(node->type())) {
@@ -611,6 +752,9 @@ auto MLIRGenImpl::genTensorCarriedFor(
 }
 
 auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
+  if (isFuncABI())
+    return genFuncABIFor(node);
+
   auto carriedNames = getTensorCarriedVariables(node);
   if (!carriedNames.empty())
     return genTensorCarriedFor(node, carriedNames);
@@ -689,20 +833,35 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   if (name == nn::argmax)
     return genArgmax(node);
   if (name == builtins::size)
-    return genSize(node);
+    return isFuncABI() ? genFuncABISize(node) : genSize(node);
 
   llvm::SmallVector<mlir::Value, 4> operands;
-  for (auto &expr : *node) {
-    auto value = gen(expr.get());
+  auto calleeOpIter = findFunction(node->name());
+  auto hasCalleeSymbol = calleeOpIter != _functionsByName.end();
+  auto calleeSymbol = hasCalleeSymbol ? calleeOpIter->second : FunctionSymbol{};
+  auto calleeUsesFuncABI =
+      hasCalleeSymbol && calleeSymbol.abi == FunctionSymbol::ABI::Func;
+  for (const auto &exprValue : llvm::enumerate(*node)) {
+    auto &expr = exprValue.value();
+    mlir::Value value;
+    if (calleeUsesFuncABI &&
+        exprValue.index() < calleeSymbol.parameterTypes.size()) {
+      value = genFuncABIArgument(
+          expr.get(), calleeSymbol.parameterTypes[exprValue.index()]);
+    } else {
+      value = gen(expr.get());
+    }
+    if (!value && !cherry::isUnitType(expr->type()))
+      return nullptr;
     DBG("gen(CallExpr). value: {0}", value);
     operands.push_back(value);
   }
 
   if (name == builtins::boolToUInt64)
-    return CastOp::create(_builder, loc(node), operands.front());
+    return isFuncABI() ? genFuncABIBoolToUInt64(operands.front(), loc(node))
+                       : CastOp::create(_builder, loc(node), operands.front());
 
-  auto calleeOpIter = findFunction(node->name());
-  if (calleeOpIter == _functionsByName.end()) {
+  if (!hasCalleeSymbol) {
     // TODO: placeholder for functions implemented after the caller
     ERR("callee {0} DOESN'T exist.", node->name());
     return nullptr;
@@ -710,6 +869,20 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
 
   auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
+  if (calleeSymbol.abi == FunctionSymbol::ABI::Func) {
+    auto callResultType = isUnitCall ? mlir::Type{} : getFuncABIType(node);
+    mlir::TypeRange callResultTypes;
+    llvm::SmallVector<mlir::Type, 1> nonUnitResultTypes;
+    if (!isUnitCall) {
+      nonUnitResultTypes.push_back(callResultType);
+      callResultTypes = nonUnitResultTypes;
+    }
+
+    auto callOp = mlir::func::CallOp::create(
+        _builder, loc(node), callee, callResultTypes, operands);
+    return isUnitCall ? nullptr : callOp.getResult(0);
+  }
+
   auto callResultType = isUnitCall ? mlir::Type{} : getMLIRType(node);
   auto callOp = cir::CallOp::create(_builder, loc(node), callee, callResultType,
                                     operands);
@@ -746,6 +919,7 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   auto operand = llvm::isa<IndexExpr>(expr)
                      ? genMemRefLoadValue(llvm::cast<IndexExpr>(expr))
                      : gen(expr);
+  operand = castToType(operand, _builder.getI64Type(), loc(expr));
   return PrintOp::create(_builder, loc(node), operand);
 }
 
@@ -897,6 +1071,9 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
+  if (isFuncABI() && isFuncABIValueType(node->type()))
+    return genFuncABIScalarLiteral(node);
+
   mlir::Type type = getMLIRType(node);
   cir::IntAttr attr = cir::IntAttr::get(type, node->value());
   DBG("type: {0}, attr: {1}", type, attr);
@@ -904,6 +1081,9 @@ auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
+  if (isFuncABI() && isFuncABIValueType(node->type()))
+    return genFuncABIScalarLiteral(node);
+
   mlir::Type type = getMLIRType(node);
   cir::FPAttr attr = cir::FPAttr::get(type, node->value());
   DBG("type: {0}, attr: {1}", type, attr);
@@ -911,6 +1091,9 @@ auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
+  if (isFuncABI() && isFuncABIValueType(node->type()))
+    return genFuncABIScalarLiteral(node);
+
   cir::BoolAttr attr = cir::BoolAttr::get(_builder.getContext(), node->value());
   DBG("attr: {0}", attr);
   return cir::ConstantOp::create(_builder, loc(node), attr);
@@ -1028,6 +1211,9 @@ auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
+  if (isFuncABI() && isFuncABIScalarExpr(node))
+    return genFuncABIBinary(node);
+
   using Operator = BinaryExpr::Operator;
   auto genBoolCmp = [&](Operator op, mlir::Value lhs,
                         mlir::Value rhs) -> mlir::Value {
@@ -1106,6 +1292,12 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
           rhs = castToType(rhs, getMemRefType(var), loc(node));
+          assignVariable(name, rhs);
+          return;
+        }
+
+        if (isFuncABI() && isFuncABIValueType(var->type())) {
+          rhs = castToType(rhs, getFuncABIType(var->type()), loc(node));
           assignVariable(name, rhs);
           return;
         }
@@ -1367,90 +1559,112 @@ auto MLIRGenImpl::getStaticIndex(const Expr *expr) -> std::optional<uint64_t> {
   return std::nullopt;
 }
 
-void MLIRGenImpl::collectAssignedTensorVariables(
-    const Expr *expr, std::set<std::string> &names) {
+void MLIRGenImpl::collectAssignedVariables(
+    const Expr *expr, std::set<std::string> &names,
+    const std::function<bool(const Type *)> &shouldCollect) {
   if (auto *assign = llvm::dyn_cast<AssignExpr>(expr)) {
     if (auto *var = llvm::dyn_cast<VariableExpr>(assign->lhs().get()))
-      if (cherry::isTensorType(var->type()))
+      if (shouldCollect(var->type()))
         names.insert(std::string(var->name()));
-    collectAssignedTensorVariables(assign->rhs().get(), names);
+    collectAssignedVariables(assign->rhs().get(), names, shouldCollect);
     return;
   }
 
   if (auto *call = llvm::dyn_cast<CallExpr>(expr)) {
     for (const auto &arg : call->expressions())
-      collectAssignedTensorVariables(arg.get(), names);
+      collectAssignedVariables(arg.get(), names, shouldCollect);
     return;
   }
 
   if (auto *block = llvm::dyn_cast<BlockExpr>(expr)) {
     for (const auto &stat : *block)
-      collectAssignedTensorVariables(stat.get(), names);
-    collectAssignedTensorVariables(block->expression().get(), names);
+      collectAssignedVariables(stat.get(), names, shouldCollect);
+    collectAssignedVariables(block->expression().get(), names, shouldCollect);
     return;
   }
 
   if (auto *ifExpr = llvm::dyn_cast<IfExpr>(expr)) {
-    collectAssignedTensorVariables(ifExpr->conditionExpr().get(), names);
-    collectAssignedTensorVariables(ifExpr->thenBlock().get(), names);
-    collectAssignedTensorVariables(ifExpr->elseBlock().get(), names);
+    collectAssignedVariables(ifExpr->conditionExpr().get(), names,
+                             shouldCollect);
+    collectAssignedVariables(ifExpr->thenBlock().get(), names, shouldCollect);
+    collectAssignedVariables(ifExpr->elseBlock().get(), names, shouldCollect);
     return;
   }
 
   if (auto *whileExpr = llvm::dyn_cast<WhileExpr>(expr)) {
-    collectAssignedTensorVariables(whileExpr->conditionExpr().get(), names);
-    collectAssignedTensorVariables(whileExpr->bodyBlock().get(), names);
+    collectAssignedVariables(whileExpr->conditionExpr().get(), names,
+                             shouldCollect);
+    collectAssignedVariables(whileExpr->bodyBlock().get(), names,
+                             shouldCollect);
     return;
   }
 
   if (auto *forExpr = llvm::dyn_cast<ForExpr>(expr)) {
-    collectAssignedTensorVariables(forExpr->startExpr().get(), names);
-    collectAssignedTensorVariables(forExpr->endExpr().get(), names);
-    collectAssignedTensorVariables(forExpr->bodyBlock().get(), names);
+    collectAssignedVariables(forExpr->startExpr().get(), names, shouldCollect);
+    collectAssignedVariables(forExpr->endExpr().get(), names, shouldCollect);
+    collectAssignedVariables(forExpr->bodyBlock().get(), names, shouldCollect);
     return;
   }
 
   if (auto *binary = llvm::dyn_cast<BinaryExpr>(expr)) {
-    collectAssignedTensorVariables(binary->lhs().get(), names);
-    collectAssignedTensorVariables(binary->rhs().get(), names);
+    collectAssignedVariables(binary->lhs().get(), names, shouldCollect);
+    collectAssignedVariables(binary->rhs().get(), names, shouldCollect);
     return;
   }
 
   if (auto *member = llvm::dyn_cast<MemberExpr>(expr)) {
-    collectAssignedTensorVariables(member->base().get(), names);
+    collectAssignedVariables(member->base().get(), names, shouldCollect);
     return;
   }
 
   if (auto *index = llvm::dyn_cast<IndexExpr>(expr)) {
     for (const auto &indexExpr : index->getIndices())
-      collectAssignedTensorVariables(indexExpr.get(), names);
+      collectAssignedVariables(indexExpr.get(), names, shouldCollect);
     return;
   }
 
   if (auto *list = llvm::dyn_cast<ListLiteralExpr>(expr)) {
     for (const auto &element : list->elements())
-      collectAssignedTensorVariables(element.get(), names);
+      collectAssignedVariables(element.get(), names, shouldCollect);
     return;
   }
 
   if (auto *tensor = llvm::dyn_cast<TensorLiteralExpr>(expr)) {
     for (const auto &element : tensor->getElements())
-      collectAssignedTensorVariables(element.get(), names);
+      collectAssignedVariables(element.get(), names, shouldCollect);
     return;
   }
 
   if (auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(expr)) {
     for (const auto &field : *structLiteral)
-      collectAssignedTensorVariables(field.get(), names);
+      collectAssignedVariables(field.get(), names, shouldCollect);
   }
+}
+
+void MLIRGenImpl::collectAssignedVariables(
+    const Stat *stat, std::set<std::string> &names,
+    const std::function<bool(const Type *)> &shouldCollect) {
+  if (auto *exprStat = llvm::dyn_cast<ExprStat>(stat))
+    collectAssignedVariables(exprStat->expression().get(), names,
+                             shouldCollect);
+  if (auto *varStat = llvm::dyn_cast<VariableStat>(stat))
+    collectAssignedVariables(varStat->init().get(), names, shouldCollect);
+}
+
+void MLIRGenImpl::collectAssignedTensorVariables(
+    const Expr *expr, std::set<std::string> &names) {
+  collectAssignedVariables(expr, names,
+                           [](const Type *type) {
+                             return cherry::isTensorType(type);
+                           });
 }
 
 void MLIRGenImpl::collectAssignedTensorVariables(
     const Stat *stat, std::set<std::string> &names) {
-  if (auto *exprStat = llvm::dyn_cast<ExprStat>(stat))
-    collectAssignedTensorVariables(exprStat->expression().get(), names);
-  if (auto *varStat = llvm::dyn_cast<VariableStat>(stat))
-    collectAssignedTensorVariables(varStat->init().get(), names);
+  collectAssignedVariables(stat, names,
+                           [](const Type *type) {
+                             return cherry::isTensorType(type);
+                           });
 }
 
 auto MLIRGenImpl::getTensorCarriedVariables(const ForExpr *node)
@@ -1459,7 +1673,30 @@ auto MLIRGenImpl::getTensorCarriedVariables(const ForExpr *node)
   for (const auto &stat : *node->bodyBlock())
     collectAssignedTensorVariables(stat.get(), names);
   collectAssignedTensorVariables(node->bodyBlock()->expression().get(), names);
-  return {names.begin(), names.end()};
+
+  std::vector<std::string> carriedNames;
+  for (const auto &name : names)
+    if (getVariable(name))
+      carriedNames.push_back(name);
+  return carriedNames;
+}
+
+auto MLIRGenImpl::getFuncABICarriedVariables(const ForExpr *node)
+    -> std::vector<std::string> {
+  std::set<std::string> names;
+  auto shouldCollect = [&](const Type *type) {
+    return isFuncABIValueType(type);
+  };
+  for (const auto &stat : *node->bodyBlock())
+    collectAssignedVariables(stat.get(), names, shouldCollect);
+  collectAssignedVariables(node->bodyBlock()->expression().get(), names,
+                           shouldCollect);
+
+  std::vector<std::string> carriedNames;
+  for (const auto &name : names)
+    if (getVariable(name))
+      carriedNames.push_back(name);
+  return carriedNames;
 }
 
 auto MLIRGenImpl::genTensorListIndex(const IndexExpr *expr,
@@ -1542,6 +1779,25 @@ auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
 }
 
+auto MLIRGenImpl::getFuncABIType(const Type *type) const -> mlir::Type {
+  // func.func can directly carry MLIR memrefs, so keep its ABI in the MLIR
+  // scalar world instead of exposing CIR scalar types at that boundary.
+  if (cherry::isUInt64Type(type))
+    return mlir::IntegerType::get(_builder.getContext(), 64);
+  if (cherry::isFloat32Type(type))
+    return mlir::Float32Type::get(_builder.getContext());
+  if (cherry::isBoolType(type))
+    return mlir::IntegerType::get(_builder.getContext(), 1);
+  if (cherry::isUnitType(type))
+    return {};
+
+  return getMLIRType(type);
+}
+
+auto MLIRGenImpl::getFuncABIType(const Expr *expr) const -> mlir::Type {
+  return getFuncABIType(expr->type());
+}
+
 auto MLIRGenImpl::isMulberryList(mlir::Value value) -> bool {
   return value &&
          llvm::isa<mlir::mulberry::ListType>(value.getType());
@@ -1575,6 +1831,161 @@ auto MLIRGenImpl::containsTensorValue(const Type *type) const -> bool {
   }
 
   return false;
+}
+
+auto MLIRGenImpl::containsTensorValue(const BlockExpr *block) const -> bool {
+  if (!block)
+    return false;
+
+  if (containsTensorValue(block->type()))
+    return true;
+
+  for (const auto& stat : block->statements())
+    if (containsTensorValue(stat.get()))
+      return true;
+
+  return containsTensorValue(block->expression().get());
+}
+
+auto MLIRGenImpl::containsTensorValue(const Expr *expr) const -> bool {
+  if (!expr)
+    return false;
+
+  if (containsTensorValue(expr->type()))
+    return true;
+
+  switch (expr->getKind()) {
+  case Expr::Expr_Unit:
+  case Expr::Expr_DecimalLiteral:
+  case Expr::Expr_FloatLiteral:
+  case Expr::Expr_BoolLiteral:
+  case Expr::Expr_Variable:
+    return false;
+  case Expr::Expr_Call: {
+    auto *call = llvm::cast<CallExpr>(expr);
+    for (const auto& argument : call->expressions())
+      if (containsTensorValue(argument.get()))
+        return true;
+    return false;
+  }
+  case Expr::Expr_StructLiteral: {
+    auto *literal = llvm::cast<StructLiteralExpr>(expr);
+    for (const auto& field : literal->expressions())
+      if (containsTensorValue(field.get()))
+        return true;
+    return false;
+  }
+  case Expr::Expr_ListLiteral: {
+    auto *literal = llvm::cast<ListLiteralExpr>(expr);
+    for (const auto& element : literal->elements())
+      if (containsTensorValue(element.get()))
+        return true;
+    return false;
+  }
+  case Expr::Expr_TensorLiteral:
+    return true;
+  case Expr::Expr_Index: {
+    auto *index = llvm::cast<IndexExpr>(expr);
+    for (const auto& idx : index->getIndices())
+      if (containsTensorValue(idx.get()))
+        return true;
+    return false;
+  }
+  case Expr::Expr_Member:
+    return containsTensorValue(llvm::cast<MemberExpr>(expr)->base().get());
+  case Expr::Expr_Assign: {
+    auto *assign = llvm::cast<AssignExpr>(expr);
+    return containsTensorValue(assign->lhs().get()) ||
+           containsTensorValue(assign->rhs().get());
+  }
+  case Expr::Expr_Binary: {
+    auto *binary = llvm::cast<BinaryExpr>(expr);
+    return containsTensorValue(binary->lhs().get()) ||
+           containsTensorValue(binary->rhs().get());
+  }
+  case Expr::Expr_Block: {
+    return containsTensorValue(llvm::cast<BlockExpr>(expr));
+  }
+  case Expr::Expr_If: {
+    auto *ifExpr = llvm::cast<IfExpr>(expr);
+    return containsTensorValue(ifExpr->conditionExpr().get()) ||
+           containsTensorValue(ifExpr->thenBlock().get()) ||
+           containsTensorValue(ifExpr->elseBlock().get());
+  }
+  case Expr::Expr_While: {
+    auto *whileExpr = llvm::cast<WhileExpr>(expr);
+    return containsTensorValue(whileExpr->conditionExpr().get()) ||
+           containsTensorValue(whileExpr->bodyBlock().get());
+  }
+  case Expr::Expr_For: {
+    auto *forExpr = llvm::cast<ForExpr>(expr);
+    return containsTensorValue(forExpr->startExpr().get()) ||
+           containsTensorValue(forExpr->endExpr().get()) ||
+           containsTensorValue(forExpr->bodyBlock().get());
+  }
+  }
+  llvm_unreachable("Unexpected expression kind");
+}
+
+auto MLIRGenImpl::containsTensorValue(const Stat *stat) const -> bool {
+  if (auto *variable = llvm::dyn_cast<VariableStat>(stat))
+    return containsTensorValue(variable->type()) ||
+           containsTensorValue(variable->init().get());
+
+  auto *exprStat = llvm::cast<ExprStat>(stat);
+  return containsTensorValue(exprStat->expression().get());
+}
+
+auto MLIRGenImpl::useFuncABI(const Prototype *node) const -> bool {
+  if (cherry::isTensorType(node->type()))
+    return true;
+
+  for (const auto& param : node->parameters())
+    if (cherry::isTensorType(param->type()))
+      return true;
+
+  return false;
+}
+
+auto MLIRGenImpl::useFuncABI(const FunctionDecl *node) const -> bool {
+  if (useFuncABI(node->proto().get()))
+    return true;
+
+  // Tensor operations use MLIR memrefs and standard MLIR scalars. Keeping a
+  // Tensor-using function in CIR forces mixed CIR/func scalar bridge values at
+  // func.call sites, which does not lower cleanly before ClangIR lowering.
+  auto usesTensorBody = containsTensorValue(node->body().get());
+  DBG("function `{0}` uses Tensor body: {1}", node->proto()->id()->name(),
+      usesTensorBody);
+  return usesTensorBody;
+}
+
+auto MLIRGenImpl::isFuncABI() const -> bool {
+  return _currentFunctionABI == FunctionSymbol::ABI::Func;
+}
+
+auto MLIRGenImpl::isFuncABIScalarType(const Type *type) const -> bool {
+  return cherry::isUInt64Type(type) || cherry::isFloat32Type(type) ||
+         cherry::isBoolType(type);
+}
+
+auto MLIRGenImpl::isFuncABIValueType(const Type *type) const -> bool {
+  return cherry::isTensorType(type) || isFuncABIScalarType(type) ||
+         cherry::isUnitType(type);
+}
+
+auto MLIRGenImpl::isFuncABIScalarExpr(const Expr *expr) const -> bool {
+  return expr && isFuncABIScalarType(expr->type());
+}
+
+auto MLIRGenImpl::isSupportedFuncABIParameterType(const Type *type) const
+    -> bool {
+  return isFuncABIValueType(type);
+}
+
+auto MLIRGenImpl::isSupportedFuncABIReturnType(const Type *type) const
+    -> bool {
+  return isFuncABIValueType(type);
 }
 
 auto MLIRGenImpl::canMaterializeListStorage(const ListType *type) const
@@ -1671,15 +2082,265 @@ auto MLIRGenImpl::getFunctionReturnType(const Type *returnType) const
   return getMLIRType(returnType);
 }
 
+auto MLIRGenImpl::genFuncABIIf(const IfExpr *node) -> mlir::Value {
+  auto condition = castToType(gen(node->conditionExpr().get()),
+                              getFuncABIType(node->conditionExpr().get()),
+                              loc(node->conditionExpr().get()));
+  auto isUnit = cherry::isUnitType(node->type());
+  auto resultType = getFuncABIType(node);
+  mlir::TypeRange resultTypes;
+  llvm::SmallVector<mlir::Type, 1> nonUnitResultTypes;
+  if (!isUnit) {
+    nonUnitResultTypes.push_back(resultType);
+    resultTypes = nonUnitResultTypes;
+  }
+
+  // func.func bodies live in the standard MLIR scalar world. Use scf.if's SSA
+  // result instead of CIR's alloca/store/load pattern.
+  auto ifOp = mlir::scf::IfOp::create(
+      _builder, loc(node), resultTypes, condition, /*withElseRegion=*/true);
+
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    _builder.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    if (isUnit) {
+      gen(node->thenBlock().get());
+    } else {
+      auto thenValue =
+          castToType(gen(node->thenBlock().get()), resultType, loc(node));
+      mlir::scf::YieldOp::create(_builder, loc(node->thenBlock().get()),
+                                 thenValue);
+    }
+  }
+
+  {
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    _builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    if (isUnit) {
+      gen(node->elseBlock().get());
+    } else {
+      auto elseValue =
+          castToType(gen(node->elseBlock().get()), resultType, loc(node));
+      mlir::scf::YieldOp::create(_builder, loc(node->elseBlock().get()),
+                                 elseValue);
+    }
+  }
+
+  return isUnit ? nullptr : ifOp.getResult(0);
+}
+
+auto MLIRGenImpl::genFuncABIFor(const ForExpr *node) -> mlir::Value {
+  auto forLocation = loc(node);
+  auto lowerBound = genIndexValue(node->startExpr().get());
+  auto upperBound = genIndexValue(node->endExpr().get());
+  auto step = mlir::arith::ConstantIndexOp::create(_builder, forLocation, 1);
+
+  auto carriedNames = getFuncABICarriedVariables(node);
+  std::vector<mlir::Value> initArgs;
+  for (const auto &name : carriedNames) {
+    auto value = getVariable(name);
+    if (!value) {
+      emitError(node, "Func ABI loop-carried variable has no SSA value");
+      return nullptr;
+    }
+    initArgs.push_back(value);
+  }
+
+  // Func ABI code is pure SSA. Any assignment to an outer variable inside
+  // scf.for must flow through iter_args; otherwise the loop body would leak a
+  // region-local SSA value to users after the loop.
+  auto loop = mlir::scf::ForOp::create(
+      _builder, forLocation, lowerBound, upperBound, step, initArgs,
+      [&](mlir::OpBuilder &builder, mlir::Location location,
+          mlir::Value inductionVar, mlir::ValueRange iterArgs) {
+        mlir::OpBuilder::InsertionGuard guard(_builder);
+        _builder.setInsertionPointToStart(builder.getInsertionBlock());
+
+        enterVariableScope();
+        setVariable(node->variableName(), inductionVar);
+        for (const auto &value : llvm::enumerate(iterArgs))
+          setVariable(carriedNames[value.index()], value.value());
+
+        gen(node->bodyBlock().get());
+
+        std::vector<mlir::Value> yieldedValues;
+        for (const auto &name : carriedNames)
+          yieldedValues.push_back(getVariable(name));
+        mlir::scf::YieldOp::create(_builder, location, yieldedValues);
+        leaveVariableScope();
+      });
+
+  for (const auto &result : llvm::enumerate(loop.getResults()))
+    assignVariable(carriedNames[result.index()], result.value());
+  return nullptr;
+}
+
+auto MLIRGenImpl::genFuncABIBinary(const BinaryExpr *node) -> mlir::Value {
+  using Operator = BinaryExpr::Operator;
+  auto op = node->opEnum();
+  auto lhsType = getFuncABIType(node->lhs().get());
+  auto rhsType = getFuncABIType(node->rhs().get());
+  auto lhs = castToType(gen(node->lhs().get()), lhsType,
+                        loc(node->lhs().get()));
+  auto rhs = castToType(gen(node->rhs().get()), rhsType,
+                        loc(node->rhs().get()));
+  auto location = loc(node);
+  auto isFloat = llvm::isa<mlir::FloatType>(lhs.getType());
+
+  switch (op) {
+  case Operator::Add:
+    if (isFloat)
+      return mlir::arith::AddFOp::create(_builder, location, lhs, rhs);
+    return mlir::arith::AddIOp::create(_builder, location, lhs, rhs);
+  case Operator::Diff:
+    if (isFloat)
+      return mlir::arith::SubFOp::create(_builder, location, lhs, rhs);
+    return mlir::arith::SubIOp::create(_builder, location, lhs, rhs);
+  case Operator::Mul:
+    if (isFloat)
+      return mlir::arith::MulFOp::create(_builder, location, lhs, rhs);
+    return mlir::arith::MulIOp::create(_builder, location, lhs, rhs);
+  case Operator::Div:
+    if (isFloat)
+      return mlir::arith::DivFOp::create(_builder, location, lhs, rhs);
+    return mlir::arith::DivUIOp::create(_builder, location, lhs, rhs);
+  case Operator::Rem:
+    return mlir::arith::RemUIOp::create(_builder, location, lhs, rhs);
+  case Operator::And:
+    return mlir::arith::AndIOp::create(_builder, location, lhs, rhs);
+  case Operator::Or:
+    return mlir::arith::OrIOp::create(_builder, location, lhs, rhs);
+  case Operator::EQ:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::OEQ, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::eq, lhs, rhs);
+  case Operator::NEQ:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::ONE, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::ne, lhs, rhs);
+  case Operator::LT:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::OLT, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::ult, lhs, rhs);
+  case Operator::LE:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::OLE, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::ule, lhs, rhs);
+  case Operator::GT:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::OGT, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::ugt, lhs, rhs);
+  case Operator::GE:
+    if (isFloat)
+      return mlir::arith::CmpFOp::create(
+          _builder, location, mlir::arith::CmpFPredicate::OGE, lhs, rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, location, mlir::arith::CmpIPredicate::uge, lhs, rhs);
+  }
+
+  llvm_unreachable("Unexpected BinaryExpr operator");
+}
+
+auto MLIRGenImpl::genFuncABIBoolToUInt64(mlir::Value operand,
+                                         mlir::Location location)
+    -> mlir::Value {
+  return mlir::arith::ExtUIOp::create(_builder, location, _builder.getI64Type(),
+                                      operand);
+}
+
+auto MLIRGenImpl::genFuncABISize(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto *argument = expressions.front().get();
+  auto *tensorType = cherry::getTensorType(argument->type());
+  if (!tensorType)
+    return genSize(node);
+
+  auto size = tensorType->shape().front();
+  DBG("size() static tensor size in func ABI: {0}", size);
+  return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
+}
+
+auto MLIRGenImpl::genFuncABIArgument(const Expr *expr, const Type *paramType)
+    -> mlir::Value {
+  if (cherry::isTensorType(paramType))
+    return castToType(gen(expr), getFuncABIType(paramType), loc(expr));
+
+  if (!isFuncABIScalarType(paramType))
+    return castToType(gen(expr), getFuncABIType(paramType), loc(expr));
+
+  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(expr))
+    return genFuncABIScalarLiteral(decimal);
+  if (auto *floating = llvm::dyn_cast<FloatLiteralExpr>(expr))
+    return genFuncABIScalarLiteral(floating);
+  if (auto *boolean = llvm::dyn_cast<BoolLiteralExpr>(expr))
+    return genFuncABIScalarLiteral(boolean);
+
+  auto value = gen(expr);
+  auto targetType = getFuncABIType(paramType);
+  auto converted = castToType(value, targetType, loc(expr));
+  if (!converted)
+    emitError(expr, "cannot convert scalar argument to Tensor function ABI");
+  return converted;
+}
+
+auto MLIRGenImpl::genFuncABIScalarLiteral(const DecimalLiteralExpr *node)
+    -> mlir::Value {
+  auto intType = llvm::cast<mlir::IntegerType>(getFuncABIType(node));
+  return mlir::arith::ConstantIntOp::create(
+      _builder, loc(node), node->value(), intType.getWidth());
+}
+
+auto MLIRGenImpl::genFuncABIScalarLiteral(const FloatLiteralExpr *node)
+    -> mlir::Value {
+  return mlir::arith::ConstantFloatOp::create(
+      _builder, loc(node), llvm::cast<mlir::FloatType>(getFuncABIType(node)),
+      node->value());
+}
+
+auto MLIRGenImpl::genFuncABIScalarLiteral(const BoolLiteralExpr *node)
+    -> mlir::Value {
+  auto boolType = llvm::cast<mlir::IntegerType>(getFuncABIType(node));
+  return mlir::arith::ConstantIntOp::create(
+      _builder, loc(node), node->value(), boolType.getWidth());
+}
+
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
+  auto valueIntType = llvm::dyn_cast<mlir::IntegerType>(value.getType());
+  auto targetIntType = llvm::dyn_cast<mlir::IntegerType>(type);
+  auto valueFloatType = llvm::dyn_cast<mlir::FloatType>(value.getType());
+  auto targetFloatType = llvm::dyn_cast<mlir::FloatType>(type);
   if ((llvm::isa<mlir::IntegerType>(value.getType()) &&
        llvm::isa<cir::IntType>(type)) ||
       (llvm::isa<cir::IntType>(value.getType()) &&
        llvm::isa<mlir::IntegerType>(type))) {
-    return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
+    return BridgeCastOp::create(_builder, location, type, value);
+  }
+
+  if ((valueIntType && valueIntType.getWidth() == 1 &&
+       llvm::isa<cir::BoolType>(type)) ||
+      (llvm::isa<cir::BoolType>(value.getType()) &&
+       targetIntType && targetIntType.getWidth() == 1) ||
+      (valueFloatType && valueFloatType.isF32() &&
+       llvm::isa<cir::SingleType>(type)) ||
+      (llvm::isa<cir::SingleType>(value.getType()) &&
+       targetFloatType && targetFloatType.isF32())) {
+    // Func ABI functions use standard MLIR scalar types, while CIR functions
+    // still use CIR scalar types. The bridge op is erased after both sides are
+    // lowered to the same LLVM scalar type.
+    return BridgeCastOp::create(_builder, location, type, value);
   }
 
   if (llvm::isa<mlir::MemRefType>(value.getType()) &&
@@ -1840,6 +2501,8 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
   }
 
   auto loaded = genMemRefLoadValue(expr);
+  if (isFuncABI() && isFuncABIValueType(expr->type()))
+    return castToType(loaded, getFuncABIType(expr), loc(expr));
   return castToType(loaded, getMLIRType(expr), loc(expr));
 }
 
@@ -1967,6 +2630,12 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> CherryResult {
   if (cherry::isUnitType(varType)) {
     setVariable(varName, nullptr);
     gen(node->init().get());
+    return success();
+  }
+
+  if (isFuncABI() && isFuncABIValueType(varType)) {
+    auto value = gen(node->init().get());
+    setVariable(varName, castToType(value, getFuncABIType(varType), loc(node)));
     return success();
   }
 

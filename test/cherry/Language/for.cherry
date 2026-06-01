@@ -13,10 +13,11 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: cir.const #cir.int<3> : !cir.int<u, 64>
-# CHECK: cir.for
-# CHECK: cir.cmp(lt
-# CHECK: cherry_nn.cast
-# CHECK-SAME: !cir.int<u, 64> to i64
+# CHECK-LABEL: func.func @main() -> i64
+# CHECK: memref.alloc
+# CHECK: scf.for
+# CHECK-SAME: iter_args
 # CHECK: memref.load
-# CHECK: cir.binop(add
+# CHECK: arith.addi
+# CHECK: cherry.print
+# CHECK: return

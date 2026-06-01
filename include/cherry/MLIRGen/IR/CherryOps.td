@@ -37,4 +37,19 @@ def CastOp : Cherry_Op<"cast"> {
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
 
+def BridgeCastOp : Cherry_Op<"bridge_cast"> {
+  let summary = "Bridge cast operation";
+  let description = [{
+    Casts a scalar value between the MLIR scalar world and the CIR scalar world.
+    This is an internal bridge for mixed CIR/func lowering boundaries.
+  }];
+
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
+
+  let hasVerifier = 1;
+}
+
 #endif // CHERRY_OPS

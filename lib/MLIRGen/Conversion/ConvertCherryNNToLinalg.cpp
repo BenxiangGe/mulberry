@@ -240,7 +240,6 @@ struct ConvertCherryNNToLinalg
     target.addLegalDialect<arith::ArithDialect, linalg::LinalgDialect,
                            math::MathDialect, memref::MemRefDialect>();
     target.addIllegalDialect<cherry_nn::CherryNNDialect>();
-    target.addLegalOp<cherry_nn::CastOp>();
 
     RewritePatternSet patterns(&getContext());
     patterns.add<MatmulOpLowering, MataddOpLowering, TransposeOpLowering,

@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -21,6 +20,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "clang/CIR/Dialect/IR/CIRTypes.h"
 
 namespace mlir::cherry {
 
@@ -28,6 +28,22 @@ namespace mlir::cherry {
 #include "cherry/MLIRGen/Conversion/CherryPasses.h.inc"
 
 namespace {
+
+auto isCIRToMLIRScalarBridge(Type resultType, Type originalType) -> bool {
+  if (auto originalIntType = llvm::dyn_cast<cir::IntType>(originalType)) {
+    auto resultIntType = llvm::dyn_cast<IntegerType>(resultType);
+    return resultIntType &&
+           resultIntType.getWidth() == originalIntType.getWidth();
+  }
+
+  if (llvm::isa<cir::BoolType>(originalType)) {
+    auto resultIntType = llvm::dyn_cast<IntegerType>(resultType);
+    return resultIntType && resultIntType.getWidth() == 1;
+  }
+
+  return llvm::isa<cir::SingleType>(originalType) &&
+         llvm::isa<Float32Type>(resultType);
+}
 
 class CastOpLowering : public OpConversionPattern<cherry::CastOp> {
 public:
@@ -41,112 +57,13 @@ public:
     auto loc = op->getLoc();
     auto operand = op.getInput();
     Value newOperand = llvm::isa<MemRefType>(operand.getType())
-                           ? rewriter.create<memref::LoadOp>(loc, operand)
+                           ? memref::LoadOp::create(rewriter, loc, operand)
                            : adaptor.getInput();
 
     auto cast =
-        rewriter.create<LLVM::ZExtOp>(loc, rewriter.getI64Type(), newOperand);
+        LLVM::ZExtOp::create(rewriter, loc, rewriter.getI64Type(), newOperand);
     rewriter.replaceOp(op, cast.getRes());
     return llvm::success();
-  }
-};
-
-class NNCastOpLowering : public OpConversionPattern<cherry_nn::CastOp> {
-public:
-  explicit NNCastOpLowering(LLVMTypeConverter &typeConverter,
-                            MLIRContext *context)
-      : OpConversionPattern<cherry_nn::CastOp>(typeConverter, context) {}
-
-  auto matchAndRewrite(cherry_nn::CastOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    if (!((llvm::isa<IntegerType>(op.getInput().getType()) &&
-           llvm::isa<cir::IntType>(op.getResult().getType())) ||
-          (llvm::isa<cir::IntType>(op.getInput().getType()) &&
-           llvm::isa<IntegerType>(op.getResult().getType()))))
-      return failure();
-
-    rewriter.replaceOp(op, adaptor.getInput());
-    return success();
-  }
-};
-
-class PrintOpLowering : public OpConversionPattern<cherry::PrintOp> {
-public:
-  explicit PrintOpLowering(LLVMTypeConverter &typeConverter,
-                           MLIRContext *context)
-      : OpConversionPattern<cherry::PrintOp>(typeConverter, context) {}
-
-  auto matchAndRewrite(cherry::PrintOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    auto loc = op->getLoc();
-
-    // Get a symbol reference to the printf function, inserting it if necessary.
-    ModuleOp parentModule = op->getParentOfType<ModuleOp>();
-    auto printfRef = getOrInsertPrintf(rewriter, parentModule);
-    Value formatSpecifierCst = getOrCreateGlobalString(
-        loc, rewriter, "frmt_spec", StringRef("%llu\n\0", 6), parentModule);
-
-    auto operand = op.getInput();
-    Value newOperand = llvm::isa<MemRefType>(operand.getType())
-                           ? rewriter.create<memref::LoadOp>(loc, operand)
-                           : adaptor.getInput();
-
-    rewriter.replaceOpWithNewOp<LLVM::CallOp>(
-        op, getPrintfType(rewriter.getContext()), printfRef,
-        ArrayRef<Value>({formatSpecifierCst, newOperand}));
-    return success();
-  }
-
-private:
-  static LLVM::LLVMFunctionType getPrintfType(MLIRContext *context) {
-    auto llvmI32Ty = IntegerType::get(context, 32);
-    auto llvmPtrTy = LLVM::LLVMPointerType::get(context);
-    auto llvmFnType = LLVM::LLVMFunctionType::get(llvmI32Ty, llvmPtrTy,
-                                                  /*isVarArg=*/true);
-    return llvmFnType;
-  }
-
-  static FlatSymbolRefAttr getOrInsertPrintf(PatternRewriter &rewriter,
-                                             ModuleOp module) {
-    auto *context = module.getContext();
-    if (module.lookupSymbol<LLVM::LLVMFuncOp>("printf"))
-      return SymbolRefAttr::get(context, "printf");
-
-    // Insert the printf function into the body of the parent module.
-    PatternRewriter::InsertionGuard insertGuard(rewriter);
-    rewriter.setInsertionPointToStart(module.getBody());
-    rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "printf",
-                                      getPrintfType(context));
-    return SymbolRefAttr::get(context, "printf");
-  }
-
-  /// Return a value representing an access into a global string with the given
-  /// name, creating the string if necessary.
-  static Value getOrCreateGlobalString(Location loc, OpBuilder &builder,
-                                       StringRef name, StringRef value,
-                                       ModuleOp module) {
-    // Create the global at the entry of the module.
-    LLVM::GlobalOp global;
-    if (!(global = module.lookupSymbol<LLVM::GlobalOp>(name))) {
-      OpBuilder::InsertionGuard insertGuard(builder);
-      builder.setInsertionPointToStart(module.getBody());
-      auto type = LLVM::LLVMArrayType::get(
-          IntegerType::get(builder.getContext(), 8), value.size());
-      global = builder.create<LLVM::GlobalOp>(loc, type, /*isConstant=*/true,
-                                              LLVM::Linkage::Internal, name,
-                                              builder.getStringAttr(value));
-    }
-
-    // Get the pointer to the first character in the global string.
-    Value globalPtr = builder.create<LLVM::AddressOfOp>(loc, global);
-    Value cst0 = builder.create<LLVM::ConstantOp>(
-        loc, IntegerType::get(builder.getContext(), 64),
-        builder.getIntegerAttr(builder.getIndexType(), 0));
-    return builder.create<LLVM::GEPOp>(
-        loc, LLVM::LLVMPointerType::get(builder.getContext()), global.getType(),
-        globalPtr, ArrayRef<Value>({cst0, cst0}));
   }
 };
 
@@ -160,6 +77,12 @@ struct ConvertCherryToLLVM
     // Target
     LLVMConversionTarget target(getContext());
     target.addLegalOp<ModuleOp>();
+    // The driver runs this before CIR lowering when Tensor ABI functions use
+    // func.func. Leave the remaining CIR island legal here; ClangIR's own
+    // lowering pass handles it immediately afterwards.
+    target.addLegalDialect<cir::CIRDialect>();
+    target.addLegalOp<BridgeCastOp>();
+    target.addLegalOp<PrintOp>();
 
     // Types conversions
     LLVMTypeConverter typeConverter(&getContext());
@@ -176,6 +99,15 @@ struct ConvertCherryToLLVM
     typeConverter.addConversion([&](cir::VoidType type) -> Type {
       return LLVM::LLVMVoidType::get(type.getContext());
     });
+    typeConverter.addTargetMaterialization(
+        [&](OpBuilder &builder, Type resultType, ValueRange inputs,
+            Location loc, Type originalType) -> Value {
+          if (inputs.size() != 1 ||
+              !isCIRToMLIRScalarBridge(resultType, originalType))
+            return {};
+
+          return BridgeCastOp::create(builder, loc, resultType, inputs.front());
+        });
 
     // Patterns
     RewritePatternSet patterns(&getContext());
@@ -185,8 +117,7 @@ struct ConvertCherryToLLVM
     cf::populateControlFlowToLLVMConversionPatterns(typeConverter, patterns);
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
-    patterns.add<CastOpLowering, NNCastOpLowering, PrintOpLowering>(typeConverter,
-                                                     &getContext());
+    patterns.add<CastOpLowering>(typeConverter, &getContext());
 
     // Conversion
     auto module = getOperation();

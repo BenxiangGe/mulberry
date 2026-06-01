@@ -11,8 +11,7 @@ fn main(): UInt64 {
 
 # MLIR: cherry_nn.argmax
 # MLIR-SAME: memref<4xf32> -> i64
-# MLIR: cherry_nn.cast
-# MLIR-SAME: i64 to !cir.int<u, 64>
+# MLIR: return {{.*}} : i64
 
 # LINALG-NOT: cherry_nn.argmax
 # LINALG: memref.alloc() : memref<f32>
@@ -27,6 +26,6 @@ fn main(): UInt64 {
 # LINALG: arith.index_cast
 
 # LLVM-NOT: cherry_nn.argmax
-# LLVM-NOT: cherry_nn.cast
+# LLVM-NOT: cherry.bridge_cast
 # LLVM: llvm.fcmp "ogt"
 # LLVM: llvm.select

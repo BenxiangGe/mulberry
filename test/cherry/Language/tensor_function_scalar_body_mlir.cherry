@@ -1,0 +1,75 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn choose(values: Float32[2], scale: Float32, enabled: Bool): Float32 {
+  var first: Float32 = values[0];
+  var second: Float32 = values[1];
+  var total: Float32 = first + second * scale;
+  var high: Bool = total gt 2.0;
+  if enabled and high {
+    total / 2.0
+  } else {
+    scale - 1.0
+  }
+}
+
+fn count(values: Float32[2], enabled: Bool): UInt64 {
+  var n: UInt64 = size(values);
+  n + boolToUInt64(enabled)
+}
+
+fn update(values: Float32[2], enabled: Bool): Float32[2] {
+  if enabled {
+    values[0] = 4.0;
+    ()
+  } else {
+    values[0] = 5.0;
+    ()
+  };
+  values
+}
+
+fn main(): UInt64 {
+  var values: Float32[2] = [1.0, 2.0];
+  var out: Float32[2] = update(values, true);
+  var y: Float32 = choose(values, 3.0, true);
+  count(values, true)
+}
+
+# MLIR-LABEL: func.func @choose(%arg0: memref<2xf32>, %arg1: f32, %arg2: i1) -> f32
+# MLIR: arith.mulf
+# MLIR: arith.addf
+# MLIR: arith.cmpf ogt
+# MLIR: arith.andi
+# MLIR: scf.if {{.*}} -> (f32)
+# MLIR: arith.divf
+# MLIR: arith.subf
+# MLIR: return {{.*}} : f32
+# MLIR-LABEL: func.func @count(%arg0: memref<2xf32>, %arg1: i1) -> i64
+# MLIR: arith.constant 2 : i64
+# MLIR: arith.extui {{.*}} : i1 to i64
+# MLIR: arith.addi
+# MLIR: return {{.*}} : i64
+# MLIR-LABEL: func.func @update(%arg0: memref<2xf32>, %arg1: i1) -> memref<2xf32>
+# MLIR: scf.if {{.*}} {
+# MLIR: memref.store
+# MLIR: memref.store
+# MLIR: return %arg0 : memref<2xf32>
+
+# LLVM-LABEL: llvm.func @choose
+# LLVM: llvm.fmul
+# LLVM: llvm.fadd
+# LLVM: llvm.fcmp "ogt"
+# LLVM: llvm.cond_br
+# LLVM: llvm.fdiv
+# LLVM: llvm.fsub
+# LLVM-LABEL: llvm.func @count
+# LLVM: llvm.zext {{.*}} : i1 to i64
+# LLVM: llvm.add
+# LLVM-LABEL: llvm.func @update
+# LLVM: llvm.cond_br
+# LLVM: llvm.store
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @update
+# LLVM: llvm.call @choose
+# LLVM: llvm.call @count
