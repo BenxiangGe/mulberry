@@ -125,6 +125,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::LLVM) {
     pm.addPass(mlir::createConvertLinalgToLoopsPass());
+    pm.addPass(mlir::cherry::createConvertMulberryRecordToCIR());
     cir::direct::populateCIRToLLVMPasses(pm);
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
     pm.addPass(mlir::createCanonicalizerPass());

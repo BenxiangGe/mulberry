@@ -31,4 +31,10 @@ def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
+def ConvertMulberryRecordToCIR
+    : Pass<"convert-mulberry-record-to-cir"> {
+  let summary = "Convert Mulberry record operations to CIR operations";
+  let dependentDialects = ["cir::CIRDialect"];
+}
+
 #endif // CHERRY_PASSES_TD

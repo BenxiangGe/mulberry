@@ -22,6 +22,7 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
+#include "clang/CIR/Dialect/IR/CIRDialect.h"
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
                   mlir::func::FuncDialect, mlir::linalg::LinalgDialect,
                   mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
                   mlir::memref::MemRefDialect, mlir::mulberry::MulberryDialect,
-                  mlir::scf::SCFDialect>();
+                  mlir::scf::SCFDialect, cir::CIRDialect>();
   // Add the following to include *all* MLIR Core dialects, or selectively
   // include what you need like above. You only need to register dialects that
   // will be *parsed* by the tool, not the one generated
