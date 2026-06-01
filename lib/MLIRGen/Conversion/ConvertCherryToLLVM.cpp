@@ -11,6 +11,7 @@
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/LLVMCommon/MemRefBuilder.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
@@ -324,6 +325,65 @@ public:
   }
 };
 
+class MulberryTensorUnpackOpLowering
+    : public OpConversionPattern<mulberry::TensorUnpackOp> {
+public:
+  using OpConversionPattern<mulberry::TensorUnpackOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::TensorUnpackOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto descriptorType =
+        llvm::dyn_cast<mulberry::RecordType>(op.getTensor().getType());
+    auto memRefType = llvm::dyn_cast<MemRefType>(op.getResult().getType());
+    if (!descriptorType || !memRefType)
+      return failure();
+
+    auto sizesType =
+        llvm::dyn_cast_if_present<mulberry::RecordType>(
+            descriptorType.getFieldType("sizes"));
+    auto stridesType =
+        llvm::dyn_cast_if_present<mulberry::RecordType>(
+            descriptorType.getFieldType("strides"));
+    if (!sizesType || !stridesType)
+      return failure();
+
+    auto loc = op.getLoc();
+    auto tensor = adaptor.getTensor();
+    auto allocated = LLVM::ExtractValueOp::create(
+        rewriter, loc, tensor, descriptorType.getFieldIndex("allocated"));
+    auto aligned = LLVM::ExtractValueOp::create(
+        rewriter, loc, tensor, descriptorType.getFieldIndex("aligned"));
+    auto offset = LLVM::ExtractValueOp::create(
+        rewriter, loc, tensor, descriptorType.getFieldIndex("offset"));
+    auto sizes = LLVM::ExtractValueOp::create(
+        rewriter, loc, tensor, descriptorType.getFieldIndex("sizes"));
+    auto strides = LLVM::ExtractValueOp::create(
+        rewriter, loc, tensor, descriptorType.getFieldIndex("strides"));
+
+    // Rebuild the LLVM memref descriptor from Mulberry's named descriptor.
+    // MLIR represents ranked memrefs as:
+    // {allocated, aligned, offset, sizes[rank], strides[rank]}.
+    // See mlir/lib/Conversion/LLVMCommon/MemRefDescriptor.h.
+    std::vector<Value> descriptorFields = {allocated, aligned, offset};
+    for (unsigned i = 0; i < sizesType.getNumFields(); ++i) {
+      descriptorFields.push_back(
+          LLVM::ExtractValueOp::create(rewriter, loc, sizes, i));
+    }
+    for (unsigned i = 0; i < stridesType.getNumFields(); ++i) {
+      descriptorFields.push_back(
+          LLVM::ExtractValueOp::create(rewriter, loc, strides, i));
+    }
+
+    auto memRefDescriptor = MemRefDescriptor::pack(
+        rewriter, loc, *static_cast<const LLVMTypeConverter *>(
+                           getTypeConverter()),
+        memRefType, descriptorFields);
+    rewriter.replaceOp(op, memRefDescriptor);
+    return success();
+  }
+};
+
 struct ConvertCherryToLLVM
     : public impl::ConvertCherryToLLVMBase<ConvertCherryToLLVM> {
 
@@ -381,7 +441,8 @@ struct ConvertCherryToLLVM
         .add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
              MulberryAllocaOpLowering, MulberryLoadOpLowering,
              MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering,
-             MulberryRecordCreateOpLowering, MulberryTensorPackOpLowering>(
+             MulberryRecordCreateOpLowering, MulberryTensorPackOpLowering,
+             MulberryTensorUnpackOpLowering>(
             typeConverter, &getContext());
 
     // Conversion

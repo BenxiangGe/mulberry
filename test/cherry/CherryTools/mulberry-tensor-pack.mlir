@@ -1,5 +1,6 @@
 // RUN: cherry-opt %s | FileCheck %s --check-prefix=ROUNDTRIP
 // RUN: cherry-opt --canonicalize %s | FileCheck %s --check-prefix=CANON
+// RUN: cherry-opt --convert-cherry-to-llvm %s | FileCheck %s --check-prefix=LLVM
 
 module {
   func.func @pack_unpack(%tensor: memref<30x?xf32>)
@@ -19,3 +20,12 @@ module {
 // CANON: return %[[TENSOR]] : memref<30x?xf32>
 // CANON-NOT: mulberry.tensor.pack
 // CANON-NOT: mulberry.tensor.unpack
+
+// LLVM-LABEL: llvm.func @pack_unpack
+// LLVM: llvm.extractvalue {{.*}}[3] : !llvm.struct<(ptr, ptr, i64, struct<(i64, i64)>, struct<(i64, i64)>)>
+// LLVM: llvm.extractvalue {{.*}}[4] : !llvm.struct<(ptr, ptr, i64, struct<(i64, i64)>, struct<(i64, i64)>)>
+// LLVM: llvm.extractvalue {{.*}}[0] : !llvm.struct<(i64, i64)>
+// LLVM: llvm.extractvalue {{.*}}[1] : !llvm.struct<(i64, i64)>
+// LLVM: llvm.insertvalue {{.*}}[3, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+// LLVM: llvm.insertvalue {{.*}}[4, 0] : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>
+// LLVM-NOT: mulberry.tensor.unpack
