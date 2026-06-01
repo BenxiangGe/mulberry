@@ -28,7 +28,7 @@ def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
 
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let summary = "Convert Cherry ops to llvm ops";
-  let dependentDialects = ["LLVM::LLVMDialect"];
+  let dependentDialects = ["cf::ControlFlowDialect", "LLVM::LLVMDialect"];
 }
 
 def ConvertMulberryRecordToCIR

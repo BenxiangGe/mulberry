@@ -1,0 +1,50 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir %s 2>&1 | cherry-opt --convert-cherry-nn-to-linalg --convert-linalg-to-loops --convert-cherry-to-llvm | FileCheck %s --check-prefix=LLVM
+
+fn best(xs: Float32[2]): UInt64 {
+  argmax(xs)
+}
+
+fn echo(xs: Float32[2]): Float32[2] {
+  xs
+}
+
+fn main(): UInt64 {
+  var xs: Float32[2] = [1.0, 2.0];
+  var ys: Float32[2] = echo(xs);
+  best(ys)
+}
+
+# MLIR-LABEL: func.func @best
+# MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR: mulberry.tensor.unpack
+# MLIR-SAME: -> memref<2xf32>
+# MLIR: cherry_nn.argmax
+
+# MLIR-LABEL: func.func @echo
+# MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR: mulberry.tensor.unpack
+# MLIR-SAME: -> memref<2xf32>
+# MLIR: mulberry.tensor.pack
+# MLIR-SAME: memref<2xf32> -> !mulberry.record<TensorDescriptorFloat32Rank1
+
+# MLIR-LABEL: func.func @main
+# MLIR: mulberry.tensor.pack
+# MLIR-SAME: memref<2xf32> -> !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR: call @echo
+# MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR: mulberry.tensor.unpack
+# MLIR-SAME: -> memref<2xf32>
+# MLIR: call @best
+# MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+
+# LLVM-LABEL: llvm.func @best
+# LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM-LABEL: llvm.func @echo
+# LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @echo
+# LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM: llvm.call @best
+# LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM-NOT: mulberry.

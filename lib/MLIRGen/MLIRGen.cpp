@@ -36,6 +36,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 using namespace mlir::cherry;
@@ -56,6 +57,8 @@ using NameMap = std::map<std::string, T, std::less<>>;
 struct FunctionInfo {
   mlir::Operation *op = nullptr;
   bool usesFuncDialect = false;
+  std::vector<const Type *> parameterTypes;
+  const Type *returnType = nullptr;
 };
 
 class MLIRGenImpl {
@@ -144,11 +147,15 @@ private:
   }
 
   void setFunction(std::string_view name, mlir::Operation *op,
-                   bool usesFuncDialect) {
-    setSymbol(_functionsByName, name, FunctionInfo{op, usesFuncDialect});
+                   bool usesFuncDialect,
+                   std::vector<const Type *> parameterTypes,
+                   const Type *returnType) {
+    setSymbol(_functionsByName, name,
+              FunctionInfo{op, usesFuncDialect, std::move(parameterTypes),
+                           returnType});
   }
 
-  auto findFunction(std::string_view name) {
+  auto findFunction(std::string_view name) const {
     return _functionsByName.find(name);
   }
 
@@ -186,8 +193,13 @@ private:
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
+  auto getFunctionBoundaryType(const Type *type) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
+  auto createTensorPack(mlir::Value tensor, const TensorType *type,
+                        mlir::Location location) -> mlir::Value;
+  auto createTensorUnpack(mlir::Value descriptor, const TensorType *type,
+                          mlir::Location location) -> mlir::Value;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
   auto isConstantTensorData(const TensorLiteralExpr *expr) -> bool;
   auto shouldPromoteConstTensorData(const TensorLiteralExpr *expr) -> bool;
@@ -197,7 +209,10 @@ private:
                               mlir::Type elementType,
                               llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   auto getFunctionReturnType(const Type *returnType) const -> mlir::Type;
-  auto needsFuncDialectFunction(const Prototype *node) const -> bool;
+  auto needsFuncDialectFunction(const FunctionDecl *node) const -> bool;
+  auto usesFuncDialectCallee(const Expr *node) const -> bool;
+  auto usesFuncDialectCallee(const BlockExpr *node) const -> bool;
+  auto usesFuncDialectCallee(const Stat *node) const -> bool;
 
   // Utility
   auto loc(const Node *node) -> mlir::Location {
@@ -253,14 +268,16 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
 
 auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
   llvm::SmallVector<mlir::Type, 3> argTypes;
+  std::vector<const Type *> parameterTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
-    argTypes.push_back(getMLIRType(paramType));
+    parameterTypes.push_back(paramType);
+    argTypes.push_back(getFunctionBoundaryType(paramType));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  auto usesFuncDialect = needsFuncDialectFunction(node);
+  auto usesFuncDialect = _currentFunctionUsesFuncDialect;
   _currentFunctionUsesFuncDialect = usesFuncDialect;
 
   mlir::Operation *funcOp = nullptr;
@@ -271,7 +288,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
     // after mulberry.record has become cir.record.
     llvm::SmallVector<mlir::Type, 1> resultTypes;
     if (!cherry::isUnitType(returnType))
-      resultTypes.push_back(getMLIRType(returnType));
+      resultTypes.push_back(getFunctionBoundaryType(returnType));
 
     auto funcType = _builder.getFunctionType(argTypes, resultTypes);
     mlir::OperationState state(loc(node),
@@ -298,7 +315,8 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
     auto value = std::get<1>(varValue);
     auto *paramType = var->type();
     if (cherry::isTensorType(paramType)) {
-      setVariable(varName, value);
+      auto *tensorType = cherry::getTensorType(paramType);
+      setVariable(varName, createTensorUnpack(value, tensorType, loc(node)));
       continue;
     }
     if (cherry::isUnitType(paramType)) {
@@ -314,7 +332,8 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
     createStore(value, alloca, loc(node));
   }
 
-  setFunction(funcName, funcOp, usesFuncDialect);
+  setFunction(funcName, funcOp, usesFuncDialect, std::move(parameterTypes),
+              returnType);
 
   DBG("funcName: {0}", funcName);
 
@@ -323,6 +342,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
 
 auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   resetVariableScopes();
+  _currentFunctionUsesFuncDialect = needsFuncDialectFunction(node);
   auto func = gen(node->proto().get());
 
   auto value = gen(node->body().get());
@@ -330,7 +350,10 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   auto location = loc(node->body()->expression().get());
   if (value) {
     auto *returnType = node->proto()->type();
-    value = castToType(value, getMLIRType(returnType), location);
+    if (auto *tensorType = cherry::getTensorType(returnType))
+      value = createTensorPack(value, tensorType, location);
+    else
+      value = castToType(value, getFunctionBoundaryType(returnType), location);
     llvm::SmallVector<mlir::Value, 1> returnValues{value};
     if (_currentFunctionUsesFuncDialect)
       mlir::func::ReturnOp::create(_builder, location, returnValues);
@@ -566,15 +589,12 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   if (name == builtins::size)
     return genSize(node);
 
-  llvm::SmallVector<mlir::Value, 4> operands;
-  for (auto &expr : *node) {
-    auto value = gen(expr.get());
-    DBG("gen(CallExpr). value: {0}", value);
-    operands.push_back(value);
-  }
-
-  if (name == builtins::boolToUInt64)
+  if (name == builtins::boolToUInt64) {
+    llvm::SmallVector<mlir::Value, 1> operands;
+    for (auto &expr : *node)
+      operands.push_back(gen(expr.get()));
     return CastOp::create(_builder, loc(node), operands.front());
+  }
 
   auto calleeOpIter = findFunction(node->name());
   if (calleeOpIter == _functionsByName.end()) {
@@ -583,23 +603,47 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return nullptr;
   }
 
+  const auto &calleeInfo = calleeOpIter->second;
+  llvm::SmallVector<mlir::Value, 4> operands;
+  auto &expressions = node->expressions();
+  for (size_t i = 0; i < expressions.size(); ++i) {
+    auto value = gen(expressions[i].get());
+    if (auto *tensorType =
+            cherry::getTensorType(calleeInfo.parameterTypes[i])) {
+      value = createTensorPack(value, tensorType, loc(expressions[i].get()));
+    }
+    DBG("gen(CallExpr). value: {0}", value);
+    operands.push_back(value);
+  }
+
   auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
-  auto callResultType = isUnitCall ? mlir::Type{} : getMLIRType(node);
-  if (calleeOpIter->second.usesFuncDialect) {
+  auto callResultType =
+      isUnitCall ? mlir::Type{} : getFunctionBoundaryType(node->type());
+  if (calleeInfo.usesFuncDialect) {
     llvm::SmallVector<mlir::Type, 1> callResultTypes;
     if (!isUnitCall)
       callResultTypes.push_back(callResultType);
 
     auto callOp = mlir::func::CallOp::create(_builder, loc(node), name,
                                              callResultTypes, operands);
-    return isUnitCall ? nullptr : callOp.getResult(0);
+    if (isUnitCall)
+      return nullptr;
+    auto result = callOp.getResult(0);
+    if (auto *tensorType = cherry::getTensorType(calleeInfo.returnType))
+      return createTensorUnpack(result, tensorType, loc(node));
+    return result;
   }
 
   auto callOp = cir::CallOp::create(_builder, loc(node), callee, callResultType,
                                     operands);
 
-  return isUnitCall ? nullptr : callOp.getResult();
+  if (isUnitCall)
+    return nullptr;
+  auto result = callOp.getResult();
+  if (auto *tensorType = cherry::getTensorType(calleeInfo.returnType))
+    return createTensorUnpack(result, tensorType, loc(node));
+  return result;
 }
 
 auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
@@ -1046,6 +1090,15 @@ auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
 }
 
+auto MLIRGenImpl::getFunctionBoundaryType(const Type *type) const
+    -> mlir::Type {
+  // Tensor functions pass a single descriptor value across the call boundary;
+  // function bodies still use memrefs because NN/linalg ops operate on memrefs.
+  if (auto *tensorType = cherry::getTensorType(type))
+    return _typeConverter.convertTensorDescriptor(*tensorType);
+  return getMLIRType(type);
+}
+
 auto MLIRGenImpl::getMemRefType(const Type *type) const
     -> mlir::MemRefType {
   return llvm::dyn_cast_if_present<mlir::MemRefType>(getMLIRType(type));
@@ -1053,6 +1106,22 @@ auto MLIRGenImpl::getMemRefType(const Type *type) const
 
 auto MLIRGenImpl::getMemRefType(const Expr *expr) const -> mlir::MemRefType {
   return getMemRefType(expr->type());
+}
+
+auto MLIRGenImpl::createTensorPack(mlir::Value tensor,
+                                   const TensorType *type,
+                                   mlir::Location location) -> mlir::Value {
+  auto descriptorType = _typeConverter.convertTensorDescriptor(*type);
+  return mlir::mulberry::TensorPackOp::create(_builder, location,
+                                              descriptorType, tensor);
+}
+
+auto MLIRGenImpl::createTensorUnpack(mlir::Value descriptor,
+                                     const TensorType *type,
+                                     mlir::Location location) -> mlir::Value {
+  auto memRefType = getMemRefType(type);
+  return mlir::mulberry::TensorUnpackOp::create(_builder, location,
+                                                memRefType, descriptor);
 }
 
 auto MLIRGenImpl::getTensorElementCount(mlir::MemRefType memRefType)
@@ -1132,18 +1201,109 @@ auto MLIRGenImpl::getFunctionReturnType(const Type *returnType) const
   return getMLIRType(returnType);
 }
 
-auto MLIRGenImpl::needsFuncDialectFunction(const Prototype *node) const
+auto MLIRGenImpl::needsFuncDialectFunction(const FunctionDecl *node) const
     -> bool {
-  // Only Mulberry records currently need the temporary func.func boundary.
-  // Other Cherry types can still be verified directly by CIR.
-  if (containsMulberryRecordType(getMLIRType(node->type())))
+  auto *proto = node->proto().get();
+  // Tensors use a Mulberry record descriptor at function boundaries, while
+  // function bodies still operate on memrefs for NN/linalg lowering.
+  if (containsMulberryRecordType(getFunctionBoundaryType(proto->type())))
     return true;
 
-  for (auto &param : node->parameters())
-    if (containsMulberryRecordType(getMLIRType(param->type())))
+  for (auto &param : proto->parameters())
+    if (containsMulberryRecordType(getFunctionBoundaryType(param->type())))
       return true;
 
-  return false;
+  // A cir.func body cannot directly call a func.func callee. If this function
+  // calls a Tensor ABI function, keep the caller in func.func too.
+  return usesFuncDialectCallee(node->body().get());
+}
+
+auto MLIRGenImpl::usesFuncDialectCallee(const Expr *node) const -> bool {
+  if (!node)
+    return false;
+
+  return llvm::TypeSwitch<const Expr *, bool>(node)
+      .Case<BlockExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr);
+      })
+      .Case<CallExpr>([&](const auto *expr) {
+        auto callee = findFunction(expr->name());
+        if (callee != _functionsByName.end() &&
+            callee->second.usesFuncDialect)
+          return true;
+        for (auto &argument : expr->expressions())
+          if (usesFuncDialectCallee(argument.get()))
+            return true;
+        return false;
+      })
+      .Case<StructLiteralExpr>([&](const auto *expr) {
+        for (auto &field : expr->expressions())
+          if (usesFuncDialectCallee(field.get()))
+            return true;
+        return false;
+      })
+      .Case<TensorLiteralExpr>([&](const auto *expr) {
+        for (auto &element : expr->getElements())
+          if (usesFuncDialectCallee(element.get()))
+            return true;
+        return false;
+      })
+      .Case<TensorAccessExpr>([&](const auto *expr) {
+        for (auto &index : expr->getIndices())
+          if (usesFuncDialectCallee(index.get()))
+            return true;
+        return false;
+      })
+      .Case<MemberExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->base().get());
+      })
+      .Case<AssignExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->lhs().get()) ||
+               usesFuncDialectCallee(expr->rhs().get());
+      })
+      .Case<BinaryExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->lhs().get()) ||
+               usesFuncDialectCallee(expr->rhs().get());
+      })
+      .Case<IfExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->conditionExpr().get()) ||
+               usesFuncDialectCallee(expr->thenBlock().get()) ||
+               usesFuncDialectCallee(expr->elseBlock().get());
+      })
+      .Case<WhileExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->conditionExpr().get()) ||
+               usesFuncDialectCallee(expr->bodyBlock().get());
+      })
+      .Case<ForExpr>([&](const auto *expr) {
+        return usesFuncDialectCallee(expr->startExpr().get()) ||
+               usesFuncDialectCallee(expr->endExpr().get()) ||
+               usesFuncDialectCallee(expr->bodyBlock().get());
+      })
+      .Default([](const Expr *) { return false; });
+}
+
+auto MLIRGenImpl::usesFuncDialectCallee(const BlockExpr *node) const
+    -> bool {
+  if (!node)
+    return false;
+
+  for (auto &stat : *node)
+    if (usesFuncDialectCallee(stat.get()))
+      return true;
+  return usesFuncDialectCallee(node->expression().get());
+}
+
+auto MLIRGenImpl::usesFuncDialectCallee(const Stat *node) const -> bool {
+  if (!node)
+    return false;
+
+  return llvm::TypeSwitch<const Stat *, bool>(node)
+      .Case<VariableStat>([&](const auto *stat) {
+        return usesFuncDialectCallee(stat->init().get());
+      })
+      .Case<ExprStat>([&](const auto *stat) {
+        return usesFuncDialectCallee(stat->expression().get());
+      });
 }
 
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
