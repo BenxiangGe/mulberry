@@ -35,6 +35,8 @@ def CastOp : Cherry_Op<"cast"> {
   let results = (outs AnyType:$result);
 
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
+
+  let hasVerifier = 1;
 }
 
 #endif // CHERRY_OPS
