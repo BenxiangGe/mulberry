@@ -1,7 +1,4 @@
-# _______________________________________________________
-# JIT
-# RUN: cherry-driver %s 2>&1 | FileCheck %s
-# _______________________________________________________
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 struct A { }
 
@@ -27,7 +24,10 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: 1
-# CHECK: 11
-# CHECK: 2
-# CHECK: 22
+# CHECK: !mulberry.record<C
+# CHECK-SAME: !mulberry.record<B
+# CHECK-SAME: !mulberry.record<A {}
+# CHECK: mulberry.record.get_field
+# CHECK: mulberry.store
+# CHECK: cherry.print
+# CHECK-NOT: cir.

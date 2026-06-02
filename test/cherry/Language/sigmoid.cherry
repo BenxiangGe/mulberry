@@ -1,6 +1,5 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: cherry-driver -dump=linalg %s 2>&1 | FileCheck %s --check-prefix=LINALG
-# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 
 fn main(): UInt64 {
   var a: Float32[2, 3] = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
@@ -20,9 +19,3 @@ fn main(): UInt64 {
 # LINALG: math.exp
 # LINALG: arith.addf
 # LINALG: arith.divf
-
-# LLVM-NOT: math.exp
-# LLVM: llvm.fneg
-# LLVM: llvm.intr.exp
-# LLVM: llvm.fadd
-# LLVM: llvm.fdiv

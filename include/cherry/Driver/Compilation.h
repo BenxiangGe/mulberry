@@ -10,7 +10,6 @@
 
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/SourceMgr.h"
 
 namespace mlir {
@@ -19,7 +18,6 @@ class ModuleOp;
 } // end namespace mlir
 
 namespace llvm {
-class Module;
 } // end namespace llvm
 
 namespace cherry {
@@ -51,12 +49,10 @@ private:
   llvm::SourceMgr _sourceManager;
   bool _enableOpt;
   mlir::MLIRContext _mlirContext;
-  std::unique_ptr<llvm::LLVMContext> _llvmContext;
 
   auto parse(std::unique_ptr<Module> &module) -> CherryResult;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
       -> CherryResult;
-  auto genLLVM(std::unique_ptr<llvm::Module> &llvmModule) -> CherryResult;
 };
 
 } // end namespace cherry

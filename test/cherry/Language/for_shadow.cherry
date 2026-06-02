@@ -1,4 +1,4 @@
-# RUN: cherry-driver %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
   var i: UInt64 = 7;
@@ -13,7 +13,11 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: 7
-# CHECK: 0
-# CHECK: 1
-# CHECK: 7
+# CHECK: %[[INNER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: arith.constant 7 : i64
+# CHECK: mulberry.store {{.*}}, %[[OUTER]] : i64, !mulberry.ptr<i64>
+# CHECK: scf.for unsigned
+# CHECK: mulberry.store {{.*}}, %[[INNER]] : i64, !mulberry.ptr<i64>
+# CHECK: mulberry.load %[[OUTER]] : !mulberry.ptr<i64> -> i64
+# CHECK-NOT: cir.

@@ -13,6 +13,8 @@
 #include "cherry/Basic/ScopeStack.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/CherryOps.h"
+#include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -24,9 +26,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Verifier.h"
-#include "clang/CIR/Dialect/Builder/CIRBaseBuilder.h"
-#include "clang/CIR/Dialect/IR/CIRDialect.h"
-#include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <functional>
@@ -66,15 +65,15 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
-  NameMap<cir::FuncOp> _functionsByName;
+  NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
-  auto gen(const Prototype *node) -> cir::FuncOp;
-  auto gen(const FunctionDecl *node) -> cir::FuncOp;
+  auto gen(const Prototype *node) -> mlir::func::FuncOp;
+  auto gen(const FunctionDecl *node) -> mlir::func::FuncOp;
   auto gen(const StructDecl *node) -> void;
 
   // Expressions
@@ -106,8 +105,6 @@ private:
   auto gen(const VariableStat *node) -> void;
   auto gen(const ExprStat *node) -> void;
 
-  auto getAlignOne() -> mlir::IntegerAttr;
-
   template <typename T>
   void setSymbol(NameMap<T> &symbols, std::string_view name, T value) {
     symbols[std::string(name)] = value;
@@ -134,7 +131,7 @@ private:
     return {};
   }
 
-  void setFunction(std::string_view name, cir::FuncOp func) {
+  void setFunction(std::string_view name, mlir::func::FuncOp func) {
     setSymbol(_functionsByName, name, func);
   }
 
@@ -145,6 +142,15 @@ private:
   auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType,
                         mlir::Value targetPtr) -> mlir::Value;
+  auto getPtrType(mlir::Type elementType) const -> mlir::mulberry::PtrType;
+  auto createAlloca(mlir::Type mlirType, mlir::Location location)
+      -> mlir::Value;
+  auto createLoad(mlir::Value ptr, mlir::Type type, mlir::Location location)
+      -> mlir::Value;
+  void createStore(mlir::Value value, mlir::Value ptr,
+                   mlir::Location location);
+  auto createStructFieldPtr(mlir::Value recordPtr, const StructField& field,
+                            mlir::Location location) -> mlir::Value;
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
   auto genGlobalTensorLiteral(const TensorLiteralExpr *expr,
                               std::string_view varName) -> mlir::Value;
@@ -176,8 +182,6 @@ private:
   void collectTensorDataAttrs(const TensorLiteralExpr *expr,
                               mlir::Type elementType,
                               llvm::SmallVectorImpl<mlir::Attribute> &attrs);
-  auto getFunctionReturnType(const Type *returnType) const -> mlir::Type;
-
   // Utility
   auto loc(const Node *node) -> mlir::Location {
     auto [line, col] = _sourceManager.getLineAndColumn(node->location());
@@ -185,17 +189,6 @@ private:
         _builder.getStringAttr(_fileNameIdentifier), line, col);
   }
 
-  auto createEntryBlockAlloca(mlir::Type mlirType, mlir::Location loc)
-      -> mlir::Value {
-    mlir::Type ptrTy = cir::PointerType::get(mlirType);
-    cir::AllocaOp alloca = cir::AllocaOp::create(_builder, loc, ptrTy, mlirType,
-                                                 "", getAlignOne());
-
-    auto *parentBlock = alloca.getOperation()->getBlock();
-    alloca.getOperation()->moveBefore(&parentBlock->front());
-
-    return alloca;
-  }
 };
 
 } // end namespace
@@ -230,7 +223,7 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
   }
 }
 
-auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
@@ -239,11 +232,13 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  auto funcType = cir::FuncType::get(argTypes,
-                                     getFunctionReturnType(returnType));
-  mlir::OperationState state(loc(node), cir::FuncOp::getOperationName());
-  cir::FuncOp::build(_builder, state, funcName, funcType);
-  auto func = llvm::cast<cir::FuncOp>(mlir::Operation::create(state));
+  llvm::SmallVector<mlir::Type, 1> resultTypes;
+  if (!cherry::isUnitType(returnType))
+    resultTypes.push_back(getMLIRType(returnType));
+  auto funcType = _builder.getFunctionType(argTypes, resultTypes);
+  mlir::OperationState state(loc(node), mlir::func::FuncOp::getOperationName());
+  mlir::func::FuncOp::build(_builder, state, funcName, funcType);
+  auto func = llvm::cast<mlir::func::FuncOp>(mlir::Operation::create(state));
 
   auto &entryBlock = *func.addEntryBlock();
   _builder.setInsertionPointToStart(&entryBlock);
@@ -262,14 +257,9 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
       continue;
     }
 
-    auto alloca =
-        createEntryBlockAlloca(getMLIRType(paramType), loc(node));
+    auto alloca = createAlloca(getMLIRType(paramType), loc(node));
     setVariable(varName, alloca);
-    cir::StoreOp::create(_builder, loc(node), value, alloca,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
+    createStore(value, alloca, loc(node));
   }
 
   setFunction(funcName, func);
@@ -279,7 +269,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> cir::FuncOp {
   return func;
 }
 
-auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
+auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
   resetVariableScopes();
   auto func = gen(node->proto().get());
 
@@ -290,9 +280,9 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> cir::FuncOp {
     auto *returnType = node->proto()->type();
     value = castToType(value, getMLIRType(returnType), location);
     llvm::SmallVector<mlir::Value, 1> returnValues{value};
-    cir::ReturnOp::create(_builder, location, returnValues);
+    mlir::func::ReturnOp::create(_builder, location, returnValues);
   } else {
-    cir::ReturnOp::create(_builder, location);
+    mlir::func::ReturnOp::create(_builder, location);
   }
 
   return func;
@@ -363,80 +353,54 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
   auto cond = gen(node->conditionExpr().get());
 
   if (cherry::isUnitType(node->type())) {
-    cir::IfOp::create(
+    mlir::scf::IfOp::create(
         _builder, loc(node), cond,
-        /*withElseRegion=*/true,
-
-        /*thenBuilder=*/
-        [&](mlir::OpBuilder &b, mlir::Location loc) {
+        [&](mlir::OpBuilder &builder, mlir::Location location) {
           gen(node->thenBlock().get());
-          cir::YieldOp::create(b, loc);
+          mlir::scf::YieldOp::create(builder, location);
         },
-
-        /*elseBuilder=*/
-        [&](mlir::OpBuilder &b, mlir::Location loc) {
+        [&](mlir::OpBuilder &builder, mlir::Location location) {
           gen(node->elseBlock().get());
-          cir::YieldOp::create(b, loc);
+          mlir::scf::YieldOp::create(builder, location);
         });
     return nullptr;
   }
 
   auto resultType = getMLIRType(node);
-  auto ptrType = cir::PointerType::get(_builder.getContext(), resultType);
-  cir::AllocaOp ifYieldResult =
-      cir::AllocaOp::create(_builder, loc(node), ptrType, resultType,
-                            "if_yield_result", getAlignOne());
+  auto ifOp = mlir::scf::IfOp::create(
+      _builder, loc(node), mlir::TypeRange{resultType}, cond,
+      /*withElseRegion=*/true);
 
-  cir::IfOp::create(
-      _builder, loc(node), cond,
-      /*withElseRegion=*/true,
+  _builder.setInsertionPointToStart(ifOp.thenBlock());
+  auto thenValue = gen(node->thenBlock().get());
+  mlir::scf::YieldOp::create(_builder, loc(node->thenBlock().get()),
+                             thenValue);
 
-      /*thenBuilder=*/
-      [&](mlir::OpBuilder &b, mlir::Location loc) {
-        auto thenBlock = node->thenBlock().get();
-        auto thenValue = gen(thenBlock);
-        cir::StoreOp::create(b, loc, thenValue, ifYieldResult,
-                             /*isVolatile=*/false,
-                             /*alignment=*/mlir::IntegerAttr{},
-                             /*sync_scope=*/cir::SyncScopeKindAttr(),
-                             /*mem-order=*/cir::MemOrderAttr());
+  _builder.setInsertionPointToStart(ifOp.elseBlock());
+  auto elseValue = gen(node->elseBlock().get());
+  mlir::scf::YieldOp::create(_builder, loc(node->elseBlock().get()),
+                             elseValue);
 
-        cir::YieldOp::create(b, loc);
-      },
+  _builder.setInsertionPointAfter(ifOp);
 
-      /*elseBuilder=*/
-      [&](mlir::OpBuilder &b, mlir::Location loc) {
-        auto elseBlock = node->elseBlock().get();
-        auto elseValue = gen(elseBlock);
-        cir::StoreOp::create(b, loc, elseValue, ifYieldResult,
-                             /*isVolatile=*/false,
-                             /*alignment=*/mlir::IntegerAttr{},
-                             /*sync_scope=*/cir::SyncScopeKindAttr(),
-                             /*mem-order=*/cir::MemOrderAttr());
-
-        cir::YieldOp::create(b, loc);
-      });
-
-  // return cir::LoadOp::create(_builder, loc(node), resultType, ifYieldResult);
-  return cir::LoadOp::create(_builder, loc(node), {ifYieldResult});
+  return ifOp.getResult(0);
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
-  auto conditionExprBuilder = [&](mlir::OpBuilder &builder,
-                                  mlir::Location location) {
-    auto cond = gen(node->conditionExpr().get());
-    cir::ConditionOp::create(builder, loc(node->conditionExpr().get()), cond);
-  };
-
   auto bodyBlock = node->bodyBlock().get();
-  auto bodyExprBuilder = [&](mlir::OpBuilder &builder,
-                             mlir::Location location) {
-    gen(bodyBlock);
-    cir::YieldOp::create(builder, loc(bodyBlock->expression().get()));
-  };
-
-  cir::WhileOp::create(_builder, loc(node), conditionExprBuilder,
-                       bodyExprBuilder);
+  mlir::scf::WhileOp::create(
+      _builder, loc(node), mlir::TypeRange{}, mlir::ValueRange{},
+      [&](mlir::OpBuilder &builder, mlir::Location location,
+          mlir::ValueRange args) {
+        auto cond = gen(node->conditionExpr().get());
+        mlir::scf::ConditionOp::create(builder, location, cond,
+                                       mlir::ValueRange{});
+      },
+      [&](mlir::OpBuilder &builder, mlir::Location location,
+          mlir::ValueRange args) {
+        gen(bodyBlock);
+        mlir::scf::YieldOp::create(builder, location);
+      });
 
   return nullptr;
 }
@@ -444,57 +408,30 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
   auto forLocation = loc(node);
   auto inductionType = getMLIRType(node->startExpr().get());
-  auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
+  auto inductionPtr = createAlloca(inductionType, forLocation);
 
   auto startValue =
       castToType(gen(node->startExpr().get()), inductionType, forLocation);
   auto endValue =
       castToType(gen(node->endExpr().get()), inductionType, forLocation);
-  auto oneValue =
-      cir::ConstantOp::create(_builder, forLocation,
-                              cir::IntAttr::get(inductionType, 1));
-
-  cir::StoreOp::create(_builder, forLocation, startValue, inductionPtr,
-                       /*isVolatile=*/false,
-                       /*alignment=*/mlir::IntegerAttr{},
-                       /*sync_scope=*/cir::SyncScopeKindAttr(),
-                       /*mem-order=*/cir::MemOrderAttr());
+  auto intType = llvm::cast<mlir::IntegerType>(inductionType);
+  auto oneValue = mlir::arith::ConstantIntOp::create(
+      _builder, forLocation, 1, intType.getWidth());
 
   enterVariableScope();
   setVariable(node->variableName(), inductionPtr);
 
-  auto conditionExprBuilder = [&](mlir::OpBuilder &builder,
-                                  mlir::Location location) {
-    auto currentValue =
-        cir::LoadOp::create(builder, location, inductionPtr);
-    auto cond = cir::CmpOp::create(builder, location, cir::CmpOpKind::lt,
-                                   currentValue, endValue);
-    cir::ConditionOp::create(builder, location, cond);
-  };
-
   auto bodyBlock = node->bodyBlock().get();
-  auto bodyExprBuilder = [&](mlir::OpBuilder &builder,
-                             mlir::Location location) {
-    gen(bodyBlock);
-    cir::YieldOp::create(builder, loc(bodyBlock->expression().get()));
-  };
-
-  auto stepExprBuilder = [&](mlir::OpBuilder &builder,
-                             mlir::Location location) {
-    auto currentValue =
-        cir::LoadOp::create(builder, location, inductionPtr);
-    auto nextValue = cir::BinOp::create(builder, location, cir::BinOpKind::Add,
-                                        currentValue, oneValue);
-    cir::StoreOp::create(builder, location, nextValue, inductionPtr,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
-    cir::YieldOp::create(builder, location);
-  };
-
-  cir::ForOp::create(_builder, forLocation, conditionExprBuilder,
-                     bodyExprBuilder, stepExprBuilder);
+  mlir::scf::ForOp::create(
+      _builder, forLocation, startValue, endValue, oneValue,
+      mlir::ValueRange{},
+      [&](mlir::OpBuilder &builder, mlir::Location location,
+          mlir::Value inductionValue, mlir::ValueRange args) {
+        createStore(inductionValue, inductionPtr, location);
+        gen(bodyBlock);
+        mlir::scf::YieldOp::create(builder, location);
+      },
+      /*unsignedCmp=*/true);
   leaveVariableScope();
   return nullptr;
 }
@@ -526,7 +463,9 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   }
 
   if (name == builtins::boolToUInt64)
-    return CastOp::create(_builder, loc(node), operands.front());
+    return mlir::arith::ExtUIOp::create(_builder, loc(node),
+                                        _builder.getI64Type(),
+                                        operands.front());
 
   auto calleeOpIter = findFunction(node->name());
   if (calleeOpIter == _functionsByName.end()) {
@@ -535,13 +474,15 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return nullptr;
   }
 
-  auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
   auto callResultType = isUnitCall ? mlir::Type{} : getMLIRType(node);
-  auto callOp = cir::CallOp::create(_builder, loc(node), callee, callResultType,
-                                    operands);
+  llvm::SmallVector<mlir::Type, 1> resultTypes;
+  if (!isUnitCall)
+    resultTypes.push_back(callResultType);
+  auto callOp = mlir::func::CallOp::create(_builder, loc(node), name,
+                                           resultTypes, operands);
 
-  return isUnitCall ? nullptr : callOp.getResult();
+  return isUnitCall ? nullptr : callOp.getResult(0);
 }
 
 auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
@@ -554,7 +495,7 @@ auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
   DBG("use Cherry struct literal `{0}`",
       formatType(structType));
   auto ptr = genStructLiteral(node, structType, nullptr);
-  return cir::LoadOp::create(_builder, loc(node), ptr);
+  return createLoad(ptr, getMLIRType(structType), loc(node));
 }
 
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
@@ -628,41 +569,38 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
   auto size = tensorType->shape().front();
   DBG("size() static tensor size: {0}", size);
-  auto type = getMLIRType(node);
-  auto attr = cir::IntAttr::get(type, size);
-  return cir::ConstantOp::create(_builder, loc(node), attr);
+  return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   auto address = getVariable(node->name());
   if (cherry::isTensorType(node->type()))
     return address;
-  return cir::LoadOp::create(_builder, loc(node), address);
+  return createLoad(address, getMLIRType(node), loc(node));
 }
 
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   auto ptr = genLValue(node);
-  return cir::LoadOp::create(_builder, loc(node), ptr);
+  return createLoad(ptr, getMLIRType(node), loc(node));
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getMLIRType(node);
-  cir::IntAttr attr = cir::IntAttr::get(type, node->value());
-  DBG("type: {0}, attr: {1}", type, attr);
-  return cir::ConstantOp::create(_builder, loc(node), attr);
+  auto intType = llvm::cast<mlir::IntegerType>(type);
+  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                            node->value(),
+                                            intType.getWidth());
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getMLIRType(node);
-  cir::FPAttr attr = cir::FPAttr::get(type, node->value());
-  DBG("type: {0}, attr: {1}", type, attr);
-  return cir::ConstantOp::create(_builder, loc(node), attr);
+  return mlir::arith::ConstantFloatOp::create(
+      _builder, loc(node), llvm::cast<mlir::FloatType>(type), node->value());
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
-  cir::BoolAttr attr = cir::BoolAttr::get(_builder.getContext(), node->value());
-  DBG("attr: {0}", attr);
-  return cir::ConstantOp::create(_builder, loc(node), attr);
+  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                            node->value(), 1);
 }
 
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
@@ -677,16 +615,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
     mlir::Value basePtr = genLValue(base);
 
     if (auto *field = getStructField(memberExpr)) {
-      auto fieldTy = getMLIRType(field->type());
-      DBG("Cherry fieldTy: {0}", fieldTy);
-      cir::PointerType fieldPtrTy =
-          cir::PointerType::get(_builder.getContext(), fieldTy);
-      DBG("Cherry fieldPtrTy: {0}", fieldPtrTy);
-
-      mlir::Value addr = cir::GetMemberOp::create(
-          _builder, loc(node), fieldPtrTy, basePtr, field->name(),
-          field->index());
-      return addr;
+      return createStructFieldPtr(basePtr, *field, loc(node));
     }
 
     ERR("struct member access has no Cherry field information");
@@ -729,7 +658,8 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
 auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
   if (auto *memberExpr = llvm::dyn_cast<MemberExpr>(node)) {
     mlir::Value ptr = genLValue(memberExpr);
-    mlir::Value val = cir::LoadOp::create(_builder, loc(memberExpr), ptr);
+    mlir::Value val = createLoad(ptr, getMLIRType(memberExpr),
+                                 loc(memberExpr));
     return val;
   }
 
@@ -738,17 +668,6 @@ auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   using Operator = BinaryExpr::Operator;
-  auto genBoolCmp = [&](Operator op, mlir::Value lhs,
-                        mlir::Value rhs) -> mlir::Value {
-    auto neq =
-        cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Xor, lhs, rhs);
-    if (op == Operator::NEQ)
-      return neq;
-
-    return cir::UnaryOp::create(_builder, loc(node), neq.getType(),
-                                cir::UnaryOpKind::Not, neq);
-  };
-
   auto op = node->opEnum();
 
   auto lhs =
@@ -757,52 +676,74 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   auto rhs =
       castToType(gen(node->rhs().get()),
                  getMLIRType(node->rhs().get()), loc(node->rhs().get()));
+  if (llvm::isa<mlir::FloatType>(lhs.getType())) {
+    switch (op) {
+    case Operator::Add:
+      return mlir::arith::AddFOp::create(_builder, loc(node), lhs, rhs);
+    case Operator::Diff:
+      return mlir::arith::SubFOp::create(_builder, loc(node), lhs, rhs);
+    case Operator::Mul:
+      return mlir::arith::MulFOp::create(_builder, loc(node), lhs, rhs);
+    case Operator::Div:
+      return mlir::arith::DivFOp::create(_builder, loc(node), lhs, rhs);
+    case Operator::Rem:
+      return mlir::arith::RemFOp::create(_builder, loc(node), lhs, rhs);
+    case Operator::EQ:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::OEQ, lhs, rhs);
+    case Operator::NEQ:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::ONE, lhs, rhs);
+    case Operator::LT:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::OLT, lhs, rhs);
+    case Operator::LE:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::OLE, lhs, rhs);
+    case Operator::GT:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::OGT, lhs, rhs);
+    case Operator::GE:
+      return mlir::arith::CmpFOp::create(
+          _builder, loc(node), mlir::arith::CmpFPredicate::OGE, lhs, rhs);
+    default:
+      break;
+    }
+  }
+
   switch (op) {
   case Operator::Add:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Add, lhs,
-                              rhs);
+    return mlir::arith::AddIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Diff:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Sub, lhs,
-                              rhs);
+    return mlir::arith::SubIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Mul:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Mul, lhs,
-                              rhs);
+    return mlir::arith::MulIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Div:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Div, lhs,
-                              rhs);
+    return mlir::arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Rem:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Rem, lhs,
-                              rhs);
+    return mlir::arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::And:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::And, lhs,
-                              rhs);
+    return mlir::arith::AndIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Or:
-    return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Or, lhs,
-                              rhs);
+    return mlir::arith::OrIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::EQ:
-    if (llvm::isa<cir::BoolType>(lhs.getType()))
-      return genBoolCmp(op, lhs, rhs);
-
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::eq, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::eq, lhs, rhs);
   case Operator::NEQ:
-    if (llvm::isa<cir::BoolType>(lhs.getType()))
-      return genBoolCmp(op, lhs, rhs);
-
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::ne, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::ne, lhs, rhs);
   case Operator::LT:
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::lt, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::ult, lhs, rhs);
   case Operator::LE:
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::le, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::ule, lhs, rhs);
   case Operator::GT:
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::gt, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::ugt, lhs, rhs);
   case Operator::GE:
-    return cir::CmpOp::create(_builder, loc(node), cir::CmpOpKind::ge, lhs,
-                              rhs);
+    return mlir::arith::CmpIOp::create(
+        _builder, loc(node), mlir::arith::CmpIPredicate::uge, lhs, rhs);
   }
 
   llvm_unreachable("Unexpected statement");
@@ -820,13 +761,8 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
 
         auto address = getVariable(name);
         if (!cherry::isUnitType(node->lhs()->type())) {
-          rhs =
-              castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
-          cir::StoreOp::create(_builder, loc(node), rhs, address,
-                               /*isVolatile=*/false,
-                               /*alignment=*/mlir::IntegerAttr{},
-                               /*sync_scope=*/cir::SyncScopeKindAttr(),
-                               /*mem-order=*/cir::MemOrderAttr());
+          rhs = castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
+          createStore(rhs, address, loc(node));
         }
       })
       .Case<MemberExpr>([&](const auto *member) {
@@ -834,11 +770,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto rhs = castToType(gen(node->rhs().get()),
                               getMLIRType(member), loc(node));
 
-        cir::StoreOp::create(_builder, loc(node), rhs, lhsPtr,
-                             /*isVolatile=*/false,
-                             /*alignment=*/mlir::IntegerAttr{},
-                             /*sync_scope=*/cir::SyncScopeKindAttr(),
-                             /*mem-order=*/cir::MemOrderAttr());
+        createStore(rhs, lhsPtr, loc(node));
       })
       .Case<TensorAccessExpr>([&](const auto *tensorAccess) {
         genAssignment(tensorAccess, node->rhs().get());
@@ -857,11 +789,39 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
   }
 }
 
-auto MLIRGenImpl::getAlignOne() -> mlir::IntegerAttr {
-  // Note that mlir::IntegerType is used instead of cir::IntType here because
-  // we don't need sign information for this to be useful, so keep it simple.
-  clang::CharUnits align = clang::CharUnits::One();
-  return _builder.getI64IntegerAttr(align.getQuantity());
+auto MLIRGenImpl::getPtrType(mlir::Type elementType) const
+    -> mlir::mulberry::PtrType {
+  return mlir::mulberry::PtrType::get(_builder.getContext(), elementType);
+}
+
+auto MLIRGenImpl::createAlloca(mlir::Type mlirType,
+                               mlir::Location location) -> mlir::Value {
+  auto alloca = mlir::mulberry::AllocaOp::create(
+      _builder, location, getPtrType(mlirType), mlirType);
+  auto *parentBlock = alloca.getOperation()->getBlock();
+  alloca.getOperation()->moveBefore(&parentBlock->front());
+  return alloca;
+}
+
+auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
+                             mlir::Location location) -> mlir::Value {
+  return mlir::mulberry::LoadOp::create(_builder, location, type, ptr);
+}
+
+void MLIRGenImpl::createStore(mlir::Value value, mlir::Value ptr,
+                              mlir::Location location) {
+  mlir::mulberry::StoreOp::create(_builder, location, value, ptr);
+}
+
+auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
+                                       const StructField& field,
+                                       mlir::Location location)
+    -> mlir::Value {
+  auto fieldType = getMLIRType(field.type());
+  auto fieldPtrType = getPtrType(fieldType);
+  return mlir::mulberry::RecordGetFieldOp::create(
+      _builder, location, fieldPtrType, recordPtr,
+      std::string(field.name()));
 }
 
 auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
@@ -872,14 +832,10 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
       structLiteral->name());
 
   auto recordType =
-      llvm::dyn_cast<cir::RecordType>(getMLIRType(structType));
+      llvm::dyn_cast<mlir::mulberry::RecordType>(getMLIRType(structType));
   if (!recordType) {
     ERR("NOT a RecordType. structType: {0}",
         formatType(structType));
-    return nullptr;
-  }
-  if (recordType.getKind() != cir::RecordType::RecordKind::Struct) {
-    ERR("record type kind: {0}", recordType.getKind());
     return nullptr;
   }
 
@@ -898,38 +854,26 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
     }
   }
 
-  mlir::Type recordPtrTy = cir::PointerType::get(recordType);
-
   mlir::Value varPtrOp;
   if (!targetPtr) {
-    auto alloca = cir::AllocaOp::create(_builder, loc(structLiteral),
-                                        recordPtrTy, recordType,
-                                        structType->name(), getAlignOne());
+    auto alloca = createAlloca(recordType, loc(structLiteral));
     DBG("structType: {0}, alloca: {1}", formatType(structType),
         alloca);
 
-    auto *parentBlock = alloca->getBlock();
-    alloca->moveBefore(&parentBlock->front());
-
     varPtrOp = alloca;
   } else {
-    varPtrOp = llvm::dyn_cast<cir::GetMemberOp>(targetPtr.getDefiningOp());
+    varPtrOp = targetPtr;
   }
 
   unsigned index = 0;
   for (auto &expr : *structLiteral) {
     auto &field = fields[index];
-    mlir::Type fieldTy = getMLIRType(field.type());
-    cir::PointerType fieldPtrTy =
-        cir::PointerType::get(_builder.getContext(), fieldTy);
-
     DBG("Cherry struct literal field index: {0}, field name: {1}, "
         "expr type: {2}",
         field.index(), field.name(),
         formatType(expr->type()));
-    auto memberPtr = cir::GetMemberOp::create(
-        _builder, loc(structLiteral), fieldPtrTy, varPtrOp, field.name(),
-        field.index());
+    auto memberPtr = createStructFieldPtr(varPtrOp, field,
+                                          loc(structLiteral));
 
     if (auto *nestedStructLiteral =
             llvm::dyn_cast<StructLiteralExpr>(expr.get())) {
@@ -945,12 +889,9 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
         return nullptr;
       }
     } else {
-      mlir::Value val = gen(expr.get());
-      cir::StoreOp::create(_builder, loc(structLiteral), val, memberPtr,
-                           /*isVolatile=*/false,
-                           /*alignment=*/mlir::IntegerAttr{},
-                           /*sync_scope=*/cir::SyncScopeKindAttr(),
-                           /*mem-order=*/cir::MemOrderAttr());
+      mlir::Value val = castToType(gen(expr.get()), getMLIRType(field.type()),
+                                   loc(expr.get()));
+      createStore(val, memberPtr, loc(structLiteral));
     }
 
     index++;
@@ -1050,23 +991,10 @@ void MLIRGenImpl::collectTensorDataAttrs(
   }
 }
 
-auto MLIRGenImpl::getFunctionReturnType(const Type *returnType) const
-    -> mlir::Type {
-  if (cherry::isUnitType(returnType))
-    return cir::VoidType::get(_builder.getContext());
-  return getMLIRType(returnType);
-}
-
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
-  if ((llvm::isa<mlir::IntegerType>(value.getType()) &&
-       llvm::isa<cir::IntType>(type)) ||
-      (llvm::isa<cir::IntType>(value.getType()) &&
-       llvm::isa<mlir::IntegerType>(type))) {
-    return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
-  }
 
   return nullptr;
 }
@@ -1243,15 +1171,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable struct value `{0}`",
         formatType(structType));
     auto mlirType = getMLIRType(varType);
-    auto alloca = createEntryBlockAlloca(mlirType, loc(node));
+    auto alloca = createAlloca(mlirType, loc(node));
     setVariable(varName, alloca);
 
     auto initValue = gen(node->init().get());
-    cir::StoreOp::create(_builder, loc(node), initValue, alloca,
-                         /*isVolatile=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
-                         /*sync_scope=*/cir::SyncScopeKindAttr(),
-                         /*mem-order=*/cir::MemOrderAttr());
+    createStore(initValue, alloca, loc(node));
     return;
   }
 
@@ -1262,17 +1186,13 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   }
 
   auto mlirType = getMLIRType(varType);
-  auto alloca = createEntryBlockAlloca(mlirType, loc(node));
+  auto alloca = createAlloca(mlirType, loc(node));
   setVariable(varName, alloca);
 
   auto initValue = gen(node->init().get());
 
   initValue = castToType(initValue, mlirType, loc(node));
-  cir::StoreOp::create(_builder, loc(node), initValue, alloca,
-                       /*isVolatile=*/false,
-                       /*alignment=*/mlir::IntegerAttr{},
-                       /*sync_scope=*/cir::SyncScopeKindAttr(),
-                       /*mem-order=*/cir::MemOrderAttr());
+  createStore(initValue, alloca, loc(node));
 }
 
 auto MLIRGenImpl::gen(const ExprStat *node) -> void {

@@ -1,12 +1,5 @@
-# _______________________________________________________
-# JIT
-# RUN: cherry-driver %s 2>&1 | FileCheck %s
-# _______________________________________________________
-# Generate object file
-# RUN: cherry-driver %s -c=%t.o
-# RUN: clang %t.o -o %t.out
-# RUN: %t.out 2>&1 | FileCheck %s
-# _______________________________________________________
+# RUN: not cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: not cherry-driver %s -c=%t.o 2>&1 | FileCheck %s --check-prefix=OBJECT
 
 struct A { }
 
@@ -49,5 +42,5 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: 1
-# CHECK: 0
+# JIT: error: JIT is temporarily disabled while Mulberry lowering is redesigned
+# OBJECT: error: object file generation is temporarily disabled while Mulberry lowering is redesigned

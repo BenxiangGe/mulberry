@@ -21,10 +21,11 @@ fn main(): UInt64 {
 # AST: FloatLiteralExpr
 # AST-SAME: type=Float32
 
-# MLIR: cir.func @add(%arg0: !cir.float, %arg1: !cir.float) -> !cir.float
-# MLIR: cir.binop(add
-# MLIR-SAME: !cir.float
-# MLIR: cir.const
-# MLIR-SAME: !cir.float
-# MLIR: cir.cmp(lt
-# MLIR-SAME: !cir.float, !cir.bool
+# MLIR: func.func @add(%arg0: f32, %arg1: f32) -> f32
+# MLIR: arith.addf
+# MLIR-SAME: f32
+# MLIR: arith.constant 1.250000e+00 : f32
+# MLIR: arith.constant 2.500000e+01 : f32
+# MLIR: arith.cmpf olt
+# MLIR-SAME: f32
+# MLIR-NOT: cir.

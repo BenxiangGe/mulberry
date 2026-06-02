@@ -1,9 +1,5 @@
-// RUN: cherry-opt --convert-cherry-to-scf --convert-cherry-to-arith-cf-func \
-// RUN:            --convert-cherry-to-llvm %s 1> %t-llvm.mlir
-// RUN: cherry-translate --mlir-to-llvmir %t-llvm.mlir 1> %t.ll
-// RUN: llc %t.ll -o %t.s
-// RUN: clang -no-pie %t.s -o %t.out
-// RUN: %t.out 2>&1 | FileCheck %s
+// RUN: cherry-opt --convert-cherry-to-scf --convert-cherry-to-arith-cf-func %s \
+// RUN:   | FileCheck %s
 
 module  {
   func.func @main() -> i64 {
@@ -14,4 +10,8 @@ module  {
   }
 }
 
-// CHECK: 10
+// CHECK: func.func @main() -> i64
+// CHECK: arith.constant 10 : i64
+// CHECK: cherry.print
+// CHECK: return
+// CHECK-NOT: llvm.

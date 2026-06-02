@@ -2,16 +2,13 @@
 #define CHERRY_MLIRGEN_TYPECONVERTER_H
 
 #include "cherry/Basic/Types.h"
+#include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir {
 class MemRefType;
 } // namespace mlir
-
-namespace cir {
-class RecordType;
-} // namespace cir
 
 namespace cherry {
 
@@ -25,7 +22,7 @@ private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
   auto convert(const TensorType& type) const -> mlir::MemRefType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
-  auto convert(const StructType& type) const -> cir::RecordType;
+  auto convert(const StructType& type) const -> mlir::mulberry::RecordType;
 
   mlir::OpBuilder& _builder;
 };

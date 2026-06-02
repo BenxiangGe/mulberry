@@ -7,8 +7,6 @@ add_library(cherryDriver STATIC
 
 target_link_libraries(cherryDriver
         ${targets}
-        MLIRExecutionEngine
-        clangCIRLoweringDirectToLLVM
 )
 
 target_include_directories(cherryDriver PUBLIC
