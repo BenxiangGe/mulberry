@@ -83,6 +83,8 @@ private:
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
   NameMap<FunctionInfo> _functionsByName;
+  NameMap<const FunctionDecl *> _functionDeclsByName;
+  NameMap<bool> _functionBridgeDecisions;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
@@ -164,6 +166,19 @@ private:
     return _functionsByName.find(name);
   }
 
+  void setFunctionDecl(std::string_view name, const FunctionDecl *decl) {
+    setSymbol(_functionDeclsByName, name, decl);
+  }
+
+  void setFunctionBridgeDecision(std::string_view name, bool needsBridge) {
+    setSymbol(_functionBridgeDecisions, name, needsBridge);
+  }
+
+  auto functionNeedsBridge(std::string_view name) const -> bool {
+    auto it = _functionBridgeDecisions.find(name);
+    return it != _functionBridgeDecisions.end() && it->second;
+  }
+
   auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType,
                         mlir::Value targetPtr) -> mlir::Value;
@@ -201,6 +216,9 @@ private:
   auto getScalarMLIRType(const Type *type) const -> mlir::Type;
   auto getScalarMLIRType(const Expr *expr) const -> mlir::Type;
   auto getFunctionBoundaryType(const Type *type) const -> mlir::Type;
+  auto getFunctionBoundaryType(const Type *type,
+                               bool needsBoundaryBridge) const -> mlir::Type;
+  auto getFunctionBridgeDecisionType(const Type *type) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto createTensorPack(mlir::Value tensor, const TensorType *type,
@@ -221,10 +239,10 @@ private:
                               mlir::Type elementType,
                               llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   auto getFunctionReturnType(const Type *returnType) const -> mlir::Type;
-  auto needsFunctionBoundaryBridge(const FunctionDecl *node) const -> bool;
-  auto callsFunctionNeedingBoundaryBridge(const Expr *node) const -> bool;
-  auto callsFunctionNeedingBoundaryBridge(const BlockExpr *node) const -> bool;
-  auto callsFunctionNeedingBoundaryBridge(const Stat *node) const -> bool;
+  void collectFunctionDecls(const Module &node);
+  void computeFunctionBridgeDecisions();
+  auto hasDirectFunctionBoundaryBridgeNeed(const FunctionDecl *node) const
+      -> bool;
 
   // Utility
   auto getLocalStorageType(const Type *type) const -> mlir::Type {
@@ -269,6 +287,9 @@ private:
 auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
 
+  collectFunctionDecls(node);
+  computeFunctionBridgeDecisions();
+
   for (auto &decl : node) {
     if (auto *op = gen(decl.get()))
       module.push_back(op);
@@ -299,15 +320,15 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
 auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   std::vector<const Type *> parameterTypes;
+  auto needsBoundaryBridge = _currentFunctionNeedsBoundaryBridge;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
     parameterTypes.push_back(paramType);
-    argTypes.push_back(getFunctionBoundaryType(paramType));
+    argTypes.push_back(getFunctionBoundaryType(paramType, needsBoundaryBridge));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
-  auto needsBoundaryBridge = _currentFunctionNeedsBoundaryBridge;
 
   mlir::Operation *funcOp = nullptr;
   mlir::Block *entryBlock = nullptr;
@@ -317,7 +338,8 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
     // after mulberry.record has become cir.record.
     llvm::SmallVector<mlir::Type, 1> resultTypes;
     if (!cherry::isUnitType(returnType))
-      resultTypes.push_back(getFunctionBoundaryType(returnType));
+      resultTypes.push_back(
+          getFunctionBoundaryType(returnType, needsBoundaryBridge));
 
     auto funcType = _builder.getFunctionType(argTypes, resultTypes);
     mlir::OperationState state(loc(node),
@@ -353,7 +375,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
       continue;
     }
 
-    auto mlirType = getMLIRType(paramType);
+    auto mlirType = getLocalStorageType(paramType);
     auto alloca = cherry::getStructType(paramType)
                       ? createMulberryAlloca(mlirType, loc(node))
                       : createEntryBlockAlloca(mlirType, loc(node));
@@ -371,7 +393,8 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
 
 auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   resetVariableScopes();
-  _currentFunctionNeedsBoundaryBridge = needsFunctionBoundaryBridge(node);
+  _currentFunctionNeedsBoundaryBridge =
+      functionNeedsBridge(node->proto()->id()->name());
   auto func = gen(node->proto().get());
 
   auto value = gen(node->body().get());
@@ -381,8 +404,11 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
     auto *returnType = node->proto()->type();
     if (auto *tensorType = cherry::getTensorType(returnType))
       value = createTensorPack(value, tensorType, location);
-    else
-      value = castToType(value, getFunctionBoundaryType(returnType), location);
+    else {
+      auto boundaryType = getFunctionBoundaryType(
+          returnType, _currentFunctionNeedsBoundaryBridge);
+      value = castToType(value, boundaryType, location);
+    }
     llvm::SmallVector<mlir::Value, 1> returnValues{value};
     if (_currentFunctionNeedsBoundaryBridge)
       mlir::func::ReturnOp::create(_builder, location, returnValues);
@@ -725,6 +751,10 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     if (auto *tensorType =
             cherry::getTensorType(calleeInfo.parameterTypes[i])) {
       value = createTensorPack(value, tensorType, loc(expressions[i].get()));
+    } else {
+      auto paramType = getFunctionBoundaryType(
+          calleeInfo.parameterTypes[i], calleeInfo.needsFunctionBoundaryBridge);
+      value = castToType(value, paramType, loc(expressions[i].get()));
     }
     DBG("gen(CallExpr). value: {0}", value);
     operands.push_back(value);
@@ -733,7 +763,9 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   auto callee = mlir::SymbolRefAttr::get(_builder.getContext(), name);
   auto isUnitCall = cherry::isUnitType(node->type());
   auto callResultType =
-      isUnitCall ? mlir::Type{} : getFunctionBoundaryType(node->type());
+      isUnitCall ? mlir::Type{}
+                 : getFunctionBoundaryType(
+                       node->type(), calleeInfo.needsFunctionBoundaryBridge);
   if (calleeInfo.needsFunctionBoundaryBridge) {
     llvm::SmallVector<mlir::Type, 1> callResultTypes;
     if (!isUnitCall)
@@ -1382,13 +1414,27 @@ auto MLIRGenImpl::getScalarMLIRType(const Expr *expr) const -> mlir::Type {
 
 auto MLIRGenImpl::getFunctionBoundaryType(const Type *type) const
     -> mlir::Type {
+  return getFunctionBoundaryType(type, _currentFunctionNeedsBoundaryBridge);
+}
+
+auto MLIRGenImpl::getFunctionBoundaryType(const Type *type,
+                                          bool needsBoundaryBridge) const
+    -> mlir::Type {
   // Tensor functions pass a single descriptor value across the call boundary;
   // function bodies still use memrefs because NN/linalg ops operate on memrefs.
   if (auto *tensorType = cherry::getTensorType(type))
     return _typeConverter.convertTensorDescriptor(*tensorType);
-  if (_currentFunctionNeedsBoundaryBridge && cherry::getBuiltinType(type))
+  if (needsBoundaryBridge && cherry::getBuiltinType(type))
     return getScalarMLIRType(type);
   return getMLIRType(type);
+}
+
+auto MLIRGenImpl::getFunctionBridgeDecisionType(const Type *type) const
+    -> mlir::Type {
+  // Bridge decisions must not depend on the current function's boundary mode.
+  // They only need to know whether this type introduces a Mulberry record at the
+  // boundary; builtin scalar representation is chosen later.
+  return getFunctionBoundaryType(type, /*needsBoundaryBridge=*/false);
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1493,114 +1539,54 @@ auto MLIRGenImpl::getFunctionReturnType(const Type *returnType) const
   return getMLIRType(returnType);
 }
 
-auto MLIRGenImpl::needsFunctionBoundaryBridge(const FunctionDecl *node) const
-    -> bool {
+void MLIRGenImpl::collectFunctionDecls(const Module &node) {
+  for (auto &decl : node) {
+    auto *function = llvm::dyn_cast<FunctionDecl>(decl.get());
+    if (!function)
+      continue;
+    setFunctionDecl(function->proto()->id()->name(), function);
+  }
+}
+
+void MLIRGenImpl::computeFunctionBridgeDecisions() {
+  for (const auto &function : _functionDeclsByName)
+    setFunctionBridgeDecision(
+        function.first, hasDirectFunctionBoundaryBridgeNeed(function.second));
+
+  bool moduleNeedsBridge = false;
+  for (const auto &function : _functionBridgeDecisions) {
+    if (function.second) {
+      moduleNeedsBridge = true;
+      break;
+    }
+  }
+  if (moduleNeedsBridge) {
+    // Current LLVM lowering skips CIR-to-LLVM when tensor descriptor boundaries
+    // are present, so leaving unrelated cir.func ops in the same module breaks
+    // legalization. Keep the whole user module on func.func until CIR is gone.
+    for (const auto &function : _functionDeclsByName)
+      setFunctionBridgeDecision(function.first, true);
+    return;
+  }
+}
+
+auto MLIRGenImpl::hasDirectFunctionBoundaryBridgeNeed(
+    const FunctionDecl *node) const -> bool {
   auto *proto = node->proto().get();
   // This is a temporary ABI bridge, not a language-level function model.
   // CIR rejects raw Mulberry record descriptors in signatures before they are
   // converted, so such functions stay in func.func until the bridge pass runs.
   // Tensors use a Mulberry record descriptor at function boundaries, while
   // function bodies still operate on memrefs for NN/linalg lowering.
-  if (containsMulberryRecordType(getFunctionBoundaryType(proto->type())))
+  if (containsMulberryRecordType(getFunctionBridgeDecisionType(proto->type())))
     return true;
 
   for (auto &param : proto->parameters())
-    if (containsMulberryRecordType(getFunctionBoundaryType(param->type())))
+    if (containsMulberryRecordType(
+            getFunctionBridgeDecisionType(param->type())))
       return true;
 
-  // A cir.func body cannot directly call a func.func callee. If this function
-  // calls a bridged function, keep the caller in func.func too.
-  return callsFunctionNeedingBoundaryBridge(node->body().get());
-}
-
-auto MLIRGenImpl::callsFunctionNeedingBoundaryBridge(const Expr *node) const
-    -> bool {
-  if (!node)
-    return false;
-
-  return llvm::TypeSwitch<const Expr *, bool>(node)
-      .Case<BlockExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr);
-      })
-      .Case<CallExpr>([&](const auto *expr) {
-        auto callee = findFunction(expr->name());
-        if (callee != _functionsByName.end() &&
-            callee->second.needsFunctionBoundaryBridge)
-          return true;
-        for (auto &argument : expr->expressions())
-          if (callsFunctionNeedingBoundaryBridge(argument.get()))
-            return true;
-        return false;
-      })
-      .Case<StructLiteralExpr>([&](const auto *expr) {
-        for (auto &field : expr->expressions())
-          if (callsFunctionNeedingBoundaryBridge(field.get()))
-            return true;
-        return false;
-      })
-      .Case<TensorLiteralExpr>([&](const auto *expr) {
-        for (auto &element : expr->getElements())
-          if (callsFunctionNeedingBoundaryBridge(element.get()))
-            return true;
-        return false;
-      })
-      .Case<TensorAccessExpr>([&](const auto *expr) {
-        for (auto &index : expr->getIndices())
-          if (callsFunctionNeedingBoundaryBridge(index.get()))
-            return true;
-        return false;
-      })
-      .Case<MemberExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->base().get());
-      })
-      .Case<AssignExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->lhs().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->rhs().get());
-      })
-      .Case<BinaryExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->lhs().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->rhs().get());
-      })
-      .Case<IfExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->conditionExpr().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->thenBlock().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->elseBlock().get());
-      })
-      .Case<WhileExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->conditionExpr().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->bodyBlock().get());
-      })
-      .Case<ForExpr>([&](const auto *expr) {
-        return callsFunctionNeedingBoundaryBridge(expr->startExpr().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->endExpr().get()) ||
-               callsFunctionNeedingBoundaryBridge(expr->bodyBlock().get());
-      })
-      .Default([](const Expr *) { return false; });
-}
-
-auto MLIRGenImpl::callsFunctionNeedingBoundaryBridge(const BlockExpr *node) const
-    -> bool {
-  if (!node)
-    return false;
-
-  for (auto &stat : *node)
-    if (callsFunctionNeedingBoundaryBridge(stat.get()))
-      return true;
-  return callsFunctionNeedingBoundaryBridge(node->expression().get());
-}
-
-auto MLIRGenImpl::callsFunctionNeedingBoundaryBridge(const Stat *node) const
-    -> bool {
-  if (!node)
-    return false;
-
-  return llvm::TypeSwitch<const Stat *, bool>(node)
-      .Case<VariableStat>([&](const auto *stat) {
-        return callsFunctionNeedingBoundaryBridge(stat->init().get());
-      })
-      .Case<ExprStat>([&](const auto *stat) {
-        return callsFunctionNeedingBoundaryBridge(stat->expression().get());
-      });
+  return false;
 }
 
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,

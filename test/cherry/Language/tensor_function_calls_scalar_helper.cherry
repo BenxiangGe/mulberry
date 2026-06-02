@@ -1,0 +1,32 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn addOne(x: UInt64): UInt64 {
+  x + 1
+}
+
+fn useTensor(xs: Float32[2]): UInt64 {
+  addOne(size(xs))
+}
+
+fn main(): UInt64 {
+  var xs: Float32[2] = [1.0, 2.0];
+  useTensor(xs)
+}
+
+# MLIR-LABEL: func.func @addOne
+# MLIR-SAME: i64
+# MLIR-LABEL: func.func @useTensor
+# MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR-SAME: -> i64
+# MLIR: call @addOne
+# MLIR-SAME: (i64) -> i64
+# MLIR-NOT: cir.
+# MLIR-NOT: cherry.cast
+
+# LLVM-LABEL: llvm.func @addOne
+# LLVM-LABEL: llvm.func @useTensor
+# LLVM: llvm.call @addOne
+# LLVM-SAME: (i64) -> i64
+# LLVM-NOT: cir.
+# LLVM-NOT: mulberry.
