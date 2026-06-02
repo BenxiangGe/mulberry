@@ -17,9 +17,11 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @best
 # MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR-SAME: -> i64
 # MLIR: mulberry.tensor.unpack
 # MLIR-SAME: -> memref<2xf32>
 # MLIR: cherry_nn.argmax
+# MLIR-SAME: -> i64
 
 # MLIR-LABEL: func.func @echo
 # MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
@@ -29,6 +31,7 @@ fn main(): UInt64 {
 # MLIR-SAME: memref<2xf32> -> !mulberry.record<TensorDescriptorFloat32Rank1
 
 # MLIR-LABEL: func.func @main
+# MLIR-SAME: -> i64
 # MLIR: mulberry.tensor.pack
 # MLIR-SAME: memref<2xf32> -> !mulberry.record<TensorDescriptorFloat32Rank1
 # MLIR: call @echo
@@ -37,14 +40,22 @@ fn main(): UInt64 {
 # MLIR-SAME: -> memref<2xf32>
 # MLIR: call @best
 # MLIR-SAME: !mulberry.record<TensorDescriptorFloat32Rank1
+# MLIR-SAME: -> i64
+# MLIR: return
+# MLIR-SAME: i64
+# MLIR-NOT: cherry_nn.cast
+# MLIR-NOT: !cir.int
 
 # LLVM-LABEL: llvm.func @best
 # LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM-SAME: -> i64
 # LLVM-LABEL: llvm.func @echo
 # LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
 # LLVM-LABEL: llvm.func @main
+# LLVM-SAME: -> i64
 # LLVM: llvm.call @echo
 # LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
 # LLVM: llvm.call @best
 # LLVM-SAME: !llvm.struct<(ptr, ptr, i64, struct<(i64)>, struct<(i64)>)>
+# LLVM-SAME: -> i64
 # LLVM-NOT: mulberry.

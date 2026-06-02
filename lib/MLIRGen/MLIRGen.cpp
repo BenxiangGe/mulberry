@@ -1386,6 +1386,8 @@ auto MLIRGenImpl::getFunctionBoundaryType(const Type *type) const
   // function bodies still use memrefs because NN/linalg ops operate on memrefs.
   if (auto *tensorType = cherry::getTensorType(type))
     return _typeConverter.convertTensorDescriptor(*tensorType);
+  if (_currentFunctionUsesFuncDialect && cherry::getBuiltinType(type))
+    return getScalarMLIRType(type);
   return getMLIRType(type);
 }
 
