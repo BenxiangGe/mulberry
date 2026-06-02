@@ -23,6 +23,12 @@ module {
     return %value : !mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>
   }
 
+  func.func @read_person_age(%record: !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>>) -> !cir.int<u, 64> {
+    %age = mulberry.record.get_field %record["age"] : !mulberry.ptr<!mulberry.record<Person {age: !cir.int<u, 64>, active: !cir.bool}>> -> !mulberry.ptr<!cir.int<u, 64>>
+    %value = mulberry.load %age : !mulberry.ptr<!cir.int<u, 64>> -> !cir.int<u, 64>
+    return %value : !cir.int<u, 64>
+  }
+
   cir.func @call_make_person() {
     %age = cir.const #cir.int<7> : !cir.int<u, 64>
     %active = cir.const #cir.bool<true> : !cir.bool
@@ -46,6 +52,11 @@ module {
 // CHECK-LABEL: cir.func @make_person
 // CHECK-SAME: (%{{.*}}: !u64i, %{{.*}}: !cir.bool) -> !rec_Person
 // CHECK: cir.return {{.*}} : !rec_Person
+// CHECK-LABEL: cir.func @read_person_age
+// CHECK-SAME: (%{{.*}}: !cir.ptr<!rec_Person>) -> !u64i
+// CHECK: cir.get_member {{.*}}[0] {name = "age"}
+// CHECK: cir.load
+// CHECK: cir.return {{.*}} : !u64i
 // CHECK-LABEL: cir.func @call_make_person()
 // CHECK: cir.call @make_person
 // CHECK-SAME: : (!u64i, !cir.bool) -> !rec_Person
