@@ -49,7 +49,7 @@
 using namespace cir;
 using namespace cherry;
 
-static auto hasTensorDescriptorBoundary(mlir::ModuleOp module) -> bool {
+static auto usesTensorDescriptorABI(mlir::ModuleOp module) -> bool {
   auto result = module.walk([](mlir::Operation *op) {
     if (llvm::isa<mlir::mulberry::TensorPackOp,
                   mlir::mulberry::TensorUnpackOp>(op))
@@ -137,11 +137,14 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::LLVM) {
     pm.addPass(mlir::createConvertLinalgToLoopsPass());
-    if (!hasTensorDescriptorBoundary(*module)) {
+    auto tensorDescriptorABI = usesTensorDescriptorABI(*module);
+    // Tensor descriptor ABI modules intentionally skip the CIR bridge.
+    // MLIRGen keeps the whole user module on func.func in that mode, and
+    // ConvertCherryToLLVM lowers Mulberry records directly while preserving
+    // memref descriptor metadata from mulberry.tensor.pack/unpack.
+    if (!tensorDescriptorABI) {
       // Keep production struct lowering on the CIR bridge while scalar codegen
-      // still emits CIR ops. Tensor descriptor ABI must skip this bridge:
-      // mulberry.tensor.pack/unpack still need memref descriptor metadata that
-      // the CIR record bridge intentionally does not model.
+      // still emits CIR ops.
       pm.addPass(mlir::cherry::createConvertMulberryRecordToCIR());
       cir::direct::populateCIRToLLVMPasses(pm);
     }

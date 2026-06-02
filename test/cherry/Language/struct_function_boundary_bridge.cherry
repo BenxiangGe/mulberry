@@ -1,0 +1,39 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+struct A {
+  x: UInt64
+}
+
+fn makeA(x: UInt64): A {
+  A { x }
+}
+
+fn unusedScalar(x: UInt64): UInt64 {
+  x + 1
+}
+
+fn main(): UInt64 {
+  var a: A = makeA(42);
+  a.x
+}
+
+# MLIR-LABEL: func.func @makeA
+# MLIR-SAME: !cir.int<u, 64>
+# MLIR-SAME: -> !mulberry.record<A
+# MLIR-LABEL: cir.func @unusedScalar
+# MLIR-SAME: !cir.int<u, 64>
+# MLIR-SAME: -> !cir.int<u, 64>
+# MLIR-LABEL: cir.func @main
+# MLIR: func.call @makeA
+# MLIR-SAME: !cir.int<u, 64>
+# MLIR-SAME: -> !mulberry.record<A
+
+# LLVM-LABEL: llvm.func @makeA
+# LLVM-SAME: i64
+# LLVM-LABEL: llvm.func @unusedScalar
+# LLVM-SAME: i64
+# LLVM-LABEL: llvm.func @main
+# LLVM: llvm.call @makeA
+# LLVM-NOT: cir.
+# LLVM-NOT: mulberry.
