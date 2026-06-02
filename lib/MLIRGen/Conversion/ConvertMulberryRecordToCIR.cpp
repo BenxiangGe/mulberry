@@ -299,6 +299,29 @@ public:
   }
 };
 
+auto collectFuncsNeedingBoundaryBridge(Operation *op) -> std::set<Operation *> {
+  std::set<Operation *> funcs;
+  op->walk([&](func::FuncOp funcOp) {
+    if (needsFunctionBoundaryBridge(funcOp))
+      funcs.insert(funcOp.getOperation());
+  });
+  return funcs;
+}
+
+void populateRecordOpToCIRPatterns(TypeConverter &typeConverter,
+                                   RewritePatternSet &patterns) {
+  patterns.add<AllocaOpLowering, LoadOpLowering, StoreOpLowering,
+               RecordGetFieldOpLowering, RecordCreateOpLowering>(
+      typeConverter, patterns.getContext());
+}
+
+void populateBridgedFuncToCIRPatterns(TypeConverter &typeConverter,
+                                      RewritePatternSet &patterns) {
+  patterns.add<BridgedFuncOpLowering, BridgedFuncCallOpLowering,
+               BridgedFuncReturnOpLowering>(typeConverter,
+                                            patterns.getContext());
+}
+
 struct ConvertMulberryRecordToCIR
     : public impl::ConvertMulberryRecordToCIRBase<
           ConvertMulberryRecordToCIR> {
@@ -311,11 +334,8 @@ struct ConvertMulberryRecordToCIR
 
     // Dynamic legality is queried after nested ops may already have been
     // rewritten, so remember the original func.func boundary decisions first.
-    std::set<Operation *> funcsNeedingBoundaryBridge;
-    getOperation()->walk([&](func::FuncOp op) {
-      if (needsFunctionBoundaryBridge(op))
-        funcsNeedingBoundaryBridge.insert(op.getOperation());
-    });
+    auto funcsNeedingBoundaryBridge =
+        collectFuncsNeedingBoundaryBridge(getOperation());
     auto needsBoundaryBridge = [&](func::FuncOp op) {
       return funcsNeedingBoundaryBridge.find(op.getOperation()) !=
              funcsNeedingBoundaryBridge.end();
@@ -344,10 +364,8 @@ struct ConvertMulberryRecordToCIR
     // This pass has two jobs for now: lower Mulberry record ops to CIR storage
     // ops, and bridge selected func.func boundaries back to cir.func after the
     // Mulberry record types have become CIR record types.
-    patterns.add<AllocaOpLowering, LoadOpLowering, StoreOpLowering,
-                 RecordGetFieldOpLowering, RecordCreateOpLowering,
-                 BridgedFuncOpLowering, BridgedFuncCallOpLowering,
-                 BridgedFuncReturnOpLowering>(typeConverter, &getContext());
+    populateRecordOpToCIRPatterns(typeConverter, patterns);
+    populateBridgedFuncToCIRPatterns(typeConverter, patterns);
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
