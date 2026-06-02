@@ -463,6 +463,41 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
       formatType(node->elseBlock()->type()));
   auto cond = gen(node->conditionExpr().get());
 
+  if (_currentFunctionUsesFuncDialect) {
+    // Tensor ABI function bodies use standard MLIR scalar/control-flow ops.
+    // Mixing i1 conditions with CIR control-flow fails CIR verification.
+    if (cherry::isUnitType(node->type())) {
+      mlir::scf::IfOp::create(
+          _builder, loc(node), cond,
+          [&](mlir::OpBuilder &builder, mlir::Location location) {
+            gen(node->thenBlock().get());
+            mlir::scf::YieldOp::create(builder, location);
+          },
+          [&](mlir::OpBuilder &builder, mlir::Location location) {
+            gen(node->elseBlock().get());
+            mlir::scf::YieldOp::create(builder, location);
+          });
+      return nullptr;
+    }
+
+    auto resultType = getLocalStorageType(node);
+    auto ifOp = mlir::scf::IfOp::create(
+        _builder, loc(node), cond,
+        [&](mlir::OpBuilder &builder, mlir::Location location) {
+          auto thenValue = gen(node->thenBlock().get());
+          thenValue = castToType(thenValue, resultType, location);
+          mlir::scf::YieldOp::create(builder, location,
+                                     mlir::ValueRange{thenValue});
+        },
+        [&](mlir::OpBuilder &builder, mlir::Location location) {
+          auto elseValue = gen(node->elseBlock().get());
+          elseValue = castToType(elseValue, resultType, location);
+          mlir::scf::YieldOp::create(builder, location,
+                                     mlir::ValueRange{elseValue});
+        });
+    return ifOp.getResult(0);
+  }
+
   if (cherry::isUnitType(node->type())) {
     cir::IfOp::create(
         _builder, loc(node), cond,
@@ -523,6 +558,24 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
+  if (_currentFunctionUsesFuncDialect) {
+    auto bodyBlock = node->bodyBlock().get();
+    mlir::scf::WhileOp::create(
+        _builder, loc(node), mlir::TypeRange{}, mlir::ValueRange{},
+        [&](mlir::OpBuilder &builder, mlir::Location location,
+            mlir::ValueRange args) {
+          auto cond = gen(node->conditionExpr().get());
+          mlir::scf::ConditionOp::create(builder, location, cond,
+                                         mlir::ValueRange{});
+        },
+        [&](mlir::OpBuilder &builder, mlir::Location location,
+            mlir::ValueRange args) {
+          gen(bodyBlock);
+          mlir::scf::YieldOp::create(builder, location);
+        });
+    return nullptr;
+  }
+
   auto conditionExprBuilder = [&](mlir::OpBuilder &builder,
                                   mlir::Location location) {
     auto cond = gen(node->conditionExpr().get());
@@ -544,6 +597,37 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
   auto forLocation = loc(node);
+
+  if (_currentFunctionUsesFuncDialect) {
+    auto inductionType = getLocalStorageType(node->startExpr().get());
+    auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
+
+    auto startValue =
+        castToType(gen(node->startExpr().get()), inductionType, forLocation);
+    auto endValue =
+        castToType(gen(node->endExpr().get()), inductionType, forLocation);
+    auto intType = llvm::cast<mlir::IntegerType>(inductionType);
+    auto oneValue = mlir::arith::ConstantIntOp::create(
+        _builder, forLocation, 1, intType.getWidth());
+
+    enterVariableScope();
+    setVariable(node->variableName(), inductionPtr);
+
+    auto bodyBlock = node->bodyBlock().get();
+    mlir::scf::ForOp::create(
+        _builder, forLocation, startValue, endValue, oneValue,
+        mlir::ValueRange{},
+        [&](mlir::OpBuilder &builder, mlir::Location location,
+            mlir::Value inductionValue, mlir::ValueRange args) {
+          createStore(inductionValue, inductionPtr, location);
+          gen(bodyBlock);
+          mlir::scf::YieldOp::create(builder, location);
+        },
+        /*unsignedCmp=*/true);
+    leaveVariableScope();
+    return nullptr;
+  }
+
   auto inductionType = getMLIRType(node->startExpr().get());
   auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
 

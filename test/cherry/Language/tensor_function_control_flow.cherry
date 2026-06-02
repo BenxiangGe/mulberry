@@ -1,0 +1,49 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn control(xs: Float32[2]): Float32[2] {
+  var i: UInt64 = 0;
+
+  i = if i eq 0 {
+    1
+  } else {
+    2
+  };
+
+  var keepGoing: Bool = i lt 2;
+  var unit1: () = while keepGoing {
+    i = i + 1;
+    keepGoing = false;
+    ()
+  };
+
+  for j in 0 .. 2 {
+    i = i + j;
+    ()
+  };
+
+  xs
+}
+
+fn main(): UInt64 {
+  var xs: Float32[2] = [1.0, 2.0];
+  var ys: Float32[2] = control(xs);
+  0
+}
+
+# MLIR-LABEL: func.func @control
+# MLIR: scf.if
+# MLIR: scf.while
+# MLIR: scf.condition
+# MLIR: scf.for unsigned
+# MLIR: mulberry.tensor.pack
+# MLIR-NOT: cir.if
+# MLIR-NOT: cir.while
+# MLIR-NOT: cir.for
+
+# LLVM-LABEL: llvm.func @control
+# LLVM: llvm.cond_br
+# LLVM: llvm.icmp "ult"
+# LLVM: llvm.br
+# LLVM-NOT: cir.
+# LLVM-NOT: mulberry.
