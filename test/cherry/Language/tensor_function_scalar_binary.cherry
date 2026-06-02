@@ -1,0 +1,55 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn scalarOps(xs: Float32[2]): Float32[2] {
+  var a: UInt64 = 1;
+  var b: UInt64 = 2;
+  var c: UInt64 = a + b;
+  var greater: Bool = c gt b;
+  var same: Bool = a eq b;
+  var ok: Bool = greater and same;
+  var x: Float32 = 1.0;
+  var y: Float32 = 2.0;
+  var z: Float32 = x + y;
+  var bigger: Bool = z gt x;
+  xs
+}
+
+fn main(): UInt64 {
+  var xs: Float32[2] = [1.0, 2.0];
+  var ys: Float32[2] = scalarOps(xs);
+  0
+}
+
+# MLIR-LABEL: func.func @scalarOps
+# MLIR: arith.addi
+# MLIR-SAME: i64
+# MLIR: arith.cmpi ugt
+# MLIR-SAME: i64
+# MLIR: arith.cmpi eq
+# MLIR-SAME: i64
+# MLIR: arith.andi
+# MLIR-SAME: i1
+# MLIR: arith.addf
+# MLIR-SAME: f32
+# MLIR: arith.cmpf ogt
+# MLIR-SAME: f32
+# MLIR-NOT: cir.binop
+# MLIR-NOT: cir.cmp
+# MLIR: mulberry.tensor.pack
+
+# LLVM-LABEL: llvm.func @scalarOps
+# LLVM: llvm.add
+# LLVM-SAME: i64
+# LLVM: llvm.icmp "ugt"
+# LLVM-SAME: i64
+# LLVM: llvm.icmp "eq"
+# LLVM-SAME: i64
+# LLVM: llvm.and
+# LLVM-SAME: i1
+# LLVM: llvm.fadd
+# LLVM-SAME: f32
+# LLVM: llvm.fcmp "ogt"
+# LLVM-SAME: f32
+# LLVM-NOT: cir.
+# LLVM-NOT: mulberry.

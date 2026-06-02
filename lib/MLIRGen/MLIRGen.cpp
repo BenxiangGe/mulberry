@@ -207,6 +207,11 @@ private:
                         mlir::Location location) -> mlir::Value;
   auto createTensorUnpack(mlir::Value descriptor, const TensorType *type,
                           mlir::Location location) -> mlir::Value;
+  auto genArithBinaryOp(BinaryExpr::Operator op, mlir::Value lhs,
+                        mlir::Value rhs, mlir::Location location)
+      -> mlir::Value;
+  auto genArithCmpOp(BinaryExpr::Operator op, mlir::Value lhs,
+                     mlir::Value rhs, mlir::Location location) -> mlir::Value;
   auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
   auto isConstantTensorData(const TensorLiteralExpr *expr) -> bool;
   auto shouldPromoteConstTensorData(const TensorLiteralExpr *expr) -> bool;
@@ -873,6 +878,108 @@ auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
   return gen(node);
 }
 
+auto MLIRGenImpl::genArithBinaryOp(BinaryExpr::Operator op, mlir::Value lhs,
+                                   mlir::Value rhs,
+                                   mlir::Location location) -> mlir::Value {
+  using Operator = BinaryExpr::Operator;
+  if (llvm::isa<mlir::FloatType>(lhs.getType())) {
+    switch (op) {
+    case Operator::Add:
+      return mlir::arith::AddFOp::create(_builder, location, lhs, rhs);
+    case Operator::Diff:
+      return mlir::arith::SubFOp::create(_builder, location, lhs, rhs);
+    case Operator::Mul:
+      return mlir::arith::MulFOp::create(_builder, location, lhs, rhs);
+    case Operator::Div:
+      return mlir::arith::DivFOp::create(_builder, location, lhs, rhs);
+    case Operator::Rem:
+      return mlir::arith::RemFOp::create(_builder, location, lhs, rhs);
+    default:
+      break;
+    }
+  }
+
+  switch (op) {
+  case Operator::Add:
+    return mlir::arith::AddIOp::create(_builder, location, lhs, rhs);
+  case Operator::Diff:
+    return mlir::arith::SubIOp::create(_builder, location, lhs, rhs);
+  case Operator::Mul:
+    return mlir::arith::MulIOp::create(_builder, location, lhs, rhs);
+  case Operator::Div:
+    return mlir::arith::DivUIOp::create(_builder, location, lhs, rhs);
+  case Operator::Rem:
+    return mlir::arith::RemUIOp::create(_builder, location, lhs, rhs);
+  case Operator::And:
+    return mlir::arith::AndIOp::create(_builder, location, lhs, rhs);
+  case Operator::Or:
+    return mlir::arith::OrIOp::create(_builder, location, lhs, rhs);
+  default:
+    break;
+  }
+
+  llvm_unreachable("Unexpected arith binary operator");
+}
+
+auto MLIRGenImpl::genArithCmpOp(BinaryExpr::Operator op, mlir::Value lhs,
+                                mlir::Value rhs, mlir::Location location)
+    -> mlir::Value {
+  using Operator = BinaryExpr::Operator;
+  if (llvm::isa<mlir::FloatType>(lhs.getType())) {
+    auto predicate = mlir::arith::CmpFPredicate::OEQ;
+    switch (op) {
+    case Operator::EQ:
+      predicate = mlir::arith::CmpFPredicate::OEQ;
+      break;
+    case Operator::NEQ:
+      predicate = mlir::arith::CmpFPredicate::ONE;
+      break;
+    case Operator::LT:
+      predicate = mlir::arith::CmpFPredicate::OLT;
+      break;
+    case Operator::LE:
+      predicate = mlir::arith::CmpFPredicate::OLE;
+      break;
+    case Operator::GT:
+      predicate = mlir::arith::CmpFPredicate::OGT;
+      break;
+    case Operator::GE:
+      predicate = mlir::arith::CmpFPredicate::OGE;
+      break;
+    default:
+      llvm_unreachable("Unexpected arith float comparison operator");
+    }
+    return mlir::arith::CmpFOp::create(_builder, location, predicate, lhs, rhs);
+  }
+
+  // Mulberry UInt64 is represented as signless i64 in arith, so ordered
+  // numeric comparisons must explicitly use unsigned integer predicates.
+  auto predicate = mlir::arith::CmpIPredicate::eq;
+  switch (op) {
+  case Operator::EQ:
+    predicate = mlir::arith::CmpIPredicate::eq;
+    break;
+  case Operator::NEQ:
+    predicate = mlir::arith::CmpIPredicate::ne;
+    break;
+  case Operator::LT:
+    predicate = mlir::arith::CmpIPredicate::ult;
+    break;
+  case Operator::LE:
+    predicate = mlir::arith::CmpIPredicate::ule;
+    break;
+  case Operator::GT:
+    predicate = mlir::arith::CmpIPredicate::ugt;
+    break;
+  case Operator::GE:
+    predicate = mlir::arith::CmpIPredicate::uge;
+    break;
+  default:
+    llvm_unreachable("Unexpected arith integer comparison operator");
+  }
+  return mlir::arith::CmpIOp::create(_builder, location, predicate, lhs, rhs);
+}
+
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   using Operator = BinaryExpr::Operator;
   auto genBoolCmp = [&](Operator op, mlir::Value lhs,
@@ -896,6 +1003,29 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
       castToType(gen(node->rhs().get()),
                  getLocalStorageType(node->rhs().get()),
                  loc(node->rhs().get()));
+
+  // Tensor ABI functions use func.func and standard MLIR scalar types for
+  // locals. Those values must stay in arith; CIR ops verify only CIR types.
+  if (!usesCIRStorage(lhs.getType())) {
+    switch (op) {
+    case Operator::Add:
+    case Operator::Diff:
+    case Operator::Mul:
+    case Operator::Div:
+    case Operator::Rem:
+    case Operator::And:
+    case Operator::Or:
+      return genArithBinaryOp(op, lhs, rhs, loc(node));
+    case Operator::EQ:
+    case Operator::NEQ:
+    case Operator::LT:
+    case Operator::LE:
+    case Operator::GT:
+    case Operator::GE:
+      return genArithCmpOp(op, lhs, rhs, loc(node));
+    }
+  }
+
   switch (op) {
   case Operator::Add:
     return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Add, lhs,
