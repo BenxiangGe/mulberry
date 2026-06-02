@@ -43,7 +43,7 @@ fn main(): UInt64 {
 # MLIR-SAME: -> i64
 # MLIR: return
 # MLIR-SAME: i64
-# MLIR-NOT: cherry_nn.cast
+# MLIR-NOT: cherry.cast
 # MLIR-NOT: !cir.int
 
 # LLVM-LABEL: llvm.func @best

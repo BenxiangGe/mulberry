@@ -51,30 +51,18 @@ public:
                            ? rewriter.create<memref::LoadOp>(loc, operand)
                            : adaptor.getInput();
 
+    if ((llvm::isa<IntegerType>(op.getInput().getType()) &&
+         llvm::isa<cir::IntType>(op.getResult().getType())) ||
+        (llvm::isa<cir::IntType>(op.getInput().getType()) &&
+         llvm::isa<IntegerType>(op.getResult().getType()))) {
+      rewriter.replaceOp(op, newOperand);
+      return success();
+    }
+
     auto cast =
         rewriter.create<LLVM::ZExtOp>(loc, rewriter.getI64Type(), newOperand);
     rewriter.replaceOp(op, cast.getRes());
     return llvm::success();
-  }
-};
-
-class NNCastOpLowering : public OpConversionPattern<cherry_nn::CastOp> {
-public:
-  explicit NNCastOpLowering(LLVMTypeConverter &typeConverter,
-                            MLIRContext *context)
-      : OpConversionPattern<cherry_nn::CastOp>(typeConverter, context) {}
-
-  auto matchAndRewrite(cherry_nn::CastOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter &rewriter) const
-      -> LogicalResult final {
-    if (!((llvm::isa<IntegerType>(op.getInput().getType()) &&
-           llvm::isa<cir::IntType>(op.getResult().getType())) ||
-          (llvm::isa<cir::IntType>(op.getInput().getType()) &&
-           llvm::isa<IntegerType>(op.getResult().getType()))))
-      return failure();
-
-    rewriter.replaceOp(op, adaptor.getInput());
-    return success();
   }
 };
 
@@ -439,11 +427,10 @@ struct ConvertCherryToLLVM
     mlir::arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
     populateMathToLLVMConversionPatterns(typeConverter, patterns);
     patterns
-        .add<CastOpLowering, NNCastOpLowering, PrintOpLowering,
-             MulberryAllocaOpLowering, MulberryLoadOpLowering,
-             MulberryStoreOpLowering, MulberryRecordGetFieldOpLowering,
-             MulberryRecordCreateOpLowering, MulberryTensorPackOpLowering,
-             MulberryTensorUnpackOpLowering>(
+        .add<CastOpLowering, PrintOpLowering, MulberryAllocaOpLowering,
+             MulberryLoadOpLowering, MulberryStoreOpLowering,
+             MulberryRecordGetFieldOpLowering, MulberryRecordCreateOpLowering,
+             MulberryTensorPackOpLowering, MulberryTensorUnpackOpLowering>(
             typeConverter, &getContext());
 
     // Conversion

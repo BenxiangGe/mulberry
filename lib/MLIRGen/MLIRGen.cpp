@@ -707,7 +707,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     llvm::SmallVector<mlir::Value, 1> operands;
     for (auto &expr : *node)
       operands.push_back(gen(expr.get()));
-    return CastOp::create(_builder, loc(node), operands.front());
+    return CastOp::create(_builder, loc(node), getLocalStorageType(node),
+                          operands.front());
   }
 
   auto calleeOpIter = findFunction(node->name());
@@ -1606,7 +1607,7 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
        llvm::isa<cir::IntType>(type)) ||
       (llvm::isa<cir::IntType>(value.getType()) &&
        llvm::isa<mlir::IntegerType>(type))) {
-    return mlir::cherry_nn::CastOp::create(_builder, location, type, value);
+    return CastOp::create(_builder, location, type, value);
   }
 
   return nullptr;

@@ -28,11 +28,11 @@ def PrintOp : Cherry_Op<"print"> {
 def CastOp : Cherry_Op<"cast"> {
   let summary = "Cast operation";
   let description = [{
-    Casts from I64 to I1
+    Casts a value between Mulberry scalar IR representations.
   }];
 
   let arguments = (ins AnyType:$input);
-  let results = (outs I64:$result);
+  let results = (outs AnyType:$result);
 
   let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
 }
