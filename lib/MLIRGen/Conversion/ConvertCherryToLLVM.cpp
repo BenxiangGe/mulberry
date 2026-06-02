@@ -158,16 +158,16 @@ public:
   auto matchAndRewrite(mulberry::AllocaOp op, OpAdaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto ptrType = getTypeConverter()->convertType(op.getResult().getType());
+    auto addrType = getTypeConverter()->convertType(op.getResult().getType());
     auto elementType = getTypeConverter()->convertType(op.getElementType());
-    if (!ptrType || !elementType)
+    if (!addrType || !elementType)
       return failure();
 
     auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(),
                                         rewriter.getI64Type(),
                                         rewriter.getI64IntegerAttr(1));
     rewriter.replaceOpWithNewOp<LLVM::AllocaOp>(
-        op, ptrType, elementType, one, /*alignment=*/0);
+        op, addrType, elementType, one, /*alignment=*/0);
     return success();
   }
 };
@@ -249,6 +249,9 @@ public:
     if (!resultType)
       return failure();
 
+    // LLVM has first-class aggregate value builders, so direct LLVM lowering can
+    // build a record value with insertvalue. The CIR bridge path has to use a
+    // temporary alloca/store/load sequence instead.
     Value result = LLVM::UndefOp::create(rewriter, op.getLoc(), resultType);
     for (auto field : llvm::enumerate(adaptor.getFields()))
       result = LLVM::InsertValueOp::create(rewriter, op.getLoc(), result,
