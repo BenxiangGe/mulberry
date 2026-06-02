@@ -25,16 +25,4 @@ def PrintOp : Cherry_Op<"print"> {
   let assemblyFormat = "$input attr-dict `:` functional-type($input, $result)";
 }
 
-def CastOp : Cherry_Op<"cast"> {
-  let summary = "Cast operation";
-  let description = [{
-    Casts from I64 to I1
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs I64:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
-}
-
 #endif // CHERRY_OPS

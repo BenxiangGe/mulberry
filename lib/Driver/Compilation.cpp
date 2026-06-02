@@ -18,34 +18,15 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/Extensions/AllExtensions.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/ExecutionEngine/ExecutionEngine.h"
-#include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/IR/Module.h"
-#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
 
-#include "clang/CIR/Dialect/IR/CIRDialect.h"
-#include "clang/CIR/Passes.h"
-
-using namespace cir;
 using namespace cherry;
 
 static auto makeContext() -> mlir::MLIRContext {
@@ -65,9 +46,6 @@ auto Compilation::make(llvm::StringRef filename,
     return {};
   }
 
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-
   auto compilation = std::make_unique<Compilation>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
   compilation->_mlirContext
@@ -76,17 +54,11 @@ auto Compilation::make(llvm::StringRef filename,
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::memref::MemRefDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
 
-  compilation->_mlirContext.getOrLoadDialect<cir::CIRDialect>();
-
-  mlir::registerBuiltinDialectTranslation(compilation->_mlirContext);
-  mlir::registerLLVMDialectTranslation(compilation->_mlirContext);
-  compilation->_llvmContext = std::make_unique<llvm::LLVMContext>();
   compilation->sourceManager().AddNewSourceBuffer(std::move(fileOrErr.get()),
                                                   llvm::SMLoc());
   compilation->_enableOpt = enableOpt;
@@ -123,51 +95,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::Linalg)
     pm.addPass(mlir::cherry::createConvertCherryNNToLinalg());
 
-  if (lowering >= Lowering::LLVM) {
-    pm.addPass(mlir::createConvertLinalgToLoopsPass());
-    cir::direct::populateCIRToLLVMPasses(pm);
-    pm.addPass(mlir::cherry::createConvertCherryToLLVM());
-    pm.addPass(mlir::createCanonicalizerPass());
-    pm.addPass(mlir::LLVM::createDIScopeForLLVMFuncOpPass());
-  }
   return pm.run(*module);
-}
-
-auto Compilation::genLLVM(std::unique_ptr<llvm::Module> &llvmModule)
-    -> CherryResult {
-  mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, Lowering::LLVM))
-    return failure();
-
-  llvmModule = mlir::translateModuleToLLVMIR(*module, *this->_llvmContext);
-  if (!llvmModule)
-    return failure();
-
-  auto tmBuilderOrError = llvm::orc::JITTargetMachineBuilder::detectHost();
-  if (!tmBuilderOrError) {
-    llvm::errs() << "Could not create JITTargetMachineBuilder\n";
-    return failure();
-  }
-
-  auto tmOrError = tmBuilderOrError->createTargetMachine();
-  if (!tmOrError) {
-    llvm::errs() << "Could not create TargetMachine\n";
-    return failure();
-  }
-  mlir::ExecutionEngine::setupTargetTripleAndDataLayout(
-      llvmModule.get(), tmOrError.get().get());
-
-  auto optPipeline =
-      mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
-                                      /*sizeLevel=*/0,
-                                      /*targetMachine=*/nullptr);
-
-  if (auto err = optPipeline(llvmModule.get())) {
-    llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
-    return failure();
-  }
-
-  return success();
 }
 
 auto Compilation::typecheck() -> int {
@@ -179,74 +107,18 @@ auto Compilation::typecheck() -> int {
 }
 
 auto Compilation::jit() -> int {
-  mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, Lowering::LLVM))
-    return EXIT_FAILURE;
-
-  auto optPipeline =
-      mlir::makeOptimizingTransformer(_enableOpt ? 3 : 0,
-                                      /*sizeLevel=*/0,
-                                      /*targetMachine=*/nullptr);
-
-  mlir::ExecutionEngineOptions engineOptions;
-  engineOptions.transformer = optPipeline;
-  auto maybeEngine = mlir::ExecutionEngine::create(*module, engineOptions);
-  assert(maybeEngine && "failed to construct an execution engine");
-  auto &engine = maybeEngine.get();
-
-  int result;
-  void *pResult = static_cast<void *>(&result);
-  if (engine->invokePacked("main", {pResult})) {
-    return EXIT_FAILURE;
-  }
-  return result;
+  // TODO: Re-enable this after the high-level Mulberry IR has a real lowering
+  // pipeline. The old JIT path was tied to the removed CIR/LLVM bridge.
+  llvm::errs() << "error: JIT is temporarily disabled while Mulberry lowering "
+                  "is redesigned\n";
+  return EXIT_FAILURE;
 }
 
 auto Compilation::genObjectFile(const char *outputFileName) -> int {
-  std::unique_ptr<llvm::Module> llvmModule;
-  if (genLLVM(llvmModule))
-    return EXIT_FAILURE;
-
-  auto targetTriple = llvm::Triple(llvm::sys::getDefaultTargetTriple());
-
-  std::string error;
-  auto target = llvm::TargetRegistry::lookupTarget(targetTriple, error);
-  if (!target) {
-    llvm::errs() << error;
-    return EXIT_FAILURE;
-  }
-
-  auto cpu = "generic";
-  auto features = "";
-  llvm::TargetOptions opt;
-  auto rm = std::optional<llvm::Reloc::Model>();
-  auto targetMachine =
-      target->createTargetMachine(targetTriple, cpu, features, opt, rm);
-
-  llvmModule->setTargetTriple(targetTriple);
-  llvmModule->setDataLayout(targetMachine->createDataLayout());
-
-  std::error_code ec;
-  llvm::raw_fd_ostream dest(outputFileName, ec, llvm::sys::fs::OF_None);
-  if (ec) {
-    llvm::errs() << "Could not open file: " << ec.message();
-    return EXIT_FAILURE;
-  }
-
-  llvm::legacy::PassManager pass;
-  auto fileType = llvm::CodeGenFileType::ObjectFile;
-  if (targetMachine->addPassesToEmitFile(pass, dest, nullptr, fileType))
-    return EXIT_FAILURE;
-
-  try {
-    pass.run(*llvmModule);
-  } catch (std::exception e) {
-    llvm::errs() << e.what();
-    return EXIT_FAILURE;
-  }
-
-  dest.flush();
-  return EXIT_SUCCESS;
+  (void)outputFileName;
+  llvm::errs() << "error: object file generation is temporarily disabled "
+                  "while Mulberry lowering is redesigned\n";
+  return EXIT_FAILURE;
 }
 
 auto Compilation::dumpTokens() -> int {
@@ -274,6 +146,13 @@ auto Compilation::dumpAST() -> int {
 }
 
 auto Compilation::dumpMLIR(Lowering lowering) -> int {
+  if (lowering >= Lowering::LLVM) {
+    // TODO: Replace this with a real Mulberry-to-LLVM lowering pipeline.
+    llvm::errs() << "error: LLVM lowering is temporarily disabled while "
+                    "Mulberry lowering is redesigned\n";
+    return EXIT_FAILURE;
+  }
+
   mlir::OwningOpRef<mlir::ModuleOp> module;
   if (genMLIR(module, lowering))
     return EXIT_FAILURE;
@@ -283,9 +162,7 @@ auto Compilation::dumpMLIR(Lowering lowering) -> int {
 }
 
 auto Compilation::dumpLLVM() -> int {
-  std::unique_ptr<llvm::Module> llvmModule;
-  if (genLLVM(llvmModule))
-    return EXIT_FAILURE;
-  llvm::errs() << *llvmModule << "\n";
-  return EXIT_SUCCESS;
+  llvm::errs() << "error: LLVM lowering is temporarily disabled while "
+                  "Mulberry lowering is redesigned\n";
+  return EXIT_FAILURE;
 }

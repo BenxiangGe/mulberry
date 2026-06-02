@@ -1,7 +1,10 @@
-# RUN: cherry-driver %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
   print(10);
-  # CHECK: 0
   0
 }
+
+# CHECK: cherry.print
+# CHECK-SAME: i64
+# CHECK-NOT: cir.

@@ -89,19 +89,4 @@ def ArgmaxOp : CherryNN_Op<"argmax"> {
   let hasVerifier = 0;
 }
 
-def CastOp : CherryNN_Op<"cast"> {
-  let summary = "Cherry NN bridge cast operation";
-  let description = [{
-    Casts a value between the MLIR scalar world and the CIR scalar world.
-    This is an internal bridge for values crossing the cherry_nn boundary.
-  }];
-
-  let arguments = (ins AnyType:$input);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$input attr-dict `:` type($input) `to` type($result)";
-
-  let hasVerifier = 1;
-}
-
 #endif // CHERRY_NN_OPS

@@ -1,6 +1,5 @@
 #include "cherry/MLIRGen/TypeConverter.h"
 
-#include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -12,11 +11,11 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
   case BuiltinTypeKind::Unit:
     return _builder.getNoneType();
   case BuiltinTypeKind::UInt64:
-    return cir::IntType::get(_builder.getContext(), 64, /*isSigned=*/false);
+    return _builder.getI64Type();
   case BuiltinTypeKind::Float32:
-    return cir::SingleType::get(_builder.getContext());
+    return _builder.getF32Type();
   case BuiltinTypeKind::Bool:
-    return cir::BoolType::get(_builder.getContext());
+    return _builder.getI1Type();
   }
 }
 
@@ -48,20 +47,17 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
 }
 
 auto MLIRTypeConverter::convert(const StructType& type) const
-    -> cir::RecordType {
-  std::vector<mlir::Type> fieldTypes;
+    -> mlir::mulberry::RecordType {
+  std::vector<mlir::mulberry::RecordType::Field> fields;
   for (const auto& field : type.fields()) {
     auto fieldType = convert(field.type());
     if (!fieldType)
       return {};
-    fieldTypes.push_back(fieldType);
+    fields.push_back({std::string(field.name()), fieldType});
   }
 
-  auto attr = _builder.getStringAttr(type.name());
-  auto recordType = cir::RecordType::get(
-      _builder.getContext(), attr, cir::RecordType::RecordKind::Struct);
-  recordType.complete(fieldTypes, false, false);
-  return recordType;
+  return mlir::mulberry::RecordType::get(_builder.getContext(), type.name(),
+                                         fields);
 }
 
 auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {

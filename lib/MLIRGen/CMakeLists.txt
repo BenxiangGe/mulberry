@@ -10,7 +10,6 @@ add_mlir_dialect_library(cherryMLIRGen
         ${LIB_HEADERS}/Conversion/CherryPasses.h
         Conversion/ConvertCherryToArithCfFunc.cpp
         Conversion/ConvertCherryNNToLinalg.cpp
-        Conversion/ConvertCherryToLLVM.cpp
         Conversion/ConvertCherryToSCF.cpp
 
         # IR
@@ -44,10 +43,8 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRLinalgDialect
         MLIRLinalgTransforms
         MLIRMathDialect
-        MLIRMathToLLVM
         MLIRMemRefDialect
         MLIRSCFDialect
-        clangCIR
 )
 
 add_subdirectory(CAPI)

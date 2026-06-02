@@ -1,7 +1,4 @@
-# _______________________________________________________
-# Generate object file
-# RUN: cherry-driver %s -dump=mlir-llvm 2>&1 | mlir-cpu-runner --entry-point-result=i64 | FileCheck %s
-# _______________________________________________________
+# RUN: not cherry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s
 
 fn bar(x: UInt64, y: Bool): Bool {
   var k: Bool = y;
@@ -37,6 +34,4 @@ fn main(): UInt64 {
   0
 }
 
-# Return value CHECK: 0
-# CHECK: 1
-# CHECK: 0
+# CHECK: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned

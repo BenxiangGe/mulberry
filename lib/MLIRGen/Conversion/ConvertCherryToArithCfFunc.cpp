@@ -33,7 +33,6 @@ struct ConvertCherryToArithCfFunc
     target.addLegalDialect<arith::ArithDialect, cf::ControlFlowDialect,
                            func::FuncDialect, scf::SCFDialect>();
     target.addIllegalDialect<cherry::CherryDialect>();
-    target.addLegalOp<cherry::CastOp>();
     target.addLegalOp<cherry::PrintOp>();
 
     RewritePatternSet patterns(&getContext());

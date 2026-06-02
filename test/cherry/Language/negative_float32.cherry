@@ -1,7 +1,6 @@
 # RUN: cherry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
 # RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
-# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 
 fn main(): UInt64 {
   var x: Float32 = -1.25;
@@ -20,11 +19,6 @@ fn main(): UInt64 {
 # AST: FloatLiteralExpr
 # AST-SAME: type=Float32 value=-1.25
 
-# MLIR: cir.const
-# MLIR-SAME: !cir.float
 # MLIR: arith.constant -1.250000e+00 : f32
 # MLIR: arith.constant -2.500000e+01 : f32
-# MLIR-NOT: builtin.unrealized_conversion_cast {{.*}} !cir.float to f32
-
-# LLVM-DAG: llvm.mlir.constant(-1.250000e+00 : f32) : f32
-# LLVM-DAG: llvm.mlir.constant(-2.500000e+01 : f32) : f32
+# MLIR-NOT: cir.

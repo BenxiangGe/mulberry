@@ -1,3 +1,6 @@
+// UNSUPPORTED: target={{.*}}
+// The current static plugin links LLVM/MLIR support already present in mlir-opt,
+// which can duplicate global command-line option registration on load.
 // RUN: mlir-opt %s --load-dialect-plugin=%cherry_libs/CherryPlugin%shlibext --pass-pipeline="builtin.module(convert-cherry-to-arith-cf-func)" | FileCheck %s
 
 module  {

@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   mlirDialectHandleRegisterDialect(mlirGetDialectHandle__cherry__(), ctx);
 
   MlirModule module = mlirModuleCreateParse(
-      ctx, mlirStringRefCreateFromCString("%0 = cherry.constant 10 : i64 : i64\n"
+      ctx, mlirStringRefCreateFromCString("%0 = arith.constant 10 : i64\n"
                                           "%1 = cherry.print %0 : (i64) -> i64"));
   if (mlirModuleIsNull(module)) {
     printf("ERROR: Could not parse.\n");
@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
   }
   MlirOperation op = mlirModuleGetOperation(module);
 
-  // CHECK: %[[C:.*]] = cherry.constant 10 : i64
+  // CHECK: %[[C:.*]] = arith.constant 10 : i64
   // CHECK: cherry.print %[[C]] : (i64) -> i64
   mlirOperationDump(op);
 

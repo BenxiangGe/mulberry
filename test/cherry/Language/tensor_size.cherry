@@ -10,5 +10,6 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: cir.const #cir.int<3> : !cir.int<u, 64>
-# CHECK: cir.const #cir.int<2> : !cir.int<u, 64>
+# CHECK: arith.constant 3 : i64
+# CHECK: arith.constant 2 : i64
+# CHECK-NOT: cir.

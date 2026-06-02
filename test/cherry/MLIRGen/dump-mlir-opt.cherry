@@ -1,8 +1,10 @@
 # RUN: cherry-driver -dump=mlir -opt %s 2>&1 | FileCheck %s
 
-# CHECK-LABEL: cir.func @main()
-# CHECK: cir.const
+# CHECK-LABEL: func.func @main() -> i64
+# CHECK-NOT: arith.constant 1 : i64
+# CHECK: arith.constant 2 : i64
 # CHECK: cherry.print
+# CHECK-NOT: cir.
 fn main(): UInt64 {
 	1;
 	print(2);
