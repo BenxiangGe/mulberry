@@ -28,7 +28,7 @@ auto operationUsesMulberryRecordType(Operation *op) -> bool {
          containsMulberryRecordType(op->getResultTypes());
 }
 
-auto bodyUsesMulberryRecordType(func::FuncOp op) -> bool {
+auto bodyNeedsFunctionBoundaryBridge(func::FuncOp op) -> bool {
   // A func.func with a plain scalar signature can still contain Mulberry record
   // ops in its body. If we leave the func boundary alone, this pass creates a
   // mixed func.func + CIR body that the downstream CIR-to-LLVM pass rejects.
@@ -45,9 +45,9 @@ auto bodyUsesMulberryRecordType(func::FuncOp op) -> bool {
   return result.wasInterrupted();
 }
 
-auto functionUsesMulberryRecordType(func::FuncOp op) -> bool {
+auto needsFunctionBoundaryBridge(func::FuncOp op) -> bool {
   return containsMulberryRecordType(op.getFunctionType()) ||
-         bodyUsesMulberryRecordType(op);
+         bodyNeedsFunctionBoundaryBridge(op);
 }
 
 class MulberryRecordTypeConverter : public TypeConverter {
@@ -214,7 +214,7 @@ public:
   }
 };
 
-class FuncOpLowering : public OpConversionPattern<func::FuncOp> {
+class BridgedFuncOpLowering : public OpConversionPattern<func::FuncOp> {
 public:
   using OpConversionPattern<func::FuncOp>::OpConversionPattern;
 
@@ -264,7 +264,7 @@ public:
   }
 };
 
-class FuncCallOpLowering : public OpConversionPattern<func::CallOp> {
+class BridgedFuncCallOpLowering : public OpConversionPattern<func::CallOp> {
 public:
   using OpConversionPattern<func::CallOp>::OpConversionPattern;
 
@@ -287,7 +287,7 @@ public:
   }
 };
 
-class FuncReturnOpLowering : public OpConversionPattern<func::ReturnOp> {
+class BridgedFuncReturnOpLowering : public OpConversionPattern<func::ReturnOp> {
 public:
   using OpConversionPattern<func::ReturnOp>::OpConversionPattern;
 
@@ -311,39 +311,43 @@ struct ConvertMulberryRecordToCIR
 
     // Dynamic legality is queried after nested ops may already have been
     // rewritten, so remember the original func.func boundary decisions first.
-    std::set<Operation *> funcsToLower;
+    std::set<Operation *> funcsNeedingBoundaryBridge;
     getOperation()->walk([&](func::FuncOp op) {
-      if (functionUsesMulberryRecordType(op))
-        funcsToLower.insert(op.getOperation());
+      if (needsFunctionBoundaryBridge(op))
+        funcsNeedingBoundaryBridge.insert(op.getOperation());
     });
-    auto needsCIRFunctionLowering = [&](func::FuncOp op) {
-      return funcsToLower.find(op.getOperation()) != funcsToLower.end();
+    auto needsBoundaryBridge = [&](func::FuncOp op) {
+      return funcsNeedingBoundaryBridge.find(op.getOperation()) !=
+             funcsNeedingBoundaryBridge.end();
     };
 
     ConversionTarget target(getContext());
     target.addLegalDialect<cir::CIRDialect, func::FuncDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return !needsCIRFunctionLowering(op);
+      return !needsBoundaryBridge(op);
     });
     target.addDynamicallyLegalOp<func::CallOp>([&](func::CallOp op) {
       if (auto funcOp = op->getParentOfType<func::FuncOp>())
-        if (needsCIRFunctionLowering(funcOp))
+        if (needsBoundaryBridge(funcOp))
           return false;
       return !containsMulberryRecordType(op.getOperandTypes()) &&
              !containsMulberryRecordType(op.getResultTypes());
     });
     target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
       auto funcOp = op->getParentOfType<func::FuncOp>();
-      return funcOp && !needsCIRFunctionLowering(funcOp);
+      return funcOp && !needsBoundaryBridge(funcOp);
     });
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     RewritePatternSet patterns(&getContext());
+    // This pass has two jobs for now: lower Mulberry record ops to CIR storage
+    // ops, and bridge selected func.func boundaries back to cir.func after the
+    // Mulberry record types have become CIR record types.
     patterns.add<AllocaOpLowering, LoadOpLowering, StoreOpLowering,
                  RecordGetFieldOpLowering, RecordCreateOpLowering,
-                 FuncOpLowering, FuncCallOpLowering, FuncReturnOpLowering>(
-        typeConverter, &getContext());
+                 BridgedFuncOpLowering, BridgedFuncCallOpLowering,
+                 BridgedFuncReturnOpLowering>(typeConverter, &getContext());
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns))))
