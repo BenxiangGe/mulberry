@@ -47,9 +47,10 @@ public:
       -> LogicalResult final {
     auto loc = op->getLoc();
     auto operand = op.getInput();
-    Value newOperand = llvm::isa<MemRefType>(operand.getType())
-                           ? rewriter.create<memref::LoadOp>(loc, operand)
-                           : adaptor.getInput();
+    Value newOperand =
+        llvm::isa<MemRefType>(operand.getType())
+            ? memref::LoadOp::create(rewriter, loc, operand).getResult()
+            : adaptor.getInput();
 
     if ((llvm::isa<IntegerType>(op.getInput().getType()) &&
          llvm::isa<cir::IntType>(op.getResult().getType())) ||
@@ -59,8 +60,8 @@ public:
       return success();
     }
 
-    auto cast =
-        rewriter.create<LLVM::ZExtOp>(loc, rewriter.getI64Type(), newOperand);
+    auto cast = LLVM::ZExtOp::create(rewriter, loc, rewriter.getI64Type(),
+                                     newOperand);
     rewriter.replaceOp(op, cast.getRes());
     return llvm::success();
   }
@@ -84,9 +85,10 @@ public:
         loc, rewriter, "frmt_spec", StringRef("%llu\n\0", 6), parentModule);
 
     auto operand = op.getInput();
-    Value newOperand = llvm::isa<MemRefType>(operand.getType())
-                           ? rewriter.create<memref::LoadOp>(loc, operand)
-                           : adaptor.getInput();
+    Value newOperand =
+        llvm::isa<MemRefType>(operand.getType())
+            ? memref::LoadOp::create(rewriter, loc, operand).getResult()
+            : adaptor.getInput();
 
     rewriter.replaceOpWithNewOp<LLVM::CallOp>(
         op, getPrintfType(rewriter.getContext()), printfRef,
@@ -112,8 +114,8 @@ private:
     // Insert the printf function into the body of the parent module.
     PatternRewriter::InsertionGuard insertGuard(rewriter);
     rewriter.setInsertionPointToStart(module.getBody());
-    rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "printf",
-                                      getPrintfType(context));
+    LLVM::LLVMFuncOp::create(rewriter, module.getLoc(), "printf",
+                             getPrintfType(context));
     return SymbolRefAttr::get(context, "printf");
   }
 
@@ -129,19 +131,22 @@ private:
       builder.setInsertionPointToStart(module.getBody());
       auto type = LLVM::LLVMArrayType::get(
           IntegerType::get(builder.getContext(), 8), value.size());
-      global = builder.create<LLVM::GlobalOp>(loc, type, /*isConstant=*/true,
-                                              LLVM::Linkage::Internal, name,
-                                              builder.getStringAttr(value));
+      global = LLVM::GlobalOp::create(builder, loc, type, /*isConstant=*/true,
+                                      LLVM::Linkage::Internal, name,
+                                      builder.getStringAttr(value));
     }
 
     // Get the pointer to the first character in the global string.
-    Value globalPtr = builder.create<LLVM::AddressOfOp>(loc, global);
-    Value cst0 = builder.create<LLVM::ConstantOp>(
-        loc, IntegerType::get(builder.getContext(), 64),
-        builder.getIntegerAttr(builder.getIndexType(), 0));
-    return builder.create<LLVM::GEPOp>(
-        loc, LLVM::LLVMPointerType::get(builder.getContext()), global.getType(),
-        globalPtr, ArrayRef<Value>({cst0, cst0}));
+    Value globalPtr = LLVM::AddressOfOp::create(builder, loc, global).getResult();
+    Value cst0 =
+        LLVM::ConstantOp::create(
+            builder, loc, IntegerType::get(builder.getContext(), 64),
+            builder.getIntegerAttr(builder.getIndexType(), 0))
+            .getResult();
+    return LLVM::GEPOp::create(
+               builder, loc, LLVM::LLVMPointerType::get(builder.getContext()),
+               global.getType(), globalPtr, ArrayRef<Value>({cst0, cst0}))
+        .getResult();
   }
 };
 
