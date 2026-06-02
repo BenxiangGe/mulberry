@@ -1,0 +1,32 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+
+fn echo(xs: Float32[2]): Float32[2] {
+  var n: UInt64 = 0;
+  n = size(xs);
+  xs
+}
+
+fn main(): UInt64 {
+  var xs: Float32[2] = [1.0, 2.0];
+  var ys: Float32[2] = echo(xs);
+  0
+}
+
+# MLIR-LABEL: func.func @echo
+# MLIR: memref.alloc() : memref<i64>
+# MLIR: arith.constant 0 : i64
+# MLIR: memref.store
+# MLIR-SAME: memref<i64>
+# MLIR: arith.constant 2 : i64
+# MLIR: memref.store
+# MLIR-SAME: memref<i64>
+# MLIR-NOT: cir.const
+# MLIR-NOT: cir.store
+# MLIR: mulberry.tensor.pack
+
+# LLVM-LABEL: llvm.func @echo
+# LLVM: llvm.call @malloc
+# LLVM: llvm.store
+# LLVM-NOT: cir.
+# LLVM-NOT: mulberry.

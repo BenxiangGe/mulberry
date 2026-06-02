@@ -61,6 +61,11 @@ struct FunctionInfo {
   const Type *returnType = nullptr;
 };
 
+auto usesCIRStorage(mlir::Type type) -> bool {
+  return llvm::isa<cir::BoolType, cir::IntType, cir::SingleType,
+                   cir::PointerType, cir::RecordType>(type);
+}
+
 class MLIRGenImpl {
 public:
   MLIRGenImpl(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context)
@@ -193,6 +198,8 @@ private:
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
+  auto getScalarMLIRType(const Type *type) const -> mlir::Type;
+  auto getScalarMLIRType(const Expr *expr) const -> mlir::Type;
   auto getFunctionBoundaryType(const Type *type) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
@@ -215,6 +222,16 @@ private:
   auto usesFuncDialectCallee(const Stat *node) const -> bool;
 
   // Utility
+  auto getLocalStorageType(const Type *type) const -> mlir::Type {
+    if (_currentFunctionUsesFuncDialect && cherry::getBuiltinType(type))
+      return getScalarMLIRType(type);
+    return getMLIRType(type);
+  }
+
+  auto getLocalStorageType(const Expr *expr) const -> mlir::Type {
+    return getLocalStorageType(expr->type());
+  }
+
   auto loc(const Node *node) -> mlir::Location {
     auto [line, col] = _sourceManager.getLineAndColumn(node->location());
     return mlir::FileLineColLoc::get(
@@ -223,6 +240,14 @@ private:
 
   auto createEntryBlockAlloca(mlir::Type mlirType, mlir::Location loc)
       -> mlir::Value {
+    if (!usesCIRStorage(mlirType)) {
+      auto alloca = mlir::memref::AllocOp::create(
+          _builder, loc, mlir::MemRefType::get({}, mlirType));
+      auto *parentBlock = alloca.getOperation()->getBlock();
+      alloca.getOperation()->moveBefore(&parentBlock->front());
+      return alloca;
+    }
+
     mlir::Type ptrTy = cir::PointerType::get(mlirType);
     cir::AllocaOp alloca = cir::AllocaOp::create(_builder, loc, ptrTy, mlirType,
                                                  "", getAlignOne());
@@ -730,7 +755,10 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
   auto size = tensorType->shape().front();
   DBG("size() static tensor size: {0}", size);
-  auto type = getMLIRType(node);
+  if (_currentFunctionUsesFuncDialect)
+    return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
+
+  auto type = getLocalStorageType(node);
   auto attr = cir::IntAttr::get(type, size);
   return cir::ConstantOp::create(_builder, loc(node), attr);
 }
@@ -741,7 +769,7 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
     return address;
   if (cherry::getStructType(node->type()))
     return createLoad(address, getMLIRType(node), loc(node));
-  return cir::LoadOp::create(_builder, loc(node), address);
+  return createLoad(address, getLocalStorageType(node), loc(node));
 }
 
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
@@ -750,20 +778,33 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
-  mlir::Type type = getMLIRType(node);
+  mlir::Type type = getLocalStorageType(node);
+  if (auto intType = llvm::dyn_cast<mlir::IntegerType>(type))
+    return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                              node->value(),
+                                              intType.getWidth());
+
   cir::IntAttr attr = cir::IntAttr::get(type, node->value());
   DBG("type: {0}, attr: {1}", type, attr);
   return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
-  mlir::Type type = getMLIRType(node);
+  mlir::Type type = getLocalStorageType(node);
+  if (auto floatType = llvm::dyn_cast<mlir::FloatType>(type))
+    return mlir::arith::ConstantFloatOp::create(_builder, loc(node),
+                                                floatType, node->value());
+
   cir::FPAttr attr = cir::FPAttr::get(type, node->value());
   DBG("type: {0}, attr: {1}", type, attr);
   return cir::ConstantOp::create(_builder, loc(node), attr);
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
+  if (_currentFunctionUsesFuncDialect)
+    return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                              node->value(), 1);
+
   cir::BoolAttr attr = cir::BoolAttr::get(_builder.getContext(), node->value());
   DBG("attr: {0}", attr);
   return cir::ConstantOp::create(_builder, loc(node), attr);
@@ -824,7 +865,8 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
 auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
   if (auto *memberExpr = llvm::dyn_cast<MemberExpr>(node)) {
     mlir::Value ptr = genLValue(memberExpr);
-    mlir::Value val = createLoad(ptr, getMLIRType(memberExpr), loc(memberExpr));
+    mlir::Value val = createLoad(ptr, getMLIRType(memberExpr),
+                                 loc(memberExpr));
     return val;
   }
 
@@ -848,10 +890,12 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
 
   auto lhs =
       castToType(gen(node->lhs().get()),
-                 getMLIRType(node->lhs().get()), loc(node->lhs().get()));
+                 getLocalStorageType(node->lhs().get()),
+                 loc(node->lhs().get()));
   auto rhs =
       castToType(gen(node->rhs().get()),
-                 getMLIRType(node->rhs().get()), loc(node->rhs().get()));
+                 getLocalStorageType(node->rhs().get()),
+                 loc(node->rhs().get()));
   switch (op) {
   case Operator::Add:
     return cir::BinOp::create(_builder, loc(node), cir::BinOpKind::Add, lhs,
@@ -916,7 +960,8 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto address = getVariable(name);
         if (!cherry::isUnitType(node->lhs()->type())) {
           rhs =
-              castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
+              castToType(rhs, getLocalStorageType(node->lhs().get()),
+                         loc(node));
           createStore(rhs, address, loc(node));
         }
       })
@@ -983,6 +1028,9 @@ auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
 
 auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
+  if (llvm::isa<mlir::MemRefType>(ptr.getType()))
+    return mlir::memref::LoadOp::create(_builder, location, type, ptr,
+                                        mlir::ValueRange{});
   if (llvm::isa<mlir::mulberry::PtrType>(ptr.getType()))
     return mlir::mulberry::LoadOp::create(_builder, location, type, ptr);
   return cir::LoadOp::create(_builder, location, ptr);
@@ -990,6 +1038,12 @@ auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
 
 void MLIRGenImpl::createStore(mlir::Value value, mlir::Value ptr,
                               mlir::Location location) {
+  if (llvm::isa<mlir::MemRefType>(ptr.getType())) {
+    mlir::memref::StoreOp::create(_builder, location, value, ptr,
+                                  mlir::ValueRange{});
+    return;
+  }
+
   if (llvm::isa<mlir::mulberry::PtrType>(ptr.getType())) {
     mlir::mulberry::StoreOp::create(_builder, location, value, ptr);
     return;
@@ -1068,7 +1122,8 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
         return nullptr;
       }
     } else {
-      mlir::Value val = gen(expr.get());
+      mlir::Value val = castToType(gen(expr.get()), getMLIRType(field.type()),
+                                   loc(expr.get()));
       createStore(val, memberPtr, loc(structLiteral));
     }
 
@@ -1088,6 +1143,27 @@ auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
 
 auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
+}
+
+auto MLIRGenImpl::getScalarMLIRType(const Type *type) const -> mlir::Type {
+  auto *builtinType = cherry::getBuiltinType(type);
+  if (!builtinType)
+    return getMLIRType(type);
+
+  switch (builtinType->builtinKind()) {
+  case BuiltinTypeKind::UInt64:
+    return mlir::IntegerType::get(_builder.getContext(), 64);
+  case BuiltinTypeKind::Float32:
+    return mlir::Float32Type::get(_builder.getContext());
+  case BuiltinTypeKind::Bool:
+    return mlir::IntegerType::get(_builder.getContext(), 1);
+  case BuiltinTypeKind::Unit:
+    return mlir::NoneType::get(_builder.getContext());
+  }
+}
+
+auto MLIRGenImpl::getScalarMLIRType(const Expr *expr) const -> mlir::Type {
+  return getScalarMLIRType(expr->type());
 }
 
 auto MLIRGenImpl::getFunctionBoundaryType(const Type *type) const
@@ -1506,18 +1582,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     return;
   }
 
-  auto mlirType = getMLIRType(varType);
+  auto mlirType = getLocalStorageType(varType);
   auto alloca = createEntryBlockAlloca(mlirType, loc(node));
   setVariable(varName, alloca);
 
   auto initValue = gen(node->init().get());
 
   initValue = castToType(initValue, mlirType, loc(node));
-  cir::StoreOp::create(_builder, loc(node), initValue, alloca,
-                       /*isVolatile=*/false,
-                       /*alignment=*/mlir::IntegerAttr{},
-                       /*sync_scope=*/cir::SyncScopeKindAttr(),
-                       /*mem-order=*/cir::MemOrderAttr());
+  createStore(initValue, alloca, loc(node));
 }
 
 auto MLIRGenImpl::gen(const ExprStat *node) -> void {
