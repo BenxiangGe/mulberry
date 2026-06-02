@@ -54,18 +54,38 @@ constexpr int64_t kGlobalTensorLiteralElementThreshold = 64;
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
+enum class FunctionBoundaryMode {
+  CIR,
+  MulberryRecordBridge,
+  TensorDescriptorABI,
+};
+
 struct FunctionInfo {
   mlir::Operation *op = nullptr;
-  bool needsFunctionBoundaryBridge = false;
-  bool usesStandardMLIRFunctionBoundary = false;
+  FunctionBoundaryMode boundaryMode = FunctionBoundaryMode::CIR;
   std::vector<const Type *> parameterTypes;
   const Type *returnType = nullptr;
 };
 
-struct FunctionBoundaryDecision {
-  bool needsBridge = false;
-  bool usesStandardMLIR = false;
-};
+auto usesFuncDialect(FunctionBoundaryMode mode) -> bool {
+  return mode != FunctionBoundaryMode::CIR;
+}
+
+auto usesStandardMLIR(FunctionBoundaryMode mode) -> bool {
+  return mode == FunctionBoundaryMode::TensorDescriptorABI;
+}
+
+auto formatFunctionBoundaryMode(FunctionBoundaryMode mode) -> const char * {
+  switch (mode) {
+  case FunctionBoundaryMode::CIR:
+    return "CIR";
+  case FunctionBoundaryMode::MulberryRecordBridge:
+    return "MulberryRecordBridge";
+  case FunctionBoundaryMode::TensorDescriptorABI:
+    return "TensorDescriptorABI";
+  }
+  llvm_unreachable("unexpected function boundary mode");
+}
 
 auto usesCIRStorage(mlir::Type type) -> bool {
   return llvm::isa<cir::BoolType, cir::IntType, cir::SingleType,
@@ -90,12 +110,12 @@ private:
   ScopeStack<NameMap<mlir::Value>> _variableScopes;
   NameMap<FunctionInfo> _functionsByName;
   NameMap<const FunctionDecl *> _functionDeclsByName;
-  NameMap<FunctionBoundaryDecision> _functionBoundaryDecisions;
+  NameMap<FunctionBoundaryMode> _functionBoundaryModes;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
-  bool _currentFunctionNeedsBoundaryBridge = false;
-  bool _currentFunctionUsesStandardMLIR = false;
+  FunctionBoundaryMode _currentFunctionBoundaryMode =
+      FunctionBoundaryMode::CIR;
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
@@ -161,14 +181,12 @@ private:
   }
 
   void setFunction(std::string_view name, mlir::Operation *op,
-                   bool needsFunctionBoundaryBridge,
-                   bool usesStandardMLIRFunctionBoundary,
+                   FunctionBoundaryMode boundaryMode,
                    std::vector<const Type *> parameterTypes,
                    const Type *returnType) {
     setSymbol(_functionsByName, name,
-              FunctionInfo{op, needsFunctionBoundaryBridge,
-                           usesStandardMLIRFunctionBoundary,
-                           std::move(parameterTypes), returnType});
+              FunctionInfo{op, boundaryMode, std::move(parameterTypes),
+                           returnType});
   }
 
   auto findFunction(std::string_view name) const {
@@ -179,16 +197,16 @@ private:
     setSymbol(_functionDeclsByName, name, decl);
   }
 
-  void setFunctionBoundaryDecision(std::string_view name,
-                                   FunctionBoundaryDecision decision) {
-    setSymbol(_functionBoundaryDecisions, name, decision);
+  void setFunctionBoundaryMode(std::string_view name,
+                               FunctionBoundaryMode mode) {
+    setSymbol(_functionBoundaryModes, name, mode);
   }
 
-  auto getFunctionBoundaryDecision(std::string_view name) const
-      -> FunctionBoundaryDecision {
-    auto it = _functionBoundaryDecisions.find(name);
-    if (it == _functionBoundaryDecisions.end())
-      return {};
+  auto getFunctionBoundaryMode(std::string_view name) const
+      -> FunctionBoundaryMode {
+    auto it = _functionBoundaryModes.find(name);
+    if (it == _functionBoundaryModes.end())
+      return FunctionBoundaryMode::CIR;
     return it->second;
   }
 
@@ -230,8 +248,8 @@ private:
   auto getScalarMLIRType(const Expr *expr) const -> mlir::Type;
   auto getFunctionBoundaryType(const Type *type) const -> mlir::Type;
   auto getFunctionBoundaryType(const Type *type,
-                               bool usesStandardMLIR) const -> mlir::Type;
-  auto getFunctionBridgeDecisionType(const Type *type) const -> mlir::Type;
+                               FunctionBoundaryMode mode) const -> mlir::Type;
+  auto getCIRBoundaryType(const Type *type) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
   auto createTensorPack(mlir::Value tensor, const TensorType *type,
@@ -253,14 +271,15 @@ private:
                               llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   auto getFunctionReturnType(const Type *returnType) const -> mlir::Type;
   void collectFunctionDecls(const Module &node);
-  void computeFunctionBridgeDecisions();
-  auto hasDirectFunctionBoundaryBridgeNeed(const FunctionDecl *node) const
+  void computeFunctionBoundaryModes();
+  auto needsMulberryRecordBoundaryBridge(const FunctionDecl *node) const
       -> bool;
   auto hasTensorFunctionBoundary(const FunctionDecl *node) const -> bool;
 
   // Utility
   auto getLocalStorageType(const Type *type) const -> mlir::Type {
-    if (_currentFunctionUsesStandardMLIR && cherry::getBuiltinType(type))
+    if (usesStandardMLIR(_currentFunctionBoundaryMode) &&
+        cherry::getBuiltinType(type))
       return getScalarMLIRType(type);
     return getMLIRType(type);
   }
@@ -302,7 +321,7 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
 
   collectFunctionDecls(node);
-  computeFunctionBridgeDecisions();
+  computeFunctionBoundaryModes();
 
   for (auto &decl : node) {
     if (auto *op = gen(decl.get()))
@@ -334,27 +353,29 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
 auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   std::vector<const Type *> parameterTypes;
-  auto needsBoundaryBridge = _currentFunctionNeedsBoundaryBridge;
-  auto usesStandardMLIR = _currentFunctionUsesStandardMLIR;
+  auto boundaryMode = _currentFunctionBoundaryMode;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
     parameterTypes.push_back(paramType);
-    argTypes.push_back(getFunctionBoundaryType(paramType, usesStandardMLIR));
+    argTypes.push_back(getFunctionBoundaryType(paramType, boundaryMode));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
+  DBG("function boundary mode for `{0}`: {1}", funcName,
+      formatFunctionBoundaryMode(boundaryMode));
 
   mlir::Operation *funcOp = nullptr;
   mlir::Block *entryBlock = nullptr;
-  if (needsBoundaryBridge) {
-    // CIR verifies function signatures before Mulberry records are lowered.
-    // Use func.func as a temporary boundary IR, then convert it back to CIR
-    // after mulberry.record has become cir.record.
+  if (usesFuncDialect(boundaryMode)) {
+    // func.func is the temporary escape hatch for boundary types CIR cannot
+    // verify directly: plain record bridges later become CIR, while tensor ABI
+    // functions stay in standard MLIR until the tensor descriptor lowering is
+    // complete.
     llvm::SmallVector<mlir::Type, 1> resultTypes;
     if (!cherry::isUnitType(returnType))
       resultTypes.push_back(
-          getFunctionBoundaryType(returnType, usesStandardMLIR));
+          getFunctionBoundaryType(returnType, boundaryMode));
 
     auto funcType = _builder.getFunctionType(argTypes, resultTypes);
     mlir::OperationState state(loc(node),
@@ -398,7 +419,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
     createStore(value, alloca, loc(node));
   }
 
-  setFunction(funcName, funcOp, needsBoundaryBridge, usesStandardMLIR,
+  setFunction(funcName, funcOp, boundaryMode,
               std::move(parameterTypes), returnType);
 
   DBG("funcName: {0}", funcName);
@@ -408,9 +429,8 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::Operation * {
 
 auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
   resetVariableScopes();
-  auto decision = getFunctionBoundaryDecision(node->proto()->id()->name());
-  _currentFunctionNeedsBoundaryBridge = decision.needsBridge;
-  _currentFunctionUsesStandardMLIR = decision.usesStandardMLIR;
+  _currentFunctionBoundaryMode =
+      getFunctionBoundaryMode(node->proto()->id()->name());
   auto func = gen(node->proto().get());
 
   auto value = gen(node->body().get());
@@ -421,17 +441,17 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::Operation * {
     if (auto *tensorType = cherry::getTensorType(returnType))
       value = createTensorPack(value, tensorType, location);
     else {
-      auto boundaryType = getFunctionBoundaryType(
-          returnType, _currentFunctionUsesStandardMLIR);
+      auto boundaryType = getFunctionBoundaryType(returnType,
+                                                  _currentFunctionBoundaryMode);
       value = castToType(value, boundaryType, location);
     }
     llvm::SmallVector<mlir::Value, 1> returnValues{value};
-    if (_currentFunctionNeedsBoundaryBridge)
+    if (usesFuncDialect(_currentFunctionBoundaryMode))
       mlir::func::ReturnOp::create(_builder, location, returnValues);
     else
       cir::ReturnOp::create(_builder, location, returnValues);
   } else {
-    if (_currentFunctionNeedsBoundaryBridge)
+    if (usesFuncDialect(_currentFunctionBoundaryMode))
       mlir::func::ReturnOp::create(_builder, location);
     else
       cir::ReturnOp::create(_builder, location);
@@ -504,7 +524,7 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
       formatType(node->elseBlock()->type()));
   auto cond = gen(node->conditionExpr().get());
 
-  if (_currentFunctionUsesStandardMLIR) {
+  if (usesStandardMLIR(_currentFunctionBoundaryMode)) {
     // Tensor ABI function bodies use standard MLIR scalar/control-flow ops.
     // Mixing i1 conditions with CIR control-flow fails CIR verification.
     if (cherry::isUnitType(node->type())) {
@@ -599,7 +619,7 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
-  if (_currentFunctionUsesStandardMLIR) {
+  if (usesStandardMLIR(_currentFunctionBoundaryMode)) {
     auto bodyBlock = node->bodyBlock().get();
     mlir::scf::WhileOp::create(
         _builder, loc(node), mlir::TypeRange{}, mlir::ValueRange{},
@@ -639,7 +659,7 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
   auto forLocation = loc(node);
 
-  if (_currentFunctionUsesStandardMLIR) {
+  if (usesStandardMLIR(_currentFunctionBoundaryMode)) {
     auto inductionType = getLocalStorageType(node->startExpr().get());
     auto inductionPtr = createEntryBlockAlloca(inductionType, forLocation);
 
@@ -769,8 +789,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
       value = createTensorPack(value, tensorType, loc(expressions[i].get()));
     } else {
       auto paramType = getFunctionBoundaryType(
-          calleeInfo.parameterTypes[i],
-          calleeInfo.usesStandardMLIRFunctionBoundary);
+          calleeInfo.parameterTypes[i], calleeInfo.boundaryMode);
       value = castToType(value, paramType, loc(expressions[i].get()));
     }
     DBG("gen(CallExpr). value: {0}", value);
@@ -782,9 +801,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   auto callResultType =
       isUnitCall ? mlir::Type{}
                  : getFunctionBoundaryType(
-                       node->type(),
-                       calleeInfo.usesStandardMLIRFunctionBoundary);
-  if (calleeInfo.needsFunctionBoundaryBridge) {
+                       node->type(), calleeInfo.boundaryMode);
+  if (usesFuncDialect(calleeInfo.boundaryMode)) {
     llvm::SmallVector<mlir::Type, 1> callResultTypes;
     if (!isUnitCall)
       callResultTypes.push_back(callResultType);
@@ -894,7 +912,7 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
   auto size = tensorType->shape().front();
   DBG("size() static tensor size: {0}", size);
-  if (_currentFunctionUsesStandardMLIR)
+  if (usesStandardMLIR(_currentFunctionBoundaryMode))
     return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
 
   auto type = getLocalStorageType(node);
@@ -940,7 +958,7 @@ auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
-  if (_currentFunctionUsesStandardMLIR)
+  if (usesStandardMLIR(_currentFunctionBoundaryMode))
     return mlir::arith::ConstantIntOp::create(_builder, loc(node),
                                               node->value(), 1);
 
@@ -1432,27 +1450,27 @@ auto MLIRGenImpl::getScalarMLIRType(const Expr *expr) const -> mlir::Type {
 
 auto MLIRGenImpl::getFunctionBoundaryType(const Type *type) const
     -> mlir::Type {
-  return getFunctionBoundaryType(type, _currentFunctionUsesStandardMLIR);
+  return getFunctionBoundaryType(type, _currentFunctionBoundaryMode);
 }
 
 auto MLIRGenImpl::getFunctionBoundaryType(const Type *type,
-                                          bool usesStandardMLIR) const
+                                          FunctionBoundaryMode mode) const
     -> mlir::Type {
   // Tensor functions pass a single descriptor value across the call boundary;
   // function bodies still use memrefs because NN/linalg ops operate on memrefs.
   if (auto *tensorType = cherry::getTensorType(type))
     return _typeConverter.convertTensorDescriptor(*tensorType);
-  if (usesStandardMLIR && cherry::getBuiltinType(type))
+  if (usesStandardMLIR(mode) && cherry::getBuiltinType(type))
     return getScalarMLIRType(type);
   return getMLIRType(type);
 }
 
-auto MLIRGenImpl::getFunctionBridgeDecisionType(const Type *type) const
+auto MLIRGenImpl::getCIRBoundaryType(const Type *type) const
     -> mlir::Type {
-  // Bridge decisions must not depend on the current function's boundary mode.
-  // They only need to know whether this type introduces a Mulberry record at the
-  // boundary; builtin scalar representation is chosen later.
-  return getFunctionBoundaryType(type, /*usesStandardMLIR=*/false);
+  // Boundary mode selection must not depend on the current function mode.
+  // Inspect the CIR-shaped boundary type to find Mulberry records that CIR
+  // cannot verify directly.
+  return getFunctionBoundaryType(type, FunctionBoundaryMode::CIR);
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1566,13 +1584,13 @@ void MLIRGenImpl::collectFunctionDecls(const Module &node) {
   }
 }
 
-void MLIRGenImpl::computeFunctionBridgeDecisions() {
+void MLIRGenImpl::computeFunctionBoundaryModes() {
   bool moduleUsesTensorDescriptorABI = false;
   for (const auto &function : _functionDeclsByName) {
-    auto needsBridge =
-        hasDirectFunctionBoundaryBridgeNeed(function.second);
-    setFunctionBoundaryDecision(function.first,
-                                FunctionBoundaryDecision{needsBridge, false});
+    auto mode = needsMulberryRecordBoundaryBridge(function.second)
+                    ? FunctionBoundaryMode::MulberryRecordBridge
+                    : FunctionBoundaryMode::CIR;
+    setFunctionBoundaryMode(function.first, mode);
 
     if (hasTensorFunctionBoundary(function.second))
       moduleUsesTensorDescriptorABI = true;
@@ -1583,14 +1601,13 @@ void MLIRGenImpl::computeFunctionBridgeDecisions() {
     // are present, so leaving unrelated cir.func ops in the same module breaks
     // legalization. Keep the whole user module on func.func until CIR is gone.
     for (const auto &function : _functionDeclsByName)
-      setFunctionBoundaryDecision(
-          function.first, FunctionBoundaryDecision{/*needsBridge=*/true,
-                                                   /*usesStandardMLIR=*/true});
+      setFunctionBoundaryMode(function.first,
+                              FunctionBoundaryMode::TensorDescriptorABI);
     return;
   }
 }
 
-auto MLIRGenImpl::hasDirectFunctionBoundaryBridgeNeed(
+auto MLIRGenImpl::needsMulberryRecordBoundaryBridge(
     const FunctionDecl *node) const -> bool {
   auto *proto = node->proto().get();
   // This is a temporary ABI bridge, not a language-level function model.
@@ -1598,12 +1615,12 @@ auto MLIRGenImpl::hasDirectFunctionBoundaryBridgeNeed(
   // converted, so such functions stay in func.func until the bridge pass runs.
   // Tensors use a Mulberry record descriptor at function boundaries, while
   // function bodies still operate on memrefs for NN/linalg lowering.
-  if (containsMulberryRecordType(getFunctionBridgeDecisionType(proto->type())))
+  if (containsMulberryRecordType(getCIRBoundaryType(proto->type())))
     return true;
 
   for (auto &param : proto->parameters())
     if (containsMulberryRecordType(
-            getFunctionBridgeDecisionType(param->type())))
+            getCIRBoundaryType(param->type())))
       return true;
 
   return false;
