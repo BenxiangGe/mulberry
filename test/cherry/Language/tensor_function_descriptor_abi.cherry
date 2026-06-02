@@ -1,5 +1,5 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
-# RUN: cherry-driver -dump=mlir %s 2>&1 | cherry-opt --convert-cherry-nn-to-linalg --convert-linalg-to-loops --convert-cherry-to-llvm | FileCheck %s --check-prefix=LLVM
+# RUN: cherry-driver -dump=mlir-llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 
 fn best(xs: Float32[2]): UInt64 {
   argmax(xs)

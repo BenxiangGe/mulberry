@@ -10,6 +10,7 @@
 #include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
+#include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/Parse/Lexer.h"
 #include "cherry/Parse/Parser.h"
@@ -47,6 +48,17 @@
 
 using namespace cir;
 using namespace cherry;
+
+static auto hasTensorDescriptorBoundary(mlir::ModuleOp module) -> bool {
+  auto result = module.walk([](mlir::Operation *op) {
+    if (llvm::isa<mlir::mulberry::TensorPackOp,
+                  mlir::mulberry::TensorUnpackOp>(op))
+      return mlir::WalkResult::interrupt();
+    return mlir::WalkResult::advance();
+  });
+
+  return result.wasInterrupted();
+}
 
 static auto makeContext() -> mlir::MLIRContext {
   mlir::DialectRegistry registry;
@@ -125,12 +137,14 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
   if (lowering >= Lowering::LLVM) {
     pm.addPass(mlir::createConvertLinalgToLoopsPass());
-    // Keep production struct lowering on the CIR bridge while scalar codegen
-    // still emits CIR ops. The direct Mulberry-record-to-LLVM path is tested
-    // through cherry-opt and can replace this bridge after core scalar lowering
-    // no longer depends on CIR.
-    pm.addPass(mlir::cherry::createConvertMulberryRecordToCIR());
-    cir::direct::populateCIRToLLVMPasses(pm);
+    if (!hasTensorDescriptorBoundary(*module)) {
+      // Keep production struct lowering on the CIR bridge while scalar codegen
+      // still emits CIR ops. Tensor descriptor ABI must skip this bridge:
+      // mulberry.tensor.pack/unpack still need memref descriptor metadata that
+      // the CIR record bridge intentionally does not model.
+      pm.addPass(mlir::cherry::createConvertMulberryRecordToCIR());
+      cir::direct::populateCIRToLLVMPasses(pm);
+    }
     pm.addPass(mlir::cherry::createConvertCherryToLLVM());
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::LLVM::createDIScopeForLLVMFuncOpPass());
