@@ -23,6 +23,7 @@ public:
     Unit,
     Named,
     Tensor,
+    List,
   };
 
   auto kind() const -> Kind { return _kind; }
@@ -82,6 +83,26 @@ public:
 private:
   std::unique_ptr<TypeNode> _elementType;
   std::vector<int64_t> _shape;
+};
+
+// Generic list type node. e.g. `List<Float32[?, ?]>`
+class ListTypeNode final : public TypeNode {
+public:
+  ListTypeNode(std::unique_ptr<TypeNode> elementType,
+               llvm::SMLoc location)
+      : TypeNode(location, TypeNode::Kind::List),
+        _elementType(std::move(elementType)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::List;
+  }
+
+  auto elementTypeNode() const -> const TypeNode * {
+    return _elementType.get();
+  }
+
+private:
+  std::unique_ptr<TypeNode> _elementType;
 };
 
 } // end namespace cherry

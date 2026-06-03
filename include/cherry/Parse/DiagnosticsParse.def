@@ -8,6 +8,8 @@
 ERROR(expected_semi, "expected `;`")
 ERROR(expected_colon, "expected `:`")
 ERROR(expected_assign, "expected `=`")
+ERROR(expected_less, "expected `<`")
+ERROR(expected_greater, "expected `>`")
 ERROR(expected_in, "expected `in`")
 ERROR(expected_dot_dot, "expected `..`")
 ERROR(expected_l_paren, "expected `(`")

@@ -20,6 +20,10 @@ def Mulberry_AnyTensorType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
     "Mulberry tensor type">;
 
+def Mulberry_AnyListType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::ListType>($_self)">,
+    "Mulberry list type">;
+
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";
 
@@ -123,6 +127,39 @@ def Mulberry_TensorStoreOp : Mulberry_Op<"tensor.store"> {
                        "type($value) `,` type($tensor)";
 
   let hasVerifier = 1;
+}
+
+def Mulberry_ListCreateOp : Mulberry_Op<"list.create"> {
+  let summary = "Create a Mulberry list value";
+
+  let arguments = (ins Variadic<AnyType>:$elements);
+  let results = (outs Mulberry_AnyListType:$result);
+
+  let assemblyFormat = "`(` $elements `)` attr-dict `:` "
+                       "functional-type($elements, $result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListGetOp : Mulberry_Op<"list.get"> {
+  let summary = "Get a Mulberry list element";
+
+  let arguments = (ins Mulberry_AnyListType:$list, Index:$index);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$list `[` $index `]` attr-dict `:` type($list) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListSizeOp : Mulberry_Op<"list.size"> {
+  let summary = "Get a Mulberry list size";
+
+  let arguments = (ins Mulberry_AnyListType:$list);
+  let results = (outs I64:$result);
+
+  let assemblyFormat = "$list attr-dict `:` type($list)";
 }
 
 #endif // MULBERRY_OPS

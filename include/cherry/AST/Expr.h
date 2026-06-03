@@ -29,7 +29,7 @@ public:
     Expr_DecimalLiteral,
     Expr_FloatLiteral,
     Expr_BoolLiteral,
-    Expr_TensorLiteral,
+    Expr_ArrayLiteral,
     Expr_TensorAccess,
     Expr_Member,
     Expr_Variable,
