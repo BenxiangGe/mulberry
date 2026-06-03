@@ -8,8 +8,8 @@ fn main(): UInt64 {
   0
 }
 
-# MLIR: mulberry.tensor.alloc : !mulberry.tensor<2x3xf32>
-# MLIR: mulberry.tensor.alloc : !mulberry.tensor<2x3xf32>
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<2x3xf32>
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<2x3xf32>
 # MLIR: cherry_nn.sigmoid
 # MLIR-SAME: !mulberry.tensor<2x3xf32>
 # MLIR-NOT: memref.

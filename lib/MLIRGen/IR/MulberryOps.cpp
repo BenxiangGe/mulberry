@@ -26,6 +26,29 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
+static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
+  size_t count = 0;
+  for (auto dim : shape)
+    if (dim < 0)
+      ++count;
+  return count;
+}
+
+static auto compatibleTensorShape(ArrayRef<int64_t> sourceShape,
+                                  ArrayRef<int64_t> destShape) -> bool {
+  if (sourceShape.size() != destShape.size())
+    return false;
+
+  for (size_t i = 0; i < sourceShape.size(); ++i) {
+    auto sourceDim = sourceShape[i];
+    auto destDim = destShape[i];
+    if (sourceDim >= 0 && destDim >= 0 && sourceDim != destDim)
+      return false;
+  }
+
+  return true;
+}
+
 auto AllocaOp::verify() -> LogicalResult {
   auto resultElementType = getPtrElementType(getResult().getType());
   if (resultElementType != getElementType())
@@ -60,6 +83,35 @@ auto RecordGetFieldOp::verify() -> LogicalResult {
   auto resultElementType = getPtrElementType(getResult().getType());
   if (resultElementType != fieldType)
     return emitOpError("result pointer element type must match field type");
+
+  return success();
+}
+
+auto TensorAllocOp::verify() -> LogicalResult {
+  auto tensorType = getTensorType(getResult().getType());
+  auto expectedDynamicSizeCount = countDynamicDims(tensorType.getShape());
+  if (expectedDynamicSizeCount != getDynamicSizes().size())
+    return emitOpError("dynamic size count must match dynamic tensor dims");
+
+  return success();
+}
+
+auto TensorDimOp::verify() -> LogicalResult {
+  if (!getTensorType(getTensor().getType()))
+    return emitOpError("input must be a Mulberry tensor");
+
+  return success();
+}
+
+auto TensorCastOp::verify() -> LogicalResult {
+  auto sourceType = getTensorType(getSource().getType());
+  auto destType = getTensorType(getDest().getType());
+
+  if (sourceType.getElementType() != destType.getElementType())
+    return emitOpError("source and destination element types must match");
+
+  if (!compatibleTensorShape(sourceType.getShape(), destType.getShape()))
+    return emitOpError("source and destination shapes are incompatible");
 
   return success();
 }

@@ -78,7 +78,14 @@ Type mlir::mulberry::TensorType::parse(AsmParser& parser) {
 
 void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
   printer << "<";
-  printer.printDimensionList(getShape());
+  for (const auto& dim : llvm::enumerate(getShape())) {
+    if (dim.index() != 0)
+      printer << "x";
+    if (dim.value() < 0)
+      printer << "?";
+    else
+      printer << dim.value();
+  }
   printer << "x";
   printer.printType(getElementType());
   printer << ">";

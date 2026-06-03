@@ -16,7 +16,7 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: mulberry.tensor.alloc : !mulberry.tensor<8x8xf32>
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<8x8xf32>
 # CHECK: mulberry.tensor.store
 # CHECK-SAME: !mulberry.tensor<8x8xf32>
 # CHECK: mulberry.tensor.load

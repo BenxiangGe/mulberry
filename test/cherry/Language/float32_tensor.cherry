@@ -10,14 +10,14 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: mulberry.tensor.alloc : !mulberry.tensor<2xf32>
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2xf32>
 # CHECK: arith.constant {{.*}} : f32
 # CHECK: mulberry.tensor.store
 # CHECK-SAME: !mulberry.tensor<2xf32>
 # CHECK: arith.constant {{.*}} : f32
 # CHECK: mulberry.tensor.store
 # CHECK-SAME: !mulberry.tensor<2xf32>
-# CHECK: mulberry.tensor.alloc : !mulberry.tensor<2x2xf32>
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2x2xf32>
 # CHECK: mulberry.tensor.load
 # CHECK-SAME: !mulberry.tensor<2xf32>
 # CHECK: mulberry.tensor.store
