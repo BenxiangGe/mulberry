@@ -7,7 +7,7 @@ fn main(): UInt64 {
   x
 }
 
-# MLIR: memref.load
-# MLIR-SAME: memref<3xi64>
+# MLIR: mulberry.tensor.load
+# MLIR-SAME: !mulberry.tensor<3xi64>
 # MLIR-NOT: cherry_nn.cast
 # MLIR-NOT: cir.

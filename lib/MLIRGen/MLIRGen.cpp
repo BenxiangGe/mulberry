@@ -21,7 +21,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -32,6 +31,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 using namespace mlir::cherry;
@@ -44,17 +44,15 @@ using llvm::success;
 #undef DEBUG_TYPE
 #define DEBUG_TYPE "MLIRGen"
 
-constexpr int64_t kGlobalTensorLiteralElementThreshold = 64;
-
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
 struct VariableBinding {
-  // Scalars and records are address-bound; tensors are still raw memref values
-  // until tensor lowering is moved behind Mulberry IR.
+  // Scalars and records are address-bound; tensors are high-level Mulberry
+  // values. Tensor storage decisions belong in lowering, not in source codegen.
   enum Kind {
     Address,
-    TensorMemRef,
+    TensorValue,
     Unit,
   };
 
@@ -62,8 +60,8 @@ struct VariableBinding {
     return {Address, value};
   }
 
-  static auto tensorMemRef(mlir::Value value) -> VariableBinding {
-    return {TensorMemRef, value};
+  static auto tensorValue(mlir::Value value) -> VariableBinding {
+    return {TensorValue, value};
   }
 
   static auto unit() -> VariableBinding {
@@ -72,7 +70,7 @@ struct VariableBinding {
 
   auto isAddress() const -> bool { return kind == Address; }
 
-  auto isTensorMemRef() const -> bool { return kind == TensorMemRef; }
+  auto isTensorValue() const -> bool { return kind == TensorValue; }
 
   Kind kind;
   mlir::Value mlirValue;
@@ -96,7 +94,6 @@ private:
   ScopeStack<NameMap<VariableBinding>> _variableScopes;
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
-  int _globalTensorCounter = 0;
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
@@ -158,8 +155,8 @@ private:
     setVariable(name, VariableBinding::address(address));
   }
 
-  void setTensorMemRef(std::string_view name, mlir::Value value) {
-    setVariable(name, VariableBinding::tensorMemRef(value));
+  void setTensorValue(std::string_view name, mlir::Value value) {
+    setVariable(name, VariableBinding::tensorValue(value));
   }
 
   void setUnitVariable(std::string_view name) {
@@ -179,12 +176,12 @@ private:
     return binding->mlirValue;
   }
 
-  auto getTensorMemRef(std::string_view name) -> mlir::Value {
+  auto getTensorValue(std::string_view name) -> mlir::Value {
     auto *binding = getVariableBinding(name);
     if (!binding)
       llvm_unreachable("unknown variable");
-    if (!binding->isTensorMemRef())
-      llvm_unreachable("variable is not tensor-memref-bound");
+    if (!binding->isTensorValue())
+      llvm_unreachable("variable is not tensor-bound");
     return binding->mlirValue;
   }
 
@@ -209,11 +206,9 @@ private:
   auto createStructFieldPtr(mlir::Value recordPtr, const StructField& field,
                             mlir::Location location) -> mlir::Value;
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
-  auto genGlobalTensorLiteral(const TensorLiteralExpr *expr,
-                              std::string_view varName) -> mlir::Value;
-  void storeTensorElements(const TensorLiteralExpr *expr, mlir::Value memref,
+  void storeTensorElements(const TensorLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
-                           llvm::SmallVectorImpl<mlir::Value> &indices);
+                           std::vector<mlir::Value> &indices);
   mlir::Value gen(const TensorAccessExpr *expr, bool isLValue = false);
   void genAssignment(const TensorAccessExpr *lhs, const Expr *rhs);
 
@@ -222,23 +217,15 @@ private:
   auto getStructField(const MemberExpr *memberExpr) const
       -> const StructField *;
   auto genIndexValue(const Expr *node) -> mlir::Value;
-  auto genMemRefElementValue(const Expr *node, mlir::Type elementType)
+  auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
-  auto genMemRefLoadValue(const TensorAccessExpr *expr) -> mlir::Value;
+  auto genTensorLoadValue(const TensorAccessExpr *expr) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
-  auto getTensorElementCount(mlir::MemRefType memRefType) -> int64_t;
-  auto isConstantTensorData(const TensorLiteralExpr *expr) -> bool;
-  auto shouldPromoteConstTensorData(const TensorLiteralExpr *expr) -> bool;
-  auto getTensorDataAttr(const Expr *expr, mlir::Type elementType)
-      -> mlir::Attribute;
-  void collectTensorDataAttrs(const TensorLiteralExpr *expr,
-                              mlir::Type elementType,
-                              llvm::SmallVectorImpl<mlir::Attribute> &attrs);
   // Utility
   auto loc(const Node *node) -> mlir::Location {
     auto [line, col] = _sourceManager.getLineAndColumn(node->location());
@@ -306,7 +293,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
     auto value = std::get<1>(varValue);
     auto *paramType = var->type();
     if (cherry::isTensorType(paramType)) {
-      setTensorMemRef(varName, value);
+      setTensorValue(varName, value);
       continue;
     }
     if (cherry::isUnitType(paramType)) {
@@ -559,7 +546,7 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto *expr = expressions.front().get();
   auto operand = llvm::isa<TensorAccessExpr>(expr)
-                     ? genMemRefLoadValue(llvm::cast<TensorAccessExpr>(expr))
+                     ? genTensorLoadValue(llvm::cast<TensorAccessExpr>(expr))
                      : gen(expr);
   return PrintOp::create(_builder, loc(node), operand);
 }
@@ -568,8 +555,9 @@ auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
-  auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  auto outType = getMLIRType(node);
+  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
+                                                   outType);
   mlir::cherry_nn::MatmulOp::create(_builder, loc(node), lhs, rhs, out);
   return out;
 }
@@ -578,8 +566,9 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
-  auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  auto outType = getMLIRType(node);
+  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
+                                                   outType);
   mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
   return out;
 }
@@ -587,8 +576,9 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
-  auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  auto outType = getMLIRType(node);
+  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
+                                                   outType);
   mlir::cherry_nn::TransposeOp::create(_builder, loc(node), input, out);
   return out;
 }
@@ -596,8 +586,9 @@ auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
-  auto outType = getMemRefType(node);
-  auto out = mlir::memref::AllocOp::create(_builder, loc(node), outType);
+  auto outType = getMLIRType(node);
+  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
+                                                   outType);
 
   if (node->name() == nn::exp) {
     mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
@@ -631,7 +622,7 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   if (cherry::isTensorType(node->type()))
-    return getTensorMemRef(node->name());
+    return getTensorValue(node->name());
   auto address = getVariableAddress(node->name());
   return createLoad(address, getMLIRType(node), loc(node));
 }
@@ -812,7 +803,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
-          setTensorMemRef(name, rhs);
+          setTensorValue(name, rhs);
           return;
         }
 
@@ -971,81 +962,15 @@ auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
     -> mlir::MemRefType {
-  return llvm::dyn_cast_if_present<mlir::MemRefType>(getMLIRType(type));
+  auto *tensorType = cherry::getTensorType(type);
+  if (!tensorType)
+    return {};
+
+  return _typeConverter.convertTensorStorage(*tensorType);
 }
 
 auto MLIRGenImpl::getMemRefType(const Expr *expr) const -> mlir::MemRefType {
   return getMemRefType(expr->type());
-}
-
-auto MLIRGenImpl::getTensorElementCount(mlir::MemRefType memRefType)
-    -> int64_t {
-  int64_t count = 1;
-  for (auto dim : memRefType.getShape()) {
-    if (dim < 0)
-      return -1;
-    count *= dim;
-  }
-  return count;
-}
-
-auto MLIRGenImpl::isConstantTensorData(const TensorLiteralExpr *expr) -> bool {
-  for (auto &element : expr->getElements()) {
-    auto *childExpr = element.get();
-    if (auto *nestedTensor = llvm::dyn_cast<TensorLiteralExpr>(childExpr)) {
-      if (!isConstantTensorData(nestedTensor))
-        return false;
-      continue;
-    }
-
-    if (!llvm::isa<DecimalLiteralExpr, FloatLiteralExpr, BoolLiteralExpr>(
-            childExpr))
-      return false;
-  }
-  return true;
-}
-
-auto MLIRGenImpl::shouldPromoteConstTensorData(const TensorLiteralExpr *expr)
-    -> bool {
-  auto memRefType = getMemRefType(expr);
-  auto elementCount = getTensorElementCount(memRefType);
-  if (elementCount < kGlobalTensorLiteralElementThreshold)
-    return false;
-  return isConstantTensorData(expr);
-}
-
-auto MLIRGenImpl::getTensorDataAttr(const Expr *expr, mlir::Type elementType)
-    -> mlir::Attribute {
-  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(expr)) {
-    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(elementType))
-      return mlir::IntegerAttr::get(
-          elementType, llvm::APInt(intType.getWidth(), decimal->value()));
-  }
-
-  if (auto *boolean = llvm::dyn_cast<BoolLiteralExpr>(expr)) {
-    auto intType = llvm::cast<mlir::IntegerType>(elementType);
-    return mlir::IntegerAttr::get(
-        elementType, llvm::APInt(intType.getWidth(), boolean->value()));
-  }
-
-  if (auto *floating = llvm::dyn_cast<FloatLiteralExpr>(expr))
-    return mlir::FloatAttr::get(elementType, floating->value());
-
-  llvm_unreachable("expected constant tensor element");
-}
-
-void MLIRGenImpl::collectTensorDataAttrs(
-    const TensorLiteralExpr *expr, mlir::Type elementType,
-    llvm::SmallVectorImpl<mlir::Attribute> &attrs) {
-  for (auto &element : expr->getElements()) {
-    auto *childExpr = element.get();
-    if (auto *nestedTensor = llvm::dyn_cast<TensorLiteralExpr>(childExpr)) {
-      collectTensorDataAttrs(nestedTensor, elementType, attrs);
-      continue;
-    }
-
-    attrs.push_back(getTensorDataAttr(childExpr, elementType));
-  }
 }
 
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
@@ -1071,7 +996,7 @@ auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
                                           _builder.getIndexType(), value);
 }
 
-auto MLIRGenImpl::genMemRefElementValue(const Expr *node,
+auto MLIRGenImpl::genTensorElementValue(const Expr *node,
                                         mlir::Type elementType) -> mlir::Value {
   if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node)) {
     auto intType = llvm::cast<mlir::IntegerType>(elementType);
@@ -1092,57 +1017,26 @@ auto MLIRGenImpl::genMemRefElementValue(const Expr *node,
   }
 
   if (auto *tensorAccess = llvm::dyn_cast<TensorAccessExpr>(node))
-    return genMemRefLoadValue(tensorAccess);
+    return genTensorLoadValue(tensorAccess);
 
   return castToType(gen(node), elementType, loc(node));
 }
 
 auto MLIRGenImpl::gen(const TensorLiteralExpr *expr) -> mlir::Value {
-  auto memRefType = getMemRefType(expr);
+  auto tensorType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(expr));
   mlir::Value allocatedTensor =
-      mlir::memref::AllocOp::create(_builder, loc(expr), memRefType);
+      mlir::mulberry::TensorAllocOp::create(_builder, loc(expr), tensorType);
 
-  llvm::SmallVector<mlir::Value, 4> currentIndices;
-  storeTensorElements(expr, allocatedTensor, memRefType.getElementType(),
+  std::vector<mlir::Value> currentIndices;
+  storeTensorElements(expr, allocatedTensor, tensorType.getElementType(),
                       currentIndices);
 
   return allocatedTensor;
 }
 
-auto MLIRGenImpl::genGlobalTensorLiteral(const TensorLiteralExpr *expr,
-                                         std::string_view varName)
-    -> mlir::Value {
-  auto memRefType = getMemRefType(expr);
-  llvm::SmallVector<mlir::Attribute, 8> attrs;
-  collectTensorDataAttrs(expr, memRefType.getElementType(), attrs);
-
-  auto tensorType = mlir::RankedTensorType::get(
-      memRefType.getShape(), memRefType.getElementType());
-  auto initialValue = mlir::DenseElementsAttr::get(tensorType, attrs);
-  std::string symbolName = "__cherry_global_" + std::string(varName) + "_" +
-                           std::to_string(_globalTensorCounter++);
-
-  {
-    mlir::OpBuilder::InsertionGuard guard(_builder);
-    auto &body = module.getBodyRegion().front();
-    auto insertPoint = body.begin();
-    while (insertPoint != body.end() &&
-           llvm::isa<mlir::memref::GlobalOp>(*insertPoint))
-      ++insertPoint;
-    _builder.setInsertionPoint(&body, insertPoint);
-    mlir::memref::GlobalOp::create(
-        _builder, loc(expr), symbolName, _builder.getStringAttr("private"),
-        memRefType, initialValue, /*constant=*/true,
-        /*alignment=*/mlir::IntegerAttr{});
-  }
-
-  return mlir::memref::GetGlobalOp::create(_builder, loc(expr), memRefType,
-                                           symbolName);
-}
-
 void MLIRGenImpl::storeTensorElements(
-    const TensorLiteralExpr *expr, mlir::Value memref, mlir::Type elementType,
-    llvm::SmallVectorImpl<mlir::Value> &indices) {
+    const TensorLiteralExpr *expr, mlir::Value tensor, mlir::Type elementType,
+    std::vector<mlir::Value> &indices) {
   for (size_t i = 0; i < expr->getElements().size(); ++i) {
     mlir::Value indexVal =
         mlir::arith::ConstantIndexOp::create(_builder, loc(expr), i);
@@ -1150,46 +1044,46 @@ void MLIRGenImpl::storeTensorElements(
 
     auto *childExpr = expr->getElements()[i].get();
     if (auto *nestedTensor = llvm::dyn_cast<TensorLiteralExpr>(childExpr)) {
-      storeTensorElements(nestedTensor, memref, elementType, indices);
+      storeTensorElements(nestedTensor, tensor, elementType, indices);
     } else {
-      mlir::Value val = genMemRefElementValue(childExpr, elementType);
-      mlir::memref::StoreOp::create(_builder, loc(childExpr), val, memref,
-                                    indices);
+      mlir::Value val = genTensorElementValue(childExpr, elementType);
+      mlir::mulberry::TensorStoreOp::create(_builder, loc(childExpr), val,
+                                            tensor, mlir::ValueRange(indices));
     }
     indices.pop_back();
   }
 }
 
-mlir::Value MLIRGenImpl::genMemRefLoadValue(const TensorAccessExpr *expr) {
-  mlir::Value memref = getTensorMemRef(expr->getVarName());
+mlir::Value MLIRGenImpl::genTensorLoadValue(const TensorAccessExpr *expr) {
+  mlir::Value tensor = getTensorValue(expr->getVarName());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
   for (auto &idxExpr : expr->getIndices())
     mlirIndices.push_back(genIndexValue(idxExpr.get()));
 
-  return mlir::memref::LoadOp::create(_builder, loc(expr), memref,
-                                      mlirIndices);
+  return mlir::mulberry::TensorLoadOp::create(
+      _builder, loc(expr), getMLIRType(expr), tensor, mlirIndices);
 }
 
 mlir::Value MLIRGenImpl::gen(const TensorAccessExpr *expr, bool isLValue) {
   if (isLValue)
     return nullptr;
 
-  auto loaded = genMemRefLoadValue(expr);
+  auto loaded = genTensorLoadValue(expr);
   return castToType(loaded, getMLIRType(expr), loc(expr));
 }
 
 void MLIRGenImpl::genAssignment(const TensorAccessExpr *lhs, const Expr *rhs) {
-  mlir::Value memref = getTensorMemRef(lhs->getVarName());
-  auto memRefType = llvm::cast<mlir::MemRefType>(memref.getType());
+  mlir::Value tensor = getTensorValue(lhs->getVarName());
+  auto tensorType = llvm::cast<mlir::mulberry::TensorType>(tensor.getType());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
   for (auto &idxExpr : lhs->getIndices())
     mlirIndices.push_back(genIndexValue(idxExpr.get()));
 
-  auto rhsValue = genMemRefElementValue(rhs, memRefType.getElementType());
-  mlir::memref::StoreOp::create(_builder, loc(lhs), rhsValue, memref,
-                                mlirIndices);
+  auto rhsValue = genTensorElementValue(rhs, tensorType.getElementType());
+  mlir::mulberry::TensorStoreOp::create(_builder, loc(lhs), rhsValue, tensor,
+                                        mlirIndices);
 }
 
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
@@ -1202,18 +1096,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable tensor type `{0}`",
         formatType(tensorType));
 
-    if (node->isConst()) {
-      if (auto *tensorLiteral =
-              llvm::dyn_cast<TensorLiteralExpr>(node->init().get())) {
-        if (shouldPromoteConstTensorData(tensorLiteral)) {
-          setTensorMemRef(varName,
-                          genGlobalTensorLiteral(tensorLiteral, varName));
-          return;
-        }
-      }
-    }
-
-    setTensorMemRef(varName, gen(node->init().get()));
+    setTensorValue(varName, gen(node->init().get()));
     return;
   }
 

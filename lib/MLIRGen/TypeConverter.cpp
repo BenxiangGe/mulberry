@@ -34,6 +34,20 @@ auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
 }
 
 auto MLIRTypeConverter::convert(const TensorType& type) const
+    -> mlir::mulberry::TensorType {
+  auto *elementType = cherry::getBuiltinType(type.elementType());
+  if (!elementType)
+    return {};
+
+  auto mlirElementType = convertTensorElement(*elementType);
+  if (!mlirElementType)
+    return {};
+
+  return mlir::mulberry::TensorType::get(_builder.getContext(), type.shape(),
+                                         mlirElementType);
+}
+
+auto MLIRTypeConverter::convertTensorStorage(const TensorType& type) const
     -> mlir::MemRefType {
   auto *elementType = cherry::getBuiltinType(type.elementType());
   if (!elementType)
@@ -43,6 +57,9 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
   if (!mlirElementType)
     return {};
 
+  // TODO: This is the temporary storage view for current cherry_nn/memref
+  // codegen. High-level MLIRGen should use convert() and keep Tensor as a
+  // Mulberry value until the real lowering pass decides the storage ABI.
   return mlir::MemRefType::get(type.shape(), mlirElementType);
 }
 

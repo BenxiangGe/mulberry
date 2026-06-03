@@ -12,11 +12,14 @@ fn main(): UInt64 {
     [56.0, 57.0, 58.0, 59.0, 60.0, 61.0, 62.0, 63.0]
   ];
 
-  argmax(values)
+  var last: Float32 = values[7, 7];
+  0
 }
 
-# CHECK: memref.global "private" constant @__cherry_global_values_0
-# CHECK-SAME: memref<8x8xf32>
-# CHECK: memref.get_global @__cherry_global_values_0
-# CHECK-SAME: memref<8x8xf32>
-# CHECK-NOT: memref.store
+# CHECK: mulberry.tensor.alloc : !mulberry.tensor<8x8xf32>
+# CHECK: mulberry.tensor.store
+# CHECK-SAME: !mulberry.tensor<8x8xf32>
+# CHECK: mulberry.tensor.load
+# CHECK-SAME: !mulberry.tensor<8x8xf32>
+# CHECK-NOT: memref.global
+# CHECK-NOT: memref.get_global

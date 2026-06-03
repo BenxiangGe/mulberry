@@ -17,10 +17,11 @@ public:
   explicit MLIRTypeConverter(mlir::OpBuilder& builder) : _builder(builder) {}
 
   auto convert(const Type *type) const -> mlir::Type;
+  auto convertTensorStorage(const TensorType& type) const -> mlir::MemRefType;
 
 private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
-  auto convert(const TensorType& type) const -> mlir::MemRefType;
+  auto convert(const TensorType& type) const -> mlir::mulberry::TensorType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
   auto convert(const StructType& type) const -> mlir::mulberry::RecordType;
 

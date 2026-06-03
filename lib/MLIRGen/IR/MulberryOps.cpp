@@ -22,6 +22,10 @@ static auto getPtrElementType(Type type) -> Type {
   return {};
 }
 
+static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
+  return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
+}
+
 auto AllocaOp::verify() -> LogicalResult {
   auto resultElementType = getPtrElementType(getResult().getType());
   if (resultElementType != getElementType())
@@ -56,6 +60,28 @@ auto RecordGetFieldOp::verify() -> LogicalResult {
   auto resultElementType = getPtrElementType(getResult().getType());
   if (resultElementType != fieldType)
     return emitOpError("result pointer element type must match field type");
+
+  return success();
+}
+
+auto TensorLoadOp::verify() -> LogicalResult {
+  auto tensorType = getTensorType(getTensor().getType());
+  if (tensorType.getShape().size() != getIndices().size())
+    return emitOpError("index count must match tensor rank");
+
+  if (tensorType.getElementType() != getResult().getType())
+    return emitOpError("result type must match tensor element type");
+
+  return success();
+}
+
+auto TensorStoreOp::verify() -> LogicalResult {
+  auto tensorType = getTensorType(getTensor().getType());
+  if (tensorType.getShape().size() != getIndices().size())
+    return emitOpError("index count must match tensor rank");
+
+  if (tensorType.getElementType() != getValue().getType())
+    return emitOpError("value type must match tensor element type");
 
   return success();
 }
