@@ -1,0 +1,31 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn widen(x: Float32[2, 2]): Float32[?, ?] {
+  x
+}
+
+fn activate(x: Float32[?, ?]): Float32[?, ?] {
+  sigmoid(x)
+}
+
+fn main(): UInt64 {
+  var staticTensor: Float32[2, 2] = [[1.0, 2.0], [3.0, 4.0]];
+  var dynamicTensor: Float32[?, ?] = widen(staticTensor);
+  var activated: Float32[?, ?] = activate(staticTensor);
+  size(activated)
+}
+
+# CHECK-LABEL: func.func @widen(%arg0: !mulberry.tensor<2x2xf32>) -> !mulberry.tensor<?x?xf32>
+# CHECK: mulberry.tensor.cast %arg0 : !mulberry.tensor<2x2xf32> to !mulberry.tensor<?x?xf32>
+# CHECK: return %{{.*}} : !mulberry.tensor<?x?xf32>
+# CHECK-LABEL: func.func @activate(%arg0: !mulberry.tensor<?x?xf32>) -> !mulberry.tensor<?x?xf32>
+# CHECK: mulberry.tensor.dim %arg0
+# CHECK: mulberry.tensor.alloc(%{{.*}}, %{{.*}}) : !mulberry.tensor<?x?xf32>
+# CHECK: cherry_nn.sigmoid
+# CHECK-LABEL: func.func @main
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2x2xf32>
+# CHECK: call @widen
+# CHECK: mulberry.tensor.cast %{{.*}} : !mulberry.tensor<2x2xf32> to !mulberry.tensor<?x?xf32>
+# CHECK: call @activate
+# CHECK: mulberry.tensor.dim
+# CHECK: arith.index_cast
