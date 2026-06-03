@@ -31,6 +31,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -74,6 +75,11 @@ struct VariableBinding {
 
   Kind kind;
   mlir::Value mlirValue;
+};
+
+struct TensorDimSource {
+  mlir::Value tensor;
+  int64_t dimension;
 };
 
 class MLIRGenImpl {
@@ -196,6 +202,17 @@ private:
   auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType,
                         mlir::Value targetPtr) -> mlir::Value;
+  auto createTensorAlloc(mlir::mulberry::TensorType tensorType,
+                         const std::vector<mlir::Value> &dynamicSizes,
+                         mlir::Location location) -> mlir::Value;
+  auto createTensorDim(mlir::Value tensor, int64_t dimension,
+                       mlir::Location location) -> mlir::Value;
+  auto literalDynamicSizes(const TensorLiteralExpr *expr,
+                           mlir::mulberry::TensorType tensorType)
+      -> std::vector<mlir::Value>;
+  auto sourceDynamicSizes(mlir::mulberry::TensorType tensorType,
+                          const std::vector<TensorDimSource> &sources,
+                          mlir::Location location) -> std::vector<mlir::Value>;
   auto getPtrType(mlir::Type elementType) const -> mlir::mulberry::PtrType;
   auto createAlloca(mlir::Type mlirType, mlir::Location location)
       -> mlir::Value;
@@ -206,6 +223,8 @@ private:
   auto createStructFieldPtr(mlir::Value recordPtr, const StructField& field,
                             mlir::Location location) -> mlir::Value;
   auto gen(const TensorLiteralExpr *expr) -> mlir::Value;
+  auto genTensorLiteral(const TensorLiteralExpr *expr,
+                        mlir::mulberry::TensorType tensorType) -> mlir::Value;
   void storeTensorElements(const TensorLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
                            std::vector<mlir::Value> &indices);
@@ -498,24 +517,28 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genArgmax(node);
   if (name == builtins::size)
     return genSize(node);
-
-  llvm::SmallVector<mlir::Value, 4> operands;
-  for (auto &expr : *node) {
-    auto value = gen(expr.get());
-    DBG("gen(CallExpr). value: {0}", value);
-    operands.push_back(value);
-  }
-
-  if (name == builtins::boolToUInt64)
+  if (name == builtins::boolToUInt64) {
+    auto value = gen(node->expressions().front().get());
     return mlir::arith::ExtUIOp::create(_builder, loc(node),
-                                        _builder.getI64Type(),
-                                        operands.front());
+                                        _builder.getI64Type(), value);
+  }
 
   auto calleeOpIter = findFunction(node->name());
   if (calleeOpIter == _functionsByName.end()) {
     // TODO: placeholder for functions implemented after the caller
     ERR("callee {0} DOESN'T exist.", node->name());
     return nullptr;
+  }
+  auto calleeType = calleeOpIter->second.getFunctionType();
+
+  llvm::SmallVector<mlir::Value, 4> operands;
+  for (const auto &indexedExpr : llvm::enumerate(*node)) {
+    auto *expr = indexedExpr.value().get();
+    auto value = gen(expr);
+    value = castToType(value, calleeType.getInput(indexedExpr.index()),
+                       loc(expr));
+    DBG("gen(CallExpr). value: {0}", value);
+    operands.push_back(value);
   }
 
   auto isUnitCall = cherry::isUnitType(node->type());
@@ -555,9 +578,10 @@ auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
-  auto outType = getMLIRType(node);
-  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
-                                                   outType);
+  auto outType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto out = createTensorAlloc(
+      outType, sourceDynamicSizes(outType, {{lhs, 0}, {rhs, 1}}, loc(node)),
+      loc(node));
   mlir::cherry_nn::MatmulOp::create(_builder, loc(node), lhs, rhs, out);
   return out;
 }
@@ -566,9 +590,10 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
-  auto outType = getMLIRType(node);
-  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
-                                                   outType);
+  auto outType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto out = createTensorAlloc(
+      outType, sourceDynamicSizes(outType, {{lhs, 0}, {lhs, 1}}, loc(node)),
+      loc(node));
   mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
   return out;
 }
@@ -576,9 +601,11 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
-  auto outType = getMLIRType(node);
-  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
-                                                   outType);
+  auto outType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto out = createTensorAlloc(
+      outType, sourceDynamicSizes(outType, {{input, 1}, {input, 0}},
+                                  loc(node)),
+      loc(node));
   mlir::cherry_nn::TransposeOp::create(_builder, loc(node), input, out);
   return out;
 }
@@ -586,9 +613,11 @@ auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = gen(expressions[0].get());
-  auto outType = getMLIRType(node);
-  auto out = mlir::mulberry::TensorAllocOp::create(_builder, loc(node),
-                                                   outType);
+  auto outType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto out = createTensorAlloc(
+      outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
+                                  loc(node)),
+      loc(node));
 
   if (node->name() == nn::exp) {
     mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
@@ -616,6 +645,13 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
   }
 
   auto size = tensorType->shape().front();
+  if (size < 0) {
+    auto tensor = gen(expressions.front().get());
+    auto dynamicSize = createTensorDim(tensor, 0, loc(node));
+    return mlir::arith::IndexCastOp::create(_builder, loc(node),
+                                            _builder.getI64Type(), dynamicSize);
+  }
+
   DBG("size() static tensor size: {0}", size);
   return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
 }
@@ -803,6 +839,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
+          rhs = castToType(rhs, getMLIRType(var), loc(node));
           setTensorValue(name, rhs);
           return;
         }
@@ -948,6 +985,60 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
   return varPtrOp;
 }
 
+auto MLIRGenImpl::createTensorAlloc(
+    mlir::mulberry::TensorType tensorType,
+    const std::vector<mlir::Value> &dynamicSizes,
+    mlir::Location location) -> mlir::Value {
+  return mlir::mulberry::TensorAllocOp::create(_builder, location, tensorType,
+                                               dynamicSizes);
+}
+
+auto MLIRGenImpl::createTensorDim(mlir::Value tensor, int64_t dimension,
+                                  mlir::Location location) -> mlir::Value {
+  auto index = mlir::arith::ConstantIndexOp::create(_builder, location,
+                                                    dimension);
+  return mlir::mulberry::TensorDimOp::create(_builder, location,
+                                             _builder.getIndexType(), tensor,
+                                             index);
+}
+
+auto MLIRGenImpl::literalDynamicSizes(
+    const TensorLiteralExpr *expr,
+    mlir::mulberry::TensorType tensorType) -> std::vector<mlir::Value> {
+  std::vector<mlir::Value> dynamicSizes;
+  auto shape = tensorType.getShape();
+  auto &inferredShape = expr->getInferredShape();
+
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (shape[i] >= 0)
+      continue;
+    dynamicSizes.push_back(mlir::arith::ConstantIndexOp::create(
+        _builder, loc(expr), inferredShape[i]));
+  }
+
+  return dynamicSizes;
+}
+
+auto MLIRGenImpl::sourceDynamicSizes(
+    mlir::mulberry::TensorType tensorType,
+    const std::vector<TensorDimSource> &sources,
+    mlir::Location location) -> std::vector<mlir::Value> {
+  std::vector<mlir::Value> dynamicSizes;
+  auto shape = tensorType.getShape();
+
+  // Dynamic alloc operands are ordered by dynamic result dimensions, matching
+  // MLIR shaped allocation conventions.
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (shape[i] >= 0)
+      continue;
+    assert(i < sources.size());
+    dynamicSizes.push_back(createTensorDim(sources[i].tensor,
+                                           sources[i].dimension, location));
+  }
+
+  return dynamicSizes;
+}
+
 auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
   if (!type)
     return {};
@@ -977,6 +1068,11 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
+
+  if (llvm::isa<mlir::mulberry::TensorType>(value.getType()) &&
+      llvm::isa<mlir::mulberry::TensorType>(type))
+    return mlir::mulberry::TensorCastOp::create(_builder, location, type,
+                                                value);
 
   return nullptr;
 }
@@ -1024,9 +1120,15 @@ auto MLIRGenImpl::genTensorElementValue(const Expr *node,
 
 auto MLIRGenImpl::gen(const TensorLiteralExpr *expr) -> mlir::Value {
   auto tensorType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(expr));
-  mlir::Value allocatedTensor =
-      mlir::mulberry::TensorAllocOp::create(_builder, loc(expr), tensorType);
+  return genTensorLiteral(expr, tensorType);
+}
 
+auto MLIRGenImpl::genTensorLiteral(
+    const TensorLiteralExpr *expr,
+    mlir::mulberry::TensorType tensorType) -> mlir::Value {
+  auto allocatedTensor =
+      createTensorAlloc(tensorType, literalDynamicSizes(expr, tensorType),
+                        loc(expr));
   std::vector<mlir::Value> currentIndices;
   storeTensorElements(expr, allocatedTensor, tensorType.getElementType(),
                       currentIndices);
@@ -1096,7 +1198,15 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable tensor type `{0}`",
         formatType(tensorType));
 
-    setTensorValue(varName, gen(node->init().get()));
+    auto targetType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(varType));
+    if (auto *literal =
+            llvm::dyn_cast<TensorLiteralExpr>(node->init().get())) {
+      setTensorValue(varName, genTensorLiteral(literal, targetType));
+      return;
+    }
+
+    auto value = castToType(gen(node->init().get()), targetType, loc(node));
+    setTensorValue(varName, value);
     return;
   }
 

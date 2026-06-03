@@ -1,0 +1,23 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn passthrough(x: Float32[?, ?]): Float32[?, ?] {
+  x
+}
+
+fn main(): UInt64 {
+  var dynamicLiteral: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var staticTensor: Float32[2, 2] = [[5.0, 6.0], [7.0, 8.0]];
+  var dynamicTensor: Float32[?, ?] = staticTensor;
+  var returnedTensor: Float32[?, ?] = passthrough(dynamicTensor);
+  size(returnedTensor)
+}
+
+# CHECK-LABEL: func.func @passthrough(%arg0: !mulberry.tensor<?x?xf32>) -> !mulberry.tensor<?x?xf32>
+# CHECK: return %arg0 : !mulberry.tensor<?x?xf32>
+# CHECK-LABEL: func.func @main
+# CHECK: mulberry.tensor.alloc(%{{.*}}, %{{.*}}) : !mulberry.tensor<?x?xf32>
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2x2xf32>
+# CHECK: mulberry.tensor.cast %{{.*}} : !mulberry.tensor<2x2xf32> to !mulberry.tensor<?x?xf32>
+# CHECK: call @passthrough
+# CHECK: mulberry.tensor.dim
+# CHECK: arith.index_cast

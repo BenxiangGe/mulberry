@@ -7,7 +7,7 @@ fn main(): UInt64 {
   56789
 }
 
-# CHECK: mulberry.tensor.alloc : !mulberry.tensor<2x3xi64>
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2x3xi64>
 # CHECK: mulberry.tensor.store
 # CHECK-SAME: !mulberry.tensor<2x3xi64>
 # CHECK: mulberry.tensor.load

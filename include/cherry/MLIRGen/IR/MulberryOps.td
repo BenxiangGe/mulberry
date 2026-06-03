@@ -71,9 +71,34 @@ def Mulberry_RecordGetFieldOp : Mulberry_Op<"record.get_field"> {
 def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {
   let summary = "Allocate a Mulberry tensor";
 
+  let arguments = (ins Variadic<Index>:$dynamicSizes);
   let results = (outs Mulberry_AnyTensorType:$result);
 
-  let assemblyFormat = "attr-dict `:` type($result)";
+  let assemblyFormat = "`(` $dynamicSizes `)` attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorDimOp : Mulberry_Op<"tensor.dim"> {
+  let summary = "Get a Mulberry tensor dimension";
+
+  let arguments = (ins Mulberry_AnyTensorType:$tensor, Index:$index);
+  let results = (outs Index:$result);
+
+  let assemblyFormat = "$tensor `,` $index attr-dict `:` type($tensor)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
+  let summary = "Cast a Mulberry tensor shape";
+
+  let arguments = (ins Mulberry_AnyTensorType:$source);
+  let results = (outs Mulberry_AnyTensorType:$dest);
+
+  let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
+
+  let hasVerifier = 1;
 }
 
 def Mulberry_TensorLoadOp : Mulberry_Op<"tensor.load"> {

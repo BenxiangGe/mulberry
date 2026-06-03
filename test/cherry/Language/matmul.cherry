@@ -9,9 +9,9 @@ fn main(): UInt64 {
   0
 }
 
-# MLIR: mulberry.tensor.alloc : !mulberry.tensor<2x3xf32>
-# MLIR: mulberry.tensor.alloc : !mulberry.tensor<3x4xf32>
-# MLIR: mulberry.tensor.alloc : !mulberry.tensor<2x4xf32>
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<2x3xf32>
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<3x4xf32>
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<2x4xf32>
 # MLIR: cherry_nn.matmul
 # MLIR-SAME: !mulberry.tensor<2x3xf32>
 # MLIR-SAME: !mulberry.tensor<3x4xf32>
