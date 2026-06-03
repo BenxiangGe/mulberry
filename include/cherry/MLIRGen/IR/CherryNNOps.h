@@ -2,6 +2,7 @@
 #define CHERRY_NN_OOPS_H
 
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
+#include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"

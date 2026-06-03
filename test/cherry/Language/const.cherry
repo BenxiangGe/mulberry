@@ -20,5 +20,6 @@ fn main(): UInt64 {
 
 # MLIR: arith.constant 42 : i64
 # MLIR: cherry_nn.argmax
-# MLIR-SAME: memref<2x2xf32> -> i64
+# MLIR-SAME: !mulberry.tensor<2x2xf32> -> i64
 # MLIR-NOT: cir.
+# MLIR-NOT: memref.

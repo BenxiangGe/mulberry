@@ -6,6 +6,7 @@ fn main(): UInt64 {
   12345
 }
 
-# CHECK: memref.alloc() : memref<3xi64>
-# CHECK: memref.store
-# CHECK-SAME: memref<3xi64>
+# CHECK: mulberry.tensor.alloc : !mulberry.tensor<3xi64>
+# CHECK: mulberry.tensor.store
+# CHECK-SAME: !mulberry.tensor<3xi64>
+# CHECK-NOT: memref.

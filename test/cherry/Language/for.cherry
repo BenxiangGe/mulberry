@@ -15,6 +15,7 @@ fn main(): UInt64 {
 
 # CHECK: arith.constant 3 : i64
 # CHECK: scf.for unsigned
-# CHECK: memref.load
+# CHECK: mulberry.load
+# CHECK: mulberry.tensor.load
 # CHECK: arith.addi
 # CHECK-NOT: cir.

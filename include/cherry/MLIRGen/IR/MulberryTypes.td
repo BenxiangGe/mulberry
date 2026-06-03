@@ -46,6 +46,20 @@ def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
   }];
 }
 
+def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
+  let summary = "Mulberry tensor type";
+  let description = [{
+    A writable shaped numeric data value in high-level Mulberry IR.
+  }];
+
+  let parameters = (ins
+    ArrayRefParameter<"int64_t">:$shape,
+    "mlir::Type":$elementType
+  );
+
+  let hasCustomAssemblyFormat = 1;
+}
+
 def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
   let summary = "Mulberry pointer type";
   let description = [{

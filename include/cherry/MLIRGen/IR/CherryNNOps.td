@@ -2,8 +2,13 @@
 #define CHERRY_NN_OPS
 
 include "cherry/MLIRGen/IR/CherryNNDialect.td"
+include "cherry/MLIRGen/IR/MulberryTypes.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+
+def CherryNN_AnyTensorType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
+    "Mulberry tensor type">;
 
 def MatmulOp : CherryNN_Op<"matmul"> {
   let summary = "matmul operation";
@@ -11,7 +16,9 @@ def MatmulOp : CherryNN_Op<"matmul"> {
       The "matmul" operation does matrix multiplication
   }];
 
-  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+  let arguments = (ins CherryNN_AnyTensorType:$lhs,
+                       CherryNN_AnyTensorType:$rhs,
+                       CherryNN_AnyTensorType:$out);
 
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
@@ -25,7 +32,9 @@ def MataddOp : CherryNN_Op<"matadd"> {
       The "matadd" operation does elementwise matrix addition
   }];
 
-  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+  let arguments = (ins CherryNN_AnyTensorType:$lhs,
+                       CherryNN_AnyTensorType:$rhs,
+                       CherryNN_AnyTensorType:$out);
 
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
@@ -39,7 +48,8 @@ def TransposeOp : CherryNN_Op<"transpose"> {
       The "transpose" operation transposes a matrix
   }];
 
-  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+  let arguments = (ins CherryNN_AnyTensorType:$input,
+                       CherryNN_AnyTensorType:$out);
 
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
@@ -53,7 +63,8 @@ def ExpOp : CherryNN_Op<"exp"> {
       The "exp" operation applies exponential elementwise to a matrix
   }];
 
-  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+  let arguments = (ins CherryNN_AnyTensorType:$input,
+                       CherryNN_AnyTensorType:$out);
 
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
@@ -67,7 +78,8 @@ def SigmoidOp : CherryNN_Op<"sigmoid"> {
       The "sigmoid" operation applies sigmoid elementwise to a matrix
   }];
 
-  let arguments = (ins AnyMemRef:$input, AnyMemRef:$out);
+  let arguments = (ins CherryNN_AnyTensorType:$input,
+                       CherryNN_AnyTensorType:$out);
 
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
@@ -81,7 +93,7 @@ def ArgmaxOp : CherryNN_Op<"argmax"> {
     The "argmax" operation returns the flat index of the maximum element.
   }];
 
-  let arguments = (ins AnyMemRef:$input);
+  let arguments = (ins CherryNN_AnyTensorType:$input);
   let results = (outs I64:$result);
 
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";

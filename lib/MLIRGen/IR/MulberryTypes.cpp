@@ -59,6 +59,31 @@ void RecordType::print(AsmPrinter& printer) const {
   printer << "}>";
 }
 
+Type mlir::mulberry::TensorType::parse(AsmParser& parser) {
+  if (parser.parseLess())
+    return {};
+
+  SmallVector<int64_t> shape;
+  if (parser.parseDimensionList(shape, /*allowDynamic=*/true,
+                                /*withTrailingX=*/true))
+    return {};
+
+  Type elementType;
+  if (parser.parseType(elementType) || parser.parseGreater())
+    return {};
+
+  return mlir::mulberry::TensorType::get(parser.getContext(), shape,
+                                         elementType);
+}
+
+void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
+  printer << "<";
+  printer.printDimensionList(getShape());
+  printer << "x";
+  printer.printType(getElementType());
+  printer << ">";
+}
+
 LogicalResult RecordType::verify(
     llvm::function_ref<InFlightDiagnostic()> emitError, StringRef name,
     ArrayRef<Field> fields) {
