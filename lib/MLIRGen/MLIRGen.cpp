@@ -49,6 +49,35 @@ constexpr int64_t kGlobalTensorLiteralElementThreshold = 64;
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
+struct VariableBinding {
+  // Scalars and records are address-bound; tensors are still raw memref values
+  // until tensor lowering is moved behind Mulberry IR.
+  enum Kind {
+    Address,
+    TensorMemRef,
+    Unit,
+  };
+
+  static auto address(mlir::Value value) -> VariableBinding {
+    return {Address, value};
+  }
+
+  static auto tensorMemRef(mlir::Value value) -> VariableBinding {
+    return {TensorMemRef, value};
+  }
+
+  static auto unit() -> VariableBinding {
+    return {Unit, nullptr};
+  }
+
+  auto isAddress() const -> bool { return kind == Address; }
+
+  auto isTensorMemRef() const -> bool { return kind == TensorMemRef; }
+
+  Kind kind;
+  mlir::Value mlirValue;
+};
+
 class MLIRGenImpl {
 public:
   MLIRGenImpl(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context)
@@ -64,7 +93,7 @@ public:
 private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
-  ScopeStack<NameMap<mlir::Value>> _variableScopes;
+  ScopeStack<NameMap<VariableBinding>> _variableScopes;
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   int _globalTensorCounter = 0;
@@ -119,16 +148,44 @@ private:
 
   void leaveVariableScope() { _variableScopes.leaveScope(); }
 
-  void setVariable(std::string_view name, mlir::Value value) {
+  void setVariable(std::string_view name, VariableBinding binding) {
     if (_variableScopes.empty())
       enterVariableScope();
-    setSymbol(_variableScopes.currentScope(), name, value);
+    setSymbol(_variableScopes.currentScope(), name, binding);
   }
 
-  auto getVariable(std::string_view name) -> mlir::Value {
-    if (auto *variable = _variableScopes.lookup(name))
-      return *variable;
-    return {};
+  void setVariableAddress(std::string_view name, mlir::Value address) {
+    setVariable(name, VariableBinding::address(address));
+  }
+
+  void setTensorMemRef(std::string_view name, mlir::Value value) {
+    setVariable(name, VariableBinding::tensorMemRef(value));
+  }
+
+  void setUnitVariable(std::string_view name) {
+    setVariable(name, VariableBinding::unit());
+  }
+
+  auto getVariableBinding(std::string_view name) -> VariableBinding * {
+    return _variableScopes.lookup(name);
+  }
+
+  auto getVariableAddress(std::string_view name) -> mlir::Value {
+    auto *binding = getVariableBinding(name);
+    if (!binding)
+      llvm_unreachable("unknown variable");
+    if (!binding->isAddress())
+      llvm_unreachable("variable is not address-bound");
+    return binding->mlirValue;
+  }
+
+  auto getTensorMemRef(std::string_view name) -> mlir::Value {
+    auto *binding = getVariableBinding(name);
+    if (!binding)
+      llvm_unreachable("unknown variable");
+    if (!binding->isTensorMemRef())
+      llvm_unreachable("variable is not tensor-memref-bound");
+    return binding->mlirValue;
   }
 
   void setFunction(std::string_view name, mlir::func::FuncOp func) {
@@ -249,16 +306,16 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
     auto value = std::get<1>(varValue);
     auto *paramType = var->type();
     if (cherry::isTensorType(paramType)) {
-      setVariable(varName, value);
+      setTensorMemRef(varName, value);
       continue;
     }
     if (cherry::isUnitType(paramType)) {
-      setVariable(varName, nullptr);
+      setUnitVariable(varName);
       continue;
     }
 
     auto alloca = createAlloca(getMLIRType(paramType), loc(node));
-    setVariable(varName, alloca);
+    setVariableAddress(varName, alloca);
     createStore(value, alloca, loc(node));
   }
 
@@ -419,7 +476,7 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
       _builder, forLocation, 1, intType.getWidth());
 
   enterVariableScope();
-  setVariable(node->variableName(), inductionPtr);
+  setVariableAddress(node->variableName(), inductionPtr);
 
   auto bodyBlock = node->bodyBlock().get();
   mlir::scf::ForOp::create(
@@ -573,9 +630,9 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
-  auto address = getVariable(node->name());
   if (cherry::isTensorType(node->type()))
-    return address;
+    return getTensorMemRef(node->name());
+  auto address = getVariableAddress(node->name());
   return createLoad(address, getMLIRType(node), loc(node));
 }
 
@@ -606,7 +663,7 @@ auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   if (auto varExpr = llvm::dyn_cast<VariableExpr>(node)) {
     DBG("varExpr->name(): {0}", varExpr->name());
-    auto parentAddress = getVariable(varExpr->name());
+    auto parentAddress = getVariableAddress(varExpr->name());
     return parentAddress;
   }
 
@@ -755,11 +812,11 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
         if (cherry::isTensorType(var->type())) {
-          setVariable(name, rhs);
+          setTensorMemRef(name, rhs);
           return;
         }
 
-        auto address = getVariable(name);
+        auto address = getVariableAddress(name);
         if (!cherry::isUnitType(node->lhs()->type())) {
           rhs = castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
           createStore(rhs, address, loc(node));
@@ -1104,7 +1161,7 @@ void MLIRGenImpl::storeTensorElements(
 }
 
 mlir::Value MLIRGenImpl::genMemRefLoadValue(const TensorAccessExpr *expr) {
-  mlir::Value memref = getVariable(expr->getVarName());
+  mlir::Value memref = getTensorMemRef(expr->getVarName());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
   for (auto &idxExpr : expr->getIndices())
@@ -1123,7 +1180,7 @@ mlir::Value MLIRGenImpl::gen(const TensorAccessExpr *expr, bool isLValue) {
 }
 
 void MLIRGenImpl::genAssignment(const TensorAccessExpr *lhs, const Expr *rhs) {
-  mlir::Value memref = getVariable(lhs->getVarName());
+  mlir::Value memref = getTensorMemRef(lhs->getVarName());
   auto memRefType = llvm::cast<mlir::MemRefType>(memref.getType());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
@@ -1149,13 +1206,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
       if (auto *tensorLiteral =
               llvm::dyn_cast<TensorLiteralExpr>(node->init().get())) {
         if (shouldPromoteConstTensorData(tensorLiteral)) {
-          setVariable(varName, genGlobalTensorLiteral(tensorLiteral, varName));
+          setTensorMemRef(varName,
+                          genGlobalTensorLiteral(tensorLiteral, varName));
           return;
         }
       }
     }
 
-    setVariable(varName, gen(node->init().get()));
+    setTensorMemRef(varName, gen(node->init().get()));
     return;
   }
 
@@ -1164,7 +1222,8 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     if (structLiteral) {
       DBG("use Cherry variable struct literal `{0}`",
           formatType(structType));
-      setVariable(varName, genStructLiteral(structLiteral, structType, nullptr));
+      setVariableAddress(varName,
+                         genStructLiteral(structLiteral, structType, nullptr));
       return;
     }
 
@@ -1172,7 +1231,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
         formatType(structType));
     auto mlirType = getMLIRType(varType);
     auto alloca = createAlloca(mlirType, loc(node));
-    setVariable(varName, alloca);
+    setVariableAddress(varName, alloca);
 
     auto initValue = gen(node->init().get());
     createStore(initValue, alloca, loc(node));
@@ -1180,14 +1239,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   }
 
   if (cherry::isUnitType(varType)) {
-    setVariable(varName, nullptr);
+    setUnitVariable(varName);
     gen(node->init().get());
     return;
   }
 
   auto mlirType = getMLIRType(varType);
   auto alloca = createAlloca(mlirType, loc(node));
-  setVariable(varName, alloca);
+  setVariableAddress(varName, alloca);
 
   auto initValue = gen(node->init().get());
 
