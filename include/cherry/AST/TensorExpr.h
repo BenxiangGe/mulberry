@@ -17,15 +17,16 @@
 
 namespace cherry {
 
-// Tensor literal. e.g. `[[1.0, 2.0], [3.0, 4.0]]`
-class TensorLiteralExpr final : public Expr {
+// Source `[...]` is type-neutral. Sema classifies it as Tensor or List using
+// expected type where available.
+class ArrayLiteralExpr final : public Expr {
 public:
-  TensorLiteralExpr(llvm::SMLoc loc,
-                    std::vector<std::unique_ptr<Expr>> elements)
-      : Expr(Expr_TensorLiteral, loc), _elements(std::move(elements)) {}
+  ArrayLiteralExpr(llvm::SMLoc loc,
+                   std::vector<std::unique_ptr<Expr>> elements)
+      : Expr(Expr_ArrayLiteral, loc), _elements(std::move(elements)) {}
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_TensorLiteral;
+    return node->getKind() == Expr_ArrayLiteral;
   }
 
   auto getElements() const

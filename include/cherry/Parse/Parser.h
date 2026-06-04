@@ -98,6 +98,8 @@ private:
                        const char *const message) -> CherryResult;
 
   auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
+  auto parseListType(std::unique_ptr<TypeNode> &typeNode,
+                     llvm::SMLoc location) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Declarations
@@ -113,7 +115,7 @@ private:
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
 
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
-  auto parseTensorLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseArrayLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseTensorAccess(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> CherryResult;
 

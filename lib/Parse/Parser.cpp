@@ -67,6 +67,9 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (parseToken(Token::identifier, diag::expected_type))
     return failure();
 
+  if (name == "List")
+    return parseListType(typeNode, location);
+
   auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
   if (tokenIs(Token::l_square)) {
     std::vector<int64_t> shape;
@@ -78,6 +81,20 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   }
 
   typeNode = std::move(elementTypeNode);
+  return success();
+}
+
+auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
+                           llvm::SMLoc location) -> CherryResult {
+  if (parseToken(Token::less, diag::expected_less))
+    return failure();
+
+  unique_ptr<TypeNode> elementTypeNode;
+  if (parseType(elementTypeNode) ||
+      parseToken(Token::greater, diag::expected_greater))
+    return failure();
+
+  typeNode = make_unique<ListTypeNode>(std::move(elementTypeNode), location);
   return success();
 }
 
@@ -253,7 +270,7 @@ auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
   return parseToken(Token::r_square, diag::expected_r_square);
 }
 
-auto Parser::parseTensorLiteral(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   auto loc = tokenLoc();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> elements;
@@ -263,7 +280,7 @@ auto Parser::parseTensorLiteral(unique_ptr<Expr> &expr) -> CherryResult {
       unique_ptr<Expr> subExpr;
 
       if (tokenIs(Token::l_square)) {
-        if (parseTensorLiteral(subExpr))
+        if (parseArrayLiteral(subExpr))
           return failure();
       } else {
         if (parseExpression(subExpr))
@@ -274,7 +291,7 @@ auto Parser::parseTensorLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   }
   if (parseToken(Token::r_square, diag::expected_r_square))
     return failure();
-  expr = make_unique<TensorLiteralExpr>(loc, std::move(elements));
+  expr = make_unique<ArrayLiteralExpr>(loc, std::move(elements));
 
   return success();
 }
@@ -338,7 +355,7 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
   case Token::identifier:
     return parseIdentifierExpr(expr);
   case Token::l_square:
-    return parseTensorLiteral(expr);
+    return parseArrayLiteral(expr);
   case Token::kw_if:
     return parseIfExpr(expr);
   case Token::kw_while:

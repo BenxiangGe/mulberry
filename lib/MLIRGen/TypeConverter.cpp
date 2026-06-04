@@ -47,6 +47,15 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
                                          mlirElementType);
 }
 
+auto MLIRTypeConverter::convert(const ListType& type) const
+    -> mlir::mulberry::ListType {
+  auto elementType = convert(type.elementType());
+  if (!elementType)
+    return {};
+
+  return mlir::mulberry::ListType::get(_builder.getContext(), elementType);
+}
+
 auto MLIRTypeConverter::convertTensorStorage(const TensorType& type) const
     -> mlir::MemRefType {
   auto *elementType = cherry::getBuiltinType(type.elementType());
@@ -83,6 +92,9 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
 
   if (auto *tensorType = cherry::getTensorType(type))
     return convert(*tensorType);
+
+  if (auto *listType = cherry::getListType(type))
+    return convert(*listType);
 
   if (auto *structType = cherry::getStructType(type))
     return convert(*structType);

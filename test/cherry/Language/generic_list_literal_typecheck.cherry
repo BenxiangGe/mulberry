@@ -1,0 +1,42 @@
+# RUN: cherry-driver -typecheck %s
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s
+
+struct Layer {
+  weights: List<Float32[?]>
+}
+
+fn takeNumbers(xs: List<UInt64>): UInt64 {
+  0
+}
+
+fn takeWeights(xs: List<Float32[?]>): UInt64 {
+  0
+}
+
+fn makeNumbers(): List<UInt64> {
+  [1, 2, 3]
+}
+
+fn main(): UInt64 {
+  const empty: List<UInt64> = [];
+  const numbers: List<UInt64> = [1, 2, 3];
+  const nested: List<List<UInt64>> = [[1, 2], []];
+  const weights: List<Float32[?]> = [[1.0, 2.0], [3.0]];
+  const layer: Layer = Layer { [[1.0], [2.0]] };
+
+  takeNumbers([4, 5]);
+  takeWeights([[6.0], [7.0, 8.0]]);
+
+  0
+}
+
+# CHECK: Prototype {{.*}}name=makeNumbers{{.*}}type=List<UInt64>
+# CHECK: ArrayLiteralExpr {{.*}}type=List<UInt64>
+# CHECK: VariableStat const {{.*}}id=empty{{.*}}type=List<UInt64>
+# CHECK-NEXT: ArrayLiteralExpr {{.*}}type=List<UInt64>
+# CHECK: VariableStat const {{.*}}id=nested{{.*}}type=List<List<UInt64>>
+# CHECK-NEXT: ArrayLiteralExpr {{.*}}type=List<List<UInt64>>
+# CHECK: VariableStat const {{.*}}id=weights{{.*}}type=List<Float32[?]>
+# CHECK-NEXT: ArrayLiteralExpr {{.*}}type=List<Float32[?]>
+# CHECK: StructLiteralExpr {{.*}}type=Layer
+# CHECK: ArrayLiteralExpr {{.*}}type=List<Float32[?]>

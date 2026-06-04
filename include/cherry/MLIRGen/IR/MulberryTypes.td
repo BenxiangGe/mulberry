@@ -60,6 +60,17 @@ def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
   let hasCustomAssemblyFormat = 1;
 }
 
+def Mulberry_ListType : Mulberry_Type<"List", "list"> {
+  let summary = "Mulberry list type";
+  let description = [{
+    A generic high-level Mulberry container value. Runtime storage is a lowering
+    concern; source codegen should keep it as one SSA value.
+  }];
+
+  let parameters = (ins "mlir::Type":$elementType);
+  let assemblyFormat = "`<` $elementType `>`";
+}
+
 def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
   let summary = "Mulberry pointer type";
   let description = [{

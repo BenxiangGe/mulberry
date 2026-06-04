@@ -26,6 +26,10 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
+static auto getListType(Type type) -> mlir::mulberry::ListType {
+  return llvm::dyn_cast<mlir::mulberry::ListType>(type);
+}
+
 static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
   size_t count = 0;
   for (auto dim : shape)
@@ -134,6 +138,24 @@ auto TensorStoreOp::verify() -> LogicalResult {
 
   if (tensorType.getElementType() != getValue().getType())
     return emitOpError("value type must match tensor element type");
+
+  return success();
+}
+
+auto ListCreateOp::verify() -> LogicalResult {
+  auto listType = getListType(getResult().getType());
+  auto elementType = listType.getElementType();
+  for (auto element : getElements())
+    if (element.getType() != elementType)
+      return emitOpError("element type must match list element type");
+
+  return success();
+}
+
+auto ListGetOp::verify() -> LogicalResult {
+  auto listType = getListType(getList().getType());
+  if (listType.getElementType() != getResult().getType())
+    return emitOpError("result type must match list element type");
 
   return success();
 }

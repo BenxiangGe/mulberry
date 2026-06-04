@@ -1,0 +1,8 @@
+# RUN: not cherry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const numbers: List<UInt64> = [1, true];
+  0
+}
+
+# CHECK: error: type mismatch

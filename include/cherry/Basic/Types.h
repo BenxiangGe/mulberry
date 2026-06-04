@@ -12,6 +12,7 @@ enum class TypeKind {
   Builtin,
   Struct,
   Tensor,
+  List,
 };
 
 enum class BuiltinTypeKind {
@@ -94,10 +95,23 @@ private:
   std::vector<int64_t> _shape;
 };
 
+class ListType final : public Type {
+public:
+  explicit ListType(const Type *elementType);
+
+  static auto classof(const Type *type) -> bool;
+
+  auto elementType() const -> const Type *;
+
+private:
+  const Type *_elementType;
+};
+
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getTensorType(const Type *type) -> const TensorType *;
 auto getStructType(const Type *type) -> const StructType *;
+auto getListType(const Type *type) -> const ListType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
 auto isUInt64Type(const Type *type) -> bool;
@@ -106,6 +120,7 @@ auto isFloat32Type(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
 auto isTensorType(const Type *type) -> bool;
+auto isListType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
 // Display-only formatter for diagnostics and dumps; not for type identity.
@@ -122,6 +137,8 @@ public:
   auto createTensorType(const Type *elementType,
                         std::vector<int64_t> shape) const
       -> const TensorType *;
+
+  auto createListType(const Type *elementType) const -> const ListType *;
 };
 
 } // namespace cherry
