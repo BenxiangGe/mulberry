@@ -26,4 +26,10 @@ def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
                            "math::MathDialect"];
 }
 
+def LowerMulberry : Pass<"lower-mulberry"> {
+  let summary = "Lower high-level Mulberry IR to storage-level MLIR";
+  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+                           "LLVM::LLVMDialect", "scf::SCFDialect"];
+}
+
 #endif // CHERRY_PASSES_TD
