@@ -20,16 +20,12 @@ def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
   let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect"];
 }
 
-def ConvertCherryNNToLinalg : Pass<"convert-cherry-nn-to-linalg"> {
-  let summary = "Convert Cherry NN operations to Linalg operations";
-  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
-                           "math::MathDialect"];
-}
-
 def LowerMulberry : Pass<"lower-mulberry"> {
-  let summary = "Lower high-level Mulberry IR to storage-level MLIR";
+  let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
-                           "LLVM::LLVMDialect", "scf::SCFDialect"];
+                           "LLVM::LLVMDialect", "linalg::LinalgDialect",
+                           "math::MathDialect", "memref::MemRefDialect",
+                           "scf::SCFDialect"];
 }
 
 #endif // CHERRY_PASSES_TD

@@ -16,9 +16,9 @@ using namespace mlir::mulberry;
 #define GET_OP_CLASSES
 #include "cherry/MLIRGen/IR/MulberryOps.cpp.inc"
 
-static auto getPtrElementType(Type type) -> Type {
+static auto getPtrPointeeType(Type type) -> Type {
   if (auto ptrType = llvm::dyn_cast<PtrType>(type))
-    return ptrType.getElementType();
+    return ptrType.getPointeeType();
   return {};
 }
 
@@ -54,29 +54,29 @@ static auto compatibleTensorShape(ArrayRef<int64_t> sourceShape,
 }
 
 auto AllocaOp::verify() -> LogicalResult {
-  auto resultElementType = getPtrElementType(getResult().getType());
-  if (resultElementType != getElementType())
-    return emitOpError("result pointer element type must match alloca type");
+  auto resultPointeeType = getPtrPointeeType(getResult().getType());
+  if (resultPointeeType != getElementType())
+    return emitOpError("result pointer pointee type must match alloca type");
   return success();
 }
 
 auto LoadOp::verify() -> LogicalResult {
-  auto ptrElementType = getPtrElementType(getPtr().getType());
-  if (ptrElementType != getResult().getType())
-    return emitOpError("result type must match pointer element type");
+  auto ptrPointeeType = getPtrPointeeType(getPtr().getType());
+  if (ptrPointeeType != getResult().getType())
+    return emitOpError("result type must match pointer pointee type");
   return success();
 }
 
 auto StoreOp::verify() -> LogicalResult {
-  auto ptrElementType = getPtrElementType(getPtr().getType());
-  if (ptrElementType != getValue().getType())
-    return emitOpError("value type must match pointer element type");
+  auto ptrPointeeType = getPtrPointeeType(getPtr().getType());
+  if (ptrPointeeType != getValue().getType())
+    return emitOpError("value type must match pointer pointee type");
   return success();
 }
 
 auto RecordGetFieldOp::verify() -> LogicalResult {
   auto recordType = llvm::dyn_cast<RecordType>(
-      getPtrElementType(getRecord().getType()));
+      getPtrPointeeType(getRecord().getType()));
   if (!recordType)
     return emitOpError("input must be a pointer to a Mulberry record");
 
@@ -84,9 +84,9 @@ auto RecordGetFieldOp::verify() -> LogicalResult {
   if (!fieldType)
     return emitOpError("unknown record field `") << getField() << "`";
 
-  auto resultElementType = getPtrElementType(getResult().getType());
-  if (resultElementType != fieldType)
-    return emitOpError("result pointer element type must match field type");
+  auto resultPointeeType = getPtrPointeeType(getResult().getType());
+  if (resultPointeeType != fieldType)
+    return emitOpError("result pointer pointee type must match field type");
 
   return success();
 }

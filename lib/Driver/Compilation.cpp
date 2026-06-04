@@ -92,8 +92,8 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::ArithCfFunc)
     optPM.addPass(mlir::cherry::createConvertCherryToArithCfFunc());
 
-  if (lowering >= Lowering::Linalg)
-    pm.addPass(mlir::cherry::createConvertCherryNNToLinalg());
+  if (lowering >= Lowering::Mulberry)
+    pm.addPass(mlir::cherry::createLowerMulberry());
 
   return pm.run(*module);
 }

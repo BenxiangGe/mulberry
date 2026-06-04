@@ -8,8 +8,8 @@ add_mlir_dialect_library(cherryMLIRGen
 
         # Conversion
         ${LIB_HEADERS}/Conversion/CherryPasses.h
+        Conversion/CherryNNToLinalgPatterns.cpp
         Conversion/ConvertCherryToArithCfFunc.cpp
-        Conversion/ConvertCherryNNToLinalg.cpp
         Conversion/ConvertCherryToSCF.cpp
         Conversion/LowerMulberry.cpp
 

@@ -1,17 +1,17 @@
 # Mulberry
 
 Mulberry 是一个个人编译器学习项目。目标是把一个小型静态语言 lowering 到
-MLIR、Clang CIR、Linalg/MemRef 和 LLVM dialect，并逐步加入深度学习推理与训练能力。
+MLIR，并逐步加入深度学习推理与训练能力。
 
 项目基于 [Nicola Lancellotti 的 Cherry 项目](https://github.com/NicolaLancellotti/cherry)
 继续开发。内部目录、namespace、dialect 和工具名目前仍大量保留 `cherry` 命名；
 语言和项目方向已经逐步转向 Mulberry。
 
-当前使用 `llvmorg-22.1.0`，并开启 ClangIR/CIR 支持。
+当前使用 `llvmorg-22.1.0`。
 
 ## Current Status
 
-Mulberry 目前已经具备一个可工作的端到端 MLIR compiler pipeline：
+Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 
 - Lexer / Parser / AST / Sema / Driver。
 - 结构化 semantic type system，不再使用旧的 string-based type system。
@@ -21,9 +21,12 @@ Mulberry 目前已经具备一个可工作的端到端 MLIR compiler pipeline：
 - Struct literal 语法：`A { ... }`。
 - Struct member read/write 使用独立 AST node，不再伪装成普通 call/binary expr。
 - Tensor literal、tensor access，以及 `size(xs)` builtin。
-- 普通语言结构 lowering 到 Clang CIR、SCF、arith、cf、func、memref。
+- 普通语言结构 codegen 到 `func`、`arith`、`scf` 和高层 `mulberry` dialect。
 - `cherry_nn` 深度学习 dialect，并支持 lowering 到 Linalg/Math/Arith/MemRef。
-- 通过 MLIR LLVM dialect 支持 x64 Linux JIT 和 object file 输出。
+- `--dump=lowered-mlir` 可以把 Mulberry Tensor 和 `cherry_nn` ops lower 到
+  storage-level MLIR，例如 `memref`、`linalg`、`math` 和 `llvm` dialect。
+- LLVM/JIT/object file pipeline 暂时关闭，等待新的 Mulberry-to-LLVM lowering
+  设计。
 
 ## Pipeline
 
@@ -32,13 +35,15 @@ Mulberry source
   -> Lexer / Parser / AST
   -> Sema / semantic type checking
   -> MLIRGen
-       - Clang CIR: scalar values, functions, control flow, structs
-       - memref: tensor storage
+       - func / arith / scf: functions, scalar values, control flow
+       - mulberry.record / mulberry.ptr: structs and addressable values
+       - mulberry.tensor: writable tensor values
        - cherry_nn: neural-network operations
   -> optional lowering
+       - mulberry.tensor -> memref
        - cherry_nn -> linalg / math / arith / memref
-       - CIR / SCF / linalg -> LLVM dialect
-  -> JIT execution or object file
+       - scalar and record storage -> LLVM dialect where currently supported
+  -> LLVM/JIT/object pipeline is temporarily disabled
 ```
 
 ## Language Snapshot
@@ -92,7 +97,7 @@ Common smoke tests:
 
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
-./build/release/bin/cherry-driver --dump=linalg test/cherry/Language/argmax.cherry
+./build/release/bin/cherry-driver --dump=lowered-mlir test/cherry/Language/argmax.cherry
 ./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
@@ -127,7 +132,7 @@ Inspect generated high-level MLIR:
 ./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
-Expected prediction for `test_data[0]` when lowering/JIT is re-enabled:
+Expected prediction for `test_data[0]` when execution is re-enabled:
 
 ```text
 7

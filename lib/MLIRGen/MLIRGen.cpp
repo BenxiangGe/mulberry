@@ -194,7 +194,7 @@ private:
     if (binding->isAddress()) {
       auto ptrType =
           llvm::cast<mlir::mulberry::PtrType>(binding->mlirValue.getType());
-      return createLoad(binding->mlirValue, ptrType.getElementType(),
+      return createLoad(binding->mlirValue, ptrType.getPointeeType(),
                         location);
     }
     if (!binding->isValue())
@@ -225,7 +225,7 @@ private:
   auto sourceDynamicSizes(mlir::mulberry::TensorType tensorType,
                           const std::vector<TensorDimSource> &sources,
                           mlir::Location location) -> std::vector<mlir::Value>;
-  auto getPtrType(mlir::Type elementType) const -> mlir::mulberry::PtrType;
+  auto getPtrType(mlir::Type pointeeType) const -> mlir::mulberry::PtrType;
   auto createAlloca(mlir::Type mlirType, mlir::Location location)
       -> mlir::Value;
   auto createLoad(mlir::Value ptr, mlir::Type type, mlir::Location location)
@@ -894,9 +894,9 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
   }
 }
 
-auto MLIRGenImpl::getPtrType(mlir::Type elementType) const
+auto MLIRGenImpl::getPtrType(mlir::Type pointeeType) const
     -> mlir::mulberry::PtrType {
-  return mlir::mulberry::PtrType::get(_builder.getContext(), elementType);
+  return mlir::mulberry::PtrType::get(_builder.getContext(), pointeeType);
 }
 
 auto MLIRGenImpl::createAlloca(mlir::Type mlirType,
