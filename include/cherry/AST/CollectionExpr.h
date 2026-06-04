@@ -1,18 +1,16 @@
-//===--- TensorExpr.h - Cherry Language Tensor Expression ASTs --*- C++ -*-===//
+//===--- CollectionExpr.h - Cherry collection expressions -------*- C++ -*-===//
 //
 // This source file is part of the Cherry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CHERRY_TENSOR_EXPR_H
-#define CHERRY_TENSOR_EXPR_H
+#ifndef CHERRY_COLLECTION_EXPR_H
+#define CHERRY_COLLECTION_EXPR_H
 
 #include "cherry/AST/Expr.h"
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <string_view>
 #include <vector>
 
 namespace cherry {
@@ -47,31 +45,34 @@ private:
   std::vector<int64_t> _inferredShape;
 };
 
-// Tensor access. e.g. `myTensor[i, j]`
-class TensorAccessExpr final : public Expr {
+// Source `base[...]` is type-neutral. Sema classifies it by base type.
+class IndexExpr final : public Expr {
 public:
-  TensorAccessExpr(llvm::SMLoc loc, std::string_view varName,
-                   std::vector<std::unique_ptr<Expr>> indices)
-      : Expr(Expr_TensorAccess, loc), _varName(varName),
+  IndexExpr(llvm::SMLoc loc, std::unique_ptr<Expr> base,
+            std::vector<std::unique_ptr<Expr>> indices)
+      : Expr(Expr_Index, loc), _base(std::move(base)),
         _indices(std::move(indices)) {}
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_TensorAccess;
+    return node->getKind() == Expr_Index;
   }
 
-  auto getVarName() const -> std::string_view { return _varName; }
+  auto base() const -> const std::unique_ptr<Expr> & { return _base; }
 
-  auto getIndices() const -> const std::vector<std::unique_ptr<Expr>> & {
+  auto indices() const -> const std::vector<std::unique_ptr<Expr>> & {
     return _indices;
   }
 
-  auto isLvalue() const -> bool override { return true; }
+  auto isLvalue() const -> bool override { return _isLvalue; }
+
+  auto setLvalue(bool isLvalue) -> void { _isLvalue = isLvalue; }
 
 private:
-  std::string _varName;
+  std::unique_ptr<Expr> _base;
   std::vector<std::unique_ptr<Expr>> _indices;
+  bool _isLvalue = false;
 };
 
 } // end namespace cherry
 
-#endif // CHERRY_TENSOR_EXPR_H
+#endif // CHERRY_COLLECTION_EXPR_H

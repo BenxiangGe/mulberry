@@ -296,8 +296,8 @@ auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseTensorAccess(llvm::SMLoc location, std::string_view name,
-                               unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIndex(unique_ptr<Expr> &expr) -> CherryResult {
+  auto location = expr->location();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> indices;
   do {
@@ -309,7 +309,8 @@ auto Parser::parseTensorAccess(llvm::SMLoc location, std::string_view name,
   if (parseToken(Token::r_square, diag::expected_r_square))
     return failure();
 
-  expr = std::make_unique<TensorAccessExpr>(location, name, std::move(indices));
+  expr = std::make_unique<IndexExpr>(location, std::move(expr),
+                                     std::move(indices));
   return success();
 }
 
@@ -502,8 +503,6 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
       return success();
     }
     return parseStructLiteral(location, name, expr);
-  case Token::l_square:
-    return parseTensorAccess(location, name, expr);
   default:
     expr = make_unique<VariableExpr>(location, name);
     return success();
@@ -543,6 +542,11 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
 
     if (t.is(Token::dot)) {
       if (parseMemberAccess(expr))
+        return failure();
+      continue;
+    }
+    if (t.is(Token::l_square)) {
+      if (parseIndex(expr))
         return failure();
       continue;
     }
@@ -610,6 +614,7 @@ auto Parser::getTokenPrecedence() -> int {
   case Token::rem:
     return 700;
   case Token::dot:
+  case Token::l_square:
     return 800;
   default:
     return -1;

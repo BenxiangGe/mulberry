@@ -1,0 +1,31 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const w1: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
+  const w2: Float32[1, 2] = [[1.0, 1.0]];
+  const b1: Float32[2, 1] = [[0.0], [0.0]];
+  const b2: Float32[1, 1] = [[0.0]];
+  const x: Float32[2, 1] = [[0.2], [0.8]];
+
+  const weights: List<Float32[?, ?]> = [w1, w2];
+  const biases: List<Float32[?, ?]> = [b1, b2];
+  var activation: Float32[?, ?] = [[0.2], [0.8]];
+
+  for layer in 0 .. size(weights) {
+    activation = sigmoid(matadd(matmul(weights[layer], activation),
+                                biases[layer]));
+    ()
+  };
+
+  argmax(activation)
+}
+
+# CHECK-LABEL: func.func @main()
+# CHECK: mulberry.list.create
+# CHECK-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: scf.for unsigned
+# CHECK: mulberry.list.get
+# CHECK: cherry_nn.matmul
+# CHECK: cherry_nn.matadd
+# CHECK: cherry_nn.sigmoid
+# CHECK: cherry_nn.argmax
