@@ -1,0 +1,13 @@
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var a: Float32[4] = [1.0, 9.0, 3.0, 2.0];
+  argmax(a)
+}
+
+# CHECK-LABEL: func.func @main
+# CHECK: memref.alloca() : memref<memref<4xf32>>
+# CHECK: linalg.generic
+# CHECK: return
+# CHECK-NOT: cherry_nn.
+# CHECK-NOT: mulberry.

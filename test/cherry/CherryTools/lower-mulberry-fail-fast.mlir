@@ -2,9 +2,9 @@
 
 module {
   func.func @main() {
-    %tensor = mulberry.tensor.alloc() : !mulberry.tensor<2xf32>
+    %list = mulberry.list.create() : () -> !mulberry.list<i64>
     return
   }
 }
 
-// CHECK: failed to legalize operation 'mulberry.tensor.alloc'
+// CHECK: failed to legalize operation 'mulberry.list.create'

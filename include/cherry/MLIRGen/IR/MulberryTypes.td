@@ -79,8 +79,8 @@ def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
     dialect or LLVM pointer types.
   }];
 
-  let parameters = (ins "mlir::Type":$elementType);
-  let assemblyFormat = "`<` $elementType `>`";
+  let parameters = (ins "mlir::Type":$pointeeType);
+  let assemblyFormat = "`<` $pointeeType `>`";
 }
 
 #endif // MULBERRY_TYPES
