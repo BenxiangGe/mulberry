@@ -534,9 +534,6 @@ auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
   if (sema(node->base().get()))
     return failure();
 
-  if (!node->base()->isLvalue())
-    return emitError(node->base().get(), diag::expected_lvalue);
-
   auto *structType = cherry::getStructType(node->base()->type());
   if (!structType)
     return emitError(node->base().get(), diag::mismatch_type);
