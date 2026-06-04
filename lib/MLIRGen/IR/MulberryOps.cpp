@@ -91,6 +91,21 @@ auto RecordGetFieldOp::verify() -> LogicalResult {
   return success();
 }
 
+auto RecordExtractOp::verify() -> LogicalResult {
+  auto recordType = llvm::dyn_cast<RecordType>(getRecord().getType());
+  if (!recordType)
+    return emitOpError("input must be a Mulberry record");
+
+  auto fieldType = recordType.getFieldType(getField());
+  if (!fieldType)
+    return emitOpError("unknown record field `") << getField() << "`";
+
+  if (getResult().getType() != fieldType)
+    return emitOpError("result type must match field type");
+
+  return success();
+}
+
 auto TensorAllocOp::verify() -> LogicalResult {
   auto tensorType = getTensorType(getResult().getType());
   auto expectedDynamicSizeCount = countDynamicDims(tensorType.getShape());

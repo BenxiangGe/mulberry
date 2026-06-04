@@ -242,11 +242,10 @@ private:
   void storeTensorElements(const ArrayLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
                            std::vector<mlir::Value> &indices);
-  mlir::Value gen(const IndexExpr *expr, bool isLValue = false);
+  mlir::Value gen(const IndexExpr *expr);
   void genAssignment(const IndexExpr *lhs, const Expr *rhs);
 
   auto genLValue(const Expr *node) -> mlir::Value;
-  auto genRValue(const Expr *node) -> mlir::Value;
   auto getStructField(const MemberExpr *memberExpr) const
       -> const StructField *;
   auto genIndexValue(const Expr *node) -> mlir::Value;
@@ -679,8 +678,21 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
-  auto ptr = genLValue(node);
-  return createLoad(ptr, getMLIRType(node), loc(node));
+  auto *field = getStructField(node);
+  if (!field) {
+    ERR("struct member access has no Cherry field information");
+    return nullptr;
+  }
+
+  if (node->base()->isLvalue()) {
+    auto ptr = genLValue(node);
+    return createLoad(ptr, getMLIRType(node), loc(node));
+  }
+
+  auto record = gen(node->base().get());
+  return mlir::mulberry::RecordExtractOp::create(
+      _builder, loc(node), getMLIRType(node), record,
+      std::string(field->name()));
 }
 
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
@@ -722,7 +734,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   }
 
   ERR("unknown EXPR");
-  exit(-1);
+  llvm_unreachable("unexpected lvalue expression");
 
   return nullptr;
 }
@@ -752,17 +764,6 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
   DBG("use Cherry struct field `{0}` from `{1}`", field->name(),
       formatType(structType));
   return field;
-}
-
-auto MLIRGenImpl::genRValue(const Expr *node) -> mlir::Value {
-  if (auto *memberExpr = llvm::dyn_cast<MemberExpr>(node)) {
-    mlir::Value ptr = genLValue(memberExpr);
-    mlir::Value val = createLoad(ptr, getMLIRType(memberExpr),
-                                 loc(memberExpr));
-    return val;
-  }
-
-  return gen(node);
 }
 
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
@@ -1217,10 +1218,7 @@ auto MLIRGenImpl::genListGet(const IndexExpr *expr,
                                            getMLIRType(expr), list, index);
 }
 
-mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
-  if (isLValue)
-    return nullptr;
-
+mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
   auto source = gen(expr->base().get());
   if (llvm::isa<mlir::mulberry::ListType>(source.getType()))
     return genListGet(expr, source);

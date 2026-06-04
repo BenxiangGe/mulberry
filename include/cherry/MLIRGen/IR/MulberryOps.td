@@ -24,6 +24,10 @@ def Mulberry_AnyListType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListType>($_self)">,
     "Mulberry list type">;
 
+def Mulberry_AnyRecordType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
+    "Mulberry record type">;
+
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";
 
@@ -65,6 +69,21 @@ def Mulberry_RecordGetFieldOp : Mulberry_Op<"record.get_field"> {
     StrAttr:$field
   );
   let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$record `[` $field `]` attr-dict `:` type($record) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_RecordExtractOp : Mulberry_Op<"record.extract"> {
+  let summary = "Extract a Mulberry record field value";
+
+  let arguments = (ins
+    Mulberry_AnyRecordType:$record,
+    StrAttr:$field
+  );
+  let results = (outs AnyType:$result);
 
   let assemblyFormat = "$record `[` $field `]` attr-dict `:` type($record) "
                        "`->` type($result)";
