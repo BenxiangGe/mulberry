@@ -116,8 +116,7 @@ private:
 
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseArrayLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseTensorAccess(llvm::SMLoc location, std::string_view name,
-                         std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseIndex(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Expressions

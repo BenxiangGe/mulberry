@@ -49,8 +49,8 @@ template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
 struct VariableBinding {
-  // Scalars and records are address-bound. Tensor/List are high-level
-  // Mulberry values; their storage decisions belong in lowering.
+  // Mutable source variables are address-bound. Const Tensor/List values and
+  // function arguments can stay SSA values until lowering.
   enum Kind {
     Address,
     Value,
@@ -186,12 +186,19 @@ private:
     return binding->mlirValue;
   }
 
-  auto getVariableValue(std::string_view name) -> mlir::Value {
+  auto getVariableValue(std::string_view name,
+                        mlir::Location location) -> mlir::Value {
     auto *binding = getVariableBinding(name);
     if (!binding)
       llvm_unreachable("unknown variable");
+    if (binding->isAddress()) {
+      auto ptrType =
+          llvm::cast<mlir::mulberry::PtrType>(binding->mlirValue.getType());
+      return createLoad(binding->mlirValue, ptrType.getElementType(),
+                        location);
+    }
     if (!binding->isValue())
-      llvm_unreachable("variable is not value-bound");
+      llvm_unreachable("variable has no value");
     return binding->mlirValue;
   }
 
@@ -235,8 +242,8 @@ private:
   void storeTensorElements(const ArrayLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
                            std::vector<mlir::Value> &indices);
-  mlir::Value gen(const TensorAccessExpr *expr, bool isLValue = false);
-  void genAssignment(const TensorAccessExpr *lhs, const Expr *rhs);
+  mlir::Value gen(const IndexExpr *expr, bool isLValue = false);
+  void genAssignment(const IndexExpr *lhs, const Expr *rhs);
 
   auto genLValue(const Expr *node) -> mlir::Value;
   auto genRValue(const Expr *node) -> mlir::Value;
@@ -245,11 +252,8 @@ private:
   auto genIndexValue(const Expr *node) -> mlir::Value;
   auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
-  auto genTensorLoadValue(const TensorAccessExpr *expr,
-                          mlir::Value tensor) -> mlir::Value;
-  auto genTensorLoadValue(const TensorAccessExpr *expr) -> mlir::Value;
-  auto genListGetValue(const TensorAccessExpr *expr,
-                       mlir::Value list) -> mlir::Value;
+  auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
+  auto genListGet(const IndexExpr *expr, mlir::Value list) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
@@ -391,8 +395,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<MemberExpr>(node));
   case Expr::Expr_ArrayLiteral:
     return gen(cast<ArrayLiteralExpr>(node));
-  case Expr::Expr_TensorAccess:
-    return gen(cast<TensorAccessExpr>(node));
+  case Expr::Expr_Index:
+    return gen(cast<IndexExpr>(node));
   case Expr::Expr_Assign:
     return gen(cast<AssignExpr>(node));
   case Expr::Expr_Binary:
@@ -669,10 +673,9 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
-  if (isValueType(node->type()))
-    return getVariableValue(node->name());
-  auto address = getVariableAddress(node->name());
-  return createLoad(address, getMLIRType(node), loc(node));
+  if (cherry::isUnitType(node->type()))
+    return nullptr;
+  return getVariableValue(node->name(), loc(node));
 }
 
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
@@ -852,7 +855,11 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         auto rhs = gen(node->rhs().get());
         if (isValueType(var->type())) {
           rhs = castToType(rhs, getMLIRType(var), loc(node));
-          setVariableValue(name, rhs);
+          auto *binding = getVariableBinding(name);
+          if (binding && binding->isAddress())
+            createStore(rhs, binding->mlirValue, loc(node));
+          else
+            setVariableValue(name, rhs);
           return;
         }
 
@@ -869,8 +876,8 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
 
         createStore(rhs, lhsPtr, loc(node));
       })
-      .Case<TensorAccessExpr>([&](const auto *tensorAccess) {
-        genAssignment(tensorAccess, node->rhs().get());
+      .Case<IndexExpr>([&](const auto *index) {
+        genAssignment(index, node->rhs().get());
       })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -1130,8 +1137,8 @@ auto MLIRGenImpl::genTensorElementValue(const Expr *node,
         floating->value());
   }
 
-  if (auto *tensorAccess = llvm::dyn_cast<TensorAccessExpr>(node))
-    return gen(tensorAccess);
+  if (auto *index = llvm::dyn_cast<IndexExpr>(node))
+    return gen(index);
 
   return castToType(gen(node), elementType, loc(node));
 }
@@ -1193,45 +1200,42 @@ void MLIRGenImpl::storeTensorElements(
   }
 }
 
-auto MLIRGenImpl::genTensorLoadValue(const TensorAccessExpr *expr,
-                                     mlir::Value tensor) -> mlir::Value {
+auto MLIRGenImpl::genTensorGet(const IndexExpr *expr,
+                               mlir::Value tensor) -> mlir::Value {
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
-  for (auto &idxExpr : expr->getIndices())
+  for (auto &idxExpr : expr->indices())
     mlirIndices.push_back(genIndexValue(idxExpr.get()));
 
   return mlir::mulberry::TensorLoadOp::create(
       _builder, loc(expr), getMLIRType(expr), tensor, mlirIndices);
 }
 
-mlir::Value MLIRGenImpl::genTensorLoadValue(const TensorAccessExpr *expr) {
-  return genTensorLoadValue(expr, getVariableValue(expr->getVarName()));
-}
-
-auto MLIRGenImpl::genListGetValue(const TensorAccessExpr *expr,
-                                  mlir::Value list) -> mlir::Value {
-  auto index = genIndexValue(expr->getIndices().front().get());
+auto MLIRGenImpl::genListGet(const IndexExpr *expr,
+                             mlir::Value list) -> mlir::Value {
+  auto index = genIndexValue(expr->indices().front().get());
   return mlir::mulberry::ListGetOp::create(_builder, loc(expr),
                                            getMLIRType(expr), list, index);
 }
 
-mlir::Value MLIRGenImpl::gen(const TensorAccessExpr *expr, bool isLValue) {
+mlir::Value MLIRGenImpl::gen(const IndexExpr *expr, bool isLValue) {
   if (isLValue)
     return nullptr;
 
-  auto source = getVariableValue(expr->getVarName());
+  auto source = gen(expr->base().get());
   if (llvm::isa<mlir::mulberry::ListType>(source.getType()))
-    return genListGetValue(expr, source);
+    return genListGet(expr, source);
 
-  auto loaded = genTensorLoadValue(expr, source);
+  auto loaded = genTensorGet(expr, source);
   return castToType(loaded, getMLIRType(expr), loc(expr));
 }
 
-void MLIRGenImpl::genAssignment(const TensorAccessExpr *lhs, const Expr *rhs) {
-  mlir::Value tensor = getVariableValue(lhs->getVarName());
-  auto tensorType = llvm::cast<mlir::mulberry::TensorType>(tensor.getType());
+void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
+  mlir::Value tensor = gen(lhs->base().get());
+  auto tensorType =
+      llvm::cast<mlir::mulberry::TensorType>(tensor.getType());
 
   llvm::SmallVector<mlir::Value, 4> mlirIndices;
-  for (auto &idxExpr : lhs->getIndices())
+  for (auto &idxExpr : lhs->indices())
     mlirIndices.push_back(genIndexValue(idxExpr.get()));
 
   auto rhsValue = genTensorElementValue(rhs, tensorType.getElementType());
@@ -1250,24 +1254,41 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable tensor type `{0}`",
         formatType(tensorType));
 
-    auto targetType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(varType));
+    auto targetType =
+        llvm::cast<mlir::mulberry::TensorType>(getMLIRType(varType));
+    mlir::Value value;
     if (auto *literal =
             llvm::dyn_cast<ArrayLiteralExpr>(node->init().get())) {
-      setVariableValue(varName, genTensorLiteral(literal, targetType));
+      value = genTensorLiteral(literal, targetType);
+    } else {
+      value = castToType(gen(node->init().get()), targetType, loc(node));
+    }
+
+    if (node->isConst()) {
+      setVariableValue(varName, value);
       return;
     }
 
-    auto value = castToType(gen(node->init().get()), targetType, loc(node));
-    setVariableValue(varName, value);
+    auto alloca = createAlloca(targetType, loc(node));
+    setVariableAddress(varName, alloca);
+    createStore(value, alloca, loc(node));
     return;
   }
 
   if (listType) {
     DBG("use Cherry variable list type `{0}`", formatType(listType));
-    auto targetType = llvm::cast<mlir::mulberry::ListType>(getMLIRType(varType));
+    auto targetType =
+        llvm::cast<mlir::mulberry::ListType>(getMLIRType(varType));
     auto value = gen(node->init().get());
     value = castToType(value, targetType, loc(node));
-    setVariableValue(varName, value);
+    if (node->isConst()) {
+      setVariableValue(varName, value);
+      return;
+    }
+
+    auto alloca = createAlloca(targetType, loc(node));
+    setVariableAddress(varName, alloca);
+    createStore(value, alloca, loc(node));
     return;
   }
 

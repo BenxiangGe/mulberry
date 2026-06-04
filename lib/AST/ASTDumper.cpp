@@ -51,7 +51,7 @@ private:
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
-  auto dump(const TensorAccessExpr *node) -> void;
+  auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
   auto dump(const IfExpr *node) -> void;
   auto dump(const WhileExpr *node) -> void;
@@ -153,7 +153,7 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr,
-            ArrayLiteralExpr, TensorAccessExpr, VariableExpr, MemberExpr,
+            ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
@@ -246,12 +246,12 @@ auto Dumper::dump(const ArrayLiteralExpr *node) -> void {
     dump(element.get());
 }
 
-auto Dumper::dump(const TensorAccessExpr *node) -> void {
+auto Dumper::dump(const IndexExpr *node) -> void {
   INDENT();
-  errs() << "TensorAccessExpr " << loc(node)
-         << " type=" << formatType(node->type())
-         << " name=" << node->getVarName() << "\n";
-  for (auto &index : node->getIndices())
+  errs() << "IndexExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->base().get());
+  for (auto &index : node->indices())
     dump(index.get());
 }
 

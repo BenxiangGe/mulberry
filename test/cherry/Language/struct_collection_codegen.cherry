@@ -1,0 +1,49 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct Model {
+  weights: List<Float32[?, ?]>,
+  bias: Float32[?, ?]
+}
+
+fn makeModel(w1: Float32[2, 2],
+             w2: Float32[1, 2],
+             bias: Float32[1, 1]): Model {
+  Model { [w1, w2], bias }
+}
+
+fn main(): UInt64 {
+  var w1: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
+  var w2: Float32[1, 2] = [[1.0, 1.0]];
+  var bias: Float32[1, 1] = [[0.0]];
+
+  var model: Model = makeModel(w1, w2, bias);
+  var otherBias: Float32[?, ?] = bias;
+  var activeBias: Float32[?, ?] = if true {
+    model.bias
+  } else {
+    otherBias
+  };
+  var firstWeight: Float32[?, ?] = model.weights[0];
+
+  size(model.weights) + size(firstWeight) + size(activeBias)
+}
+
+# CHECK-LABEL: func.func @makeModel
+# CHECK-SAME: !mulberry.tensor<2x2xf32>
+# CHECK-SAME: !mulberry.tensor<1x2xf32>
+# CHECK-SAME: !mulberry.tensor<1x1xf32>
+# CHECK-SAME: -> !mulberry.record<Model
+# CHECK: mulberry.record.get_field {{.*}}["weights"]
+# CHECK: mulberry.list.create
+# CHECK-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: mulberry.record.get_field {{.*}}["bias"]
+# CHECK-LABEL: func.func @main()
+# CHECK: call @makeModel
+# CHECK: scf.if
+# CHECK: mulberry.record.get_field {{.*}}["bias"]
+# CHECK: mulberry.record.get_field {{.*}}["weights"]
+# CHECK: mulberry.list.get
+# CHECK-SAME: !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: mulberry.record.get_field {{.*}}["weights"]
+# CHECK: mulberry.list.size
+# CHECK-SAME: !mulberry.list<!mulberry.tensor<?x?xf32>>

@@ -93,7 +93,7 @@ Common smoke tests:
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
 ./build/release/bin/cherry-driver --dump=linalg test/cherry/Language/argmax.cherry
-./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
 Run lit tests directly:
@@ -121,13 +121,13 @@ Regenerate the example:
 /usr/bin/python3 tools/generate_inference_mnist1.py
 ```
 
-Run it:
+Inspect generated high-level MLIR:
 
 ```sh
-./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
-Expected result for `test_data[0]`:
+Expected prediction for `test_data[0]` when lowering/JIT is re-enabled:
 
 ```text
 7
@@ -138,6 +138,7 @@ Expected result for `test_data[0]`:
 - Internal naming is still mostly `cherry`.
 - The language has no standard library or namespace system yet.
 - Large model data is still expanded into source literals.
+- End-to-end JIT is temporarily disabled while Mulberry lowering is redesigned.
 - `cherry_nn` ops still need stronger verifiers and diagnostics.
 - This is a learning compiler, not a production compiler.
 

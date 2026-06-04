@@ -105,7 +105,7 @@ private:
                                const Type *type) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const ListType *type) -> CherryResult;
-  auto sema(TensorAccessExpr *expr) -> CherryResult;
+  auto sema(IndexExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
   auto semaMatadd(CallExpr *node) -> CherryResult;
   auto semaTranspose(CallExpr *node) -> CherryResult;
@@ -396,8 +396,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<AssignExpr>(node));
   case Expr::Expr_ArrayLiteral:
     return sema(cast<ArrayLiteralExpr>(node));
-  case Expr::Expr_TensorAccess:
-    return sema(cast<TensorAccessExpr>(node));
+  case Expr::Expr_Index:
+    return sema(cast<IndexExpr>(node));
   case Expr::Expr_Binary:
     return sema(cast<BinaryExpr>(node));
   case Expr::Expr_If:
@@ -653,13 +653,8 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
     return success();
   }
 
-  if (auto *tensorAccess = llvm::dyn_cast<TensorAccessExpr>(expr)) {
-    auto *symbol = lookupVariable(tensorAccess->getVarName());
-    if (!symbol)
-      return emitError(tensorAccess->location(), diag::undefined_var);
-    if (symbol->isConst)
-      return emitError(tensorAccess->location(), diag::assign_const);
-    return success();
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr)) {
+    return checkAssignable(index->base().get());
   }
 
   if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr))
@@ -740,15 +735,15 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ListType *type)
   return success();
 }
 
-auto SemaImpl::sema(TensorAccessExpr *expr) -> CherryResult {
-  auto *symbol = lookupVariable(expr->getVarName());
-  if (!symbol)
-    return emitError(expr, diag::undefined_var);
-  auto *listType = cherry::getListType(symbol->type);
+auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
+  if (sema(expr->base().get()))
+    return failure();
+
+  auto *listType = cherry::getListType(expr->base()->type());
   if (listType) {
-    if (expr->getIndices().size() != 1)
+    if (expr->indices().size() != 1)
       return emitError(expr, diag::mismatch_type);
-    for (auto &index : expr->getIndices()) {
+    for (auto &index : expr->indices()) {
       if (sema(index.get()))
         return failure();
       if (!isUInt64Type(index->type()))
@@ -759,15 +754,15 @@ auto SemaImpl::sema(TensorAccessExpr *expr) -> CherryResult {
     return success();
   }
 
-  auto *tensorType = cherry::getTensorType(symbol->type);
+  auto *tensorType = cherry::getTensorType(expr->base()->type());
   if (!tensorType)
     return emitError(expr, diag::mismatch_type);
 
   auto tensorRank = tensorType->shape().size();
-  if (expr->getIndices().size() != tensorRank)
+  if (expr->indices().size() != tensorRank)
     return emitError(expr, diag::mismatch_type);
 
-  for (auto &index : expr->getIndices()) {
+  for (auto &index : expr->indices()) {
     if (sema(index.get()))
       return failure();
     if (!isUInt64Type(index->type()))
@@ -775,6 +770,7 @@ auto SemaImpl::sema(TensorAccessExpr *expr) -> CherryResult {
   }
 
   expr->setType(tensorType->elementType());
+  expr->setLvalue(true);
   return success();
 }
 
@@ -915,9 +911,8 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
   auto &inputShape = inputType->shape();
   if (inputShape.size() != 1 && inputShape.size() != 2)
     return emitError(node, diag::mismatch_type);
-  for (auto dim : inputShape)
-    if (dim < 0)
-      return emitError(node, diag::mismatch_type);
+  // Argmax scans the runtime tensor extent. Rank matters here, but individual
+  // dimensions may be dynamic.
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);
 

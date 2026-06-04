@@ -19,7 +19,7 @@
 #include "cherry/AST/NameExpr.h"
 #include "cherry/AST/Stat.h"
 #include "cherry/AST/StructLiteralExpr.h"
-#include "cherry/AST/TensorExpr.h"
+#include "cherry/AST/CollectionExpr.h"
 #include "cherry/AST/Type.h"
 #include "mlir/IR/Location.h"
 #include "llvm/Support/SourceMgr.h"

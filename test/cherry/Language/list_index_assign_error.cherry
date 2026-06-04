@@ -1,0 +1,10 @@
+# RUN: not cherry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var numbers: List<UInt64> = [1, 2];
+  numbers[0] = 3;
+
+  0
+}
+
+# CHECK: error: expected lvalue

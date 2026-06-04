@@ -30,7 +30,7 @@ public:
     Expr_FloatLiteral,
     Expr_BoolLiteral,
     Expr_ArrayLiteral,
-    Expr_TensorAccess,
+    Expr_Index,
     Expr_Member,
     Expr_Variable,
     Expr_Assign,

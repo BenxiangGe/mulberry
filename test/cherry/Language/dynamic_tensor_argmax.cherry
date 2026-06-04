@@ -1,0 +1,10 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var values: Float32[2, 1] = [[0.1], [0.9]];
+  var dynamicValues: Float32[?, ?] = values;
+  argmax(dynamicValues)
+}
+
+# CHECK: mulberry.tensor.cast %{{.*}} : !mulberry.tensor<2x1xf32> to !mulberry.tensor<?x?xf32>
+# CHECK: cherry_nn.argmax %{{.*}} : !mulberry.tensor<?x?xf32> -> i64
