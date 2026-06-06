@@ -30,6 +30,11 @@ static auto getListType(Type type) -> mlir::mulberry::ListType {
   return llvm::dyn_cast<mlir::mulberry::ListType>(type);
 }
 
+static auto getListStorageType(Type type)
+    -> mlir::mulberry::ListStorageType {
+  return llvm::dyn_cast<mlir::mulberry::ListStorageType>(type);
+}
+
 static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
   size_t count = 0;
   for (auto dim : shape)
@@ -171,6 +176,22 @@ auto ListGetOp::verify() -> LogicalResult {
   auto listType = getListType(getList().getType());
   if (listType.getElementType() != getResult().getType())
     return emitOpError("result type must match list element type");
+
+  return success();
+}
+
+auto ListLoadOp::verify() -> LogicalResult {
+  auto storageType = getListStorageType(getStorage().getType());
+  if (storageType.getElementType() != getResult().getType())
+    return emitOpError("result type must match list storage element type");
+
+  return success();
+}
+
+auto ListStoreOp::verify() -> LogicalResult {
+  auto storageType = getListStorageType(getStorage().getType());
+  if (storageType.getElementType() != getValue().getType())
+    return emitOpError("value type must match list storage element type");
 
   return success();
 }

@@ -38,20 +38,30 @@ static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
-static auto convertRecordType(mulberry::RecordType type)
+static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type>;
 
-static auto convertTensorType(mulberry::TensorType type)
+static auto convertMemRefShape(ArrayRef<int64_t> shape)
+    -> std::vector<int64_t> {
+  std::vector<int64_t> memrefShape;
+  for (auto dim : shape) {
+    memrefShape.push_back(dim < 0 ? ShapedType::kDynamic : dim);
+  }
+  return memrefShape;
+}
+
+static auto convertTensorToMemRefType(mulberry::TensorType type)
     -> std::optional<Type> {
-  return MemRefType::get(type.getShape(), type.getElementType());
+  return MemRefType::get(convertMemRefShape(type.getShape()),
+                         type.getElementType());
 }
 
 // This pass is a transitional storage lowering, not the final
 // Mulberry-to-LLVM ABI lowering. Tensor values become memrefs so cherry_nn can
 // lower to linalg, while scalar/record stack storage still uses LLVM dialect.
-static auto convertStorageType(Type type) -> std::optional<Type> {
+static auto convertToBackendType(Type type) -> std::optional<Type> {
   if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
-    return convertRecordType(recordType);
+    return convertRecordToBackendType(recordType);
 
   if (isScalarStorageType(type))
     return type;
@@ -59,20 +69,102 @@ static auto convertStorageType(Type type) -> std::optional<Type> {
   return std::nullopt;
 }
 
-static auto convertSlotElementType(Type type) -> std::optional<Type> {
+static auto convertAllocaElementType(Type type) -> std::optional<Type> {
   if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(type))
-    return convertTensorType(tensorType);
+    return convertTensorToMemRefType(tensorType);
 
-  return convertStorageType(type);
+  return convertToBackendType(type);
 }
 
-static auto convertRecordType(mulberry::RecordType type)
+static auto convertListElementType(Type type) -> std::optional<Type> {
+  if (isScalarStorageType(type))
+    return type;
+
+  // List storage contains already-lowered element values. For List<Tensor>,
+  // that means storing the lowered memref handle, not the high-level tensor.
+  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(type))
+    return convertTensorToMemRefType(tensorType);
+
+  return std::nullopt;
+}
+
+static auto convertToListStorageType(mulberry::ListType type)
+    -> std::optional<mulberry::ListStorageType> {
+  auto elementType = convertListElementType(type.getElementType());
+  if (!elementType)
+    return std::nullopt;
+
+  return mulberry::ListStorageType::get(type.getContext(), *elementType);
+}
+
+static auto convertToMemRefType(mulberry::ListStorageType type)
+    -> std::optional<MemRefType> {
+  auto elementType = type.getElementType();
+  // List<Tensor> stores lowered tensor handles. This is still a memref-level
+  // storage lowering, not the final Mulberry-to-LLVM ABI representation.
+  if (!isScalarStorageType(elementType) && !llvm::isa<MemRefType>(elementType))
+    return std::nullopt;
+
+  return MemRefType::get({ShapedType::kDynamic}, elementType);
+}
+
+static auto containsListType(Type type) -> bool {
+  if (llvm::isa<mulberry::ListType>(type))
+    return true;
+
+  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
+    for (auto field : recordType.getFields())
+      if (containsListType(field.type))
+        return true;
+
+  return false;
+}
+
+static auto containsListType(TypeRange types) -> bool {
+  for (auto type : types)
+    if (containsListType(type))
+      return true;
+
+  return false;
+}
+
+static auto containsListType(FunctionType type) -> bool {
+  return containsListType(type.getInputs()) ||
+         containsListType(type.getResults());
+}
+
+static auto containsListStorageType(Type type) -> bool {
+  if (llvm::isa<mulberry::ListStorageType>(type))
+    return true;
+
+  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
+    for (auto field : recordType.getFields())
+      if (containsListStorageType(field.type))
+        return true;
+
+  return false;
+}
+
+static auto containsListStorageType(TypeRange types) -> bool {
+  for (auto type : types)
+    if (containsListStorageType(type))
+      return true;
+
+  return false;
+}
+
+static auto containsListStorageType(FunctionType type) -> bool {
+  return containsListStorageType(type.getInputs()) ||
+         containsListStorageType(type.getResults());
+}
+
+static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type> {
   std::vector<Type> fieldTypes;
   for (auto field : type.getFields()) {
     // Keep tensor/list fields illegal until record storage can contain real
     // Mulberry value descriptors instead of backend ABI workaround values.
-    auto fieldType = convertStorageType(field.type);
+    auto fieldType = convertToBackendType(field.type);
     if (!fieldType)
       return std::nullopt;
     fieldTypes.push_back(*fieldType);
@@ -84,7 +176,7 @@ static auto convertRecordType(mulberry::RecordType type)
 static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type> {
   auto pointeeType = type.getPointeeType();
   if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(pointeeType)) {
-    auto tensorStorageType = convertTensorType(tensorType);
+    auto tensorStorageType = convertTensorToMemRefType(tensorType);
     // ptr<Tensor> is a local tensor handle slot. After Tensor lowers to memref,
     // the slot becomes a 0-D memref storing that memref value; this is not a
     // function-boundary pointer bridge.
@@ -92,7 +184,7 @@ static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type> {
       return MemRefType::get({}, *tensorStorageType);
   }
 
-  if (convertStorageType(pointeeType))
+  if (convertToBackendType(pointeeType))
     return getPtrType(type.getContext());
 
   return std::nullopt;
@@ -103,7 +195,7 @@ static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type> {
 static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
     -> std::optional<LogicalResult> {
   if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
-    if (!convertRecordType(recordType))
+    if (!convertRecordToBackendType(recordType))
       return failure();
 
   if (auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type))
@@ -111,6 +203,9 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
       return failure();
 
   if (llvm::isa<mulberry::ListType>(type))
+    return failure();
+
+  if (llvm::isa<mulberry::ListStorageType>(type))
     return failure();
 
   return std::nullopt;
@@ -121,9 +216,15 @@ public:
   MulberryTypeConverter() {
     addConversion([](Type type) { return type; });
     addConversion(rejectUnloweredMulberryType);
-    addConversion(convertRecordType);
+    addConversion([](mulberry::ListType type) -> std::optional<Type> {
+      return convertToListStorageType(type);
+    });
+    addConversion([](mulberry::ListStorageType type) {
+      return convertToMemRefType(type);
+    });
+    addConversion(convertRecordToBackendType);
     addConversion(convertPtrType);
-    addConversion(convertTensorType);
+    addConversion(convertTensorToMemRefType);
     // Keep unsupported Mulberry types illegal until each one has a real
     // lowering. The identity conversion above is only for non-Mulberry types.
   }
@@ -139,7 +240,7 @@ static auto getRecordType(Type type) -> mulberry::RecordType {
 
 static auto getRecordFieldType(mulberry::RecordType recordType,
                                StringRef field) -> Type {
-  return convertStorageType(recordType.getFieldType(field)).value_or(Type{});
+  return convertToBackendType(recordType.getFieldType(field)).value_or(Type{});
 }
 
 static auto getPtrPointeeType(Type type) -> Type {
@@ -163,7 +264,7 @@ public:
   auto matchAndRewrite(mulberry::AllocaOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto elementType = convertSlotElementType(op.getElementType());
+    auto elementType = convertAllocaElementType(op.getElementType());
     if (!elementType)
       return rewriter.notifyMatchFailure(
           op, "alloca needs a lowerable storage type");
@@ -216,7 +317,7 @@ public:
   auto matchAndRewrite(mulberry::StoreOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto elementType = convertSlotElementType(getPtrPointeeType(
+    auto elementType = convertAllocaElementType(getPtrPointeeType(
         op.getPtr().getType()));
     if (!elementType)
       return rewriter.notifyMatchFailure(
@@ -232,6 +333,139 @@ public:
     LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
                           adaptor.getPtr());
     rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class ListCreateOpLowering
+    : public OpConversionPattern<mulberry::ListCreateOp> {
+public:
+  using OpConversionPattern<mulberry::ListCreateOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListCreateOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto listType =
+        llvm::cast<mulberry::ListType>(op.getResult().getType());
+    auto storageType = convertToListStorageType(listType);
+    if (!storageType)
+      return rewriter.notifyMatchFailure(
+          op, "list storage needs a lowerable element type");
+
+    auto length = arith::ConstantIndexOp::create(
+        rewriter, op.getLoc(), op.getElements().size());
+    auto storage = mulberry::ListAllocOp::create(
+        rewriter, op.getLoc(), *storageType, length);
+
+    for (auto element : llvm::enumerate(adaptor.getElements())) {
+      auto index = arith::ConstantIndexOp::create(
+          rewriter, op.getLoc(), element.index());
+      mulberry::ListStoreOp::create(rewriter, op.getLoc(), element.value(),
+                                    storage, index);
+    }
+
+    rewriter.replaceOp(op, storage.getResult());
+    return success();
+  }
+};
+
+class ListAllocOpLowering : public OpConversionPattern<mulberry::ListAllocOp> {
+public:
+  using OpConversionPattern<mulberry::ListAllocOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListAllocOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto storageType = llvm::dyn_cast_or_null<MemRefType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!storageType)
+      return rewriter.notifyMatchFailure(
+          op, "list storage needs a lowerable memref storage type");
+
+    auto alloc = memref::AllocOp::create(rewriter, op.getLoc(), storageType,
+                                         adaptor.getLength());
+    rewriter.replaceOp(op, alloc.getResult());
+    return success();
+  }
+};
+
+class ListGetOpLowering : public OpConversionPattern<mulberry::ListGetOp> {
+public:
+  using OpConversionPattern<mulberry::ListGetOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListGetOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType)
+      return rewriter.notifyMatchFailure(
+          op, "list load needs a lowerable result type");
+
+    auto loaded = mulberry::ListLoadOp::create(
+        rewriter, op.getLoc(), resultType, adaptor.getList(),
+        adaptor.getIndex());
+    rewriter.replaceOp(op, loaded.getResult());
+    return success();
+  }
+};
+
+class ListLoadOpLowering : public OpConversionPattern<mulberry::ListLoadOp> {
+public:
+  using OpConversionPattern<mulberry::ListLoadOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListLoadOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto load = memref::LoadOp::create(rewriter, op.getLoc(),
+                                       adaptor.getStorage(),
+                                       adaptor.getIndex());
+    rewriter.replaceOp(op, load.getResult());
+    return success();
+  }
+};
+
+class ListSizeOpLowering : public OpConversionPattern<mulberry::ListSizeOp> {
+public:
+  using OpConversionPattern<mulberry::ListSizeOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListSizeOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto length = mulberry::ListLengthOp::create(
+        rewriter, op.getLoc(), rewriter.getIndexType(), adaptor.getList());
+    auto result = arith::IndexCastOp::create(
+        rewriter, op.getLoc(), op.getResult().getType(), length);
+    rewriter.replaceOp(op, result.getResult());
+    return success();
+  }
+};
+
+class ListStoreOpLowering : public OpConversionPattern<mulberry::ListStoreOp> {
+public:
+  using OpConversionPattern<mulberry::ListStoreOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListStoreOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    memref::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
+                            adaptor.getStorage(), adaptor.getIndex());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class ListLengthOpLowering
+    : public OpConversionPattern<mulberry::ListLengthOp> {
+public:
+  using OpConversionPattern<mulberry::ListLengthOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListLengthOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+    auto length = memref::DimOp::create(rewriter, op.getLoc(),
+                                        adaptor.getStorage(), zero);
+    rewriter.replaceOp(op, length.getResult());
     return success();
   }
 };
@@ -390,17 +624,31 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     target.addIllegalDialect<mulberry::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
+          if (containsListType(op.getFunctionType()) ||
+              containsListStorageType(op.getFunctionType()))
+            return false;
           return typeConverter.isSignatureLegal(op.getFunctionType());
         });
     target.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
-        [&](Operation* op) { return typeConverter.isLegal(op); });
+        [&](Operation* op) {
+          if (containsListType(op->getOperandTypes()) ||
+              containsListType(op->getResultTypes()) ||
+              containsListStorageType(op->getOperandTypes()) ||
+              containsListStorageType(op->getResultTypes()))
+            return false;
+          return typeConverter.isLegal(op);
+        });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<AllocaOpLowering, LoadOpLowering, RecordExtractOpLowering,
-                 RecordGetFieldOpLowering, StoreOpLowering,
-                 TensorAllocOpLowering, TensorCastOpLowering,
-                 TensorDimOpLowering, TensorLoadOpLowering,
-                 TensorStoreOpLowering>(typeConverter, &getContext());
+    patterns.add<AllocaOpLowering, ListAllocOpLowering,
+                 ListCreateOpLowering, ListGetOpLowering,
+                 ListLengthOpLowering, ListLoadOpLowering,
+                 ListSizeOpLowering, ListStoreOpLowering, LoadOpLowering,
+                 RecordExtractOpLowering, RecordGetFieldOpLowering,
+                 StoreOpLowering, TensorAllocOpLowering,
+                 TensorCastOpLowering, TensorDimOpLowering,
+                 TensorLoadOpLowering, TensorStoreOpLowering>(
+        typeConverter, &getContext());
     populateCherryNNToLinalgPatterns(typeConverter, patterns);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);

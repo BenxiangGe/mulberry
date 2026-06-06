@@ -5,6 +5,15 @@
 
 namespace cherry {
 
+static auto convertMemRefShape(const std::vector<int64_t>& shape)
+    -> std::vector<int64_t> {
+  std::vector<int64_t> memrefShape;
+  for (auto dim : shape) {
+    memrefShape.push_back(dim < 0 ? mlir::ShapedType::kDynamic : dim);
+  }
+  return memrefShape;
+}
+
 auto MLIRTypeConverter::convert(const BuiltinType& type) const
     -> mlir::Type {
   switch (type.builtinKind()) {
@@ -69,7 +78,8 @@ auto MLIRTypeConverter::convertTensorStorage(const TensorType& type) const
   // TODO: This is the temporary storage view for current cherry_nn/memref
   // codegen. High-level MLIRGen should use convert() and keep Tensor as a
   // Mulberry value until the real lowering pass decides the storage ABI.
-  return mlir::MemRefType::get(type.shape(), mlirElementType);
+  return mlir::MemRefType::get(convertMemRefShape(type.shape()),
+                               mlirElementType);
 }
 
 auto MLIRTypeConverter::convert(const StructType& type) const

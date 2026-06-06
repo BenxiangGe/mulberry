@@ -2,9 +2,10 @@
 
 module {
   func.func @main() {
-    %list = mulberry.list.create() : () -> !mulberry.list<i64>
+    %ptr = mulberry.alloca !mulberry.list<i64>
+        : !mulberry.ptr<!mulberry.list<i64>>
     return
   }
 }
 
-// CHECK: failed to legalize operation 'mulberry.list.create'
+// CHECK: failed to legalize operation 'mulberry.alloca'

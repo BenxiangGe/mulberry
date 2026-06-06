@@ -15,10 +15,14 @@ fn main(): UInt64 {
 
 # CHECK-LABEL: func.func @main()
 # CHECK: mulberry.alloca !mulberry.tensor<?x?xf32>
-# CHECK: mulberry.alloca !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK-NOT: mulberry.alloca !mulberry.list<!mulberry.tensor<?x?xf32>>
 # CHECK: mulberry.tensor.cast {{.*}} : !mulberry.tensor<2x2xf32> to !mulberry.tensor<?x?xf32>
-# CHECK: mulberry.store {{.*}} : !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: mulberry.list.create
+# CHECK-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
 # CHECK: mulberry.tensor.cast {{.*}} : !mulberry.tensor<1x2xf32> to !mulberry.tensor<?x?xf32>
-# CHECK: mulberry.store {{.*}} : !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: mulberry.list.create
+# CHECK-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
 # CHECK: mulberry.store {{.*}} : !mulberry.tensor<?x?xf32>
-# CHECK: mulberry.load {{.*}} : !mulberry.ptr<!mulberry.list<!mulberry.tensor<?x?xf32>>> -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK-NOT: mulberry.load {{.*}} : !mulberry.ptr<!mulberry.list<!mulberry.tensor<?x?xf32>>> -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: mulberry.list.size
+# CHECK-SAME: !mulberry.list<!mulberry.tensor<?x?xf32>>
