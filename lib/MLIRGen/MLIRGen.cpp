@@ -49,8 +49,8 @@ template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
 struct VariableBinding {
-  // Mutable source variables are address-bound. Const Tensor/List values and
-  // function arguments can stay SSA values until lowering.
+  // Scalar, struct, and mutable tensor variables are address-bound. List
+  // variables bind descriptor values; assignment replaces the binding.
   enum Kind {
     Address,
     Value,
@@ -1279,14 +1279,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
         llvm::cast<mlir::mulberry::ListType>(getMLIRType(varType));
     auto value = gen(node->init().get());
     value = castToType(value, targetType, loc(node));
-    if (node->isConst()) {
-      setVariableValue(varName, value);
-      return;
-    }
-
-    auto alloca = createAlloca(targetType, loc(node));
-    setVariableAddress(varName, alloca);
-    createStore(value, alloca, loc(node));
+    setVariableValue(varName, value);
     return;
   }
 

@@ -24,6 +24,10 @@ def Mulberry_AnyListType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListType>($_self)">,
     "Mulberry list type">;
 
+def Mulberry_AnyListStorageType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::ListStorageType>($_self)">,
+    "Mulberry list storage type">;
+
 def Mulberry_AnyRecordType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
     "Mulberry record type">;
@@ -179,6 +183,48 @@ def Mulberry_ListSizeOp : Mulberry_Op<"list.size"> {
   let results = (outs I64:$result);
 
   let assemblyFormat = "$list attr-dict `:` type($list)";
+}
+
+def Mulberry_ListAllocOp : Mulberry_Op<"list.alloc"> {
+  let summary = "Allocate Mulberry list storage";
+
+  let arguments = (ins Index:$length);
+  let results = (outs Mulberry_AnyListStorageType:$result);
+
+  let assemblyFormat = "$length attr-dict `:` type($result)";
+}
+
+def Mulberry_ListLoadOp : Mulberry_Op<"list.load"> {
+  let summary = "Load a Mulberry list storage element";
+
+  let arguments = (ins Mulberry_AnyListStorageType:$storage, Index:$index);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$storage `[` $index `]` attr-dict `:` type($storage) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListStoreOp : Mulberry_Op<"list.store"> {
+  let summary = "Store a Mulberry list storage element";
+
+  let arguments = (ins AnyType:$value, Mulberry_AnyListStorageType:$storage,
+                       Index:$index);
+
+  let assemblyFormat = "$value `,` $storage `[` $index `]` attr-dict `:` "
+                       "type($value) `,` type($storage)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListLengthOp : Mulberry_Op<"list.length"> {
+  let summary = "Get Mulberry list storage length";
+
+  let arguments = (ins Mulberry_AnyListStorageType:$storage);
+  let results = (outs Index:$result);
+
+  let assemblyFormat = "$storage attr-dict `:` type($storage)";
 }
 
 #endif // MULBERRY_OPS

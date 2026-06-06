@@ -71,6 +71,18 @@ def Mulberry_ListType : Mulberry_Type<"List", "list"> {
   let assemblyFormat = "`<` $elementType `>`";
 }
 
+def Mulberry_ListStorageType : Mulberry_Type<"ListStorage", "list_storage"> {
+  let summary = "Mulberry list storage type";
+  let description = [{
+    Storage-level representation for a generic Mulberry list. It models a list
+    descriptor with a length and element storage, without committing the core
+    source language to a concrete backend ABI.
+  }];
+
+  let parameters = (ins "mlir::Type":$elementType);
+  let assemblyFormat = "`<` $elementType `>`";
+}
+
 def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
   let summary = "Mulberry pointer type";
   let description = [{
