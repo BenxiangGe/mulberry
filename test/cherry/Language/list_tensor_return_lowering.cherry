@@ -1,0 +1,38 @@
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s
+
+fn make(): List<Float32[?, ?]> {
+  const w: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
+  [w]
+}
+
+fn main(): UInt64 {
+  const x: Float32[2, 1] = [[0.2], [0.8]];
+  argmax(matmul(make()[0], x))
+}
+
+# CHECK: llvm.func @malloc(i64) -> !llvm.ptr
+# CHECK-LABEL: func.func @make
+# CHECK-SAME: -> !llvm.struct<(i64, ptr)>
+# CHECK: memref.alloc() : memref<2x2xf32>
+# CHECK: memref.cast
+# CHECK-SAME: memref<2x2xf32> to memref<?x?xf32>
+# CHECK: llvm.alloca
+# CHECK-SAME: !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+# CHECK: ptr.to_ptr
+# CHECK: llvm.call @malloc
+# CHECK: scf.for
+# CHECK: llvm.store
+# CHECK: return %{{.*}} : !llvm.struct<(i64, ptr)>
+
+# CHECK-LABEL: func.func @main
+# CHECK: call @make() : () -> !llvm.struct<(i64, ptr)>
+# CHECK: llvm.extractvalue %{{.*}}[1] : !llvm.struct<(i64, ptr)>
+# CHECK: llvm.load
+# CHECK: ptr.from_ptr
+# CHECK: memref.reinterpret_cast
+# CHECK: memref.memory_space_cast
+# CHECK: linalg.matmul
+# CHECK: linalg.generic
+# CHECK: return
+# CHECK-NOT: mulberry.
+# CHECK-NOT: cherry_nn.

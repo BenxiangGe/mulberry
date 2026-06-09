@@ -3,7 +3,7 @@
 module {
   func.func @first(
       %desc: !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>)
-      -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)> {
+      -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)> {
     %index = arith.constant 0 : index
     %data = mulberry.list.desc_data %desc
         : !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
@@ -13,12 +13,12 @@ module {
             -> !mulberry.tensor_desc<?x?xf32>
     %abi = mulberry.tensor.desc_to_abi %loaded
         : !mulberry.tensor_desc<?x?xf32>
-            -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
-    return %abi : !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+            -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+    return %abi : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
   }
 
   func.func @call_first(%n: index, %m: index)
-      -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)> {
+      -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)> {
     %a = mulberry.tensor.alloc(%n, %m) : !mulberry.tensor<?x?xf32>
     %b = mulberry.tensor.alloc(%n, %m) : !mulberry.tensor<?x?xf32>
     %list = mulberry.list.create(%a, %b)
@@ -29,8 +29,8 @@ module {
             -> !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
     %result = call @first(%desc)
         : (!mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>)
-            -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
-    return %result : !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+            -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+    return %result : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
   }
 }
 
@@ -40,9 +40,9 @@ module {
 // CHECK: llvm.load
 
 // CHECK-LABEL: func.func @call_first
-// CHECK-SAME: -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+// CHECK-SAME: -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[LENGTH:.*]] = arith.constant 2 : index
-// CHECK: %[[STORAGE:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+// CHECK: %[[STORAGE:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 // CHECK: llvm.store %{{.*}}, %{{.*}}
 // CHECK: llvm.store %{{.*}}, %{{.*}}
 // CHECK: %[[LIST_DESC:.*]] = llvm.mlir.undef : !llvm.struct<(i64, ptr)>

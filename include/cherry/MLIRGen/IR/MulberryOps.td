@@ -267,6 +267,18 @@ def Mulberry_ListAllocOp : Mulberry_Op<"list.alloc"> {
   let assemblyFormat = "$length attr-dict `:` type($result)";
 }
 
+def Mulberry_ListEscapeStorageOp : Mulberry_Op<"list.escape_storage"> {
+  let summary = "Mark Mulberry list storage as escaping";
+
+  let arguments = (ins Mulberry_AnyListStorageType:$storage, Index:$length);
+  let results = (outs Mulberry_AnyListStorageType:$result);
+
+  let assemblyFormat = "$storage `,` $length attr-dict `:` type($storage) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_ListLoadOp : Mulberry_Op<"list.load"> {
   let summary = "Load a Mulberry list storage element";
 

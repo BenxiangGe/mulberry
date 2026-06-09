@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -58,6 +59,7 @@ auto Compilation::make(llvm::StringRef filename,
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::ptr::PtrDialect>();
 
   compilation->sourceManager().AddNewSourceBuffer(std::move(fileOrErr.get()),
                                                   llvm::SMLoc());
@@ -92,8 +94,10 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::ArithCfFunc)
     optPM.addPass(mlir::cherry::createConvertCherryToArithCfFunc());
 
-  if (lowering >= Lowering::Mulberry)
+  if (lowering >= Lowering::Mulberry) {
+    pm.addPass(mlir::cherry::createPrepareMulberryBoundaries());
     pm.addPass(mlir::cherry::createLowerMulberry());
+  }
 
   return pm.run(*module);
 }

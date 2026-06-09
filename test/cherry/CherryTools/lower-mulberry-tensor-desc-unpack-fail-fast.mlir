@@ -1,4 +1,4 @@
-// RUN: not cherry-opt --lower-mulberry %s 2>&1 | FileCheck %s
+// RUN: cherry-opt --lower-mulberry %s | FileCheck %s
 
 module {
   func.func @local_tensor_desc_unpack(%n: index, %m: index) -> index {
@@ -15,5 +15,14 @@ module {
   }
 }
 
-// CHECK: failed to legalize operation 'mulberry.tensor.desc_unpack'
-// CHECK: Tensor descriptor unpack lowering needs explicit Tensor ABI reconstruction support
+// CHECK-LABEL: func.func @local_tensor_desc_unpack
+// CHECK: ptr.to_ptr
+// CHECK: %[[DATA:.*]] = llvm.extractvalue
+// CHECK-SAME: [0]
+// CHECK: ptr.from_ptr %[[DATA]]
+// CHECK-SAME: -> memref<f32, #llvm.address_space<0>>
+// CHECK: memref.reinterpret_cast
+// CHECK: memref.memory_space_cast
+// CHECK: memref.dim
+// CHECK: return
+// CHECK-NOT: mulberry.tensor.desc_unpack

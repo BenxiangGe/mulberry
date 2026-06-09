@@ -30,16 +30,16 @@ def LowerMulberry : Pass<"lower-mulberry"> {
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",
-                           "scf::SCFDialect"];
+                           "ptr::PtrDialect", "scf::SCFDialect"];
 }
 
 def PrepareMulberryBoundaries : Pass<"prepare-mulberry-boundaries"> {
   let summary = "Prepare supported Mulberry function boundaries";
   let description = [{
-    This pass is the planned staging point for source-level boundary rewrites
-    such as List<Tensor> -> list_desc<TensorDesc>. It currently recognizes the
-    boundary shape and fails fast instead of hiding the conversion inside
-    MLIRGen or lower-mulberry.
+    This pass rewrites supported source-level boundaries before lower-mulberry,
+    such as List<Tensor> -> list_desc<TensorDesc>. Unsupported boundary shapes
+    still fail fast instead of hiding the conversion inside MLIRGen or
+    lower-mulberry.
   }];
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
                            "mulberry::MulberryDialect"];

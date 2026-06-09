@@ -15,6 +15,6 @@ module {
 // CHECK-SAME: %[[INDEX:.*]]: index
 // CHECK: %[[DESC:.*]] = mulberry.list.desc_get %[[XS]][%[[INDEX]]]
 // CHECK-SAME: !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>> -> !mulberry.tensor_desc<?x?xf32>
-// CHECK: mulberry.tensor.handle_from_desc %[[DESC]]
-// CHECK-SAME: !mulberry.tensor_desc<?x?xf32> -> !mulberry.tensor_handle<?x?xf32>
+// CHECK: mulberry.tensor.desc_unpack %[[DESC]]
+// CHECK-SAME: !mulberry.tensor_desc<?x?xf32> -> !mulberry.tensor<?x?xf32>
 // CHECK: return
