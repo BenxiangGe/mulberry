@@ -12,6 +12,7 @@ add_mlir_dialect_library(cherryMLIRGen
         Conversion/ConvertCherryToArithCfFunc.cpp
         Conversion/ConvertCherryToSCF.cpp
         Conversion/LowerMulberry.cpp
+        Conversion/PrepareMulberryBoundaries.cpp
 
         # IR
         ${LIB_HEADERS}/IR/CherryDialect.h
@@ -43,6 +44,7 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRFuncDialect
         MLIRLinalgDialect
         MLIRLinalgTransforms
+        MLIRLLVMDialect
         MLIRMathDialect
         MLIRMemRefDialect
         MLIRSCFDialect

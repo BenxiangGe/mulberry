@@ -1,4 +1,5 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn widen(x: Float32[2, 2]): Float32[?, ?] {
   x
@@ -29,3 +30,15 @@ fn main(): UInt64 {
 # CHECK: call @activate
 # CHECK: mulberry.tensor.dim
 # CHECK: arith.index_cast
+
+# LOWER-LABEL: func.func @widen(%arg0: memref<2x2xf32>) -> memref<?x?xf32>
+# LOWER: memref.cast
+# LOWER: return %{{.*}} : memref<?x?xf32>
+# LOWER-LABEL: func.func @activate(%arg0: memref<?x?xf32>) -> memref<?x?xf32>
+# LOWER: linalg.map
+# LOWER: return %{{.*}} : memref<?x?xf32>
+# LOWER-LABEL: func.func @main
+# LOWER: call @widen
+# LOWER: call @activate
+# LOWER-NOT: mulberry.
+# LOWER-NOT: cherry_nn.

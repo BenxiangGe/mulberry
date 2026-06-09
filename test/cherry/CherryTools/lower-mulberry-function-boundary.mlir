@@ -20,7 +20,7 @@ module {
 // CHECK-SAME: (%[[ARG:.*]]: !llvm.ptr) -> !llvm.ptr
 // CHECK: return %[[ARG]] : !llvm.ptr
 // CHECK-LABEL: func.func @main
-// CHECK: %[[ONE:.*]] = llvm.mlir.constant(1 : i64) : i64
+// CHECK: %[[ONE:.*]] = arith.constant 1 : i64
 // CHECK: %[[PTR:.*]] = llvm.alloca %[[ONE]] x i64
 // CHECK: %[[SAME:.*]] = call @identity(%[[PTR]]) : (!llvm.ptr) -> !llvm.ptr
 // CHECK: %[[LOADED:.*]] = llvm.load %[[SAME]] : !llvm.ptr -> i64

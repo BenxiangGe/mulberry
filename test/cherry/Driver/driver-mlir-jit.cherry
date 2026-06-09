@@ -1,4 +1,5 @@
-# RUN: not cherry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s
+# RUN: not cherry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s --check-prefix=MLIRLLVM
+# RUN: not cherry-driver %s -dump=llvm 2>&1 | FileCheck %s --check-prefix=LLVM
 
 fn bar(x: UInt64, y: Bool): Bool {
   var k: Bool = y;
@@ -34,4 +35,5 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned
+# MLIRLLVM: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned
+# LLVM: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned

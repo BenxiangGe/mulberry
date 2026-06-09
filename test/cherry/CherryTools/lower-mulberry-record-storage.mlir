@@ -13,7 +13,7 @@ module {
 }
 
 // CHECK-LABEL: func.func @main
-// CHECK: %[[ONE:.*]] = llvm.mlir.constant(1 : i64) : i64
+// CHECK: %[[ONE:.*]] = arith.constant 1 : i64
 // CHECK: %[[RECORD:.*]] = llvm.alloca %[[ONE]] x !llvm.struct<(i64, i1)>
 // CHECK: %[[AGE:.*]] = llvm.getelementptr %[[RECORD]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i64, i1)>
 // CHECK: arith.constant 42 : i64

@@ -9,7 +9,7 @@ MLIR，并逐步加入深度学习推理与训练能力。
 
 当前使用 `llvmorg-22.1.0`。
 
-## Current Status
+## 当前状态
 
 Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 
@@ -46,7 +46,7 @@ Mulberry source
   -> LLVM/JIT/object pipeline is temporarily disabled
 ```
 
-## Language Snapshot
+## 语言快照
 
 ```cherry
 struct Point {
@@ -63,9 +63,9 @@ fn main(): UInt64 {
 }
 ```
 
-## Neural Network Builtins
+## 神经网络 Builtin
 
-The internal `cherry_nn` dialect currently supports:
+内部 `cherry_nn` dialect 目前支持：
 
 - `matmul`
 - `matadd`
@@ -74,26 +74,26 @@ The internal `cherry_nn` dialect currently supports:
 - `sigmoid`
 - `argmax`
 
-These ops lower to standard MLIR dialects such as `linalg`, `math`, `arith`,
-and `memref`.
+这些 ops 会 lower 到标准 MLIR dialect，例如 `linalg`、`math`、`arith` 和
+`memref`。
 
-## Build And Test
+## 构建与测试
 
-Build LLVM and Mulberry:
+构建 LLVM 和 Mulberry：
 
 ```sh
 make all
 ```
 
-If LLVM is already built, build only this project:
+如果 LLVM 已经构建完成，只构建本项目：
 
 ```sh
 make cherry-build
 ```
 
-The makefile currently defaults to the `release` CMake preset.
+makefile 当前默认使用 `release` CMake preset。
 
-Common smoke tests:
+常用 smoke tests：
 
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
@@ -101,54 +101,55 @@ Common smoke tests:
 ./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
-Run lit tests directly:
+直接运行 lit 测试：
 
 ```sh
 cmake --build build/release --target check-cherry
 ```
 
-Note: build targets and executable names still use `cherry`, for example
-`cherry-driver` and `check-cherry`.
+注意：构建 target 和可执行文件名称仍然使用 `cherry`，例如 `cherry-driver`
+和 `check-cherry`。
 
-## MNIST Example
+## MNIST 示例
 
-The repository contains a generated single-sample MNIST inference example based
-on Michael Nielsen's neural network tutorial data:
+仓库中包含一个生成出来的单样本 MNIST 推理示例，数据来自 Michael Nielsen 的
+神经网络教程：
 
-- Weights and bias: `data/mnist-784-30-10.json`
-- Test data: `data/mnist.pkl.gz`
-- Generator: `tools/generate_inference_mnist1.py`
-- Generated source: `examples/dl/inference_mnist1.cherry`
+- 权重和 bias：`data/mnist-784-30-10.json`
+- 测试数据：`data/mnist.pkl.gz`
+- 生成脚本：`tools/generate_inference_mnist1.py`
+- 生成源码：`examples/dl/inference_mnist1.cherry`
 
-Regenerate the example:
+重新生成示例：
 
 ```sh
 /usr/bin/python3 tools/generate_inference_mnist1.py
 ```
 
-Inspect generated high-level MLIR:
+查看生成出的高层 MLIR：
 
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
-Expected prediction for `test_data[0]` when execution is re-enabled:
+当执行能力重新启用时，`test_data[0]` 的期望预测结果是：
 
 ```text
 7
 ```
 
-## Known Limitations
+## 已知限制
 
-- Internal naming is still mostly `cherry`.
-- The language has no standard library or namespace system yet.
-- Large model data is still expanded into source literals.
-- End-to-end JIT is temporarily disabled while Mulberry lowering is redesigned.
-- `cherry_nn` ops still need stronger verifiers and diagnostics.
-- This is a learning compiler, not a production compiler.
+- 内部命名仍然大多是 `cherry`。
+- 语言还没有标准库和 namespace 系统。
+- 大模型数据仍然展开到源码 literal 里。
+- End-to-end JIT 暂时关闭，等待 Mulberry lowering 重新设计完成。
+- `cherry_nn` ops 还需要更强的 verifier 和诊断。
+- 这是一个学习用编译器，不是生产编译器。
 
-## Docs
+## 文档
 
 - [Grammar](docs/Grammar.md)
 - [Builtins](docs/Builtins.md)
-- Driver examples: `test/cherry/Driver`
+- [Mulberry Lowering](docs/MulberryLowering.md)
+- Driver 示例：`test/cherry/Driver`

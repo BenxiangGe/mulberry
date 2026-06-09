@@ -22,10 +22,27 @@ def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
 
 def LowerMulberry : Pass<"lower-mulberry"> {
   let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
+  let description = [{
+    This pass stops at storage-level MLIR such as memref, linalg, math, and
+    LLVM scalar/record storage. It does not perform final Mulberry-to-LLVM ABI
+    lowering.
+  }];
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",
                            "scf::SCFDialect"];
+}
+
+def PrepareMulberryBoundaries : Pass<"prepare-mulberry-boundaries"> {
+  let summary = "Prepare supported Mulberry function boundaries";
+  let description = [{
+    This pass is the planned staging point for source-level boundary rewrites
+    such as List<Tensor> -> list_desc<TensorDesc>. It currently recognizes the
+    boundary shape and fails fast instead of hiding the conversion inside
+    MLIRGen or lower-mulberry.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+                           "mulberry::MulberryDialect"];
 }
 
 #endif // CHERRY_PASSES_TD
