@@ -11,7 +11,7 @@ module {
 }
 
 // CHECK-LABEL: func.func @main
-// CHECK: %[[ONE:.*]] = llvm.mlir.constant(1 : i64) : i64
+// CHECK: %[[ONE:.*]] = arith.constant 1 : i64
 // CHECK: %[[PTR:.*]] = llvm.alloca %[[ONE]] x i64
 // CHECK: arith.constant 42 : i64
 // CHECK: llvm.store {{.*}}, %[[PTR]] : i64, !llvm.ptr

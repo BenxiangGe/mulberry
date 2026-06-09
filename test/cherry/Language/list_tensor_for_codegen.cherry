@@ -1,4 +1,5 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn main(): UInt64 {
   const w1: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
@@ -29,3 +30,14 @@ fn main(): UInt64 {
 # CHECK: cherry_nn.matadd
 # CHECK: cherry_nn.sigmoid
 # CHECK: cherry_nn.argmax
+
+# LOWER-LABEL: func.func @main
+# LOWER: memref.alloc(%{{.*}}) : memref<?xmemref<?x?xf32>>
+# LOWER: scf.for unsigned
+# LOWER: linalg.matmul
+# LOWER: linalg.add
+# LOWER: linalg.map
+# LOWER: linalg.generic
+# LOWER: return
+# LOWER-NOT: cherry_nn.
+# LOWER-NOT: mulberry.

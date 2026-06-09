@@ -20,6 +20,14 @@ def Mulberry_AnyTensorType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
     "Mulberry tensor type">;
 
+def Mulberry_AnyTensorDescType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::TensorDescType>($_self)">,
+    "Mulberry tensor descriptor type">;
+
+def Mulberry_AnyTensorHandleType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::TensorHandleType>($_self)">,
+    "Mulberry tensor handle type">;
+
 def Mulberry_AnyListType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListType>($_self)">,
     "Mulberry list type">;
@@ -27,6 +35,10 @@ def Mulberry_AnyListType : Type<
 def Mulberry_AnyListStorageType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListStorageType>($_self)">,
     "Mulberry list storage type">;
+
+def Mulberry_AnyListDescType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::ListDescType>($_self)">,
+    "Mulberry list descriptor type">;
 
 def Mulberry_AnyRecordType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
@@ -152,6 +164,55 @@ def Mulberry_TensorStoreOp : Mulberry_Op<"tensor.store"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_TensorDescPackOp : Mulberry_Op<"tensor.desc_pack"> {
+  let summary = "Pack Mulberry tensor descriptor fields";
+
+  let arguments = (ins Mulberry_AnyTensorType:$tensor);
+  let results = (outs Mulberry_AnyTensorDescType:$result);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorDescUnpackOp : Mulberry_Op<"tensor.desc_unpack"> {
+  let summary = "Reconstruct a Mulberry tensor from descriptor fields";
+
+  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
+  let results = (outs Mulberry_AnyTensorType:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorHandleFromDescOp
+    : Mulberry_Op<"tensor.handle_from_desc"> {
+  let summary = "Reconstruct a Mulberry tensor handle from descriptor fields";
+
+  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
+  let results = (outs Mulberry_AnyTensorHandleType:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorDescToABIOp : Mulberry_Op<"tensor.desc_to_abi"> {
+  let summary = "Materialize a Mulberry tensor descriptor backend ABI value";
+
+  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_ListCreateOp : Mulberry_Op<"list.create"> {
   let summary = "Create a Mulberry list value";
 
@@ -183,6 +244,18 @@ def Mulberry_ListSizeOp : Mulberry_Op<"list.size"> {
   let results = (outs I64:$result);
 
   let assemblyFormat = "$list attr-dict `:` type($list)";
+}
+
+def Mulberry_ListToDescOp : Mulberry_Op<"list.to_desc"> {
+  let summary = "Materialize a Mulberry list descriptor";
+
+  let arguments = (ins Mulberry_AnyListType:$list);
+  let results = (outs Mulberry_AnyListDescType:$result);
+
+  let assemblyFormat = "$list attr-dict `:` type($list) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
 }
 
 def Mulberry_ListAllocOp : Mulberry_Op<"list.alloc"> {
@@ -225,6 +298,61 @@ def Mulberry_ListLengthOp : Mulberry_Op<"list.length"> {
   let results = (outs Index:$result);
 
   let assemblyFormat = "$storage attr-dict `:` type($storage)";
+}
+
+def Mulberry_ListDescPackOp : Mulberry_Op<"list.desc_pack"> {
+  let summary = "Pack Mulberry list descriptor fields";
+
+  let arguments = (ins Index:$length, Mulberry_AnyListStorageType:$data);
+  let results = (outs Mulberry_AnyListDescType:$result);
+
+  let assemblyFormat = "$length `,` $data attr-dict `:` type($data) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListDescLengthOp : Mulberry_Op<"list.desc_length"> {
+  let summary = "Get Mulberry list descriptor length";
+
+  let arguments = (ins Mulberry_AnyListDescType:$desc);
+  let results = (outs Index:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc)";
+}
+
+def Mulberry_ListDescDataOp : Mulberry_Op<"list.desc_data"> {
+  let summary = "Get Mulberry list descriptor data storage";
+
+  let arguments = (ins Mulberry_AnyListDescType:$desc);
+  let results = (outs Mulberry_AnyListStorageType:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListDescGetOp : Mulberry_Op<"list.desc_get"> {
+  let summary = "Get a Mulberry list descriptor element";
+
+  let arguments = (ins Mulberry_AnyListDescType:$desc, Index:$index);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$desc `[` $index `]` attr-dict `:` type($desc) "
+                       "`->` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_ListDescToABIOp : Mulberry_Op<"list.desc_to_abi"> {
+  let summary = "Materialize a Mulberry list descriptor backend ABI value";
+
+  let arguments = (ins Mulberry_AnyListDescType:$desc);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` type($result)";
+
+  let hasVerifier = 1;
 }
 
 #endif // MULBERRY_OPS

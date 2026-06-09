@@ -1,4 +1,5 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: not cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn first(xs: List<UInt64>): UInt64 {
   xs[0]
@@ -27,3 +28,5 @@ fn main(): UInt64 {
 # CHECK: call @make
 # CHECK: mulberry.list.size
 # CHECK-SAME: !mulberry.list<i64>
+
+# LOWER: failed to legalize operation 'func.func'

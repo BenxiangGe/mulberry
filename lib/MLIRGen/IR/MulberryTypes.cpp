@@ -59,26 +59,27 @@ void RecordType::print(AsmPrinter& printer) const {
   printer << "}>";
 }
 
-Type mlir::mulberry::TensorType::parse(AsmParser& parser) {
+static auto parseShapedElementType(AsmParser& parser,
+                                   SmallVectorImpl<int64_t>& shape,
+                                   Type& elementType) -> ParseResult {
   if (parser.parseLess())
-    return {};
+    return failure();
 
-  SmallVector<int64_t> shape;
   if (parser.parseDimensionList(shape, /*allowDynamic=*/true,
                                 /*withTrailingX=*/true))
-    return {};
+    return failure();
 
-  Type elementType;
   if (parser.parseType(elementType) || parser.parseGreater())
-    return {};
+    return failure();
 
-  return mlir::mulberry::TensorType::get(parser.getContext(), shape,
-                                         elementType);
+  return success();
 }
 
-void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
+static void printShapedElementType(AsmPrinter& printer,
+                                   ArrayRef<int64_t> shape,
+                                   Type elementType) {
   printer << "<";
-  for (const auto& dim : llvm::enumerate(getShape())) {
+  for (const auto& dim : llvm::enumerate(shape)) {
     if (dim.index() != 0)
       printer << "x";
     if (dim.value() < 0)
@@ -87,8 +88,50 @@ void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
       printer << dim.value();
   }
   printer << "x";
-  printer.printType(getElementType());
+  printer.printType(elementType);
   printer << ">";
+}
+
+Type mlir::mulberry::TensorType::parse(AsmParser& parser) {
+  SmallVector<int64_t> shape;
+  Type elementType;
+  if (parseShapedElementType(parser, shape, elementType))
+    return {};
+
+  return mlir::mulberry::TensorType::get(parser.getContext(), shape,
+                                         elementType);
+}
+
+void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
+  printShapedElementType(printer, getShape(), getElementType());
+}
+
+Type mlir::mulberry::TensorDescType::parse(AsmParser& parser) {
+  SmallVector<int64_t> shape;
+  Type elementType;
+  if (parseShapedElementType(parser, shape, elementType))
+    return {};
+
+  return mlir::mulberry::TensorDescType::get(parser.getContext(), shape,
+                                             elementType);
+}
+
+void mlir::mulberry::TensorDescType::print(AsmPrinter& printer) const {
+  printShapedElementType(printer, getShape(), getElementType());
+}
+
+Type mlir::mulberry::TensorHandleType::parse(AsmParser& parser) {
+  SmallVector<int64_t> shape;
+  Type elementType;
+  if (parseShapedElementType(parser, shape, elementType))
+    return {};
+
+  return mlir::mulberry::TensorHandleType::get(parser.getContext(), shape,
+                                               elementType);
+}
+
+void mlir::mulberry::TensorHandleType::print(AsmPrinter& printer) const {
+  printShapedElementType(printer, getShape(), getElementType());
 }
 
 LogicalResult RecordType::verify(
