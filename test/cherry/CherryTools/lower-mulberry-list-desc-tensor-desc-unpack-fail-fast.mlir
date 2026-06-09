@@ -1,4 +1,4 @@
-// RUN: not cherry-opt --lower-mulberry %s 2>&1 | FileCheck %s
+// RUN: cherry-opt --lower-mulberry %s | FileCheck %s
 
 module {
   func.func @use_tensor_desc_list_desc(
@@ -14,5 +14,14 @@ module {
   }
 }
 
-// CHECK: failed to legalize operation 'mulberry.tensor.desc_unpack'
-// CHECK: Tensor descriptor unpack lowering needs explicit Tensor ABI reconstruction support
+// CHECK-LABEL: func.func @use_tensor_desc_list_desc
+// CHECK-SAME: (%[[DESC:.*]]: !llvm.struct<(i64, ptr)>)
+// CHECK: %[[DATA_LIST:.*]] = llvm.extractvalue %[[DESC]][1]
+// CHECK: %[[LOAD_PTR:.*]] = llvm.getelementptr %[[DATA_LIST]]
+// CHECK: %[[TENSOR_DESC:.*]] = llvm.load %[[LOAD_PTR]]
+// CHECK: %[[DATA:.*]] = llvm.extractvalue %[[TENSOR_DESC]][0]
+// CHECK: ptr.from_ptr %[[DATA]]
+// CHECK: memref.reinterpret_cast
+// CHECK: memref.memory_space_cast
+// CHECK: return
+// CHECK-NOT: mulberry.tensor.desc_unpack

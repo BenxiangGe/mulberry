@@ -9,7 +9,7 @@ module {
         : !mulberry.tensor_desc<2x3xf32> -> !mulberry.tensor<?x3xf32>
     %abi = mulberry.tensor.desc_to_abi %desc
         : !mulberry.tensor_desc<2x3xf32>
-            -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+            -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
     return %unpacked : !mulberry.tensor<?x3xf32>
   }
 }
@@ -20,4 +20,4 @@ module {
 // CHECK: mulberry.tensor.desc_unpack
 // CHECK-SAME: !mulberry.tensor_desc<2x3xf32> -> !mulberry.tensor<?x3xf32>
 // CHECK: mulberry.tensor.desc_to_abi
-// CHECK-SAME: !mulberry.tensor_desc<2x3xf32> -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+// CHECK-SAME: !mulberry.tensor_desc<2x3xf32> -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>

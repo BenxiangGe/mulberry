@@ -25,7 +25,7 @@ module {
 
 // CHECK-LABEL: func.func @tensor_desc_list_desc_to_abi
 // CHECK-SAME: -> !llvm.struct<(i64, ptr)>
-// CHECK: %[[STORAGE:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+// CHECK: %[[STORAGE:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 // CHECK: llvm.store %{{.*}}, %{{.*}}
 // CHECK: %[[LIST_DESC:.*]] = llvm.mlir.undef : !llvm.struct<(i64, ptr)>
 // CHECK: %[[WITH_LENGTH:.*]] = llvm.insertvalue %{{.*}}, %[[LIST_DESC]][0]

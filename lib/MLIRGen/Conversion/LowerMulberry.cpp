@@ -11,14 +11,18 @@
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
+#include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Ptr/IR/PtrOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -37,6 +41,16 @@ static auto getPtrType(MLIRContext* context) -> LLVM::LLVMPointerType {
 
 static auto getI64Type(MLIRContext* context) -> IntegerType {
   return IntegerType::get(context, 64);
+}
+
+static auto getTensorDataAddressSpace(MLIRContext* context) -> Attribute {
+  return LLVM::AddressSpaceAttr::get(context, 0);
+}
+
+static auto getTensorDataPtrType(MLIRContext* context) -> ptr::PtrType {
+  auto addressSpace = llvm::cast<ptr::MemorySpaceAttrInterface>(
+      getTensorDataAddressSpace(context));
+  return ptr::PtrType::get(addressSpace);
 }
 
 static auto isScalarStorageType(Type type) -> bool {
@@ -59,6 +73,21 @@ static auto convertTensorToMemRefType(mulberry::TensorType type)
     -> std::optional<Type> {
   return MemRefType::get(convertMemRefShape(type.getShape()),
                          type.getElementType());
+}
+
+static auto convertTensorToDataMemRefType(mulberry::TensorType type)
+    -> MemRefType {
+  auto layout = MemRefLayoutAttrInterface{};
+  return MemRefType::get(convertMemRefShape(type.getShape()),
+                         type.getElementType(), layout,
+                         getTensorDataAddressSpace(type.getContext()));
+}
+
+static auto convertMemRefToDataMemRefType(MemRefType type) -> MemRefType {
+  auto layout = type.getLayout();
+  return MemRefType::get(type.getShape(), type.getElementType(),
+                         layout,
+                         getTensorDataAddressSpace(type.getContext()));
 }
 
 // This pass is a transitional storage lowering, not the final
@@ -124,7 +153,9 @@ using TensorABIDescriptorType = LLVM::LLVMStructType;
 
 // Tensor ABI descriptor layout:
 //
-//   { data: ptr, sizes: array<rank x i64>, strides: array<rank x i64> }
+//   { data: ptr<#llvm.address_space<0>>,
+//     sizes: array<rank x i64>,
+//     strides: array<rank x i64> }
 //
 // The MLIRContext used below is only needed to create the MLIR Type objects.
 // It is not stored in the descriptor. The descriptor fields are exactly the
@@ -140,9 +171,9 @@ static auto convertToTensorABILayout(mulberry::TensorDescType type)
   auto indexArrayType = LLVM::LLVMArrayType::get(getI64Type(context), rank);
 
   std::vector<Type> fields;
-  fields.push_back(getPtrType(context)); // data pointer
-  fields.push_back(indexArrayType);      // sizes[rank]
-  fields.push_back(indexArrayType);      // strides[rank]
+  fields.push_back(getTensorDataPtrType(context)); // data pointer
+  fields.push_back(indexArrayType);                // sizes[rank]
+  fields.push_back(indexArrayType);                // strides[rank]
   auto descriptorType = LLVM::LLVMStructType::getLiteral(context, fields);
 
   return TensorABILayout{descriptorType};
@@ -204,6 +235,36 @@ static auto createMemRefDataPointer(
   return pointer.getResult();
 }
 
+static auto createSizeOf(Location location, OpBuilder& builder, Type type)
+    -> Value {
+  // This is the standard LLVM IR sizeof trick:
+  //   ptrtoint (getelementptr T, ptr null, 1) to i64
+  // It lets LLVM's datalayout decide the real ABI size instead of hardcoding
+  // pointer and struct field sizes in Mulberry lowering.
+  auto ptrType = getPtrType(builder.getContext());
+  auto nullPtr = LLVM::ZeroOp::create(builder, location, ptrType);
+  auto nextPtr = LLVM::GEPOp::create(builder, location, ptrType, type,
+                                     nullPtr, ArrayRef<LLVM::GEPArg>{1});
+  return LLVM::PtrToIntOp::create(builder, location,
+                                  getI64Type(builder.getContext()), nextPtr);
+}
+
+static auto callMalloc(Location location, OpBuilder& builder, Operation* op,
+                       Value sizeInBytes) -> FailureOr<Value> {
+  auto moduleOp = op->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return failure();
+
+  auto mallocFn = LLVM::lookupOrCreateMallocFn(
+      builder, moduleOp, getI64Type(builder.getContext()));
+  if (failed(mallocFn))
+    return failure();
+
+  auto mallocCall = LLVM::CallOp::create(
+      builder, location, *mallocFn, ValueRange{sizeInBytes});
+  return mallocCall.getResult();
+}
+
 // This only builds the backend ABI record value after both fields are already
 // legal backend values. It does not decide when List<T> may cross a function
 // boundary.
@@ -227,9 +288,15 @@ static auto createTensorABIDesc(
     -> Value {
   auto desc = LLVM::UndefOp::create(rewriter, location,
                                     layout.descriptorType);
-  auto dataPointer = createMemRefDataPointer(location, rewriter, tensor);
+  auto tensorType = llvm::cast<MemRefType>(tensor.getType());
+  auto dataMemRefType = convertMemRefToDataMemRefType(tensorType);
+  auto dataMemRef = memref::MemorySpaceCastOp::create(
+      rewriter, location, dataMemRefType, tensor);
+  auto dataPointer = ptr::ToPtrOp::create(
+      rewriter, location, getTensorDataPtrType(rewriter.getContext()),
+      dataMemRef.getResult());
   Value current = LLVM::InsertValueOp::create(
-      rewriter, location, desc.getResult(), dataPointer,
+      rewriter, location, desc.getResult(), dataPointer.getResult(),
       ArrayRef<int64_t>{0}).getResult();
 
   Value stride = arith::ConstantIntOp::create(
@@ -261,6 +328,62 @@ static auto createTensorABIDesc(
   return current;
 }
 
+static auto createTensorFromABIDesc(
+    Location location, ConversionPatternRewriter& rewriter, Value desc,
+    mulberry::TensorType type) -> Value {
+  auto context = rewriter.getContext();
+  auto dataMemRefType = convertTensorToDataMemRefType(type);
+  auto resultMemRefType =
+      llvm::cast<MemRefType>(*convertTensorToMemRefType(type));
+
+  auto dataPointer = LLVM::ExtractValueOp::create(
+      rewriter, location, getTensorDataPtrType(context), desc,
+      ArrayRef<int64_t>{0});
+  auto layout = MemRefLayoutAttrInterface{};
+  auto baseType = MemRefType::get({}, type.getElementType(), layout,
+                                  getTensorDataAddressSpace(context));
+  auto base = ptr::FromPtrOp::create(
+      rewriter, location, baseType, dataPointer.getResult(), Value{});
+
+  Value offset = arith::ConstantIndexOp::create(rewriter, location, 0);
+  std::vector<Value> sizes;
+  std::vector<Value> strides;
+  for (size_t dim = 0; dim < type.getShape().size(); ++dim) {
+    auto size = LLVM::ExtractValueOp::create(
+        rewriter, location, getI64Type(context), desc,
+        ArrayRef<int64_t>{1, static_cast<int64_t>(dim)});
+    auto stride = LLVM::ExtractValueOp::create(
+        rewriter, location, getI64Type(context), desc,
+        ArrayRef<int64_t>{2, static_cast<int64_t>(dim)});
+    sizes.push_back(arith::IndexCastOp::create(
+                        rewriter, location, rewriter.getIndexType(),
+                        size.getResult())
+                        .getResult());
+    strides.push_back(arith::IndexCastOp::create(
+                          rewriter, location, rewriter.getIndexType(),
+                          stride.getResult())
+                          .getResult());
+  }
+
+  // Tensor descriptor fields are the memref metadata. Reinterpret-cast uses
+  // them to rebuild the ranked memref view from the base data pointer without
+  // inventing opaque ptr_metadata or raw integer-pointer tricks.
+  std::vector<int64_t> dynamicStrides(dataMemRefType.getRank(),
+                                      ShapedType::kDynamic);
+  auto stridedType = MemRefType::get(
+      dataMemRefType.getShape(), dataMemRefType.getElementType(),
+      StridedLayoutAttr::get(context, ShapedType::kDynamic, dynamicStrides),
+      dataMemRefType.getMemorySpace());
+  auto stridedTensor = memref::ReinterpretCastOp::create(
+      rewriter, location, stridedType, base.getResult(), offset, sizes,
+      strides, ArrayRef<NamedAttribute>{});
+  auto dataTensor = memref::CastOp::create(
+      rewriter, location, dataMemRefType, stridedTensor.getResult());
+  auto result = memref::MemorySpaceCastOp::create(
+      rewriter, location, resultMemRefType, dataTensor.getResult());
+  return result.getResult();
+}
+
 static auto containsListType(Type type) -> bool {
   if (llvm::isa<mulberry::ListType>(type))
     return true;
@@ -269,14 +392,6 @@ static auto containsListType(Type type) -> bool {
     for (auto field : recordType.getFields())
       if (containsListType(field.type))
         return true;
-
-  return false;
-}
-
-static auto containsListType(TypeRange types) -> bool {
-  for (auto type : types)
-    if (containsListType(type))
-      return true;
 
   return false;
 }
@@ -293,14 +408,6 @@ static auto containsListStorageType(Type type) -> bool {
   return false;
 }
 
-static auto containsListStorageType(TypeRange types) -> bool {
-  for (auto type : types)
-    if (containsListStorageType(type))
-      return true;
-
-  return false;
-}
-
 static auto containsListDescType(Type type) -> bool {
   if (llvm::isa<mulberry::ListDescType>(type))
     return true;
@@ -309,14 +416,6 @@ static auto containsListDescType(Type type) -> bool {
     for (auto field : recordType.getFields())
       if (containsListDescType(field.type))
         return true;
-
-  return false;
-}
-
-static auto containsListDescType(TypeRange types) -> bool {
-  for (auto type : types)
-    if (containsListDescType(type))
-      return true;
 
   return false;
 }
@@ -371,18 +470,21 @@ static auto containsTensorHandleType(FunctionType type) -> bool {
          containsTensorHandleType(type.getResults());
 }
 
-static auto containsListBoundaryType(TypeRange types) -> bool {
-  return containsListType(types) || containsListStorageType(types) ||
-         containsListDescType(types);
-}
-
 static auto isTensorDescListDesc(Type type) -> bool {
   auto listDescType = llvm::dyn_cast<mulberry::ListDescType>(type);
   return listDescType &&
          llvm::isa<mulberry::TensorDescType>(listDescType.getElementType());
 }
 
-static auto containsUnsupportedListArg(Type type) -> bool {
+static auto containsTensorDescListDesc(TypeRange types) -> bool {
+  for (auto type : types)
+    if (isTensorDescListDesc(type))
+      return true;
+
+  return false;
+}
+
+static auto containsUnsupportedListBoundary(Type type) -> bool {
   if (containsListType(type) || containsListStorageType(type))
     return true;
 
@@ -392,12 +494,55 @@ static auto containsUnsupportedListArg(Type type) -> bool {
   return false;
 }
 
-static auto containsUnsupportedListArg(TypeRange types) -> bool {
+static auto containsUnsupportedListBoundary(TypeRange types) -> bool {
   for (auto type : types)
-    if (containsUnsupportedListArg(type))
+    if (containsUnsupportedListBoundary(type))
       return true;
 
   return false;
+}
+
+static auto isEscapedListDesc(Value value) -> bool {
+  auto pack = value.getDefiningOp<mulberry::ListDescPackOp>();
+  if (!pack)
+    return false;
+
+  return !!pack.getData().getDefiningOp<mulberry::ListEscapeStorageOp>();
+}
+
+static auto rejectListReturns(Operation* root) -> LogicalResult {
+  auto result = success();
+  root->walk([&](Operation* op) {
+    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
+      if (funcOp.isExternal() &&
+          containsTensorDescListDesc(funcOp.getFunctionType().getResults())) {
+        funcOp.emitError("failed to legalize operation 'func.func': "
+                         "List<TensorDesc> external returns need an explicit "
+                         "ownership ABI");
+        result = failure();
+        return WalkResult::interrupt();
+      }
+    }
+
+    if (auto returnOp = llvm::dyn_cast<func::ReturnOp>(op)) {
+      for (auto operand : returnOp.getOperands()) {
+        if (!isTensorDescListDesc(operand.getType()))
+          continue;
+
+        if (!isEscapedListDesc(operand)) {
+          returnOp.emitError("failed to legalize operation 'func.return': "
+                             "List<TensorDesc> returns must use escaping "
+                             "list storage");
+          result = failure();
+          return WalkResult::interrupt();
+        }
+      }
+    }
+
+    return WalkResult::advance();
+  });
+
+  return result;
 }
 
 static auto rejectListBoundaries(Operation* root) -> LogicalResult {
@@ -405,8 +550,8 @@ static auto rejectListBoundaries(Operation* root) -> LogicalResult {
   root->walk([&](Operation* op) {
     if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
       auto funcType = funcOp.getFunctionType();
-      if (containsUnsupportedListArg(funcType.getInputs()) ||
-          containsListBoundaryType(funcType.getResults())) {
+      if (containsUnsupportedListBoundary(funcType.getInputs()) ||
+          containsUnsupportedListBoundary(funcType.getResults())) {
         funcOp.emitError("failed to legalize operation 'func.func': "
                          "List function boundaries are not supported yet");
         result = failure();
@@ -415,8 +560,8 @@ static auto rejectListBoundaries(Operation* root) -> LogicalResult {
     }
 
     if (llvm::isa<func::CallOp>(op)) {
-      if (containsUnsupportedListArg(op->getOperandTypes()) ||
-          containsListBoundaryType(op->getResultTypes())) {
+      if (containsUnsupportedListBoundary(op->getOperandTypes()) ||
+          containsUnsupportedListBoundary(op->getResultTypes())) {
         op->emitError()
             << "failed to legalize operation '" << op->getName()
             << "': List function boundaries are not supported yet";
@@ -426,7 +571,7 @@ static auto rejectListBoundaries(Operation* root) -> LogicalResult {
     }
 
     if (llvm::isa<func::ReturnOp>(op)) {
-      if (containsListBoundaryType(op->getOperandTypes())) {
+      if (containsUnsupportedListBoundary(op->getOperandTypes())) {
         op->emitError()
             << "failed to legalize operation '" << op->getName()
             << "': List function boundaries are not supported yet";
@@ -471,21 +616,6 @@ static auto rejectTensorDescBoundaries(Operation* root) -> LogicalResult {
   return result;
 }
 
-static auto rejectTensorDescUnpack(Operation* root) -> LogicalResult {
-  auto result = success();
-  root->walk([&](mulberry::TensorDescUnpackOp op) {
-    // This is a real boundary reconstruction problem, not a local cast:
-    // MLIR cannot rebuild a memref from a raw LLVM pointer without an explicit
-    // Tensor handle/runtime ABI design.
-    op.emitError("failed to legalize operation 'mulberry.tensor.desc_unpack': "
-                 "Tensor descriptor unpack lowering needs explicit Tensor ABI "
-                 "reconstruction support");
-    result = failure();
-    return WalkResult::interrupt();
-  });
-  return result;
-}
-
 static auto rejectTensorHandleOps(Operation* root) -> LogicalResult {
   auto result = success();
   root->walk([&](Operation* op) {
@@ -523,6 +653,21 @@ static auto rejectTensorHandleOps(Operation* root) -> LogicalResult {
     return WalkResult::advance();
   });
 
+  return result;
+}
+
+static auto rejectListEscape(Operation* root) -> LogicalResult {
+  auto result = success();
+  root->walk([&](mulberry::ListEscapeStorageOp op) {
+    if (isDescriptorBackedStorage(op.getStorage().getType()))
+      return WalkResult::advance();
+
+    op.emitError("failed to legalize operation 'mulberry.list.escape_storage': "
+                 "only List<TensorDesc> escaping storage has heap lowering "
+                 "today");
+    result = failure();
+    return WalkResult::interrupt();
+  });
   return result;
 }
 
@@ -801,6 +946,65 @@ public:
         rewriter, op.getLoc(), getPtrType(op.getContext()), elementType,
         length.getResult(), /*alignment=*/0);
     rewriter.replaceOp(op, alloc.getResult());
+    return success();
+  }
+};
+
+class ListEscapeStorageOpLowering
+    : public OpConversionPattern<mulberry::ListEscapeStorageOp> {
+public:
+  using OpConversionPattern<mulberry::ListEscapeStorageOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::ListEscapeStorageOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto storageType = llvm::cast<mulberry::ListStorageType>(
+        op.getStorage().getType());
+    auto tensorDescType = llvm::dyn_cast<mulberry::TensorDescType>(
+        storageType.getElementType());
+    if (!tensorDescType)
+      return rewriter.notifyMatchFailure(
+          op, "only List<TensorDesc> escaping storage is supported today");
+
+    auto elementType = convertToTensorABILayout(tensorDescType).descriptorType;
+    auto length = arith::IndexCastOp::create(
+        rewriter, op.getLoc(), getI64Type(op.getContext()),
+        adaptor.getLength());
+    auto elementBytes = createSizeOf(op.getLoc(), rewriter, elementType);
+    auto totalBytes = arith::MulIOp::create(
+        rewriter, op.getLoc(), length.getResult(), elementBytes);
+    auto heapStorage = callMalloc(op.getLoc(), rewriter, op.getOperation(),
+                                  totalBytes.getResult());
+    if (failed(heapStorage))
+      return rewriter.notifyMatchFailure(
+          op, "escaping storage needs a malloc declaration");
+
+    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+    auto one = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 1);
+    // Temporary ownership policy: copy descriptor elements to process-lifetime
+    // heap storage and intentionally do not deallocate yet. This keeps returned
+    // list descriptors from pointing at callee-local alloca storage without
+    // pretending that List<T> lifetime management is complete.
+    scf::ForOp::create(
+        rewriter, op.getLoc(), zero, adaptor.getLength(), one, ValueRange{},
+        [&](OpBuilder& builder, Location location, Value index,
+            ValueRange args) {
+          auto indexI64 = arith::IndexCastOp::create(
+              builder, location, getI64Type(builder.getContext()), index);
+          auto sourcePtr = LLVM::GEPOp::create(
+              builder, location, getPtrType(builder.getContext()), elementType,
+              adaptor.getStorage(), ArrayRef<Value>{indexI64.getResult()});
+          auto value = LLVM::LoadOp::create(
+              builder, location, elementType, sourcePtr.getResult());
+          auto destPtr = LLVM::GEPOp::create(
+              builder, location, getPtrType(builder.getContext()), elementType,
+              *heapStorage, ArrayRef<Value>{indexI64.getResult()});
+          LLVM::StoreOp::create(builder, location, value.getResult(),
+                                destPtr.getResult());
+          scf::YieldOp::create(builder, location);
+        });
+
+    rewriter.replaceOp(op, *heapStorage);
     return success();
   }
 };
@@ -1346,6 +1550,29 @@ public:
   }
 };
 
+class TensorDescUnpackOpConversion
+    : public OpConversionPattern<mulberry::TensorDescUnpackOp> {
+public:
+  using OpConversionPattern<
+      mulberry::TensorDescUnpackOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::TensorDescUnpackOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto tensorType = llvm::cast<mulberry::TensorType>(
+        op.getResult().getType());
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!llvm::isa_and_nonnull<MemRefType>(resultType))
+      return rewriter.notifyMatchFailure(
+          op, "tensor descriptor unpack needs a lowered memref result type");
+
+    auto tensor = createTensorFromABIDesc(op.getLoc(), rewriter,
+                                          adaptor.getDesc(), tensorType);
+    rewriter.replaceOp(op, tensor);
+    return success();
+  }
+};
+
 class TensorDescToABIOpLowering
     : public OpConversionPattern<mulberry::TensorDescToABIOp> {
 public:
@@ -1370,13 +1597,16 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
   auto runOnOperation() -> void final {
+    if (failed(rejectListEscape(getOperation())))
+      return signalPassFailure();
+
+    if (failed(rejectListReturns(getOperation())))
+      return signalPassFailure();
+
     if (failed(rejectListBoundaries(getOperation())))
       return signalPassFailure();
 
     if (failed(rejectTensorDescBoundaries(getOperation())))
-      return signalPassFailure();
-
-    if (failed(rejectTensorDescUnpack(getOperation())))
       return signalPassFailure();
 
     if (failed(rejectTensorHandleOps(getOperation())))
@@ -1403,17 +1633,18 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     target.addLegalDialect<arith::ArithDialect, func::FuncDialect,
                            linalg::LinalgDialect, LLVM::LLVMDialect,
                            math::MathDialect, memref::MemRefDialect,
-                           scf::SCFDialect>();
+                           ptr::PtrDialect, scf::SCFDialect>();
     target.addIllegalDialect<cherry_nn::CherryNNDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
           // Tensor function boundaries lower to memref today. Only explicit
-          // list_desc<TensorDesc> arguments may use the List ABI descriptor;
-          // returns stay illegal until ownership/lifetime rules are clear.
+          // list_desc<TensorDesc> values may use the List ABI descriptor.
           if (containsTensorDescType(op.getFunctionType()) ||
-              containsUnsupportedListArg(op.getFunctionType().getInputs()) ||
-              containsListBoundaryType(op.getFunctionType().getResults()))
+              containsUnsupportedListBoundary(
+                  op.getFunctionType().getInputs()) ||
+              containsUnsupportedListBoundary(
+                  op.getFunctionType().getResults()))
             return false;
           return typeConverter.isSignatureLegal(op.getFunctionType());
         });
@@ -1421,26 +1652,28 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         [&](Operation* op) {
           if (containsTensorDescType(op->getOperandTypes()) ||
               containsTensorDescType(op->getResultTypes()) ||
-              containsUnsupportedListArg(op->getOperandTypes()) ||
-              containsListBoundaryType(op->getResultTypes()))
+              containsUnsupportedListBoundary(op->getOperandTypes()) ||
+              containsUnsupportedListBoundary(op->getResultTypes()))
             return false;
           if (llvm::isa<func::ReturnOp>(op) &&
-              containsListBoundaryType(op->getOperandTypes()))
+              containsUnsupportedListBoundary(op->getOperandTypes()))
             return false;
           return typeConverter.isLegal(op);
         });
 
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, ListAllocOpLowering,
-                 ListCreateOpLowering, ListGetOpLowering, ListLengthOpLowering,
-                 ListLoadOpLowering, ListDescDataOpConversion,
+                 ListCreateOpLowering, ListEscapeStorageOpLowering,
+                 ListGetOpLowering, ListLengthOpLowering, ListLoadOpLowering,
+                 ListDescDataOpConversion,
                  ListDescLengthOpConversion, ListDescPackOpConversion,
                  ListDescToABIOpLowering, ListSizeOpLowering,
                  ListStoreOpLowering, LoadOpLowering, RecordExtractOpLowering,
                  RecordGetFieldOpLowering, StoreOpLowering, TensorAllocOpLowering,
                  TensorCastOpLowering, TensorDimOpLowering,
                  TensorDescPackOpConversion, TensorDescToABIOpLowering,
-                 TensorLoadOpLowering, TensorStoreOpLowering>(
+                 TensorDescUnpackOpConversion, TensorLoadOpLowering,
+                 TensorStoreOpLowering>(
         typeConverter, &getContext());
     populateCherryNNToLinalgPatterns(typeConverter, patterns);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(

@@ -47,6 +47,7 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRLLVMDialect
         MLIRMathDialect
         MLIRMemRefDialect
+        MLIRPtrDialect
         MLIRSCFDialect
 )
 

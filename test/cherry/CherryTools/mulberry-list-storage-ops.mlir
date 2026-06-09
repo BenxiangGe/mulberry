@@ -3,11 +3,13 @@
 module {
   func.func @main(%length: index, %index: index, %value: i64) -> i64 {
     %storage = mulberry.list.alloc %length : !mulberry.list_storage<i64>
+    %escaped = mulberry.list.escape_storage %storage, %length
+        : !mulberry.list_storage<i64> -> !mulberry.list_storage<i64>
     mulberry.list.store %value, %storage[%index] : i64,
         !mulberry.list_storage<i64>
-    %loaded = mulberry.list.load %storage[%index]
+    %loaded = mulberry.list.load %escaped[%index]
         : !mulberry.list_storage<i64> -> i64
-    %size = mulberry.list.length %storage : !mulberry.list_storage<i64>
+    %size = mulberry.list.length %escaped : !mulberry.list_storage<i64>
     return %loaded : i64
   }
 
@@ -27,6 +29,8 @@ module {
 
 // CHECK: mulberry.list.alloc
 // CHECK: !mulberry.list_storage<i64>
+// CHECK: mulberry.list.escape_storage
+// CHECK-SAME: !mulberry.list_storage<i64> -> !mulberry.list_storage<i64>
 // CHECK: mulberry.list.store
 // CHECK: mulberry.list.load
 // CHECK: mulberry.list.length

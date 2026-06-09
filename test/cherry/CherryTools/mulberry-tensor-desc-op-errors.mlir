@@ -28,5 +28,5 @@ module {
 }
 
 // CHECK: error: 'mulberry.tensor.desc_pack' op descriptor shape must be compatible with tensor shape
-// CHECK: error: 'mulberry.tensor.desc_to_abi' op result type must be a tensor ABI record `{ptr, sizes, strides}`
+// CHECK: error: 'mulberry.tensor.desc_to_abi' op result type must be a tensor ABI record `{data, sizes, strides}`
 // CHECK: error: 'mulberry.tensor.desc_unpack' op tensor shape must be compatible with descriptor shape

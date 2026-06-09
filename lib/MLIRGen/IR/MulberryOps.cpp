@@ -8,6 +8,7 @@
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
 
@@ -258,7 +259,8 @@ static auto isTensorABIRecordType(Type type, unsigned rank) -> bool {
     return false;
 
   auto fields = structType.getBody();
-  if (fields.size() != 3 || !llvm::isa<LLVM::LLVMPointerType>(fields[0]))
+  if (fields.size() != 3 ||
+      !llvm::isa<LLVM::LLVMPointerType, ptr::PtrType>(fields[0]))
     return false;
 
   auto sizesType = llvm::dyn_cast<LLVM::LLVMArrayType>(fields[1]);
@@ -276,7 +278,7 @@ auto TensorDescToABIOp::verify() -> LogicalResult {
   auto descType = getTensorDescType(getDesc().getType());
   if (!isTensorABIRecordType(getResult().getType(), descType.getShape().size()))
     return emitOpError(
-        "result type must be a tensor ABI record `{ptr, sizes, strides}`");
+        "result type must be a tensor ABI record `{data, sizes, strides}`");
 
   return success();
 }
@@ -315,6 +317,16 @@ auto ListToDescOp::verify() -> LogicalResult {
 
   if (!tensorShapeFitsDesc(tensorType.getShape(), tensorDescType.getShape()))
     return emitOpError("descriptor shape must be compatible with tensor shape");
+
+  return success();
+}
+
+auto ListEscapeStorageOp::verify() -> LogicalResult {
+  auto storageType = getListStorageType(getStorage().getType());
+  auto resultType = getListStorageType(getResult().getType());
+  if (storageType.getElementType() != resultType.getElementType())
+    return emitOpError(
+        "result storage element type must match input storage element type");
 
   return success();
 }

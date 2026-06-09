@@ -1,5 +1,4 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
-# RUN: not cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn first(weights: List<Float32[?, ?]>): Float32[?, ?] {
   weights[0]
@@ -31,5 +30,3 @@ fn main(): UInt64 {
 # CHECK: call @make
 # CHECK: mulberry.list.size
 # CHECK-SAME: !mulberry.list<!mulberry.tensor<?x?xf32>>
-
-# LOWER: failed to legalize operation 'func.func'

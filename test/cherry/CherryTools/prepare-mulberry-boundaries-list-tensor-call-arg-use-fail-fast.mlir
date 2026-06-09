@@ -1,4 +1,4 @@
-// RUN: not cherry-opt --prepare-mulberry-boundaries %s 2>&1 | FileCheck %s
+// RUN: cherry-opt --prepare-mulberry-boundaries %s | FileCheck %s
 
 module {
   func.func @call_tensor_list(%n: index, %m: index) {
@@ -23,4 +23,13 @@ module {
   }
 }
 
-// CHECK: List<Tensor> boundary rewrite cannot expose tensor_handle to downstream users yet
+// CHECK-LABEL: func.func @call_tensor_list
+// CHECK: %[[DESC:.*]] = mulberry.list.to_desc
+// CHECK-SAME: -> !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
+// CHECK: call @use_tensor_list(%[[DESC]]
+// CHECK-SAME: (!mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>, index) -> ()
+// CHECK-LABEL: func.func private @use_tensor_list
+// CHECK-SAME: %[[XS:.*]]: !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
+// CHECK: %[[TENSOR_DESC:.*]] = mulberry.list.desc_get %[[XS]]
+// CHECK: %[[TENSOR:.*]] = mulberry.tensor.desc_unpack %[[TENSOR_DESC]]
+// CHECK: mulberry.tensor.dim %[[TENSOR]]
