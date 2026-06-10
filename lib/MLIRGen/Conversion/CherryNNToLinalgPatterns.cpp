@@ -78,6 +78,60 @@ public:
   }
 };
 
+class MatsubConversion : public OpConversionPattern<cherry_nn::MatsubOp> {
+public:
+  using OpConversionPattern<cherry_nn::MatsubOp>::OpConversionPattern;
+
+  auto matchAndRewrite(cherry_nn::MatsubOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    linalg::SubOp::create(rewriter, op.getLoc(), TypeRange{},
+                          ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+                          ValueRange{adaptor.getOut()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class HadamardConversion
+    : public OpConversionPattern<cherry_nn::HadamardOp> {
+public:
+  using OpConversionPattern<cherry_nn::HadamardOp>::OpConversionPattern;
+
+  auto matchAndRewrite(cherry_nn::HadamardOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    linalg::MulOp::create(rewriter, op.getLoc(), TypeRange{},
+                          ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+                          ValueRange{adaptor.getOut()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class MatscaleConversion
+    : public OpConversionPattern<cherry_nn::MatscaleOp> {
+public:
+  using OpConversionPattern<cherry_nn::MatscaleOp>::OpConversionPattern;
+
+  auto matchAndRewrite(cherry_nn::MatscaleOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    // linalg.map only maps shaped operands; the scalar scale is captured as a
+    // surrounding SSA value instead of materializing a temporary tensor.
+    linalg::MapOp::create(
+        rewriter, op.getLoc(), ValueRange{adaptor.getInput()},
+        adaptor.getOut(),
+        [&](OpBuilder& builder, Location location, ValueRange args) {
+          auto scaled = arith::MulFOp::create(builder, location, args.front(),
+                                              adaptor.getScale());
+          linalg::YieldOp::create(builder, location, scaled.getResult());
+        });
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class TransposeConversion
     : public OpConversionPattern<cherry_nn::TransposeOp> {
 public:
@@ -140,6 +194,46 @@ public:
               builder, location, one.getResult(), denominator.getResult(),
               arith::FastMathFlagsAttr{});
           linalg::YieldOp::create(builder, location, sigmoid.getResult());
+        });
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class SigmoidPrimeConversion
+    : public OpConversionPattern<cherry_nn::SigmoidPrimeOp> {
+public:
+  using OpConversionPattern<cherry_nn::SigmoidPrimeOp>::OpConversionPattern;
+
+  auto matchAndRewrite(cherry_nn::SigmoidPrimeOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    linalg::MapOp::create(
+        rewriter, op.getLoc(), ValueRange{adaptor.getInput()},
+        adaptor.getOut(),
+        [](OpBuilder& builder, Location location, ValueRange args) {
+          auto input = args.front();
+          auto elementType = input.getType();
+          auto oneAttr = builder.getFloatAttr(elementType, 1.0);
+          auto one = arith::ConstantOp::create(builder, location, oneAttr);
+          auto neg = arith::NegFOp::create(builder, location, input,
+                                           arith::FastMathFlagsAttr{});
+          auto exp = math::ExpOp::create(builder, location, neg.getResult(),
+                                         arith::FastMathFlagsAttr{});
+          auto denominator = arith::AddFOp::create(
+              builder, location, one.getResult(), exp.getResult(),
+              arith::FastMathFlagsAttr{});
+          auto sigmoid = arith::DivFOp::create(
+              builder, location, one.getResult(), denominator.getResult(),
+              arith::FastMathFlagsAttr{});
+          auto oneMinusSigmoid = arith::SubFOp::create(
+              builder, location, one.getResult(), sigmoid.getResult(),
+              arith::FastMathFlagsAttr{});
+          // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x)).
+          auto derivative = arith::MulFOp::create(
+              builder, location, sigmoid.getResult(),
+              oneMinusSigmoid.getResult(), arith::FastMathFlagsAttr{});
+          linalg::YieldOp::create(builder, location, derivative.getResult());
         });
     rewriter.eraseOp(op);
     return success();
@@ -250,8 +344,10 @@ public:
 
 auto populateCherryNNToLinalgPatterns(const TypeConverter& typeConverter,
                                       RewritePatternSet& patterns) -> void {
-  patterns.add<MatmulConversion, MataddConversion, TransposeConversion,
-               ExpConversion, SigmoidConversion, ArgmaxConversion>(
+  patterns.add<MatmulConversion, MataddConversion, MatsubConversion,
+               HadamardConversion, MatscaleConversion, TransposeConversion,
+               ExpConversion, SigmoidConversion, SigmoidPrimeConversion,
+               ArgmaxConversion>(
       typeConverter, patterns.getContext());
 }
 

@@ -42,6 +42,55 @@ def MataddOp : CherryNN_Op<"matadd"> {
   let hasVerifier = 0;
 }
 
+def MatsubOp : CherryNN_Op<"matsub"> {
+  let summary = "matrix subtract operation";
+  let description = [{
+      The "matsub" operation does elementwise matrix subtraction
+  }];
+
+  let arguments = (ins CherryNN_AnyTensorType:$lhs,
+                       CherryNN_AnyTensorType:$rhs,
+                       CherryNN_AnyTensorType:$out);
+
+  let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
+def HadamardOp : CherryNN_Op<"hadamard"> {
+  let summary = "Hadamard product operation";
+  let description = [{
+      The "hadamard" operation does elementwise matrix multiplication
+  }];
+
+  let arguments = (ins CherryNN_AnyTensorType:$lhs,
+                       CherryNN_AnyTensorType:$rhs,
+                       CherryNN_AnyTensorType:$out);
+
+  let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
+def MatscaleOp : CherryNN_Op<"matscale"> {
+  let summary = "matrix scalar multiplication operation";
+  let description = [{
+      The "matscale" operation multiplies each matrix element by a Float32 scalar
+  }];
+
+  let arguments = (ins CherryNN_AnyTensorType:$input,
+                       F32:$scale,
+                       CherryNN_AnyTensorType:$out);
+
+  let assemblyFormat = "`ins` `(` $input `,` $scale `:` type($input) `,` "
+                       "type($scale) `)` `outs` `(` $out `:` type($out) `)` "
+                       "attr-dict";
+
+  let hasVerifier = 0;
+}
+
 def TransposeOp : CherryNN_Op<"transpose"> {
   let summary = "matrix transpose operation";
   let description = [{
@@ -76,6 +125,22 @@ def SigmoidOp : CherryNN_Op<"sigmoid"> {
   let summary = "elementwise sigmoid operation";
   let description = [{
       The "sigmoid" operation applies sigmoid elementwise to a matrix
+  }];
+
+  let arguments = (ins CherryNN_AnyTensorType:$input,
+                       CherryNN_AnyTensorType:$out);
+
+  let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
+                       "`outs` `(` $out `:` type($out) `)` attr-dict";
+
+  let hasVerifier = 0;
+}
+
+def SigmoidPrimeOp : CherryNN_Op<"sigmoid_prime"> {
+  let summary = "elementwise sigmoid derivative operation";
+  let description = [{
+      The "sigmoid_prime" operation applies the sigmoid derivative
+      elementwise to a matrix
   }];
 
   let arguments = (ins CherryNN_AnyTensorType:$input,

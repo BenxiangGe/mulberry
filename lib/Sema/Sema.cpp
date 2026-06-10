@@ -107,7 +107,8 @@ private:
   auto sema(ArrayLiteralExpr *expr, const ListType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
-  auto semaMatadd(CallExpr *node) -> CherryResult;
+  auto semaTensorBinary(CallExpr *node) -> CherryResult;
+  auto semaMatscale(CallExpr *node) -> CherryResult;
   auto semaTranspose(CallExpr *node) -> CherryResult;
   auto semaElementwiseNN(CallExpr *node) -> CherryResult;
   auto semaArgmax(CallExpr *node) -> CherryResult;
@@ -452,13 +453,17 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   if (name == nn::matmul) {
     return semaMatmul(node);
   }
-  if (name == nn::matadd) {
-    return semaMatadd(node);
+  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard) {
+    return semaTensorBinary(node);
+  }
+  if (name == nn::matscale) {
+    return semaMatscale(node);
   }
   if (name == nn::transpose) {
     return semaTranspose(node);
   }
-  if (name == nn::exp || name == nn::sigmoid) {
+  if (name == nn::exp || name == nn::sigmoid ||
+      name == nn::sigmoidPrime) {
     return semaElementwiseNN(node);
   }
   if (name == nn::argmax) {
@@ -805,7 +810,7 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaTensorBinary(CallExpr *node) -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 2)
     return emitError(node, diag::wrong_num_arg);
@@ -837,6 +842,31 @@ auto SemaImpl::semaMatadd(CallExpr *node) -> CherryResult {
   auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       std::move(resultShape));
+  node->setType(resultType);
+
+  return success();
+}
+
+auto SemaImpl::semaMatscale(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  for (auto &expr : expressions)
+    if (sema(expr.get()))
+      return failure();
+
+  auto *inputType = cherry::getTensorType(expressions[0]->type());
+  if (!inputType)
+    return emitError(node, diag::mismatch_type);
+  if (!isFloat32TensorType(inputType) || !isFloat32Type(expressions[1]->type()))
+    return emitError(node, diag::mismatch_type);
+  if (inputType->shape().size() != 2)
+    return emitError(node, diag::mismatch_type);
+
+  auto *resultType = _typeContext.createTensorType(
+      _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
+      inputType->shape());
   node->setType(resultType);
 
   return success();
