@@ -31,6 +31,10 @@ config.test_exec_root = os.path.join(config.cherry_obj_root, "test")
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
+config.substitutions.append(("%cherry_src_root", os.path.dirname(config.test_source_root)))
+# Nielsen's mnist.pkl.gz is a NumPy pickle. Keep this explicit so lit's own
+# Python environment does not accidentally pick a venv without numpy.
+config.substitutions.append(("%numpy_python", "/usr/bin/python3"))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
