@@ -56,6 +56,16 @@ def Mulberry_StringType : Mulberry_Type<"String", "string"> {
   let assemblyFormat = "";
 }
 
+def Mulberry_FileType : Mulberry_Type<"File", "file"> {
+  let summary = "Mulberry file handle type";
+  let description = [{
+    A high-level Mulberry file handle. It is intentionally opaque here; runtime
+    representation is decided by the file IO lowering/runtime ABI.
+  }];
+
+  let assemblyFormat = "";
+}
+
 def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
   let summary = "Mulberry tensor type";
   let description = [{

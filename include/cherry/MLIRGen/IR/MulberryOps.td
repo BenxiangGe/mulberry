@@ -24,6 +24,10 @@ def Mulberry_AnyStringType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::StringType>($_self)">,
     "Mulberry string type">;
 
+def Mulberry_AnyFileType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::FileType>($_self)">,
+    "Mulberry file type">;
+
 def Mulberry_AnyTensorDescType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorDescType>($_self)">,
     "Mulberry tensor descriptor type">;
@@ -123,6 +127,52 @@ def Mulberry_StringLiteralOp : Mulberry_Op<"string.literal"> {
   let results = (outs Mulberry_AnyStringType:$result);
 
   let assemblyFormat = "$value attr-dict `:` type($result)";
+}
+
+def Mulberry_FileOpenOp : Mulberry_Op<"file.open"> {
+  let summary = "Open a Mulberry file";
+
+  let arguments = (ins Mulberry_AnyStringType:$path,
+                       Mulberry_AnyStringType:$mode);
+  let results = (outs Mulberry_AnyFileType:$result);
+
+  let assemblyFormat = "$path `,` $mode attr-dict `:` type($path) `,` "
+                       "type($mode) `->` type($result)";
+}
+
+def Mulberry_FileReadOp : Mulberry_Op<"file.read"> {
+  let summary = "Read bytes from a Mulberry file";
+
+  let arguments = (ins Mulberry_AnyFileType:$file,
+                       Mulberry_AnyTensorType:$buffer);
+  let results = (outs I64:$result);
+
+  let assemblyFormat = "$file `,` $buffer attr-dict `:` type($file) `,` "
+                       "type($buffer)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_FileWriteOp : Mulberry_Op<"file.write"> {
+  let summary = "Write bytes to a Mulberry file";
+
+  let arguments = (ins Mulberry_AnyFileType:$file,
+                       Mulberry_AnyTensorType:$buffer);
+  let results = (outs I64:$result);
+
+  let assemblyFormat = "$file `,` $buffer attr-dict `:` type($file) `,` "
+                       "type($buffer)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_FileCloseOp : Mulberry_Op<"file.close"> {
+  let summary = "Close a Mulberry file";
+
+  let arguments = (ins Mulberry_AnyFileType:$file);
+  let results = (outs I64:$result);
+
+  let assemblyFormat = "$file attr-dict `:` type($file)";
 }
 
 def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {

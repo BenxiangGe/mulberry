@@ -1,0 +1,53 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+fn transfer(input: File, output: File, bytes: UInt8[?]): UInt64 {
+  const readCount: UInt64 = read(input, bytes);
+  const writeCount: UInt64 = write(output, bytes);
+  close(input);
+  close(output);
+  readCount + writeCount
+}
+
+fn main(): UInt64 {
+  const input: File = open("data/mnist.bin", "rb");
+  const output: File = open("data/out.bin", "wb");
+  var bytes: UInt8[4] = [1, 2, 3, 4];
+  write(output, bytes);
+  close(input) + close(output)
+}
+
+# AST: Prototype {{.*}}name=transfer{{.*}}type=UInt64
+# AST: VariableStat {{.*}}id=input{{.*}}type=File
+# AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[?]
+# AST: CallExpr {{.*}}type=UInt64 callee=read
+# AST: CallExpr {{.*}}type=UInt64 callee=write
+# AST: CallExpr {{.*}}type=File callee=open
+# AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[4]
+
+# MLIR-LABEL: func.func @transfer
+# MLIR: mulberry.file.read
+# MLIR: mulberry.file.write
+# MLIR: mulberry.file.close
+# MLIR-LABEL: func.func @main
+# MLIR: mulberry.string.literal "data/mnist.bin" : !mulberry.string
+# MLIR: mulberry.string.literal "rb" : !mulberry.string
+# MLIR: mulberry.file.open
+# MLIR-SAME: -> !mulberry.file
+# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<4xi8>
+# MLIR: mulberry.file.write
+# MLIR-NOT: cir.
+
+# LOWERED-DAG: llvm.func @fopen(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @fread(!llvm.ptr, i64, i64, !llvm.ptr) -> i64
+# LOWERED-DAG: llvm.func @fwrite(!llvm.ptr, i64, i64, !llvm.ptr) -> i64
+# LOWERED-DAG: llvm.func @fclose(!llvm.ptr) -> i32
+# LOWERED-LABEL: func.func @transfer
+# LOWERED: llvm.call @fread
+# LOWERED: llvm.call @fwrite
+# LOWERED: llvm.call @fclose
+# LOWERED-LABEL: func.func @main
+# LOWERED: llvm.call @fopen
+# LOWERED: llvm.call @fwrite
+# LOWERED-NOT: mulberry.

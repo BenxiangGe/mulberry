@@ -28,6 +28,12 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
+static auto isByteBufferType(Type type) -> bool {
+  auto tensorType = getTensorType(type);
+  return tensorType && tensorType.getShape().size() == 1 &&
+         tensorType.getElementType().isInteger(8);
+}
+
 static auto getTensorDescType(Type type)
     -> mlir::mulberry::TensorDescType {
   return llvm::dyn_cast<mlir::mulberry::TensorDescType>(type);
@@ -160,6 +166,20 @@ auto RecordExtractOp::verify() -> LogicalResult {
 
   if (getResult().getType() != fieldType)
     return emitOpError("result type must match field type");
+
+  return success();
+}
+
+auto FileReadOp::verify() -> LogicalResult {
+  if (!isByteBufferType(getBuffer().getType()))
+    return emitOpError("buffer must be a rank-1 UInt8 tensor");
+
+  return success();
+}
+
+auto FileWriteOp::verify() -> LogicalResult {
+  if (!isByteBufferType(getBuffer().getType()))
+    return emitOpError("buffer must be a rank-1 UInt8 tensor");
 
   return success();
 }
