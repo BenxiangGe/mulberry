@@ -29,6 +29,7 @@ public:
     Expr_DecimalLiteral,
     Expr_FloatLiteral,
     Expr_BoolLiteral,
+    Expr_StringLiteral,
     Expr_ArrayLiteral,
     Expr_Index,
     Expr_Member,

@@ -37,6 +37,7 @@ TOK_IDENTIFIER(identifier)
 // Literals
 TOK_LITERAL(decimal)
 TOK_LITERAL(float_literal)
+TOK_LITERAL(string_literal)
 
 // Punctuation
 TOK_PUNCTUATION(semi, ";")

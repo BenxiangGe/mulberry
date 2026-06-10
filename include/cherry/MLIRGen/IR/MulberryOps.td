@@ -20,6 +20,10 @@ def Mulberry_AnyTensorType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
     "Mulberry tensor type">;
 
+def Mulberry_AnyStringType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry::StringType>($_self)">,
+    "Mulberry string type">;
+
 def Mulberry_AnyTensorDescType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorDescType>($_self)">,
     "Mulberry tensor descriptor type">;
@@ -110,6 +114,15 @@ def Mulberry_RecordExtractOp : Mulberry_Op<"record.extract"> {
                        "`->` type($result)";
 
   let hasVerifier = 1;
+}
+
+def Mulberry_StringLiteralOp : Mulberry_Op<"string.literal"> {
+  let summary = "Create a Mulberry string literal";
+
+  let arguments = (ins StrAttr:$value);
+  let results = (outs Mulberry_AnyStringType:$result);
+
+  let assemblyFormat = "$value attr-dict `:` type($result)";
 }
 
 def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {

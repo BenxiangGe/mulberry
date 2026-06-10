@@ -97,6 +97,7 @@ private:
   auto sema(DecimalLiteralExpr *node) -> CherryResult;
   auto sema(FloatLiteralExpr *node) -> CherryResult;
   auto sema(BoolLiteralExpr *node) -> CherryResult;
+  auto sema(StringLiteralExpr *node) -> CherryResult;
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
   auto checkAssignable(const Expr *expr) -> CherryResult;
@@ -141,8 +142,10 @@ private:
   auto addBuiltins() -> void {
     declareBuiltinType(BuiltinTypeKind::Unit);
     auto *boolType = declareBuiltinType(BuiltinTypeKind::Bool);
+    declareBuiltinType(BuiltinTypeKind::UInt8);
     auto *uint64Type = declareBuiltinType(BuiltinTypeKind::UInt64);
     declareBuiltinType(BuiltinTypeKind::Float32);
+    declareBuiltinType(BuiltinTypeKind::String);
 
     declareFunction(builtins::print, std::vector<const Type *>{uint64Type},
                     uint64Type);
@@ -385,6 +388,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
     return sema(cast<BoolLiteralExpr>(node));
+  case Expr::Expr_StringLiteral:
+    return sema(cast<StringLiteralExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -566,6 +571,11 @@ auto SemaImpl::sema(FloatLiteralExpr *node) -> CherryResult {
 
 auto SemaImpl::sema(BoolLiteralExpr *node) -> CherryResult {
   setBuiltinType(node, BuiltinTypeKind::Bool);
+  return success();
+}
+
+auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
+  setBuiltinType(node, BuiltinTypeKind::String);
   return success();
 }
 

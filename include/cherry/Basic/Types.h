@@ -18,8 +18,10 @@ enum class TypeKind {
 enum class BuiltinTypeKind {
   Unit,
   Bool,
+  UInt8,
   UInt64,
   Float32,
+  String,
 };
 
 class Type {
@@ -114,9 +116,11 @@ auto getStructType(const Type *type) -> const StructType *;
 auto getListType(const Type *type) -> const ListType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
+auto isUInt8Type(const Type *type) -> bool;
 auto isUInt64Type(const Type *type) -> bool;
 auto isBoolType(const Type *type) -> bool;
 auto isFloat32Type(const Type *type) -> bool;
+auto isStringType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
 auto isTensorType(const Type *type) -> bool;

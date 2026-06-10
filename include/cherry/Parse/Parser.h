@@ -141,6 +141,7 @@ private:
   auto parseDecimal(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseString(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 

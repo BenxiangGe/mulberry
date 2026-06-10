@@ -46,6 +46,16 @@ def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
   }];
 }
 
+def Mulberry_StringType : Mulberry_Type<"String", "string"> {
+  let summary = "Mulberry string type";
+  let description = [{
+    A high-level Mulberry string value. Runtime storage and ABI layout are
+    lowering concerns, not source-language record fields.
+  }];
+
+  let assemblyFormat = "";
+}
+
 def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
   let summary = "Mulberry tensor type";
   let description = [{

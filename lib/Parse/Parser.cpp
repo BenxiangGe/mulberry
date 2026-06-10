@@ -351,6 +351,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseDecimal(expr);
   case Token::float_literal:
     return parseFloat(expr);
+  case Token::string_literal:
+    return parseString(expr);
   case Token::diff:
     return parseNegativeFloat(expr);
   case Token::identifier:
@@ -488,6 +490,16 @@ auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> CherryResult {
     return success();
   }
   return emitError(diag::float_literal_invalid);
+}
+
+auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  if (auto value = token().getStringLiteralValue()) {
+    consume(Token::string_literal);
+    expr = make_unique<StringLiteralExpr>(loc, std::move(*value));
+    return success();
+  }
+  return emitError(diag::string_literal_invalid);
 }
 
 auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {

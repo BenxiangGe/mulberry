@@ -92,6 +92,28 @@ list.desc_get -> tensor.desc_unpack -> Tensor/memref value
 `tensor_handle` 继续作为 future reconstruction/runtime handle 的实验性 IR，普通
 `--lower-mulberry` 仍然对它 fail-fast。
 
+## 字符串 ABI
+
+Mulberry `String` 是源语言 builtin value，不是用户可见的 record。当前 lowering
+把 `!mulberry.string` 转成一个 LLVM descriptor：
+
+```text
+StringABI = { length: i64, data: ptr }
+```
+
+`length` 是源码字符串的字节数，不包含结尾的 `\0`。`data` 指向只读字节数据。
+
+字符串字面量会 materialize 成一个 internal constant LLVM global byte array，并在
+末尾额外放一个 `\0`：
+
+```text
+"data/mnist.bin" -> global bytes "data/mnist.bin\0"
+```
+
+这个额外的 NUL 不属于 Mulberry `String` 的长度语义，只是 ABI/runtime 便利：
+后续 `open/read/write/close` 这类 runtime API 如果走 C ABI，可以直接复用同一个
+data pointer 作为 C string。
+
 ## List ABI
 
 `List<T>` 的 ABI 外壳固定为：

@@ -19,18 +19,24 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
   switch (type.builtinKind()) {
   case BuiltinTypeKind::Unit:
     return _builder.getNoneType();
+  case BuiltinTypeKind::UInt8:
+    return _builder.getI8Type();
   case BuiltinTypeKind::UInt64:
     return _builder.getI64Type();
   case BuiltinTypeKind::Float32:
     return _builder.getF32Type();
   case BuiltinTypeKind::Bool:
     return _builder.getI1Type();
+  case BuiltinTypeKind::String:
+    return mlir::mulberry::StringType::get(_builder.getContext());
   }
 }
 
 auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
     -> mlir::Type {
   switch (type.builtinKind()) {
+  case BuiltinTypeKind::UInt8:
+    return _builder.getI8Type();
   case BuiltinTypeKind::UInt64:
     return _builder.getI64Type();
   case BuiltinTypeKind::Float32:
@@ -39,6 +45,8 @@ auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
     return _builder.getI1Type();
   case BuiltinTypeKind::Unit:
     llvm_unreachable("Unit cannot be used as a memref element type");
+  case BuiltinTypeKind::String:
+    llvm_unreachable("String cannot be used as a memref element type");
   }
 }
 
