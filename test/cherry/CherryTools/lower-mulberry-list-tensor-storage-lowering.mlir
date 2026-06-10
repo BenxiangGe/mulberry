@@ -25,6 +25,7 @@ module {
 // CHECK: memref.store %[[B]], %[[LIST]]
 // CHECK: %[[ITEM:.*]] = memref.load %[[LIST]]
 // CHECK: memref.dim %[[LIST]]
+// CHECK: memref.dealloc %[[LIST]] : memref<?xmemref<2xf32>>
 // CHECK: return %[[ITEM]] : memref<2xf32>
 
 // CHECK-NOT: mulberry.list.create

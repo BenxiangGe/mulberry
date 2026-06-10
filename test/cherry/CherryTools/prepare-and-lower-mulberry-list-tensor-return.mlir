@@ -20,6 +20,7 @@ module {
 }
 
 // CHECK: llvm.func @malloc(i64) -> !llvm.ptr
+// CHECK: llvm.func @free(!llvm.ptr)
 
 // CHECK-LABEL: func.func @call_tensor_list_result
 // CHECK: %[[DESC:.*]] = call @make_tensor_list
@@ -27,6 +28,9 @@ module {
 // CHECK: %[[LENGTH_I64:.*]] = llvm.extractvalue %[[DESC]][0]
 // CHECK-SAME: !llvm.struct<(i64, ptr)>
 // CHECK: %[[LENGTH:.*]] = arith.index_cast %[[LENGTH_I64]] : i64 to index
+// CHECK: %[[DATA:.*]] = llvm.extractvalue %[[DESC]][1]
+// CHECK-SAME: !llvm.struct<(i64, ptr)>
+// CHECK: llvm.call @free(%[[DATA]]) : (!llvm.ptr) -> ()
 // CHECK: %[[SIZE:.*]] = arith.index_cast %[[LENGTH]] : index to i64
 // CHECK: return %[[SIZE]] : i64
 

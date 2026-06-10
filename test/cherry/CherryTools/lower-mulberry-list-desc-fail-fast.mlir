@@ -1,9 +1,7 @@
-// RUN: not cherry-opt --lower-mulberry %s 2>&1 | FileCheck %s
+// RUN: cherry-opt --lower-mulberry %s | FileCheck %s
 
 module {
   func.func private @use_list_desc_arg(!mulberry.list_desc<i64>)
-
-  func.func private @use_list_desc_return() -> !mulberry.list_desc<i64>
 
   func.func @call_list_desc(%length: index) {
     %storage = mulberry.list.alloc %length : !mulberry.list_storage<i64>
@@ -14,4 +12,10 @@ module {
   }
 }
 
-// CHECK: failed to legalize operation 'func.func'
+// CHECK: func.func private @use_list_desc_arg(!llvm.struct<(i64, ptr)>)
+// CHECK-LABEL: func.func @call_list_desc
+// CHECK: memref.alloc
+// CHECK: llvm.insertvalue
+// CHECK: call @use_list_desc_arg
+// CHECK-SAME: !llvm.struct<(i64, ptr)>
+// CHECK-NOT: mulberry.

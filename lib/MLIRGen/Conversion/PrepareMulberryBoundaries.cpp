@@ -15,6 +15,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <iterator>
 #include <optional>
 #include <vector>
 
@@ -25,9 +26,8 @@ namespace mlir::cherry {
 
 namespace {
 
-static auto isTensorList(Type type) -> bool {
-  auto listType = llvm::dyn_cast<mulberry::ListType>(type);
-  return listType && llvm::isa<mulberry::TensorType>(listType.getElementType());
+static auto isScalarListElement(Type type) -> bool {
+  return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
 static auto getTensorDescType(mulberry::TensorType tensorType)
@@ -37,17 +37,30 @@ static auto getTensorDescType(mulberry::TensorType tensorType)
                                        tensorType.getElementType());
 }
 
-static auto getTensorListDescType(mulberry::ListType listType)
-    -> mulberry::ListDescType {
-  auto tensorType = llvm::cast<mulberry::TensorType>(listType.getElementType());
-  return mulberry::ListDescType::get(listType.getContext(),
-                                     getTensorDescType(tensorType));
+static auto getListDescElementType(mulberry::ListType listType) -> Type {
+  auto elementType = listType.getElementType();
+  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(elementType))
+    return getTensorDescType(tensorType);
+
+  if (isScalarListElement(elementType))
+    return elementType;
+
+  return {};
+}
+
+static auto isBoundaryList(Type type) -> bool {
+  auto listType = llvm::dyn_cast<mulberry::ListType>(type);
+  return listType && getListDescElementType(listType);
 }
 
 static auto getBoundaryPreparedType(Type type) -> std::optional<Type> {
   auto listType = llvm::dyn_cast<mulberry::ListType>(type);
-  if (listType && isTensorList(listType))
-    return getTensorListDescType(listType);
+  if (!listType)
+    return std::nullopt;
+
+  auto elementType = getListDescElementType(listType);
+  if (elementType)
+    return mulberry::ListDescType::get(listType.getContext(), elementType);
 
   return std::nullopt;
 }
@@ -77,13 +90,13 @@ static auto describeBoundaryKind(BoundaryKind kind) -> const char * {
   llvm_unreachable("unknown boundary kind");
 }
 
-static auto checkNoSourceTensorList(Operation *op, TypeRange types,
-                                    BoundaryKind kind) -> LogicalResult {
+static auto checkNoSourceBoundaryList(Operation *op, TypeRange types,
+                                      BoundaryKind kind) -> LogicalResult {
   for (auto type : types) {
-    if (!isTensorList(type))
+    if (!isBoundaryList(type))
       continue;
 
-    op->emitError() << "source-level List<Tensor> "
+    op->emitError() << "source-level List<T> "
                     << describeBoundaryKind(kind)
                     << " boundary preparation is not implemented yet";
     return failure();
@@ -106,19 +119,26 @@ static auto rewriteListSizeOp(mulberry::ListSizeOp op, Value desc)
 
 static auto emitUnsupportedListUse(Operation *op) -> InFlightDiagnostic {
   return op->emitError()
-         << "List<Tensor> boundary preparation only supports direct "
+         << "List<T> boundary preparation only supports direct "
             "list.size/list.get uses for now";
 }
 
 static auto rewriteListGetOp(mulberry::ListGetOp op, Value desc)
     -> LogicalResult {
-  auto tensorType = llvm::cast<mulberry::TensorType>(op.getResult().getType());
-  auto descType = getTensorDescType(tensorType);
+  auto descType = llvm::cast<mulberry::ListDescType>(desc.getType());
   OpBuilder builder(op);
-  auto tensorDesc = mulberry::ListDescGetOp::create(
-      builder, op.getLoc(), descType, desc, op.getIndex());
+  auto element = mulberry::ListDescGetOp::create(
+      builder, op.getLoc(), descType.getElementType(), desc, op.getIndex());
+  auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
+      op.getResult().getType());
+  if (!tensorType) {
+    op.replaceAllUsesWith(element.getResult());
+    op.erase();
+    return success();
+  }
+
   auto tensor = mulberry::TensorDescUnpackOp::create(
-      builder, op.getLoc(), tensorType, tensorDesc);
+      builder, op.getLoc(), tensorType, element);
   op.replaceAllUsesWith(tensor.getResult());
   op.erase();
   return success();
@@ -178,6 +198,33 @@ static auto rewriteListUses(Value list, Value desc) -> LogicalResult {
     return failure();
   }
 
+  return success();
+}
+
+static auto insertDescDeallocAfterLastUse(Value desc) -> LogicalResult {
+  Operation *lastUser = nullptr;
+  auto lastIndex = std::optional<unsigned>{};
+  auto *block = desc.getParentBlock();
+
+  for (auto &use : desc.getUses()) {
+    auto *user = use.getOwner();
+    if (user->getBlock() != block)
+      return failure();
+
+    auto index = static_cast<unsigned>(
+        std::distance(block->begin(), Block::iterator(user)));
+    if (!lastIndex || index > *lastIndex) {
+      lastIndex = index;
+      lastUser = user;
+    }
+  }
+
+  if (!lastUser)
+    return success();
+
+  OpBuilder builder(lastUser);
+  builder.setInsertionPointAfter(lastUser);
+  mulberry::ListDescDeallocOp::create(builder, lastUser->getLoc(), desc);
   return success();
 }
 
@@ -263,7 +310,7 @@ static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
                              ArrayRef<Type> resultTypes) -> LogicalResult {
   if (callOp.getArgAttrsAttr() || callOp.getResAttrsAttr())
     return callOp.emitError()
-           << "List<Tensor> call-site boundary preparation with call "
+           << "List<T> call-site boundary preparation with call "
               "argument/result attributes is not implemented yet";
 
   for (auto [operand, inputType] :
@@ -272,7 +319,7 @@ static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
       continue;
 
     if (!llvm::isa<mulberry::ListDescType>(inputType) ||
-        !isTensorList(operand.getType()))
+        !isBoundaryList(operand.getType()))
       return emitUnsupportedCallArgRewrite(callOp);
   }
 
@@ -282,7 +329,7 @@ static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
       continue;
 
     if (!llvm::isa<mulberry::ListDescType>(resultType) ||
-        !isTensorList(result.getType()))
+        !isBoundaryList(result.getType()))
       return emitUnsupportedCallResultRewrite(callOp);
 
     if (failed(checkListUses(result)))
@@ -295,6 +342,7 @@ static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
 static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
                         ArrayRef<Type> resultTypes) -> LogicalResult {
   std::vector<Value> operands;
+  std::vector<Value> argDescs;
   auto changed = false;
 
   for (auto [operand, inputType] :
@@ -312,6 +360,7 @@ static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
     auto desc = mulberry::ListToDescOp::create(builder, callOp.getLoc(),
                                                descType, operand);
     operands.push_back(desc);
+    argDescs.push_back(desc);
     changed = true;
   }
 
@@ -336,7 +385,19 @@ static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
 
     if (failed(rewriteListUses(oldResult, newResult)))
       return failure();
+
+    // Prepared call results transfer descriptor ownership to this call site.
+    // This is intentionally restricted to direct list.size/list.get users by
+    // checkListUses() above, so inserting the cleanup after the last user is
+    // safe in the current straight-line boundary subset.
+    if (llvm::isa<mulberry::ListDescType>(newResult.getType()) &&
+        failed(insertDescDeallocAfterLastUse(newResult)))
+      return emitUnsupportedCallResultRewrite(newCallOp);
   }
+
+  builder.setInsertionPointAfter(newCallOp);
+  for (auto desc : argDescs)
+    mulberry::ListDescDeallocOp::create(builder, callOp.getLoc(), desc);
 
   callOp.erase();
   return success();
@@ -345,10 +406,9 @@ static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
 static auto buildEscapedDesc(mulberry::ListCreateOp createOp,
                              mulberry::ListDescType descType,
                              OpBuilder &builder) -> Value {
-  auto tensorDescType =
-      llvm::cast<mulberry::TensorDescType>(descType.getElementType());
+  auto descElementType = descType.getElementType();
   auto storageType =
-      mulberry::ListStorageType::get(descType.getContext(), tensorDescType);
+      mulberry::ListStorageType::get(descType.getContext(), descElementType);
   auto length = arith::ConstantIndexOp::create(builder, createOp.getLoc(),
                                                createOp.getElements().size());
   auto storage = mulberry::ListAllocOp::create(builder, createOp.getLoc(),
@@ -357,27 +417,34 @@ static auto buildEscapedDesc(mulberry::ListCreateOp createOp,
   for (auto element : llvm::enumerate(createOp.getElements())) {
     auto index = arith::ConstantIndexOp::create(builder, createOp.getLoc(),
                                                 element.index());
-    auto tensorDesc = mulberry::TensorDescPackOp::create(
-        builder, createOp.getLoc(), tensorDescType, element.value());
-    mulberry::ListStoreOp::create(builder, createOp.getLoc(),
-                                  tensorDesc.getResult(), storage.getResult(),
-                                  index.getResult());
+    Value value = element.value();
+    if (auto tensorDescType =
+            llvm::dyn_cast<mulberry::TensorDescType>(descElementType)) {
+      auto tensorDesc = mulberry::TensorDescPackOp::create(
+          builder, createOp.getLoc(), tensorDescType, element.value());
+      value = tensorDesc.getResult();
+    }
+    mulberry::ListStoreOp::create(builder, createOp.getLoc(), value,
+                                  storage.getResult(), index.getResult());
   }
 
-  // Return descriptors must point at escaping storage. `list.to_desc` is not
-  // used here because it intentionally materializes only local descriptors.
+  // Returning a list transfers descriptor ownership to the caller. Copy the
+  // local storage to escaping ABI storage so caller-side desc_dealloc can free
+  // the returned data uniformly for scalar lists and tensor lists.
   auto escaped = mulberry::ListEscapeStorageOp::create(
       builder, createOp.getLoc(), storageType, storage.getResult(),
       length.getResult());
+  Value data = escaped.getResult();
+
   auto desc =
       mulberry::ListDescPackOp::create(builder, createOp.getLoc(), descType,
-                                       length.getResult(), escaped.getResult());
+                                       length.getResult(), data);
   return desc.getResult();
 }
 
 static auto emitUnsupportedReturnRewrite(Operation *op) -> InFlightDiagnostic {
   return op->emitError()
-         << "List<Tensor> return rewrite only supports returning a local "
+         << "List<T> return rewrite only supports returning a local "
             "list.create for now";
 }
 
@@ -389,7 +456,7 @@ static auto checkReturnOp(func::ReturnOp returnOp, ArrayRef<Type> resultTypes)
       continue;
 
     if (!llvm::isa<mulberry::ListDescType>(resultType) ||
-        !isTensorList(operand.getType()))
+        !isBoundaryList(operand.getType()))
       return emitUnsupportedReturnRewrite(returnOp);
 
     if (!operand.getDefiningOp<mulberry::ListCreateOp>())
@@ -483,7 +550,7 @@ static auto rewriteFunctionBoundary(func::FuncOp funcOp) -> LogicalResult {
   auto uses = SymbolTable::getSymbolUses(funcOp.getOperation(), moduleOp);
   if (!uses)
     return funcOp.emitError()
-           << "cannot prove List<Tensor> function boundary symbol uses";
+           << "cannot prove List<T> function boundary symbol uses";
 
   // Source functions currently have no export syntax. A non-external function
   // can be boundary-rewritten when every known symbol use is a direct
@@ -494,7 +561,7 @@ static auto rewriteFunctionBoundary(func::FuncOp funcOp) -> LogicalResult {
     auto callOp = llvm::dyn_cast<func::CallOp>(use.getUser());
     if (!callOp)
       return use.getUser()->emitError()
-             << "List<Tensor> function boundary preparation only supports "
+             << "List<T> function boundary preparation only supports "
                 "direct func.call users";
     callOps.push_back(callOp);
   }
@@ -551,28 +618,28 @@ struct PrepareMulberryBoundaries
       if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
 
         auto funcType = funcOp.getFunctionType();
-        if (failed(checkNoSourceTensorList(op, funcType.getInputs(),
-                                           BoundaryKind::FunctionParameter)) ||
-            failed(checkNoSourceTensorList(op, funcType.getResults(),
-                                           BoundaryKind::FunctionReturn))) {
+        if (failed(checkNoSourceBoundaryList(
+                op, funcType.getInputs(), BoundaryKind::FunctionParameter)) ||
+            failed(checkNoSourceBoundaryList(
+                op, funcType.getResults(), BoundaryKind::FunctionReturn))) {
           hasError = true;
           return WalkResult::interrupt();
         }
       }
 
       if (llvm::isa<func::CallOp>(op)) {
-        if (failed(checkNoSourceTensorList(op, op->getOperandTypes(),
-                                           BoundaryKind::CallArgument)) ||
-            failed(checkNoSourceTensorList(op, op->getResultTypes(),
-                                           BoundaryKind::CallResult))) {
+        if (failed(checkNoSourceBoundaryList(
+                op, op->getOperandTypes(), BoundaryKind::CallArgument)) ||
+            failed(checkNoSourceBoundaryList(
+                op, op->getResultTypes(), BoundaryKind::CallResult))) {
           hasError = true;
           return WalkResult::interrupt();
         }
       }
 
       if (llvm::isa<func::ReturnOp>(op)) {
-        if (failed(checkNoSourceTensorList(op, op->getOperandTypes(),
-                                           BoundaryKind::ReturnValue))) {
+        if (failed(checkNoSourceBoundaryList(
+                op, op->getOperandTypes(), BoundaryKind::ReturnValue))) {
           hasError = true;
           return WalkResult::interrupt();
         }

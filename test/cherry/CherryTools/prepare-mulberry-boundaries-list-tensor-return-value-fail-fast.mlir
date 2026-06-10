@@ -13,4 +13,4 @@ module {
       -> !mulberry.list<!mulberry.tensor<?x?xf32>>
 }
 
-// CHECK: List<Tensor> return rewrite only supports returning a local list.create for now
+// CHECK: List<T> return rewrite only supports returning a local list.create for now

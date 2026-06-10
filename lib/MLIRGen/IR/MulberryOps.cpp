@@ -52,6 +52,10 @@ static auto getListDescType(Type type)
   return llvm::dyn_cast<mlir::mulberry::ListDescType>(type);
 }
 
+static auto isScalarStorageType(Type type) -> bool {
+  return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
+}
+
 static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
   size_t count = 0;
   for (auto dim : shape)
@@ -305,9 +309,17 @@ auto ListToDescOp::verify() -> LogicalResult {
   auto listType = getListType(getList().getType());
   auto descType = getListDescType(getResult().getType());
   auto tensorType = getTensorType(listType.getElementType());
-  auto tensorDescType = getTensorDescType(descType.getElementType());
+  if (!tensorType) {
+    if (!isScalarStorageType(listType.getElementType()))
+      return emitOpError("only scalar lists and tensor lists are supported");
 
-  if (!tensorType || !tensorDescType)
+    if (listType.getElementType() != descType.getElementType())
+      return emitOpError("descriptor element type must match list element type");
+    return success();
+  }
+
+  auto tensorDescType = getTensorDescType(descType.getElementType());
+  if (!tensorDescType)
     return emitOpError(
         "only List<Tensor> to list_desc<TensorDesc> is supported");
 

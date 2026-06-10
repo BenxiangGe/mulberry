@@ -3,7 +3,7 @@
 module {
   func.func @escape_tensor_desc_storage(%length: index, %index: index,
                                         %n: index, %m: index)
-      -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)> {
+      -> !llvm.struct<(i64, ptr)> {
     %tensor = mulberry.tensor.alloc(%n, %m)
         : !mulberry.tensor<?x?xf32>
     %tensorDesc = mulberry.tensor.desc_pack %tensor
@@ -16,13 +16,13 @@ module {
     %escaped = mulberry.list.escape_storage %storage, %length
         : !mulberry.list_storage<!mulberry.tensor_desc<?x?xf32>>
             -> !mulberry.list_storage<!mulberry.tensor_desc<?x?xf32>>
-    %loaded = mulberry.list.load %escaped[%index]
+    %desc = mulberry.list.desc_pack %length, %escaped
         : !mulberry.list_storage<!mulberry.tensor_desc<?x?xf32>>
-            -> !mulberry.tensor_desc<?x?xf32>
-    %abi = mulberry.tensor.desc_to_abi %loaded
-        : !mulberry.tensor_desc<?x?xf32>
-            -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
-    return %abi : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+            -> !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
+    %abi = mulberry.list.desc_to_abi %desc
+        : !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
+            -> !llvm.struct<(i64, ptr)>
+    return %abi : !llvm.struct<(i64, ptr)>
   }
 }
 
@@ -38,8 +38,7 @@ module {
 // CHECK: scf.for
 // CHECK: llvm.load
 // CHECK: llvm.store
-// CHECK: %[[LOAD_PTR:.*]] = llvm.getelementptr %[[HEAP]]
-// CHECK: %[[LOADED:.*]] = llvm.load %[[LOAD_PTR]]
-// CHECK: return %[[LOADED]] : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+// CHECK: llvm.insertvalue
+// CHECK: return
 // CHECK-NOT: mulberry.list.escape_storage
 // CHECK-NOT: !mulberry.tensor_desc
