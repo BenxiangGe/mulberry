@@ -1112,10 +1112,10 @@ auto SemaImpl::semaFileOpen(CallExpr *node) -> CherryResult {
   return success();
 }
 
-static auto isByteBufferType(const Type *type) -> bool {
+static auto isRawFileTensorType(const Type *type) -> bool {
   auto *tensorType = cherry::getTensorType(type);
-  return tensorType && tensorType->shape().size() == 1 &&
-         isUInt8Type(tensorType->elementType());
+  return tensorType && !tensorType->shape().empty() &&
+         isNumericType(tensorType->elementType());
 }
 
 auto SemaImpl::semaFileRead(CallExpr *node) -> CherryResult {
@@ -1130,7 +1130,7 @@ auto SemaImpl::semaFileRead(CallExpr *node) -> CherryResult {
 
   if (sema(expressions[1].get()))
     return failure();
-  if (!isByteBufferType(expressions[1]->type()))
+  if (!isRawFileTensorType(expressions[1]->type()))
     return emitError(expressions[1].get(), diag::mismatch_type);
   if (checkConstTensorUseAsMutable(expressions[1].get()))
     return failure();
@@ -1151,7 +1151,7 @@ auto SemaImpl::semaFileWrite(CallExpr *node) -> CherryResult {
 
   if (sema(expressions[1].get()))
     return failure();
-  if (!isByteBufferType(expressions[1]->type()))
+  if (!isRawFileTensorType(expressions[1]->type()))
     return emitError(expressions[1].get(), diag::mismatch_type);
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);

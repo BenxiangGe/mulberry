@@ -28,10 +28,12 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
-static auto isByteBufferType(Type type) -> bool {
+static auto isRawFileTensorType(Type type) -> bool {
   auto tensorType = getTensorType(type);
-  return tensorType && tensorType.getShape().size() == 1 &&
-         tensorType.getElementType().isInteger(8);
+  auto elementType = tensorType ? tensorType.getElementType() : Type{};
+  return tensorType && !tensorType.getShape().empty() &&
+         (elementType.isInteger(8) || elementType.isInteger(64) ||
+          elementType.isF32());
 }
 
 static auto getTensorDescType(Type type)
@@ -171,15 +173,15 @@ auto RecordExtractOp::verify() -> LogicalResult {
 }
 
 auto FileReadOp::verify() -> LogicalResult {
-  if (!isByteBufferType(getBuffer().getType()))
-    return emitOpError("buffer must be a rank-1 UInt8 tensor");
+  if (!isRawFileTensorType(getBuffer().getType()))
+    return emitOpError("buffer must be a UInt8/UInt64/Float32 tensor");
 
   return success();
 }
 
 auto FileWriteOp::verify() -> LogicalResult {
-  if (!isByteBufferType(getBuffer().getType()))
-    return emitOpError("buffer must be a rank-1 UInt8 tensor");
+  if (!isRawFileTensorType(getBuffer().getType()))
+    return emitOpError("buffer must be a UInt8/UInt64/Float32 tensor");
 
   return success();
 }
