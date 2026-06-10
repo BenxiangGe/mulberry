@@ -33,9 +33,31 @@ public:
         llvm::APFloat::getZero(elementType.getFloatSemantics()));
 
     linalg::FillOp::create(rewriter, loc, ValueRange{zero}, ValueRange{out});
-    linalg::MatmulOp::create(rewriter, loc, TypeRange{},
-                             ValueRange{adaptor.getLhs(), adaptor.getRhs()},
-                             ValueRange{out});
+
+    // Use explicit generic contraction so the lowered IR owns the canonical
+    // `out + lhs * rhs` body instead of relying on named matmul region magic.
+    auto context = rewriter.getContext();
+    auto m = rewriter.getAffineDimExpr(0);
+    auto n = rewriter.getAffineDimExpr(1);
+    auto k = rewriter.getAffineDimExpr(2);
+    std::vector<AffineMap> indexingMaps{
+        AffineMap::get(3, 0, {m, k}, context),
+        AffineMap::get(3, 0, {k, n}, context),
+        AffineMap::get(3, 0, {m, n}, context)};
+    std::vector<utils::IteratorType> iteratorTypes{
+        utils::IteratorType::parallel, utils::IteratorType::parallel,
+        utils::IteratorType::reduction};
+
+    linalg::GenericOp::create(
+        rewriter, loc, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{out}, indexingMaps, iteratorTypes,
+        [](OpBuilder& builder, Location location, ValueRange args) {
+          auto product =
+              arith::MulFOp::create(builder, location, args[0], args[1]);
+          auto sum = arith::AddFOp::create(builder, location, args[2],
+                                           product.getResult());
+          linalg::YieldOp::create(builder, location, sum.getResult());
+        });
     rewriter.eraseOp(op);
     return success();
   }

@@ -31,7 +31,9 @@ fn main(): UInt64 {
 # CHECK: ptr.from_ptr
 # CHECK: memref.reinterpret_cast
 # CHECK: memref.memory_space_cast
-# CHECK: linalg.matmul
+# CHECK: linalg.generic
+# CHECK: arith.mulf
+# CHECK: arith.addf
 # CHECK: linalg.generic
 # CHECK: return
 # CHECK-NOT: mulberry.

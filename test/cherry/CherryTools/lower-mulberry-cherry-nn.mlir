@@ -23,7 +23,9 @@ module {
 // CHECK: memref.alloc() : memref<3x4xf32>
 // CHECK: memref.alloc() : memref<2x4xf32>
 // CHECK: linalg.fill
-// CHECK: linalg.matmul
+// CHECK: linalg.generic
+// CHECK: arith.mulf
+// CHECK: arith.addf
 // CHECK: linalg.map
 // CHECK: math.exp
 // CHECK: linalg.generic
