@@ -44,6 +44,10 @@ static auto getI64Type(MLIRContext* context) -> IntegerType {
   return IntegerType::get(context, 64);
 }
 
+static auto getI32Type(MLIRContext* context) -> IntegerType {
+  return IntegerType::get(context, 32);
+}
+
 static auto getTensorDataAddressSpace(MLIRContext* context) -> Attribute {
   return LLVM::AddressSpaceAttr::get(context, 0);
 }
@@ -126,6 +130,9 @@ static auto convertToBackendType(Type type) -> std::optional<Type> {
 
   if (auto stringType = llvm::dyn_cast<mulberry::StringType>(type))
     return convertToStringABILayout(stringType).descriptorType;
+
+  if (llvm::isa<mulberry::FileType>(type))
+    return getPtrType(type.getContext());
 
   if (isScalarStorageType(type))
     return type;
@@ -416,6 +423,14 @@ static auto createStringABIDesc(
       rewriter, location, withLength.getResult(), dataPointer,
       ArrayRef<int64_t>{1});
   return withData.getResult();
+}
+
+static auto extractStringDataPointer(Location location, OpBuilder& builder,
+                                     Value stringDesc) -> Value {
+  return LLVM::ExtractValueOp::create(builder, location,
+                                      getPtrType(builder.getContext()),
+                                      stringDesc, ArrayRef<int64_t>{1})
+      .getResult();
 }
 
 static auto createStringGlobalName(ModuleOp moduleOp) -> std::string {
@@ -982,6 +997,9 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
   if (llvm::isa<mulberry::ListDescType>(type))
     return failure();
 
+  if (llvm::isa<mulberry::FileType>(type))
+    return failure();
+
   if (llvm::isa<mulberry::TensorDescType>(type))
     return failure();
 
@@ -1014,6 +1032,9 @@ public:
     });
     addConversion([](mulberry::StringType type) -> Type {
       return convertToStringABILayout(type).descriptorType;
+    });
+    addConversion([](mulberry::FileType type) -> Type {
+      return getPtrType(type.getContext());
     });
     addConversion(convertRecordToBackendType);
     addConversion(convertPtrType);
@@ -1154,6 +1175,148 @@ public:
     auto desc = createStringABIDesc(op.getLoc(), rewriter, layout,
                                     length.getResult(), *dataPointer);
     rewriter.replaceOp(op, desc);
+    return success();
+  }
+};
+
+class FileOpenOpLowering : public OpConversionPattern<mulberry::FileOpenOp> {
+public:
+  using OpConversionPattern<mulberry::FileOpenOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::FileOpenOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    if (!moduleOp)
+      return rewriter.notifyMatchFailure(op, "file open needs a parent module");
+
+    auto ptrType = getPtrType(op.getContext());
+    auto fopenFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "fopen", {ptrType, ptrType}, ptrType);
+    if (failed(fopenFn))
+      return rewriter.notifyMatchFailure(
+          op, "file open needs an fopen declaration");
+
+    // String ABI field 1 is the NUL-terminated byte pointer prepared by string
+    // literal lowering, so it can be passed directly to C stdio calls.
+    auto path = extractStringDataPointer(op.getLoc(), rewriter,
+                                         adaptor.getPath());
+    auto mode = extractStringDataPointer(op.getLoc(), rewriter,
+                                         adaptor.getMode());
+    auto opened = LLVM::CallOp::create(rewriter, op.getLoc(), *fopenFn,
+                                       ValueRange{path, mode});
+    rewriter.replaceOp(op, opened.getResult());
+    return success();
+  }
+};
+
+class FileReadOpLowering : public OpConversionPattern<mulberry::FileReadOp> {
+public:
+  using OpConversionPattern<mulberry::FileReadOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::FileReadOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    if (!moduleOp)
+      return rewriter.notifyMatchFailure(op, "file read needs a parent module");
+
+    auto context = op.getContext();
+    auto ptrType = getPtrType(context);
+    auto i64Type = getI64Type(context);
+    auto freadFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "fread",
+        {ptrType, i64Type, i64Type, ptrType}, i64Type);
+    if (failed(freadFn))
+      return rewriter.notifyMatchFailure(
+          op, "file read needs an fread declaration");
+
+    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+    auto length = memref::DimOp::create(rewriter, op.getLoc(),
+                                        adaptor.getBuffer(), zero);
+    auto lengthI64 = arith::IndexCastOp::create(rewriter, op.getLoc(),
+                                                i64Type, length);
+    auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
+                                        rewriter.getI64IntegerAttr(1));
+    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
+                                        adaptor.getBuffer());
+    // Use fread(ptr, 1, length, file) so the returned element count is exactly
+    // the number of bytes read, matching Mulberry's UInt8 buffer semantics.
+    auto read = LLVM::CallOp::create(
+        rewriter, op.getLoc(), *freadFn,
+        ValueRange{data, one.getResult(), lengthI64.getResult(),
+                   adaptor.getFile()});
+    rewriter.replaceOp(op, read.getResult());
+    return success();
+  }
+};
+
+class FileWriteOpLowering : public OpConversionPattern<mulberry::FileWriteOp> {
+public:
+  using OpConversionPattern<mulberry::FileWriteOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::FileWriteOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    if (!moduleOp)
+      return rewriter.notifyMatchFailure(
+          op, "file write needs a parent module");
+
+    auto context = op.getContext();
+    auto ptrType = getPtrType(context);
+    auto i64Type = getI64Type(context);
+    auto fwriteFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "fwrite",
+        {ptrType, i64Type, i64Type, ptrType}, i64Type);
+    if (failed(fwriteFn))
+      return rewriter.notifyMatchFailure(
+          op, "file write needs an fwrite declaration");
+
+    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
+    auto length = memref::DimOp::create(rewriter, op.getLoc(),
+                                        adaptor.getBuffer(), zero);
+    auto lengthI64 = arith::IndexCastOp::create(rewriter, op.getLoc(),
+                                                i64Type, length);
+    auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
+                                        rewriter.getI64IntegerAttr(1));
+    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
+                                        adaptor.getBuffer());
+    auto written = LLVM::CallOp::create(
+        rewriter, op.getLoc(), *fwriteFn,
+        ValueRange{data, one.getResult(), lengthI64.getResult(),
+                   adaptor.getFile()});
+    rewriter.replaceOp(op, written.getResult());
+    return success();
+  }
+};
+
+class FileCloseOpLowering : public OpConversionPattern<mulberry::FileCloseOp> {
+public:
+  using OpConversionPattern<mulberry::FileCloseOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::FileCloseOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    if (!moduleOp)
+      return rewriter.notifyMatchFailure(
+          op, "file close needs a parent module");
+
+    auto i32Type = getI32Type(op.getContext());
+    auto i64Type = getI64Type(op.getContext());
+    auto fcloseFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "fclose", {getPtrType(op.getContext())},
+        i32Type);
+    if (failed(fcloseFn))
+      return rewriter.notifyMatchFailure(
+          op, "file close needs an fclose declaration");
+
+    auto closed = LLVM::CallOp::create(rewriter, op.getLoc(), *fcloseFn,
+                                       ValueRange{adaptor.getFile()});
+    auto result = arith::ExtSIOp::create(rewriter, op.getLoc(), i64Type,
+                                         closed.getResult());
+    rewriter.replaceOp(op, result.getResult());
     return success();
   }
 };
@@ -2040,7 +2203,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<AllocaOpLowering, ListAllocOpLowering,
+    patterns.add<AllocaOpLowering, FileCloseOpLowering, FileOpenOpLowering,
+                 FileReadOpLowering, FileWriteOpLowering, ListAllocOpLowering,
                  ListCreateOpLowering, ListDeallocOpLowering,
                  ListEscapeStorageOpLowering, ListGetOpLowering,
                  ListLengthOpLowering, ListLoadOpLowering,

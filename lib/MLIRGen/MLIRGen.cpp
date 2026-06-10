@@ -127,6 +127,10 @@ private:
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
   auto genSize(const CallExpr *node) -> mlir::Value;
+  auto genOpen(const CallExpr *node) -> mlir::Value;
+  auto genRead(const CallExpr *node) -> mlir::Value;
+  auto genWrite(const CallExpr *node) -> mlir::Value;
+  auto genClose(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
@@ -537,6 +541,14 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genArgmax(node);
   if (name == builtins::size)
     return genSize(node);
+  if (name == builtins::open)
+    return genOpen(node);
+  if (name == builtins::read)
+    return genRead(node);
+  if (name == builtins::write)
+    return genWrite(node);
+  if (name == builtins::close)
+    return genClose(node);
   if (name == builtins::boolToUInt64) {
     auto value = gen(node->expressions().front().get());
     return mlir::arith::ExtUIOp::create(_builder, loc(node),
@@ -709,6 +721,38 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
   DBG("size() static tensor size: {0}", size);
   return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
+}
+
+auto MLIRGenImpl::genOpen(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto path = gen(expressions[0].get());
+  auto mode = gen(expressions[1].get());
+  return mlir::mulberry::FileOpenOp::create(_builder, loc(node),
+                                            getMLIRType(node), path, mode);
+}
+
+auto MLIRGenImpl::genRead(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto file = gen(expressions[0].get());
+  auto buffer = gen(expressions[1].get());
+  return mlir::mulberry::FileReadOp::create(_builder, loc(node),
+                                            _builder.getI64Type(), file,
+                                            buffer);
+}
+
+auto MLIRGenImpl::genWrite(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto file = gen(expressions[0].get());
+  auto buffer = gen(expressions[1].get());
+  return mlir::mulberry::FileWriteOp::create(_builder, loc(node),
+                                             _builder.getI64Type(), file,
+                                             buffer);
+}
+
+auto MLIRGenImpl::genClose(const CallExpr *node) -> mlir::Value {
+  auto file = gen(node->expressions().front().get());
+  return mlir::mulberry::FileCloseOp::create(_builder, loc(node),
+                                             _builder.getI64Type(), file);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {

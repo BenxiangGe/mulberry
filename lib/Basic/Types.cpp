@@ -36,6 +36,8 @@ auto BuiltinType::name() const -> std::string_view {
     return "Float32";
   case BuiltinTypeKind::String:
     return "String";
+  case BuiltinTypeKind::File:
+    return "File";
   }
   return {};
 }
@@ -222,6 +224,11 @@ auto getStringType() -> const BuiltinType * {
   return &type;
 }
 
+auto getFileType() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::File};
+  return &type;
+}
+
 } // namespace
 
 auto sameType(const Type *lhs, const Type *rhs) -> bool {
@@ -291,6 +298,10 @@ auto isFloat32Type(const Type *type) -> bool {
 
 auto isStringType(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::String);
+}
+
+auto isFileType(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::File);
 }
 
 auto isNumericType(const Type *type) -> bool {
@@ -369,6 +380,8 @@ auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const
     return getFloat32Type();
   case BuiltinTypeKind::String:
     return getStringType();
+  case BuiltinTypeKind::File:
+    return getFileType();
   }
   return nullptr;
 }

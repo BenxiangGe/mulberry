@@ -27,8 +27,8 @@ public:
   auto matchAndRewrite(PrintOp op, PatternRewriter& rewriter) const
       -> LogicalResult final {
     auto inputType = op.getInput().getType();
-    if (!inputType.isInteger(64))
-      return rewriter.notifyMatchFailure(op, "print currently supports i64");
+    if (!inputType.isInteger(64) && !inputType.isInteger(8))
+      return rewriter.notifyMatchFailure(op, "print currently supports i64/i8");
 
     auto moduleOp = op->getParentOfType<ModuleOp>();
     if (!moduleOp)
@@ -41,7 +41,12 @@ public:
     if (failed(newlineFn))
       return failure();
 
-    LLVM::CallOp::create(rewriter, op.getLoc(), *printFn, op.getInput());
+    auto input = op.getInput();
+    if (inputType.isInteger(8))
+      input = arith::ExtUIOp::create(rewriter, op.getLoc(),
+                                     rewriter.getI64Type(), input);
+
+    LLVM::CallOp::create(rewriter, op.getLoc(), *printFn, input);
     LLVM::CallOp::create(rewriter, op.getLoc(), *newlineFn, ValueRange{});
 
     // The source-level print result is only a sequencing placeholder. The

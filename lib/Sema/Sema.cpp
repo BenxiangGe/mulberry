@@ -106,6 +106,7 @@ private:
                                const Type *type) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const ListType *type) -> CherryResult;
+  auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
   auto semaTensorBinary(CallExpr *node) -> CherryResult;
@@ -113,10 +114,17 @@ private:
   auto semaTranspose(CallExpr *node) -> CherryResult;
   auto semaElementwiseNN(CallExpr *node) -> CherryResult;
   auto semaArgmax(CallExpr *node) -> CherryResult;
+  auto semaPrint(CallExpr *node) -> CherryResult;
   auto semaSize(CallExpr *node) -> CherryResult;
+  auto semaFileOpen(CallExpr *node) -> CherryResult;
+  auto semaFileRead(CallExpr *node) -> CherryResult;
+  auto semaFileWrite(CallExpr *node) -> CherryResult;
+  auto semaFileClose(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
   auto sema(ForExpr *node) -> CherryResult;
+  auto semaTensorLiteralElement(Expr *expr, const Type *type)
+      -> CherryResult;
 
   // Statements
   auto sema(Stat *node) -> CherryResult;
@@ -146,6 +154,7 @@ private:
     auto *uint64Type = declareBuiltinType(BuiltinTypeKind::UInt64);
     declareBuiltinType(BuiltinTypeKind::Float32);
     declareBuiltinType(BuiltinTypeKind::String);
+    declareBuiltinType(BuiltinTypeKind::File);
 
     declareFunction(builtins::print, std::vector<const Type *>{uint64Type},
                     uint64Type);
@@ -418,12 +427,15 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
-  // Only array literals are target-typed today. Other expressions keep normal
-  // bottom-up type checking.
   auto *arrayLiteral = dyn_cast<ArrayLiteralExpr>(node);
-  auto *listType = cherry::getListType(type);
-  if (arrayLiteral && listType)
-    return sema(arrayLiteral, listType);
+  if (arrayLiteral) {
+    // Source `[...]` is neutral syntax. Expected type decides whether it is a
+    // Tensor literal or a List literal; other expressions stay bottom-up.
+    if (auto *listType = cherry::getListType(type))
+      return sema(arrayLiteral, listType);
+    if (auto *tensorType = cherry::getTensorType(type))
+      return sema(arrayLiteral, tensorType);
+  }
 
   return sema(node);
 }
@@ -455,6 +467,9 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
 auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   auto name = node->name();
 
+  if (name == builtins::print) {
+    return semaPrint(node);
+  }
   if (name == nn::matmul) {
     return semaMatmul(node);
   }
@@ -476,6 +491,18 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == builtins::size) {
     return semaSize(node);
+  }
+  if (name == builtins::open) {
+    return semaFileOpen(node);
+  }
+  if (name == builtins::read) {
+    return semaFileRead(node);
+  }
+  if (name == builtins::write) {
+    return semaFileWrite(node);
+  }
+  if (name == builtins::close) {
+    return semaFileClose(node);
   }
 
   auto *signature = lookupFunction(name);
@@ -747,6 +774,78 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ListType *type)
   return success();
 }
 
+auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
+    -> CherryResult {
+  auto &elements = expr->getElements();
+  if (elements.empty())
+    return emitError(expr, diag::expected_expr);
+
+  auto &shape = type->shape();
+  if (shape.empty())
+    return emitError(expr, diag::mismatch_type);
+
+  auto dim = static_cast<int64_t>(elements.size());
+  if (shape.front() >= 0 && shape.front() != dim)
+    return emitError(expr, diag::mismatch_type);
+
+  std::vector<int64_t> inferredShape{dim};
+  if (shape.size() == 1) {
+    for (auto &element : elements)
+      if (semaTensorLiteralElement(element.get(), type->elementType()))
+        return failure();
+
+    expr->setInferredShape(std::move(inferredShape));
+    expr->setType(type);
+    return success();
+  }
+
+  auto nestedShape = std::vector<int64_t>(shape.begin() + 1, shape.end());
+  auto *nestedType =
+      _typeContext.createTensorType(type->elementType(), nestedShape);
+  std::vector<int64_t> firstNestedShape;
+  for (auto &element : elements) {
+    auto *nestedLiteral = dyn_cast<ArrayLiteralExpr>(element.get());
+    if (!nestedLiteral)
+      return emitError(element.get(), diag::mismatch_type);
+    if (sema(nestedLiteral, nestedType))
+      return failure();
+    if (firstNestedShape.empty()) {
+      firstNestedShape = nestedLiteral->getInferredShape();
+    } else if (firstNestedShape != nestedLiteral->getInferredShape()) {
+      return emitError(nestedLiteral, diag::mismatch_type);
+    }
+  }
+
+  inferredShape.insert(inferredShape.end(), firstNestedShape.begin(),
+                       firstNestedShape.end());
+  expr->setInferredShape(std::move(inferredShape));
+  expr->setType(type);
+  return success();
+}
+
+auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
+    -> CherryResult {
+  if (auto *decimal = dyn_cast<DecimalLiteralExpr>(expr)) {
+    if (isUInt8Type(type)) {
+      if (decimal->value() > 255)
+        return emitError(expr, diag::mismatch_type);
+      expr->setType(type);
+      return success();
+    }
+
+    if (isUInt64Type(type)) {
+      expr->setType(type);
+      return success();
+    }
+  }
+
+  if (sema(expr, type))
+    return failure();
+  if (!sameType(type, expr->type()))
+    return emitError(expr, diag::mismatch_type);
+  return success();
+}
+
 auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   if (sema(expr->base().get()))
     return failure();
@@ -956,6 +1055,21 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
   return success();
 }
 
+auto SemaImpl::semaPrint(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  auto *expr = expressions.front().get();
+  if (sema(expr))
+    return failure();
+  if (!isUInt64Type(expr->type()) && !isUInt8Type(expr->type()))
+    return emitError(expr, diag::mismatch_type);
+
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
 auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 1)
@@ -977,6 +1091,82 @@ auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
   auto &shape = tensorType->shape();
   if (shape.empty())
     return emitError(node, diag::mismatch_type);
+
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
+auto SemaImpl::semaFileOpen(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  for (auto &expr : expressions) {
+    if (sema(expr.get()))
+      return failure();
+    if (!isStringType(expr->type()))
+      return emitError(expr.get(), diag::mismatch_type);
+  }
+
+  setBuiltinType(node, BuiltinTypeKind::File);
+  return success();
+}
+
+static auto isByteBufferType(const Type *type) -> bool {
+  auto *tensorType = cherry::getTensorType(type);
+  return tensorType && tensorType->shape().size() == 1 &&
+         isUInt8Type(tensorType->elementType());
+}
+
+auto SemaImpl::semaFileRead(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+  if (!isFileType(expressions[0]->type()))
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  if (sema(expressions[1].get()))
+    return failure();
+  if (!isByteBufferType(expressions[1]->type()))
+    return emitError(expressions[1].get(), diag::mismatch_type);
+  if (checkConstTensorUseAsMutable(expressions[1].get()))
+    return failure();
+
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
+auto SemaImpl::semaFileWrite(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+  if (!isFileType(expressions[0]->type()))
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  if (sema(expressions[1].get()))
+    return failure();
+  if (!isByteBufferType(expressions[1]->type()))
+    return emitError(expressions[1].get(), diag::mismatch_type);
+
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
+auto SemaImpl::semaFileClose(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+  if (!isFileType(expressions[0]->type()))
+    return emitError(expressions[0].get(), diag::mismatch_type);
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);
   return success();
