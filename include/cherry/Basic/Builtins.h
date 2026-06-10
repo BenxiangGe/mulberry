@@ -23,9 +23,13 @@ const std::string_view size = "size";
 namespace nn {
 const std::string_view matmul = "matmul";
 const std::string_view matadd = "matadd";
+const std::string_view matsub = "matsub";
+const std::string_view hadamard = "hadamard";
+const std::string_view matscale = "matscale";
 const std::string_view transpose = "transpose";
 const std::string_view exp = "exp";
 const std::string_view sigmoid = "sigmoid";
+const std::string_view sigmoidPrime = "sigmoidPrime";
 const std::string_view argmax = "argmax";
 } // end namespace nn
 

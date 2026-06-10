@@ -1,0 +1,64 @@
+fn main(): UInt64 {
+  var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var w2: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var b1: Float32[?, ?] = [[0.0], [0.0]];
+  var b2: Float32[?, ?] = [[0.0], [0.0]];
+
+  const x0: Float32[2, 1] = [[1.0], [0.0]];
+  const x1: Float32[2, 1] = [[0.0], [1.0]];
+  const y0: Float32[2, 1] = [[1.0], [0.0]];
+  const y1: Float32[2, 1] = [[0.0], [1.0]];
+  const xs: List<Float32[?, ?]> = [x0, x1];
+  const ys: List<Float32[?, ?]> = [y0, y1];
+  const eta: Float32 = 0.8;
+
+  for epoch in 0 .. 4 {
+    for sample in 0 .. size(xs) {
+      const x: Float32[?, ?] = xs[sample];
+      const y: Float32[?, ?] = ys[sample];
+      const weights: List<Float32[?, ?]> = [w1, w2];
+      const biases: List<Float32[?, ?]> = [b1, b2];
+
+      var z1: Float32[?, ?] = matadd(matmul(weights[0], x), biases[0]);
+      var a1: Float32[?, ?] = sigmoid(z1);
+      var z2: Float32[?, ?] = matadd(matmul(weights[1], a1), biases[1]);
+      var a2: Float32[?, ?] = sigmoid(z2);
+
+      var delta2: Float32[?, ?] =
+        hadamard(matsub(a2, y), sigmoidPrime(z2));
+      var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
+
+      var delta1: Float32[?, ?] =
+        hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+      var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
+
+      w1 = matsub(weights[0], matscale(nablaW1, eta));
+      w2 = matsub(weights[1], matscale(nablaW2, eta));
+      b1 = matsub(biases[0], matscale(delta1, eta));
+      b2 = matsub(biases[1], matscale(delta2, eta));
+      ()
+    };
+    ()
+  };
+
+  const finalWeights: List<Float32[?, ?]> = [w1, w2];
+  const finalBiases: List<Float32[?, ?]> = [b1, b2];
+
+  var activation0: Float32[?, ?] = xs[0];
+  for layer in 0 .. size(finalWeights) {
+    activation0 = sigmoid(matadd(matmul(finalWeights[layer], activation0),
+                                 finalBiases[layer]));
+    ()
+  };
+  print(argmax(activation0));
+
+  var activation1: Float32[?, ?] = xs[1];
+  for layer in 0 .. size(finalWeights) {
+    activation1 = sigmoid(matadd(matmul(finalWeights[layer], activation1),
+                                 finalBiases[layer]));
+    ()
+  };
+  print(argmax(activation1));
+
+  0
+}

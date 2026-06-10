@@ -121,7 +121,8 @@ private:
   auto gen(const ForExpr *node) -> mlir::Value;
   auto genPrint(const CallExpr *node) -> mlir::Value;
   auto genMatmul(const CallExpr *node) -> mlir::Value;
-  auto genMatadd(const CallExpr *node) -> mlir::Value;
+  auto genTensorBinaryNN(const CallExpr *node) -> mlir::Value;
+  auto genMatscale(const CallExpr *node) -> mlir::Value;
   auto genTranspose(const CallExpr *node) -> mlir::Value;
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
@@ -521,11 +522,13 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genPrint(node);
   if (name == nn::matmul)
     return genMatmul(node);
-  if (name == nn::matadd)
-    return genMatadd(node);
+  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard)
+    return genTensorBinaryNN(node);
+  if (name == nn::matscale)
+    return genMatscale(node);
   if (name == nn::transpose)
     return genTranspose(node);
-  if (name == nn::exp || name == nn::sigmoid)
+  if (name == nn::exp || name == nn::sigmoid || name == nn::sigmoidPrime)
     return genElementwiseNN(node);
   if (name == nn::argmax)
     return genArgmax(node);
@@ -598,7 +601,7 @@ auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
   return out;
 }
 
-auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
+auto MLIRGenImpl::genTensorBinaryNN(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = gen(expressions[0].get());
   auto rhs = gen(expressions[1].get());
@@ -606,7 +609,33 @@ auto MLIRGenImpl::genMatadd(const CallExpr *node) -> mlir::Value {
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{lhs, 0}, {lhs, 1}}, loc(node)),
       loc(node));
-  mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
+  if (node->name() == nn::matadd) {
+    mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
+    return out;
+  }
+  if (node->name() == nn::matsub) {
+    mlir::cherry_nn::MatsubOp::create(_builder, loc(node), lhs, rhs, out);
+    return out;
+  }
+  if (node->name() == nn::hadamard) {
+    mlir::cherry_nn::HadamardOp::create(_builder, loc(node), lhs, rhs, out);
+    return out;
+  }
+
+  llvm_unreachable("unexpected binary cherry_nn op");
+  return out;
+}
+
+auto MLIRGenImpl::genMatscale(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto input = gen(expressions[0].get());
+  auto scale = gen(expressions[1].get());
+  auto outType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto out = createTensorAlloc(
+      outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
+                                  loc(node)),
+      loc(node));
+  mlir::cherry_nn::MatscaleOp::create(_builder, loc(node), input, scale, out);
   return out;
 }
 
@@ -635,8 +664,16 @@ auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
     mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
     return out;
   }
+  if (node->name() == nn::sigmoid) {
+    mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
+    return out;
+  }
+  if (node->name() == nn::sigmoidPrime) {
+    mlir::cherry_nn::SigmoidPrimeOp::create(_builder, loc(node), input, out);
+    return out;
+  }
 
-  mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
+  llvm_unreachable("unexpected elementwise cherry_nn op");
   return out;
 }
 

@@ -1,0 +1,67 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  const w1: Float32[2, 2] = [[0.1, 0.2], [0.3, 0.4]];
+  const w2: Float32[1, 2] = [[0.5, 0.6]];
+  const b1: Float32[2, 1] = [[0.01], [0.02]];
+  const b2: Float32[1, 1] = [[0.03]];
+  const x: Float32[2, 1] = [[0.7], [0.8]];
+  const y: Float32[1, 1] = [[1.0]];
+  const eta: Float32 = 0.5;
+
+  const weights: List<Float32[?, ?]> = [w1, w2];
+  const biases: List<Float32[?, ?]> = [b1, b2];
+
+  var z1: Float32[?, ?] = matadd(matmul(weights[0], x), biases[0]);
+  var a1: Float32[?, ?] = sigmoid(z1);
+  var z2: Float32[?, ?] = matadd(matmul(weights[1], a1), biases[1]);
+  var a2: Float32[?, ?] = sigmoid(z2);
+
+  var delta2: Float32[?, ?] =
+    hadamard(matsub(a2, y), sigmoidPrime(z2));
+  var nablaB2: Float32[?, ?] = delta2;
+  var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
+
+  var delta1: Float32[?, ?] =
+    hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+  var nablaB1: Float32[?, ?] = delta1;
+  var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
+
+  var nextW1: Float32[?, ?] = matsub(weights[0], matscale(nablaW1, eta));
+  var nextW2: Float32[?, ?] = matsub(weights[1], matscale(nablaW2, eta));
+  var nextB1: Float32[?, ?] = matsub(biases[0], matscale(nablaB1, eta));
+  var nextB2: Float32[?, ?] = matsub(biases[1], matscale(nablaB2, eta));
+
+  print(size(nextW1));
+  print(size(nextW2));
+  print(size(nextB1));
+  print(size(nextB2));
+  0
+}
+
+# MLIR: mulberry.list.create
+# MLIR-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# MLIR: cherry_nn.matmul
+# MLIR: cherry_nn.matadd
+# MLIR: cherry_nn.sigmoid
+# MLIR: cherry_nn.matsub
+# MLIR: cherry_nn.hadamard
+# MLIR: cherry_nn.sigmoid_prime
+# MLIR: cherry_nn.matscale
+# MLIR-NOT: memref.
+
+# LOWER: linalg.generic
+# LOWER: linalg.add
+# LOWER: linalg.sub
+# LOWER: linalg.mul
+# LOWER: linalg.map
+# LOWER: math.exp
+# LOWER-NOT: cherry_nn.
+# LOWER-NOT: mulberry.
+
+# JIT: 2
+# JIT-NEXT: 1
+# JIT-NEXT: 2
+# JIT-NEXT: 1
