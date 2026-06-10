@@ -1,0 +1,22 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var outputValues: Float32[4] = [1.0, 7.0, 3.0, 4.0];
+  const output: File = open("/tmp/cherry_file_tensor_io_jit.bin", "wb");
+  const writeCount: UInt64 = write(output, outputValues);
+  close(output);
+
+  var inputValues: Float32[4] = [0.0, 0.0, 0.0, 0.0];
+  const input: File = open("/tmp/cherry_file_tensor_io_jit.bin", "rb");
+  const readCount: UInt64 = read(input, inputValues);
+  close(input);
+
+  print(writeCount);
+  print(readCount);
+  print(argmax(inputValues));
+  0
+}
+
+# JIT: 16
+# JIT-NEXT: 16
+# JIT-NEXT: 1

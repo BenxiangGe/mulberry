@@ -313,6 +313,35 @@ static auto createSizeOf(Location location, OpBuilder& builder, Type type)
                                   getI64Type(builder.getContext()), nextPtr);
 }
 
+static auto createTensorByteSize(Location location,
+                                 ConversionPatternRewriter& rewriter,
+                                 Value tensor) -> FailureOr<Value> {
+  auto memRefType = llvm::dyn_cast<MemRefType>(tensor.getType());
+  if (!memRefType)
+    return failure();
+
+  auto i64Type = getI64Type(rewriter.getContext());
+  Value elementCount = LLVM::ConstantOp::create(
+      rewriter, location, i64Type, rewriter.getI64IntegerAttr(1));
+
+  for (int64_t dim = 0; dim < memRefType.getRank(); ++dim) {
+    auto index = arith::ConstantIndexOp::create(rewriter, location, dim);
+    auto size = memref::DimOp::create(rewriter, location, tensor, index);
+    auto sizeI64 = arith::IndexCastOp::create(rewriter, location, i64Type,
+                                              size.getResult());
+    elementCount = arith::MulIOp::create(rewriter, location, elementCount,
+                                         sizeI64.getResult());
+  }
+
+  // File IO uses raw bytes. Compute the element ABI size through LLVM
+  // datalayout instead of hardcoding language type sizes here.
+  auto elementBytes = createSizeOf(location, rewriter,
+                                   memRefType.getElementType());
+  auto byteSize = arith::MulIOp::create(rewriter, location, elementCount,
+                                        elementBytes);
+  return byteSize.getResult();
+}
+
 static auto callMalloc(Location location, OpBuilder& builder, Operation* op,
                        Value sizeInBytes) -> FailureOr<Value> {
   auto moduleOp = op->getParentOfType<ModuleOp>();
@@ -1231,21 +1260,20 @@ public:
       return rewriter.notifyMatchFailure(
           op, "file read needs an fread declaration");
 
-    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
-    auto length = memref::DimOp::create(rewriter, op.getLoc(),
-                                        adaptor.getBuffer(), zero);
-    auto lengthI64 = arith::IndexCastOp::create(rewriter, op.getLoc(),
-                                                i64Type, length);
+    auto byteSize = createTensorByteSize(op.getLoc(), rewriter,
+                                         adaptor.getBuffer());
+    if (failed(byteSize))
+      return rewriter.notifyMatchFailure(
+          op, "file read needs a memref-backed tensor");
     auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
                                         rewriter.getI64IntegerAttr(1));
     auto data = createMemRefDataPointer(op.getLoc(), rewriter,
                                         adaptor.getBuffer());
-    // Use fread(ptr, 1, length, file) so the returned element count is exactly
-    // the number of bytes read, matching Mulberry's UInt8 buffer semantics.
+    // Use fread(ptr, 1, byteSize, file) so the return value is a byte count for
+    // every supported Tensor element type, not a type-dependent element count.
     auto read = LLVM::CallOp::create(
         rewriter, op.getLoc(), *freadFn,
-        ValueRange{data, one.getResult(), lengthI64.getResult(),
-                   adaptor.getFile()});
+        ValueRange{data, one.getResult(), *byteSize, adaptor.getFile()});
     rewriter.replaceOp(op, read.getResult());
     return success();
   }
@@ -1273,19 +1301,20 @@ public:
       return rewriter.notifyMatchFailure(
           op, "file write needs an fwrite declaration");
 
-    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
-    auto length = memref::DimOp::create(rewriter, op.getLoc(),
-                                        adaptor.getBuffer(), zero);
-    auto lengthI64 = arith::IndexCastOp::create(rewriter, op.getLoc(),
-                                                i64Type, length);
+    auto byteSize = createTensorByteSize(op.getLoc(), rewriter,
+                                         adaptor.getBuffer());
+    if (failed(byteSize))
+      return rewriter.notifyMatchFailure(
+          op, "file write needs a memref-backed tensor");
     auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
                                         rewriter.getI64IntegerAttr(1));
     auto data = createMemRefDataPointer(op.getLoc(), rewriter,
                                         adaptor.getBuffer());
+    // Keep write() symmetric with read(): the result is the number of raw bytes
+    // successfully written, independent of Tensor element type.
     auto written = LLVM::CallOp::create(
         rewriter, op.getLoc(), *fwriteFn,
-        ValueRange{data, one.getResult(), lengthI64.getResult(),
-                   adaptor.getFile()});
+        ValueRange{data, one.getResult(), *byteSize, adaptor.getFile()});
     rewriter.replaceOp(op, written.getResult());
     return success();
   }
