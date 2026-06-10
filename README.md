@@ -25,8 +25,8 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 - `cherry_nn` 深度学习 dialect，并支持 lowering 到 Linalg/Math/Arith/MemRef。
 - `--dump=lowered-mlir` 可以把 Mulberry Tensor 和 `cherry_nn` ops lower 到
   storage-level MLIR，例如 `memref`、`linalg`、`math` 和 `llvm` dialect。
-- LLVM/JIT/object file pipeline 暂时关闭，等待新的 Mulberry-to-LLVM lowering
-  设计。
+- `--dump=mlir-llvm`、`--dump=llvm` 和 JIT 已经对当前正向子集打开。
+- object file pipeline 暂时关闭，等待后续单独设计。
 
 ## Pipeline
 
@@ -43,7 +43,7 @@ Mulberry source
        - mulberry.tensor -> memref
        - cherry_nn -> linalg / math / arith / memref
        - scalar and record storage -> LLVM dialect where currently supported
-  -> LLVM/JIT/object pipeline is temporarily disabled
+  -> LLVM dialect / LLVM IR / JIT for the currently supported positive path
 ```
 
 ## 语言快照
@@ -99,6 +99,8 @@ makefile 当前默认使用 `release` CMake preset。
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
 ./build/release/bin/cherry-driver --dump=lowered-mlir test/cherry/Language/argmax.cherry
 ./build/release/bin/cherry-driver --dump=lowered-mlir examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver --dump=llvm test/cherry/Driver/driver.cherry
+./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
 ```
 
 直接运行 lit 测试：
@@ -141,7 +143,13 @@ cmake --build build/release --target check-cherry
 当前 lowered IR 会把 for-loop 推理降到 `scf`、`memref`、`linalg`、`arith` 和
 `math`，不应再残留 `mulberry` 或 `cherry_nn` op。
 
-当执行能力重新启用时，`test_data[0]` 的期望预测结果是：
+直接执行 JIT：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
+```
+
+`test_data[0]` 的期望预测结果是：
 
 ```text
 7
@@ -152,7 +160,7 @@ cmake --build build/release --target check-cherry
 - 内部命名仍然大多是 `cherry`。
 - 语言还没有标准库和 namespace 系统。
 - 大模型数据仍然展开到源码 literal 里。
-- End-to-end JIT 暂时关闭；当前主要验证到 `--dump=lowered-mlir`。
+- JIT 只覆盖当前正向子集；object file generation 仍然关闭。
 - `cherry_nn` ops 还需要更强的 verifier 和诊断。
 - 这是一个学习用编译器，不是生产编译器。
 

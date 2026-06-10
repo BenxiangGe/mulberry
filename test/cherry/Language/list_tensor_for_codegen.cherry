@@ -34,7 +34,9 @@ fn main(): UInt64 {
 # LOWER-LABEL: func.func @main
 # LOWER: memref.alloc(%{{.*}}) : memref<?xmemref<?x?xf32>>
 # LOWER: scf.for unsigned
-# LOWER: linalg.matmul
+# LOWER: linalg.generic
+# LOWER: arith.mulf
+# LOWER: arith.addf
 # LOWER: linalg.add
 # LOWER: linalg.map
 # LOWER: linalg.generic

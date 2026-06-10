@@ -20,6 +20,15 @@ def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
   let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect"];
 }
 
+def LowerCherryRuntime : Pass<"lower-cherry-runtime"> {
+  let summary = "Lower Cherry runtime-facing ops";
+  let description = [{
+    This pass lowers Cherry ops that represent runtime calls after high-level
+    Mulberry lowering has finished.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "LLVM::LLVMDialect"];
+}
+
 def LowerMulberry : Pass<"lower-mulberry"> {
   let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
   let description = [{

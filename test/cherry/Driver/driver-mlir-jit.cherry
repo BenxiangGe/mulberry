@@ -1,5 +1,6 @@
-# RUN: not cherry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s --check-prefix=MLIRLLVM
-# RUN: not cherry-driver %s -dump=llvm 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: cherry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s --check-prefix=MLIRLLVM
+# RUN: cherry-driver %s -dump=llvm 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn bar(x: UInt64, y: Bool): Bool {
   var k: Bool = y;
@@ -35,5 +36,18 @@ fn main(): UInt64 {
   0
 }
 
-# MLIRLLVM: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned
-# LLVM: error: LLVM lowering is temporarily disabled while Mulberry lowering is redesigned
+# MLIRLLVM: llvm.func @printU64(i64)
+# MLIRLLVM: llvm.func @main() -> i64
+# MLIRLLVM: llvm.call @printU64
+# MLIRLLVM: llvm.func @_mlir_ciface_main() -> i64
+# MLIRLLVM-NOT: cherry.
+# MLIRLLVM-NOT: func.func
+# MLIRLLVM-NOT: builtin.unrealized_conversion_cast
+
+# LLVM: declare void @printU64(i64)
+# LLVM: define i64 @main()
+# LLVM: call void @printU64
+# LLVM: define i64 @_mlir_ciface_main()
+
+# JIT: 1
+# JIT-NEXT: 0

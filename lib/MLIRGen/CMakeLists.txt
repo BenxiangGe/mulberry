@@ -11,6 +11,7 @@ add_mlir_dialect_library(cherryMLIRGen
         Conversion/CherryNNToLinalgPatterns.cpp
         Conversion/ConvertCherryToArithCfFunc.cpp
         Conversion/ConvertCherryToSCF.cpp
+        Conversion/LowerCherryRuntime.cpp
         Conversion/LowerMulberry.cpp
         Conversion/PrepareMulberryBoundaries.cpp
 
