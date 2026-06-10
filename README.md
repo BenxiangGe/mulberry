@@ -98,7 +98,7 @@ makefile 当前默认使用 `release` CMake preset。
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
 ./build/release/bin/cherry-driver --dump=lowered-mlir test/cherry/Language/argmax.cherry
-./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver --dump=lowered-mlir examples/dl/inference_mnist1.cherry
 ```
 
 直接运行 lit 测试：
@@ -132,6 +132,15 @@ cmake --build build/release --target check-cherry
 ./build/release/bin/cherry-driver --dump=mlir examples/dl/inference_mnist1.cherry
 ```
 
+查看 lowering 后的 MLIR：
+
+```sh
+./build/release/bin/cherry-driver --dump=lowered-mlir examples/dl/inference_mnist1.cherry
+```
+
+当前 lowered IR 会把 for-loop 推理降到 `scf`、`memref`、`linalg`、`arith` 和
+`math`，不应再残留 `mulberry` 或 `cherry_nn` op。
+
 当执行能力重新启用时，`test_data[0]` 的期望预测结果是：
 
 ```text
@@ -143,7 +152,7 @@ cmake --build build/release --target check-cherry
 - 内部命名仍然大多是 `cherry`。
 - 语言还没有标准库和 namespace 系统。
 - 大模型数据仍然展开到源码 literal 里。
-- End-to-end JIT 暂时关闭，等待 Mulberry lowering 重新设计完成。
+- End-to-end JIT 暂时关闭；当前主要验证到 `--dump=lowered-mlir`。
 - `cherry_nn` ops 还需要更强的 verifier 和诊断。
 - 这是一个学习用编译器，不是生产编译器。
 

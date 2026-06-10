@@ -5,4 +5,4 @@ module {
       -> !mulberry.list<!mulberry.tensor<?x?xf32>>
 }
 
-// CHECK: source-level List<Tensor> function return boundary preparation is not implemented yet
+// CHECK: source-level List<T> function return boundary preparation is not implemented yet

@@ -11,4 +11,4 @@ module {
       -> (i64, !mulberry.list<!mulberry.tensor<?x?xf32>>)
 }
 
-// CHECK: source-level List<Tensor> call result boundary preparation is not implemented yet
+// CHECK: source-level List<T> call result boundary preparation is not implemented yet
