@@ -28,10 +28,14 @@ auto BuiltinType::name() const -> std::string_view {
     return "Unit";
   case BuiltinTypeKind::Bool:
     return "Bool";
+  case BuiltinTypeKind::UInt8:
+    return "UInt8";
   case BuiltinTypeKind::UInt64:
     return "UInt64";
   case BuiltinTypeKind::Float32:
     return "Float32";
+  case BuiltinTypeKind::String:
+    return "String";
   }
   return {};
 }
@@ -198,6 +202,11 @@ auto getBoolType() -> const BuiltinType * {
   return &type;
 }
 
+auto getUInt8Type() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::UInt8};
+  return &type;
+}
+
 auto getUInt64Type() -> const BuiltinType * {
   static const BuiltinType type{BuiltinTypeKind::UInt64};
   return &type;
@@ -205,6 +214,11 @@ auto getUInt64Type() -> const BuiltinType * {
 
 auto getFloat32Type() -> const BuiltinType * {
   static const BuiltinType type{BuiltinTypeKind::Float32};
+  return &type;
+}
+
+auto getStringType() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::String};
   return &type;
 }
 
@@ -259,6 +273,10 @@ auto isUnitType(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Unit);
 }
 
+auto isUInt8Type(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::UInt8);
+}
+
 auto isUInt64Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::UInt64);
 }
@@ -271,12 +289,16 @@ auto isFloat32Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Float32);
 }
 
+auto isStringType(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::String);
+}
+
 auto isNumericType(const Type *type) -> bool {
-  return isUInt64Type(type) || isFloat32Type(type);
+  return isUInt8Type(type) || isUInt64Type(type) || isFloat32Type(type);
 }
 
 auto isEquatableType(const Type *type) -> bool {
-  return isUInt64Type(type) || isBoolType(type) || isFloat32Type(type);
+  return isNumericType(type) || isBoolType(type);
 }
 
 auto isTensorType(const Type *type) -> bool {
@@ -339,10 +361,14 @@ auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const
     return getUnitType();
   case BuiltinTypeKind::Bool:
     return getBoolType();
+  case BuiltinTypeKind::UInt8:
+    return getUInt8Type();
   case BuiltinTypeKind::UInt64:
     return getUInt64Type();
   case BuiltinTypeKind::Float32:
     return getFloat32Type();
+  case BuiltinTypeKind::String:
+    return getStringType();
   }
   return nullptr;
 }

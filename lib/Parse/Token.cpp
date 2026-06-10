@@ -23,6 +23,45 @@ auto Token::getFloat32Value() const -> std::optional<llvm::APFloat> {
   return llvm::APFloat(llvm::APFloat::IEEEsingle(), _spelling);
 }
 
+auto Token::getStringLiteralValue() const -> std::optional<std::string> {
+  if (_kind != string_literal || _spelling.size() < 2 ||
+      _spelling.front() != '"' || _spelling.back() != '"')
+    return std::nullopt;
+
+  // The lexer keeps the source spelling, including quotes and escapes. Decode
+  // here so AST/Sema see the source-level String value, not token text.
+  std::string result;
+  for (size_t i = 1; i + 1 < _spelling.size(); ++i) {
+    auto c = _spelling[i];
+    if (c != '\\') {
+      result.push_back(c);
+      continue;
+    }
+
+    if (++i + 1 >= _spelling.size())
+      return std::nullopt;
+
+    switch (_spelling[i]) {
+    case 'n':
+      result.push_back('\n');
+      break;
+    case 't':
+      result.push_back('\t');
+      break;
+    case '"':
+      result.push_back('"');
+      break;
+    case '\\':
+      result.push_back('\\');
+      break;
+    default:
+      return std::nullopt;
+    }
+  }
+
+  return result;
+}
+
 SMLoc Token::getLoc() const { return SMLoc::getFromPointer(_spelling.data()); }
 
 SMLoc Token::getEndLoc() const {

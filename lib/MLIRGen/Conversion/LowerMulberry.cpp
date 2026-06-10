@@ -27,6 +27,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include <optional>
+#include <string>
 
 namespace mlir::cherry {
 
@@ -55,6 +56,31 @@ static auto getTensorDataPtrType(MLIRContext* context) -> ptr::PtrType {
 
 static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
+}
+
+using StringABIDescriptorType = LLVM::LLVMStructType;
+
+// String ABI descriptor layout:
+//
+//   { length: i64, data: ptr }
+//
+// `length` is the source string byte count and excludes the trailing NUL.
+// String literals still materialize immutable global bytes with an extra NUL
+// so future runtime calls can pass the same data pointer to C APIs.
+struct StringABILayout {
+  StringABIDescriptorType descriptorType;
+};
+
+static auto convertToStringABILayout(mulberry::StringType type)
+    -> StringABILayout {
+  auto context = type.getContext();
+
+  std::vector<Type> fields;
+  fields.push_back(getI64Type(context)); // byte length, excluding trailing NUL
+  fields.push_back(getPtrType(context)); // data pointer
+  auto descriptorType = LLVM::LLVMStructType::getLiteral(context, fields);
+
+  return StringABILayout{descriptorType};
 }
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
@@ -97,6 +123,9 @@ static auto convertMemRefToDataMemRefType(MemRefType type) -> MemRefType {
 static auto convertToBackendType(Type type) -> std::optional<Type> {
   if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
     return convertRecordToBackendType(recordType);
+
+  if (auto stringType = llvm::dyn_cast<mulberry::StringType>(type))
+    return convertToStringABILayout(stringType).descriptorType;
 
   if (isScalarStorageType(type))
     return type;
@@ -374,6 +403,61 @@ static auto createListABIDesc(
       rewriter, location, withLength.getResult(), dataPointer,
       ArrayRef<int64_t>{1});
   return withData.getResult();
+}
+
+static auto createStringABIDesc(
+    Location location, ConversionPatternRewriter& rewriter,
+    const StringABILayout& layout, Value length, Value dataPointer) -> Value {
+  auto desc = LLVM::UndefOp::create(rewriter, location,
+                                    layout.descriptorType);
+  auto withLength = LLVM::InsertValueOp::create(
+      rewriter, location, desc.getResult(), length, ArrayRef<int64_t>{0});
+  auto withData = LLVM::InsertValueOp::create(
+      rewriter, location, withLength.getResult(), dataPointer,
+      ArrayRef<int64_t>{1});
+  return withData.getResult();
+}
+
+static auto createStringGlobalName(ModuleOp moduleOp) -> std::string {
+  for (size_t index = 0;; ++index) {
+    auto name = "__mulberry_string_" + std::to_string(index);
+    if (!moduleOp.lookupSymbol<LLVM::GlobalOp>(name))
+      return name;
+  }
+}
+
+static auto createStringDataPointer(
+    Location location, OpBuilder& builder, Operation* op, StringRef value)
+    -> FailureOr<Value> {
+  auto moduleOp = op->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return failure();
+
+  auto bytes = value.str();
+  bytes.push_back('\0');
+  auto name = createStringGlobalName(moduleOp);
+  auto context = builder.getContext();
+
+  LLVM::GlobalOp global;
+  {
+    OpBuilder::InsertionGuard insertGuard(builder);
+    builder.setInsertionPointToStart(moduleOp.getBody());
+    auto type = LLVM::LLVMArrayType::get(IntegerType::get(context, 8),
+                                         bytes.size());
+    global = LLVM::GlobalOp::create(builder, location, type,
+                                    /*isConstant=*/true,
+                                    LLVM::Linkage::Internal, name,
+                                    builder.getStringAttr(bytes),
+                                    /*alignment=*/0);
+  }
+
+  auto globalPtr = LLVM::AddressOfOp::create(builder, location, global);
+  auto zero = LLVM::ConstantOp::create(builder, location, getI64Type(context),
+                                       builder.getI64IntegerAttr(0));
+  auto dataPointer = LLVM::GEPOp::create(
+      builder, location, getPtrType(context), global.getType(), globalPtr,
+      ArrayRef<Value>{zero.getResult(), zero.getResult()});
+  return dataPointer.getResult();
 }
 
 static auto createTensorABIDesc(
@@ -928,6 +1012,9 @@ public:
     addConversion([](mulberry::TensorDescType type) -> Type {
       return convertToTensorABILayout(type).descriptorType;
     });
+    addConversion([](mulberry::StringType type) -> Type {
+      return convertToStringABILayout(type).descriptorType;
+    });
     addConversion(convertRecordToBackendType);
     addConversion(convertPtrType);
     addConversion(convertTensorToMemRefType);
@@ -1035,6 +1122,38 @@ public:
     LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
                           adaptor.getPtr());
     rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class StringLiteralOpLowering
+    : public OpConversionPattern<mulberry::StringLiteralOp> {
+public:
+  using OpConversionPattern<mulberry::StringLiteralOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::StringLiteralOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto stringType = llvm::cast<mulberry::StringType>(
+        op.getResult().getType());
+    auto layout = convertToStringABILayout(stringType);
+    auto resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (resultType != layout.descriptorType)
+      return rewriter.notifyMatchFailure(
+          op, "string literal result type does not match its ABI");
+
+    auto dataPointer = createStringDataPointer(
+        op.getLoc(), rewriter, op.getOperation(), op.getValue());
+    if (failed(dataPointer))
+      return rewriter.notifyMatchFailure(
+          op, "string literal needs a parent module");
+
+    auto length = LLVM::ConstantOp::create(
+        rewriter, op.getLoc(), getI64Type(op.getContext()),
+        rewriter.getI64IntegerAttr(op.getValue().size()));
+    auto desc = createStringABIDesc(op.getLoc(), rewriter, layout,
+                                    length.getResult(), *dataPointer);
+    rewriter.replaceOp(op, desc);
     return success();
   }
 };
@@ -1930,7 +2049,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                  ListDescPackOpConversion, ListDescToABIOpLowering,
                  ListSizeOpLowering, ListStoreOpLowering, LoadOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
-                 StoreOpLowering, TensorAllocOpLowering, TensorCastOpLowering,
+                 StoreOpLowering, StringLiteralOpLowering,
+                 TensorAllocOpLowering, TensorCastOpLowering,
                  TensorDimOpLowering,
                  TensorDescPackOpConversion, TensorDescToABIOpLowering,
                  TensorDescUnpackOpConversion, TensorLoadOpLowering,

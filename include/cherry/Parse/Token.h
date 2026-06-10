@@ -13,6 +13,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SMLoc.h"
 #include <optional>
+#include <string>
 
 namespace cherry {
 
@@ -37,6 +38,7 @@ public:
 
   auto getUInt64IntegerValue() const -> std::optional<uint64_t>;
   auto getFloat32Value() const -> std::optional<llvm::APFloat>;
+  auto getStringLiteralValue() const -> std::optional<std::string>;
 
   llvm::SMLoc getLoc() const;
   llvm::SMLoc getEndLoc() const;

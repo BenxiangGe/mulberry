@@ -89,6 +89,8 @@ auto Lexer::lexToken() -> Token {
       return formToken(Token::div, tokStart);
     case '%':
       return formToken(Token::rem, tokStart);
+    case '"':
+      return lexString(tokStart);
     case '0':
     case '1':
     case '2':
@@ -151,4 +153,26 @@ auto Lexer::lexNumber(const char *tokStart) -> Token {
   }
 
   return formToken(isFloat ? Token::float_literal : Token::decimal, tokStart);
+}
+
+auto Lexer::lexString(const char *tokStart) -> Token {
+  // Escape validation is handled when the token is decoded; lexing only needs
+  // to keep escaped quotes from terminating the token early.
+  while (_curPtr != _curBuffer.end() && *_curPtr != 0) {
+    if (*_curPtr == '"') {
+      ++_curPtr;
+      return formToken(Token::string_literal, tokStart);
+    }
+    if (*_curPtr == '\n' || *_curPtr == '\r')
+      return formToken(Token::error, tokStart);
+    if (*_curPtr == '\\') {
+      ++_curPtr;
+      if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
+          *_curPtr == '\n' || *_curPtr == '\r')
+        return formToken(Token::error, tokStart);
+    }
+    ++_curPtr;
+  }
+
+  return formToken(Token::error, tokStart);
 }

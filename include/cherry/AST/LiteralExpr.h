@@ -11,6 +11,8 @@
 #include "cherry/AST/Expr.h"
 #include "llvm/ADT/APFloat.h"
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace cherry {
 
@@ -66,6 +68,21 @@ public:
 
 private:
   bool _value;
+};
+
+class StringLiteralExpr final : public Expr {
+public:
+  explicit StringLiteralExpr(llvm::SMLoc location, std::string value)
+      : Expr{Expr_StringLiteral, location}, _value(std::move(value)){};
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_StringLiteral;
+  }
+
+  auto value() const -> std::string_view { return _value; }
+
+private:
+  std::string _value;
 };
 
 } // end namespace cherry

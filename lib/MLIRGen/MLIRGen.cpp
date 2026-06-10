@@ -134,6 +134,7 @@ private:
   auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
+  auto gen(const StringLiteralExpr *node) -> mlir::Value;
   auto gen(const AssignExpr *node) -> mlir::Value;
   auto gen(const BinaryExpr *node) -> mlir::Value;
 
@@ -385,6 +386,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
     return gen(cast<BoolLiteralExpr>(node));
+  case Expr::Expr_StringLiteral:
+    return gen(cast<StringLiteralExpr>(node));
   case Expr::Expr_Call:
     return gen(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -749,6 +752,12 @@ auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
   return mlir::arith::ConstantIntOp::create(_builder, loc(node),
                                             node->value(), 1);
+}
+
+auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
+  return mlir::mulberry::StringLiteralOp::create(
+      _builder, loc(node), getMLIRType(node),
+      _builder.getStringAttr(node->value()));
 }
 
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
