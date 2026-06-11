@@ -1,0 +1,20 @@
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_training_safetensors.py --sample-count 2 --output /tmp/cherry_mnist_training.safetensors > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  const file: File = open("/tmp/cherry_mnist_training.safetensors", "rb");
+
+  var x0: Float32[?, ?] = readTensor(file, "train_x_0");
+  var y0: Float32[?, ?] = readTensor(file, "train_y_0");
+  var y1: Float32[?, ?] = readTensor(file, "train_y_1");
+
+  close(file);
+
+  print(size(x0));
+  print(argmax(y0));
+  print(argmax(y1));
+  0
+}
+
+# JIT: 784
+# JIT-NEXT: 5
+# JIT-NEXT: 0

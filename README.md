@@ -128,9 +128,11 @@ cmake --build build/release --target check-cherry
 - 生成脚本：`tools/generate_inference_mnist1.py`
 - raw tensor 导出脚本：`tools/export_mnist_raw_tensors.py`
 - safetensors 导出脚本：`tools/export_mnist_safetensors.py`
+- training safetensors 导出脚本：`tools/export_mnist_training_safetensors.py`
 - 生成源码：`examples/dl/inference_mnist1.cherry`
 - safetensors 文件推理源码：`examples/dl/inference_mnist_safetensors.cherry`
 - raw 文件推理源码：`examples/dl/inference_mnist_raw.cherry`
+- safetensors training smoke 源码：`examples/dl/training_mnist_safetensors.cherry`
 
 重新生成示例：
 
@@ -163,6 +165,28 @@ python3 tools/export_mnist_safetensors.py
 ```sh
 ./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
 ```
+
+导出一个小的 training safetensors 子集：
+
+```sh
+python3 tools/export_mnist_training_safetensors.py
+```
+
+当前 training 导出是 bootstrap 布局：每个样本独立保存为
+`train_x_0`、`train_y_0`、...、`train_x_9`、`train_y_9` 这样的 named tensor。这样后续
+training script 可以继续使用已经跑通的 `readTensor(file, name)`，不需要先引入
+dataset iterator 或 tensor slice。
+
+导出后可以运行一个最小真实数据 training smoke：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/training_mnist_safetensors.cherry
+```
+
+当前 training smoke 走 Nielsen `network2.py` 默认的 CrossEntropy output delta：
+`delta = a - y`，用默认导出的 `10` 个 training 样本跑 `30` 个 epoch。训练后会读取
+`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
+mini-batch、shuffle、L2 regularization 和保存训练结果还没实现。
 
 查看生成出的高层 MLIR：
 
