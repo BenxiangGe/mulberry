@@ -6,6 +6,10 @@
 shape header。文件只保存连续的 tensor element bytes；element type 和 shape 由
 Mulberry 源码里的类型声明决定。
 
+raw `.f32` 文件只是当前 bootstrap 格式。后续深度学习数据会优先使用
+[Safetensors](Safetensors.md)，用单个文件保存多个 Tensor，并在 header 中记录
+dtype、shape 和 payload offsets。
+
 例如：
 
 ```cherry
