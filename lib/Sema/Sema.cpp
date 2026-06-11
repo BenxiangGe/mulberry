@@ -107,6 +107,7 @@ private:
   auto sema(ArrayLiteralExpr *expr) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const ListType *type) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
+  auto semaZeros(CallExpr *node, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
   auto semaMatmul(CallExpr *node) -> CherryResult;
   auto semaTensorBinary(CallExpr *node) -> CherryResult;
@@ -437,6 +438,14 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
       return sema(arrayLiteral, tensorType);
   }
 
+  auto *call = dyn_cast<CallExpr>(node);
+  if (call && call->name() == builtins::zeros) {
+    auto *tensorType = cherry::getTensorType(type);
+    if (!tensorType)
+      return emitError(call, diag::mismatch_type);
+    return semaZeros(call, tensorType);
+  }
+
   return sema(node);
 }
 
@@ -491,6 +500,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == builtins::size) {
     return semaSize(node);
+  }
+  if (name == builtins::zeros) {
+    return emitError(node, diag::mismatch_type);
   }
   if (name == builtins::open) {
     return semaFileOpen(node);
@@ -843,6 +855,23 @@ auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
     return failure();
   if (!sameType(type, expr->type()))
     return emitError(expr, diag::mismatch_type);
+  return success();
+}
+
+auto SemaImpl::semaZeros(CallExpr *node, const TensorType *type)
+    -> CherryResult {
+  if (!node->expressions().empty())
+    return emitError(node, diag::wrong_num_arg);
+
+  // zeros() is target-typed so it can allocate a Tensor without a huge literal.
+  // Dynamic-shape zero fill needs loop-based initialization and is a separate
+  // operation from the static raw-file buffers needed by the current pipeline.
+  for (auto dim : type->shape()) {
+    if (dim < 0)
+      return emitError(node, diag::mismatch_type);
+  }
+
+  node->setType(type);
   return success();
 }
 

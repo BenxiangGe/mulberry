@@ -69,9 +69,13 @@ fn main(): UInt64 {
 
 - `matmul`
 - `matadd`
+- `matsub`
+- `hadamard`
+- `matscale`
 - `transpose`
 - `exp`
 - `sigmoid`
+- `sigmoidPrime`
 - `argmax`
 
 这些 ops 会 lower 到标准 MLIR dialect，例如 `linalg`、`math`、`arith` 和
@@ -101,6 +105,7 @@ makefile 当前默认使用 `release` CMake preset。
 ./build/release/bin/cherry-driver --dump=lowered-mlir examples/dl/inference_mnist1.cherry
 ./build/release/bin/cherry-driver --dump=llvm test/cherry/Driver/driver.cherry
 ./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver examples/dl/inference_mnist_raw.cherry
 ```
 
 直接运行 lit 测试：
@@ -120,13 +125,25 @@ cmake --build build/release --target check-cherry
 - 权重和 bias：`data/mnist-784-30-10.json`
 - 测试数据：`data/mnist.pkl.gz`
 - 生成脚本：`tools/generate_inference_mnist1.py`
+- raw tensor 导出脚本：`tools/export_mnist_raw_tensors.py`
 - 生成源码：`examples/dl/inference_mnist1.cherry`
+- raw 文件推理源码：`examples/dl/inference_mnist_raw.cherry`
 
 重新生成示例：
 
 ```sh
 /usr/bin/python3 tools/generate_inference_mnist1.py
 ```
+
+导出当前最小 raw tensor 文件：
+
+```sh
+python3 tools/export_mnist_raw_tensors.py
+```
+
+默认输出目录是 `data/mnist-784-30-10-raw/`。文件只包含连续 element bytes，type
+和 shape 由 Cherry 源码里的 tensor 类型决定。详细约定见
+[Raw Tensor Files](docs/RawTensorFiles.md)。
 
 查看生成出的高层 MLIR：
 
@@ -149,6 +166,12 @@ cmake --build build/release --target check-cherry
 ./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
 ```
 
+如果已经导出 raw tensor 文件，也可以运行不包含巨大 literal 的 raw 文件版本：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/inference_mnist_raw.cherry
+```
+
 `test_data[0]` 的期望预测结果是：
 
 ```text
@@ -159,7 +182,8 @@ cmake --build build/release --target check-cherry
 
 - 内部命名仍然大多是 `cherry`。
 - 语言还没有标准库和 namespace 系统。
-- 大模型数据仍然展开到源码 literal 里。
+- `examples/dl/inference_mnist1.cherry` 仍然把数据展开到源码 literal 里；raw 文件
+  版本已经可以从外部 tensor 文件读取数据。
 - JIT 只覆盖当前正向子集；object file generation 仍然关闭。
 - `cherry_nn` ops 还需要更强的 verifier 和诊断。
 - 这是一个学习用编译器，不是生产编译器。
@@ -169,4 +193,5 @@ cmake --build build/release --target check-cherry
 - [Grammar](docs/Grammar.md)
 - [Builtins](docs/Builtins.md)
 - [Mulberry Lowering](docs/MulberryLowering.md)
+- [Raw Tensor Files](docs/RawTensorFiles.md)
 - Driver 示例：`test/cherry/Driver`

@@ -3,3 +3,4 @@ build
 .cache
 llvm-project/
 .idea
+data/mnist-784-30-10-raw/

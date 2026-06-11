@@ -1,0 +1,55 @@
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_raw_tensors.py --output-dir /tmp/cherry_mnist_raw_inference > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var w1: Float32[30, 784] = zeros();
+  var b1: Float32[30, 1] = zeros();
+  var w2: Float32[10, 30] = zeros();
+  var b2: Float32[10, 1] = zeros();
+  var x: Float32[784, 1] = zeros();
+
+  const w1File: File = open("/tmp/cherry_mnist_raw_inference/w1.f32", "rb");
+  const w1Count: UInt64 = read(w1File, w1);
+  close(w1File);
+
+  const b1File: File = open("/tmp/cherry_mnist_raw_inference/b1.f32", "rb");
+  const b1Count: UInt64 = read(b1File, b1);
+  close(b1File);
+
+  const w2File: File = open("/tmp/cherry_mnist_raw_inference/w2.f32", "rb");
+  const w2Count: UInt64 = read(w2File, w2);
+  close(w2File);
+
+  const b2File: File = open("/tmp/cherry_mnist_raw_inference/b2.f32", "rb");
+  const b2Count: UInt64 = read(b2File, b2);
+  close(b2File);
+
+  const xFile: File = open("/tmp/cherry_mnist_raw_inference/x.f32", "rb");
+  const xCount: UInt64 = read(xFile, x);
+  close(xFile);
+
+  print(w1Count);
+  print(b1Count);
+  print(w2Count);
+  print(b2Count);
+  print(xCount);
+
+  const weights: List<Float32[?, ?]> = [w1, w2];
+  const biases: List<Float32[?, ?]> = [b1, b2];
+  var activation: Float32[?, ?] = x;
+
+  for layer in 0 .. size(weights) {
+    activation = sigmoid(matadd(matmul(weights[layer], activation),
+                                biases[layer]));
+    ()
+  };
+
+  print(argmax(activation));
+  0
+}
+
+# JIT: 94080
+# JIT-NEXT: 120
+# JIT-NEXT: 1200
+# JIT-NEXT: 40
+# JIT-NEXT: 3136
+# JIT-NEXT: 7

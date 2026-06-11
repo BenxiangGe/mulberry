@@ -127,6 +127,7 @@ private:
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
   auto genSize(const CallExpr *node) -> mlir::Value;
+  auto genZeros(const CallExpr *node) -> mlir::Value;
   auto genOpen(const CallExpr *node) -> mlir::Value;
   auto genRead(const CallExpr *node) -> mlir::Value;
   auto genWrite(const CallExpr *node) -> mlir::Value;
@@ -248,6 +249,10 @@ private:
   void storeTensorElements(const ArrayLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
                            std::vector<mlir::Value> &indices);
+  auto zeroValue(mlir::Type type, mlir::Location location) -> mlir::Value;
+  void zeroFill(mlir::Value tensor, mlir::Type elementType,
+                const std::vector<int64_t> &shape, size_t depth,
+                std::vector<mlir::Value> &indices, mlir::Location location);
   mlir::Value gen(const IndexExpr *expr);
   void genAssignment(const IndexExpr *lhs, const Expr *rhs);
 
@@ -541,6 +546,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genArgmax(node);
   if (name == builtins::size)
     return genSize(node);
+  if (name == builtins::zeros)
+    return genZeros(node);
   if (name == builtins::open)
     return genOpen(node);
   if (name == builtins::read)
@@ -721,6 +728,15 @@ auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
 
   DBG("size() static tensor size: {0}", size);
   return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
+}
+
+auto MLIRGenImpl::genZeros(const CallExpr *node) -> mlir::Value {
+  auto tensorType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
+  auto tensor = createTensorAlloc(tensorType, {}, loc(node));
+  std::vector<mlir::Value> indices;
+  zeroFill(tensor, tensorType.getElementType(), tensorType.getShape(), 0,
+           indices, loc(node));
+  return tensor;
 }
 
 auto MLIRGenImpl::genOpen(const CallExpr *node) -> mlir::Value {
@@ -1287,6 +1303,43 @@ void MLIRGenImpl::storeTensorElements(
       mlir::mulberry::TensorStoreOp::create(_builder, loc(childExpr), val,
                                             tensor, mlir::ValueRange(indices));
     }
+    indices.pop_back();
+  }
+}
+
+auto MLIRGenImpl::zeroValue(mlir::Type type,
+                            mlir::Location location) -> mlir::Value {
+  if (auto intType = llvm::dyn_cast<mlir::IntegerType>(type))
+    return mlir::arith::ConstantIntOp::create(_builder, location, 0,
+                                              intType.getWidth());
+
+  if (auto floatType = llvm::dyn_cast<mlir::FloatType>(type)) {
+    auto zero = llvm::APFloat::getZero(floatType.getFloatSemantics());
+    return mlir::arith::ConstantFloatOp::create(_builder, location, floatType,
+                                                zero);
+  }
+
+  ERR("zeros() does not support tensor element type `{0}`", type);
+  return nullptr;
+}
+
+void MLIRGenImpl::zeroFill(mlir::Value tensor, mlir::Type elementType,
+                           const std::vector<int64_t> &shape, size_t depth,
+                           std::vector<mlir::Value> &indices,
+                           mlir::Location location) {
+  if (depth == shape.size()) {
+    auto zero = zeroValue(elementType, location);
+    mlir::mulberry::TensorStoreOp::create(_builder, location, zero, tensor,
+                                          mlir::ValueRange(indices));
+    return;
+  }
+
+  // Static zeros() is expanded to stores now; dynamic zeros() should become a
+  // loop-based fill when the language needs dynamic Tensor allocation syntax.
+  for (int64_t i = 0; i < shape[depth]; ++i) {
+    auto index = mlir::arith::ConstantIndexOp::create(_builder, location, i);
+    indices.push_back(index);
+    zeroFill(tensor, elementType, shape, depth + 1, indices, location);
     indices.pop_back();
   }
 }
