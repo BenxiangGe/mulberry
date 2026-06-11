@@ -23,6 +23,7 @@ set(CHERRY_TEST_DEPENDS
         cherry-opt
         cherry-translate
         cherry-driver
+        cherryRuntime
         CherryPlugin
 )
 

@@ -20,6 +20,7 @@ const std::string_view size = "size";
 const std::string_view zeros = "zeros";
 const std::string_view open = "open";
 const std::string_view read = "read";
+const std::string_view readTensor = "readTensor";
 const std::string_view write = "write";
 const std::string_view close = "close";
 

@@ -504,6 +504,56 @@ static auto createStringDataPointer(
   return dataPointer.getResult();
 }
 
+static auto createI64StackArray(Location location,
+                                ConversionPatternRewriter& rewriter,
+                                size_t length) -> Value {
+  auto context = rewriter.getContext();
+  auto count = LLVM::ConstantOp::create(
+      rewriter, location, getI64Type(context),
+      rewriter.getI64IntegerAttr(length));
+  return LLVM::AllocaOp::create(
+      rewriter, location, getPtrType(context), getI64Type(context),
+      count.getResult(), /*alignment=*/0).getResult();
+}
+
+static auto createExpectedShapeArray(Location location,
+                                     ConversionPatternRewriter& rewriter,
+                                     ArrayRef<int64_t> shape) -> Value {
+  auto context = rewriter.getContext();
+  auto i64Type = getI64Type(context);
+  auto shapeArray = createI64StackArray(location, rewriter, shape.size());
+
+  for (size_t dim = 0; dim < shape.size(); ++dim) {
+    auto index = LLVM::ConstantOp::create(
+        rewriter, location, i64Type,
+        rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)));
+    auto slot = LLVM::GEPOp::create(
+        rewriter, location, getPtrType(context), i64Type, shapeArray,
+        ArrayRef<Value>{index.getResult()});
+    auto value = LLVM::ConstantOp::create(
+        rewriter, location, i64Type, rewriter.getI64IntegerAttr(shape[dim]));
+    LLVM::StoreOp::create(rewriter, location, value.getResult(),
+                          slot.getResult());
+  }
+
+  return shapeArray;
+}
+
+static auto loadRuntimeShapeDim(Location location,
+                                ConversionPatternRewriter& rewriter,
+                                Value shapeArray, size_t dim) -> Value {
+  auto context = rewriter.getContext();
+  auto i64Type = getI64Type(context);
+  auto index = LLVM::ConstantOp::create(
+      rewriter, location, i64Type,
+      rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)));
+  auto slot = LLVM::GEPOp::create(
+      rewriter, location, getPtrType(context), i64Type, shapeArray,
+      ArrayRef<Value>{index.getResult()});
+  return LLVM::LoadOp::create(rewriter, location, i64Type,
+                              slot.getResult()).getResult();
+}
+
 static auto createTensorABIDesc(
     Location location, ConversionPatternRewriter& rewriter,
     const TensorABILayout& layout, Value tensor, mulberry::TensorDescType type)
@@ -1346,6 +1396,94 @@ public:
     auto result = arith::ExtSIOp::create(rewriter, op.getLoc(), i64Type,
                                          closed.getResult());
     rewriter.replaceOp(op, result.getResult());
+    return success();
+  }
+};
+
+class SafetensorReadOpLowering
+    : public OpConversionPattern<mulberry::SafetensorReadOp> {
+public:
+  using OpConversionPattern<
+      mulberry::SafetensorReadOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::SafetensorReadOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    if (!moduleOp)
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read needs a parent module");
+
+    auto tensorType = llvm::cast<mulberry::TensorType>(
+        op.getResult().getType());
+    if (!tensorType.getElementType().isF32())
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read currently supports only f32 tensors");
+
+    auto resultType = llvm::dyn_cast_or_null<MemRefType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!resultType)
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read needs a lowerable memref result type");
+
+    auto context = op.getContext();
+    auto ptrType = getPtrType(context);
+    auto i64Type = getI64Type(context);
+    auto voidType = LLVM::LLVMVoidType::get(context);
+    auto shape = tensorType.getShape();
+    auto rank = LLVM::ConstantOp::create(
+        rewriter, op.getLoc(), i64Type,
+        rewriter.getI64IntegerAttr(static_cast<int64_t>(shape.size())));
+    auto expectedShape = createExpectedShapeArray(op.getLoc(), rewriter,
+                                                  shape);
+    auto outShape = createI64StackArray(op.getLoc(), rewriter, shape.size());
+    auto name = extractStringDataPointer(op.getLoc(), rewriter,
+                                         adaptor.getName());
+
+    auto shapeFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "mulberry_safetensor_shape_f32",
+        {ptrType, ptrType, i64Type, ptrType, ptrType}, voidType);
+    if (failed(shapeFn))
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read needs a shape runtime declaration");
+
+    // Runtime owns safetensors parsing. Lowering only passes expected shape
+    // metadata, then uses the returned concrete shape to allocate dynamic
+    // memref dimensions before reading the payload.
+    LLVM::CallOp::create(
+        rewriter, op.getLoc(), *shapeFn,
+        ValueRange{adaptor.getFile(), name, rank.getResult(), expectedShape,
+                   outShape});
+
+    std::vector<Value> dynamicSizes;
+    for (size_t dim = 0; dim < shape.size(); ++dim) {
+      if (shape[dim] >= 0)
+        continue;
+      auto sizeI64 = loadRuntimeShapeDim(op.getLoc(), rewriter, outShape, dim);
+      dynamicSizes.push_back(arith::IndexCastOp::create(
+                                 rewriter, op.getLoc(),
+                                 rewriter.getIndexType(), sizeI64)
+                                 .getResult());
+    }
+
+    auto tensor = memref::AllocOp::create(rewriter, op.getLoc(), resultType,
+                                          dynamicSizes);
+    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
+                                        tensor.getResult());
+
+    auto readFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, "mulberry_safetensor_read_f32",
+        {ptrType, ptrType, i64Type, ptrType, ptrType}, voidType);
+    if (failed(readFn))
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read needs a payload runtime declaration");
+
+    LLVM::CallOp::create(
+        rewriter, op.getLoc(), *readFn,
+        ValueRange{adaptor.getFile(), name, rank.getResult(), expectedShape,
+                   data});
+
+    rewriter.replaceOp(op, tensor.getResult());
     return success();
   }
 };
@@ -2242,7 +2380,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                  ListDescPackOpConversion, ListDescToABIOpLowering,
                  ListSizeOpLowering, ListStoreOpLowering, LoadOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
-                 StoreOpLowering, StringLiteralOpLowering,
+                 SafetensorReadOpLowering, StoreOpLowering,
+                 StringLiteralOpLowering,
                  TensorAllocOpLowering, TensorCastOpLowering,
                  TensorDimOpLowering,
                  TensorDescPackOpConversion, TensorDescToABIOpLowering,

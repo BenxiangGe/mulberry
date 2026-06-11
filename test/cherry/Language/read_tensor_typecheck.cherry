@@ -1,0 +1,13 @@
+# RUN: cherry-driver -typecheck %s
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const file: File = open("data/mnist-784-30-10.safetensors", "rb");
+  var w1: Float32[?, ?] = readTensor(file, "w1");
+  var b1: Float32[30, ?] = readTensor(file, "b1");
+  close(file);
+  size(w1) + size(b1)
+}
+
+# CHECK: CallExpr {{.*}}type=Float32[?, ?] callee=readTensor
+# CHECK: CallExpr {{.*}}type=Float32[30, ?] callee=readTensor

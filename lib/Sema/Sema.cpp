@@ -119,6 +119,7 @@ private:
   auto semaSize(CallExpr *node) -> CherryResult;
   auto semaFileOpen(CallExpr *node) -> CherryResult;
   auto semaFileRead(CallExpr *node) -> CherryResult;
+  auto semaReadTensor(CallExpr *node, const TensorType *type) -> CherryResult;
   auto semaFileWrite(CallExpr *node) -> CherryResult;
   auto semaFileClose(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
@@ -445,6 +446,12 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
       return emitError(call, diag::mismatch_type);
     return semaZeros(call, tensorType);
   }
+  if (call && call->name() == builtins::readTensor) {
+    auto *tensorType = cherry::getTensorType(type);
+    if (!tensorType)
+      return emitError(call, diag::mismatch_type);
+    return semaReadTensor(call, tensorType);
+  }
 
   return sema(node);
 }
@@ -509,6 +516,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == builtins::read) {
     return semaFileRead(node);
+  }
+  if (name == builtins::readTensor) {
+    return emitError(node, diag::mismatch_type);
   }
   if (name == builtins::write) {
     return semaFileWrite(node);
@@ -1165,6 +1175,31 @@ auto SemaImpl::semaFileRead(CallExpr *node) -> CherryResult {
     return failure();
 
   setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
+auto SemaImpl::semaReadTensor(CallExpr *node, const TensorType *type)
+    -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 2)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (!isFloat32Type(type->elementType()))
+    return emitError(node, diag::mismatch_type);
+  if (type->shape().empty())
+    return emitError(node, diag::mismatch_type);
+
+  if (sema(expressions[0].get()))
+    return failure();
+  if (!isFileType(expressions[0]->type()))
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  if (sema(expressions[1].get()))
+    return failure();
+  if (!isStringType(expressions[1]->type()))
+    return emitError(expressions[1].get(), diag::mismatch_type);
+
+  node->setType(type);
   return success();
 }
 

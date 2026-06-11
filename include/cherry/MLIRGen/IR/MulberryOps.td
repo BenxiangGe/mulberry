@@ -175,6 +175,19 @@ def Mulberry_FileCloseOp : Mulberry_Op<"file.close"> {
   let assemblyFormat = "$file attr-dict `:` type($file)";
 }
 
+def Mulberry_SafetensorReadOp : Mulberry_Op<"safetensor.read"> {
+  let summary = "Read a named tensor from a safetensors file";
+
+  let arguments = (ins Mulberry_AnyFileType:$file,
+                       Mulberry_AnyStringType:$name);
+  let results = (outs Mulberry_AnyTensorType:$result);
+
+  let assemblyFormat = "$file `,` $name attr-dict `:` type($file) `,` "
+                       "type($name) `->` type($result)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {
   let summary = "Allocate a Mulberry tensor";
 
