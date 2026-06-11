@@ -105,6 +105,7 @@ makefile 当前默认使用 `release` CMake preset。
 ./build/release/bin/cherry-driver --dump=lowered-mlir examples/dl/inference_mnist1.cherry
 ./build/release/bin/cherry-driver --dump=llvm test/cherry/Driver/driver.cherry
 ./build/release/bin/cherry-driver examples/dl/inference_mnist1.cherry
+./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
 ./build/release/bin/cherry-driver examples/dl/inference_mnist_raw.cherry
 ```
 
@@ -128,6 +129,7 @@ cmake --build build/release --target check-cherry
 - raw tensor 导出脚本：`tools/export_mnist_raw_tensors.py`
 - safetensors 导出脚本：`tools/export_mnist_safetensors.py`
 - 生成源码：`examples/dl/inference_mnist1.cherry`
+- safetensors 文件推理源码：`examples/dl/inference_mnist_safetensors.cherry`
 - raw 文件推理源码：`examples/dl/inference_mnist_raw.cherry`
 
 重新生成示例：
@@ -146,14 +148,20 @@ python3 tools/export_mnist_raw_tensors.py
 和 shape 由 Cherry 源码里的 tensor 类型决定。详细约定见
 [Raw Tensor Files](docs/RawTensorFiles.md)。
 
-raw `.f32` 是当前 bootstrap 格式。下一阶段会使用 safetensors 作为推荐数据格式，
-用单个文件保存多个 tensor，并通过 expected-type `readTensor(file, name)` 读取。
-设计见 [Safetensors](docs/Safetensors.md)。
+raw `.f32` 是 bootstrap/debug 格式。日常 MNIST 推理优先使用 safetensors：它用
+单个文件保存多个 tensor，并通过 expected-type `readTensor(file, name)` 读取。
+详细约定见 [Safetensors](docs/Safetensors.md)。
 
 导出 safetensors 单文件：
 
 ```sh
 python3 tools/export_mnist_safetensors.py
+```
+
+导出后可以直接运行 safetensors 文件版本：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
 ```
 
 查看生成出的高层 MLIR：
@@ -193,8 +201,8 @@ python3 tools/export_mnist_safetensors.py
 
 - 内部命名仍然大多是 `cherry`。
 - 语言还没有标准库和 namespace 系统。
-- `examples/dl/inference_mnist1.cherry` 仍然把数据展开到源码 literal 里；raw 文件
-  版本已经可以从外部 tensor 文件读取数据。
+- `examples/dl/inference_mnist1.cherry` 仍然把数据展开到源码 literal 里；
+  safetensors 和 raw 文件版本已经可以从外部 tensor 文件读取数据。
 - JIT 只覆盖当前正向子集；object file generation 仍然关闭。
 - `cherry_nn` ops 还需要更强的 verifier 和诊断。
 - 这是一个学习用编译器，不是生产编译器。

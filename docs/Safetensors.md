@@ -1,7 +1,7 @@
 # Safetensors 数据文件
 
-本文档记录 Mulberry 下一阶段的数据文件方向。当前 raw `.f32` 文件只是 bootstrap
-格式；后续深度学习推理和训练数据优先使用 safetensors。
+本文档记录 Mulberry 当前推荐的数据文件方向。raw `.f32` 文件只是
+bootstrap/debug 格式；深度学习推理和后续训练数据优先使用 safetensors。
 
 官方格式说明见：
 
@@ -71,7 +71,19 @@ x   F32[784, 1]
 ```
 
 这个导出工具直接写 safetensors layout，不依赖 Python `safetensors` package。
-后续 Mulberry runtime 会读取同一个文件格式。
+Mulberry runtime 读取同一个文件格式。
+
+导出后可以直接运行当前 MNIST 推理示例：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
+```
+
+`test_data[0]` 的期望预测结果是：
+
+```text
+7
+```
 
 ## Mulberry API
 
@@ -125,7 +137,7 @@ Mulberry source
   -> Lowering: runtime helper + tensor allocation + payload read
 ```
 
-第一版 runtime helper 可以每次 `readTensor(file, name)` 都 parse 一次 header。
+当前 runtime helper 每次 `readTensor(file, name)` 都 parse 一次 header。
 MNIST 推理只会读 `w1`、`b1`、`w2`、`b2`、`x`，重复 parse header 的开销可以接受。
 这样可以避免提前引入 `TensorFile` handle、cache 和 lifetime 设计。
 
@@ -157,14 +169,14 @@ compiler/lowering 负责：
 - 把 Tensor data pointer 传给 runtime。
 - 返回 Tensor value。
 
-## 第一版限制
+## 当前限制
 
 - 只支持 `Float32` / safetensors `F32`。
 - 只支持 Tensor，不支持 List 或 struct 直接从 safetensors 读取。
 - 必须有 expected Tensor type。
 - 不支持 `var w = readTensor(file, "w1");` 这种裸推断。
 - shape mismatch、dtype mismatch、找不到 tensor 先 fail-fast。
-- header 每次读取可以重复 parse，不做 cache。
+- header 每次读取都会重复 parse，不做 cache。
 - 暂不支持写 safetensors。
 
 ## 后续方向

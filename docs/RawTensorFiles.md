@@ -1,14 +1,14 @@
 # Raw Tensor 文件
 
-本文档记录当前 Mulberry 读取和写入 Tensor 文件时采用的最小约定。
+本文档记录 Mulberry 读取和写入 raw Tensor 文件时采用的最小约定。
 
 这不是一个通用 tensor 文件格式。它没有 magic number、version、dtype、rank 或
 shape header。文件只保存连续的 tensor element bytes；element type 和 shape 由
 Mulberry 源码里的类型声明决定。
 
-raw `.f32` 文件只是当前 bootstrap 格式。后续深度学习数据会优先使用
-[Safetensors](Safetensors.md)，用单个文件保存多个 Tensor，并在 header 中记录
-dtype、shape 和 payload offsets。
+raw `.f32` 文件只是 bootstrap/debug 格式。日常深度学习推理和后续训练数据优先
+使用 [Safetensors](Safetensors.md)，用单个文件保存多个 Tensor，并在 header 中
+记录 dtype、shape 和 payload offsets。
 
 例如：
 
@@ -47,15 +47,17 @@ close(file);
 
 ## 为什么不加 Header
 
-当前阶段的目标是先让训练和推理数据能从真实文件进入 Mulberry 程序，而不是先设计
-完整 data format。
+raw 格式的目标是先让训练和推理数据能从真实文件进入 Mulberry 程序，而不是先设计
+完整 data format。现在 safetensors 路径已经可用，所以 raw 格式主要保留给最小
+IO bootstrap、调试和对照测试。
 
 把 type 和 shape 放在源码类型里有几个好处：
 
 - 实现简单，直接复用已有 `read(file, tensor)`。
 - 编译器仍能静态知道 tensor rank 和 shape。
 - 文件内容可以直接映射到连续 tensor storage。
-- 后续如果需要完整格式，可以在 raw tensor 之上再加 manifest 或 header。
+- safetensors 已经提供 dtype、shape 和 payload offsets。后续正常功能应优先扩展
+  safetensors，而不是在 raw tensor 之上继续发明 manifest 或 header。
 
 目前不处理：
 
