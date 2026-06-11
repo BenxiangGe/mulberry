@@ -55,6 +55,14 @@ auto getRuntimeLibPath() -> std::string {
 #endif
 }
 
+auto getCherryRuntimeLibPath() -> std::string {
+#ifdef CHERRY_RUNTIME_LIB
+  return CHERRY_RUNTIME_LIB;
+#else
+  return {};
+#endif
+}
+
 auto registerLLVMTranslations(mlir::ModuleOp module) -> void {
   mlir::registerBuiltinDialectTranslation(*module->getContext());
   mlir::registerLLVMDialectTranslation(*module->getContext());
@@ -195,9 +203,12 @@ auto Compilation::jit() -> int {
                  : llvm::CodeGenOptLevel::None;
 
   auto runtimeLibPath = getRuntimeLibPath();
+  auto cherryRuntimeLibPath = getCherryRuntimeLibPath();
   std::vector<llvm::StringRef> sharedLibPaths;
   if (!runtimeLibPath.empty())
     sharedLibPaths.push_back(runtimeLibPath);
+  if (!cherryRuntimeLibPath.empty())
+    sharedLibPaths.push_back(cherryRuntimeLibPath);
   options.sharedLibPaths = sharedLibPaths;
 
   auto engine = mlir::ExecutionEngine::create(*module, options,

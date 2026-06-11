@@ -1,0 +1,285 @@
+//===--- Safetensors.cpp --------------------------------------------------===//
+//
+// This source file is part of the Cherry open source project
+// See LICENSE.txt for license information
+//
+//===----------------------------------------------------------------------===//
+
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
+
+namespace {
+
+struct TensorInfo {
+  std::vector<int64_t> shape;
+  uint64_t headerLength = 0;
+  int64_t begin = 0;
+  int64_t end = 0;
+};
+
+[[noreturn]] void fail(const char* message) {
+  std::fprintf(stderr, "safetensors error: %s\n", message);
+  std::abort();
+}
+
+void expect(bool condition, const char* message) {
+  if (!condition)
+    fail(message);
+}
+
+void skipSpaces(const std::string& text, size_t& pos) {
+  while (pos < text.size() &&
+         std::isspace(static_cast<unsigned char>(text[pos])))
+    ++pos;
+}
+
+void expectChar(const std::string& text, size_t& pos, char ch) {
+  skipSpaces(text, pos);
+  expect(pos < text.size() && text[pos] == ch, "unexpected JSON character");
+  ++pos;
+}
+
+std::string parseString(const std::string& text, size_t& pos) {
+  skipSpaces(text, pos);
+  expect(pos < text.size() && text[pos] == '"', "expected JSON string");
+  ++pos;
+
+  std::string value;
+  while (pos < text.size() && text[pos] != '"') {
+    expect(text[pos] != '\\', "escaped JSON strings are not supported yet");
+    value.push_back(text[pos]);
+    ++pos;
+  }
+
+  expect(pos < text.size(), "unterminated JSON string");
+  ++pos;
+  return value;
+}
+
+int64_t parseInteger(const std::string& text, size_t& pos) {
+  skipSpaces(text, pos);
+  expect(pos < text.size() && std::isdigit(static_cast<unsigned char>(text[pos])),
+         "expected JSON integer");
+
+  int64_t value = 0;
+  while (pos < text.size() &&
+         std::isdigit(static_cast<unsigned char>(text[pos]))) {
+    value = value * 10 + (text[pos] - '0');
+    ++pos;
+  }
+  return value;
+}
+
+std::vector<int64_t> parseIntegerArray(const std::string& text, size_t& pos) {
+  std::vector<int64_t> values;
+  expectChar(text, pos, '[');
+  skipSpaces(text, pos);
+  if (pos < text.size() && text[pos] == ']') {
+    ++pos;
+    return values;
+  }
+
+  for (;;) {
+    values.push_back(parseInteger(text, pos));
+    skipSpaces(text, pos);
+    if (pos < text.size() && text[pos] == ']') {
+      ++pos;
+      return values;
+    }
+    expectChar(text, pos, ',');
+  }
+}
+
+void skipValue(const std::string& text, size_t& pos) {
+  skipSpaces(text, pos);
+  expect(pos < text.size(), "unexpected end of JSON value");
+
+  if (text[pos] == '"') {
+    parseString(text, pos);
+    return;
+  }
+
+  if (text[pos] == '[') {
+    int depth = 0;
+    do {
+      if (text[pos] == '"') {
+        parseString(text, pos);
+        continue;
+      }
+      if (text[pos] == '[')
+        ++depth;
+      if (text[pos] == ']')
+        --depth;
+      ++pos;
+      expect(pos <= text.size(), "unterminated JSON array");
+    } while (depth > 0);
+    return;
+  }
+
+  if (text[pos] == '{') {
+    int depth = 0;
+    do {
+      if (text[pos] == '"') {
+        parseString(text, pos);
+        continue;
+      }
+      if (text[pos] == '{')
+        ++depth;
+      if (text[pos] == '}')
+        --depth;
+      ++pos;
+      expect(pos <= text.size(), "unterminated JSON object");
+    } while (depth > 0);
+    return;
+  }
+
+  while (pos < text.size() && text[pos] != ',' && text[pos] != '}' &&
+         text[pos] != ']')
+    ++pos;
+}
+
+TensorInfo parseTensorObject(const std::string& header, size_t& pos) {
+  TensorInfo info;
+  bool seenDtype = false;
+  bool seenShape = false;
+  bool seenOffsets = false;
+
+  expectChar(header, pos, '{');
+  skipSpaces(header, pos);
+  if (pos < header.size() && header[pos] == '}')
+    fail("empty tensor metadata");
+
+  for (;;) {
+    auto field = parseString(header, pos);
+    expectChar(header, pos, ':');
+
+    if (field == "dtype") {
+      auto dtype = parseString(header, pos);
+      expect(dtype == "F32", "only F32 safetensors are supported");
+      seenDtype = true;
+    } else if (field == "shape") {
+      info.shape = parseIntegerArray(header, pos);
+      seenShape = true;
+    } else if (field == "data_offsets") {
+      auto offsets = parseIntegerArray(header, pos);
+      expect(offsets.size() == 2, "data_offsets must contain two integers");
+      info.begin = offsets[0];
+      info.end = offsets[1];
+      expect(info.begin >= 0 && info.end >= info.begin,
+             "invalid data_offsets");
+      seenOffsets = true;
+    } else {
+      skipValue(header, pos);
+    }
+
+    skipSpaces(header, pos);
+    if (pos < header.size() && header[pos] == '}') {
+      ++pos;
+      break;
+    }
+    expectChar(header, pos, ',');
+  }
+
+  expect(seenDtype && seenShape && seenOffsets, "incomplete tensor metadata");
+  return info;
+}
+
+std::string readHeader(FILE* file, uint64_t& headerLength) {
+  expect(file != nullptr, "file is null");
+  expect(std::fseek(file, 0, SEEK_SET) == 0, "failed to seek safetensors file");
+
+  unsigned char lengthBytes[8] = {};
+  expect(std::fread(lengthBytes, 1, sizeof(lengthBytes), file) ==
+             sizeof(lengthBytes),
+         "failed to read safetensors header length");
+
+  headerLength = 0;
+  for (int i = 7; i >= 0; --i)
+    headerLength = (headerLength << 8) | lengthBytes[i];
+  expect(headerLength <= 64 * 1024 * 1024, "safetensors header is too large");
+
+  std::string header(headerLength, '\0');
+  expect(std::fread(header.data(), 1, header.size(), file) == header.size(),
+         "failed to read safetensors header");
+  return header;
+}
+
+TensorInfo findTensor(FILE* file, const char* name) {
+  expect(name != nullptr, "tensor name is null");
+  uint64_t headerLength = 0;
+  auto header = readHeader(file, headerLength);
+
+  size_t pos = 0;
+  expectChar(header, pos, '{');
+  skipSpaces(header, pos);
+  while (pos < header.size() && header[pos] != '}') {
+    auto key = parseString(header, pos);
+    expectChar(header, pos, ':');
+    if (key == name) {
+      auto info = parseTensorObject(header, pos);
+      info.headerLength = headerLength;
+      return info;
+    }
+
+    skipValue(header, pos);
+    skipSpaces(header, pos);
+    if (pos < header.size() && header[pos] == ',') {
+      ++pos;
+      continue;
+    }
+  }
+
+  fail("tensor name not found");
+}
+
+void checkShape(const TensorInfo& info, int64_t rank, const int64_t* expected) {
+  expect(rank >= 0, "invalid tensor rank");
+  expect(static_cast<int64_t>(info.shape.size()) == rank,
+         "tensor rank mismatch");
+  for (int64_t i = 0; i < rank; ++i) {
+    expect(expected[i] < 0 || expected[i] == info.shape[i],
+           "tensor shape mismatch");
+  }
+}
+
+int64_t byteSize(const TensorInfo& info) {
+  int64_t elements = 1;
+  for (auto dim : info.shape) {
+    expect(dim >= 0, "negative runtime tensor dimension");
+    elements *= dim;
+  }
+  return elements * static_cast<int64_t>(sizeof(float));
+}
+
+} // namespace
+
+extern "C" void mulberry_safetensor_shape_f32(
+    FILE* file, const char* name, int64_t rank, const int64_t* expectedShape,
+    int64_t* outShape) {
+  auto info = findTensor(file, name);
+  checkShape(info, rank, expectedShape);
+  for (int64_t i = 0; i < rank; ++i)
+    outShape[i] = info.shape[i];
+}
+
+extern "C" void mulberry_safetensor_read_f32(
+    FILE* file, const char* name, int64_t rank, const int64_t* expectedShape,
+    void* data) {
+  expect(data != nullptr, "tensor data pointer is null");
+  auto info = findTensor(file, name);
+  checkShape(info, rank, expectedShape);
+
+  auto payloadOffset = static_cast<long>(8 + info.headerLength + info.begin);
+  expect(std::fseek(file, payloadOffset, SEEK_SET) == 0,
+         "failed to seek tensor payload");
+
+  auto bytes = byteSize(info);
+  expect(info.end - info.begin == bytes, "tensor byte size mismatch");
+  expect(std::fread(data, 1, bytes, file) == static_cast<size_t>(bytes),
+         "failed to read tensor payload");
+}

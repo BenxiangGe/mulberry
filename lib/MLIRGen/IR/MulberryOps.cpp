@@ -186,6 +186,16 @@ auto FileWriteOp::verify() -> LogicalResult {
   return success();
 }
 
+auto SafetensorReadOp::verify() -> LogicalResult {
+  auto tensorType = getTensorType(getResult().getType());
+  if (tensorType.getShape().empty())
+    return emitOpError("result must be a ranked tensor");
+  if (!tensorType.getElementType().isF32())
+    return emitOpError("only Float32 safetensors are supported");
+
+  return success();
+}
+
 auto TensorAllocOp::verify() -> LogicalResult {
   auto tensorType = getTensorType(getResult().getType());
   auto expectedDynamicSizeCount = countDynamicDims(tensorType.getShape());

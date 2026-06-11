@@ -130,6 +130,7 @@ private:
   auto genZeros(const CallExpr *node) -> mlir::Value;
   auto genOpen(const CallExpr *node) -> mlir::Value;
   auto genRead(const CallExpr *node) -> mlir::Value;
+  auto genReadTensor(const CallExpr *node) -> mlir::Value;
   auto genWrite(const CallExpr *node) -> mlir::Value;
   auto genClose(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
@@ -552,6 +553,8 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genOpen(node);
   if (name == builtins::read)
     return genRead(node);
+  if (name == builtins::readTensor)
+    return genReadTensor(node);
   if (name == builtins::write)
     return genWrite(node);
   if (name == builtins::close)
@@ -754,6 +757,14 @@ auto MLIRGenImpl::genRead(const CallExpr *node) -> mlir::Value {
   return mlir::mulberry::FileReadOp::create(_builder, loc(node),
                                             _builder.getI64Type(), file,
                                             buffer);
+}
+
+auto MLIRGenImpl::genReadTensor(const CallExpr *node) -> mlir::Value {
+  auto &expressions = node->expressions();
+  auto file = gen(expressions[0].get());
+  auto name = gen(expressions[1].get());
+  return mlir::mulberry::SafetensorReadOp::create(
+      _builder, loc(node), getMLIRType(node), file, name);
 }
 
 auto MLIRGenImpl::genWrite(const CallExpr *node) -> mlir::Value {
