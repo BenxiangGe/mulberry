@@ -126,6 +126,7 @@ cmake --build build/release --target check-cherry
 - 测试数据：`data/mnist.pkl.gz`
 - 生成脚本：`tools/generate_inference_mnist1.py`
 - raw tensor 导出脚本：`tools/export_mnist_raw_tensors.py`
+- safetensors 导出脚本：`tools/export_mnist_safetensors.py`
 - 生成源码：`examples/dl/inference_mnist1.cherry`
 - raw 文件推理源码：`examples/dl/inference_mnist_raw.cherry`
 
@@ -144,6 +145,16 @@ python3 tools/export_mnist_raw_tensors.py
 默认输出目录是 `data/mnist-784-30-10-raw/`。文件只包含连续 element bytes，type
 和 shape 由 Cherry 源码里的 tensor 类型决定。详细约定见
 [Raw Tensor Files](docs/RawTensorFiles.md)。
+
+raw `.f32` 是当前 bootstrap 格式。下一阶段会使用 safetensors 作为推荐数据格式，
+用单个文件保存多个 tensor，并通过 expected-type `readTensor(file, name)` 读取。
+设计见 [Safetensors](docs/Safetensors.md)。
+
+导出 safetensors 单文件：
+
+```sh
+python3 tools/export_mnist_safetensors.py
+```
 
 查看生成出的高层 MLIR：
 
@@ -194,4 +205,5 @@ python3 tools/export_mnist_raw_tensors.py
 - [Builtins](docs/Builtins.md)
 - [Mulberry Lowering](docs/MulberryLowering.md)
 - [Raw Tensor Files](docs/RawTensorFiles.md)
+- [Safetensors](docs/Safetensors.md)
 - Driver 示例：`test/cherry/Driver`
