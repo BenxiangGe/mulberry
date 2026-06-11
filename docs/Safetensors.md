@@ -85,6 +85,50 @@ Mulberry runtime 读取同一个文件格式。
 7
 ```
 
+也可以导出一个小的 training 子集：
+
+```sh
+python3 tools/export_mnist_training_safetensors.py
+```
+
+默认输出文件：
+
+```text
+data/mnist-784-30-10-training.safetensors
+```
+
+文件包含初始网络参数，以及按名字展开的 training 样本：
+
+```text
+w1         F32[30, 784]
+b1         F32[30, 1]
+w2         F32[10, 30]
+b2         F32[10, 1]
+train_x_0  F32[784, 1]
+train_y_0  F32[10, 1]
+train_x_1  F32[784, 1]
+train_y_1  F32[10, 1]
+...
+train_x_9  F32[784, 1]
+train_y_9  F32[10, 1]
+```
+
+`train_y_N` 是 one-hot label。当前 Mulberry 还没有 tensor slice 或 dataset
+iterator，所以 training bootstrap 先把每个样本导成独立 named tensor。后续如果
+语言补齐 dataset 抽象，可以改成 `train_x: Float32[?, 784, 1]` 和
+`train_y: Float32[?, 10, 1]` 这样的批量布局。
+
+导出后可以运行一个最小真实数据 training smoke：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/training_mnist_safetensors.cherry
+```
+
+当前 smoke 使用默认导出的 `10` 个 training 样本跑 `30` 个 epoch 的 per-sample SGD，然后读取
+`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
+输出层 delta 采用 Nielsen `network2.py` 默认的 CrossEntropy 形式：
+`delta = a - y`。mini-batch、shuffle、L2 regularization 和保存训练结果后续再补。
+
 ## Mulberry API
 
 第一版使用 expected type，不做裸类型推断：
@@ -175,6 +219,8 @@ compiler/lowering 负责：
 - 只支持 Tensor，不支持 List 或 struct 直接从 safetensors 读取。
 - 必须有 expected Tensor type。
 - 不支持 `var w = readTensor(file, "w1");` 这种裸推断。
+- training 数据当前使用 `train_x_N` / `train_y_N` named tensor bootstrap 布局，
+  还不是最终 dataset API。
 - shape mismatch、dtype mismatch、找不到 tensor 先 fail-fast。
 - header 每次读取都会重复 parse，不做 cache。
 - 暂不支持写 safetensors。

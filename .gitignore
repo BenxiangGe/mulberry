@@ -5,3 +5,4 @@ llvm-project/
 .idea
 data/mnist-784-30-10-raw/
 data/mnist-784-30-10.safetensors
+data/mnist-784-30-10-training.safetensors
