@@ -19,7 +19,7 @@ module {
 // CHECK: %[[ITEM:.*]] = memref.load %[[SCALAR_LIST]]
 // CHECK: %[[LENGTH:.*]] = memref.dim %[[SCALAR_LIST]]
 // CHECK: arith.index_cast
-// CHECK: memref.dealloc %[[SCALAR_LIST]] : memref<?xi64>
+// CHECK-NOT: memref.dealloc
 
 // CHECK-NOT: mulberry.list.create
 // CHECK-NOT: mulberry.list.get
