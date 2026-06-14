@@ -10,7 +10,7 @@ fn main(): UInt64 {
   argmax(matmul(make()[0], x))
 }
 
-# CHECK: llvm.func @malloc(i64) -> !llvm.ptr
+# CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # CHECK-LABEL: func.func @make
 # CHECK-SAME: -> !llvm.struct<(i64, ptr)>
 # CHECK: memref.alloc() : memref<2x2xf32>
@@ -19,7 +19,7 @@ fn main(): UInt64 {
 # CHECK: llvm.alloca
 # CHECK-SAME: !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 # CHECK: ptr.to_ptr
-# CHECK: llvm.call @malloc
+# CHECK: llvm.call @mulberry_boehm_malloc
 # CHECK: scf.for
 # CHECK: llvm.store
 # CHECK: return %{{.*}} : !llvm.struct<(i64, ptr)>

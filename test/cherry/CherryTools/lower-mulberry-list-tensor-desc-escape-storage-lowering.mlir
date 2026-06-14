@@ -26,7 +26,7 @@ module {
   }
 }
 
-// CHECK: llvm.func @malloc(i64) -> !llvm.ptr
+// CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 // CHECK-LABEL: func.func @escape_tensor_desc_storage
 // CHECK: %[[LOCAL:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[NULL:.*]] = llvm.mlir.zero : !llvm.ptr
@@ -34,7 +34,7 @@ module {
 // CHECK-SAME: -> !llvm.ptr, !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[ELEM_BYTES:.*]] = llvm.ptrtoint %[[SIZE_PTR]] : !llvm.ptr to i64
 // CHECK: %[[TOTAL_BYTES:.*]] = arith.muli %{{.*}}, %[[ELEM_BYTES]] : i64
-// CHECK: %[[HEAP:.*]] = llvm.call @malloc(%[[TOTAL_BYTES]]) : (i64) -> !llvm.ptr
+// CHECK: %[[HEAP:.*]] = llvm.call @mulberry_boehm_malloc(%[[TOTAL_BYTES]]) : (i64) -> !llvm.ptr
 // CHECK: scf.for
 // CHECK: llvm.load
 // CHECK: llvm.store

@@ -42,6 +42,8 @@ add_definitions(${LLVM_DEFINITIONS})
 
 set(LLVM_SRC_DIR ${CHERRY_SOURCE_DIR}/llvm-project CACHE STRING "The LLVM src directory")
 
+include(Dependencies.cmake)
+
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON)

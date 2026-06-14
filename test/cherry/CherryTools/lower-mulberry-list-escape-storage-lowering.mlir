@@ -17,10 +17,10 @@ module {
   }
 }
 
-// CHECK: llvm.func @malloc(i64) -> !llvm.ptr
+// CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 // CHECK-LABEL: func.func @escape_scalar_storage
 // CHECK: memref.alloc
-// CHECK: llvm.call @malloc
+// CHECK: llvm.call @mulberry_boehm_malloc
 // CHECK: scf.for
 // CHECK: memref.load
 // CHECK: llvm.store

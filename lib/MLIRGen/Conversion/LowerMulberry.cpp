@@ -180,27 +180,6 @@ static auto convertToMemRefType(mulberry::ListStorageType type)
   return MemRefType::get({ShapedType::kDynamic}, elementType);
 }
 
-static auto convertToListBackendStorageType(Type type) -> std::optional<Type> {
-  if (auto listType = llvm::dyn_cast<mulberry::ListType>(type)) {
-    auto storageType = convertToListStorageType(listType);
-    if (!storageType)
-      return std::nullopt;
-    return convertToListBackendStorageType(*storageType);
-  }
-
-  auto listStorageType = llvm::dyn_cast<mulberry::ListStorageType>(type);
-  if (!listStorageType)
-    return std::nullopt;
-
-  if (auto memRefType = convertToMemRefType(listStorageType))
-    return *memRefType;
-
-  if (llvm::isa<mulberry::TensorDescType>(listStorageType.getElementType()))
-    return getPtrType(type.getContext());
-
-  return std::nullopt;
-}
-
 static auto isDescriptorBackedStorage(Type type) -> bool {
   auto storageType = llvm::dyn_cast<mulberry::ListStorageType>(type);
   return storageType &&
@@ -288,6 +267,9 @@ static auto convertToListABILayout(mulberry::ListDescType type)
 static auto createMemRefDataPointer(
     Location location, ConversionPatternRewriter& rewriter, Value storage)
     -> Value {
+  // Runtime calls and ABI descriptors need an opaque LLVM pointer, not the full
+  // memref descriptor. Extract the memref's aligned data pointer and cast that
+  // raw address to ptr.
   auto pointerAsIndex = memref::ExtractAlignedPointerAsIndexOp::create(
       rewriter, location, storage);
   auto pointerAsInt = arith::IndexCastOp::create(
@@ -342,34 +324,21 @@ static auto createTensorByteSize(Location location,
   return byteSize.getResult();
 }
 
-static auto callMalloc(Location location, OpBuilder& builder, Operation* op,
-                       Value sizeInBytes) -> FailureOr<Value> {
+static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op,
+                            Value sizeInBytes) -> FailureOr<Value> {
   auto moduleOp = op->getParentOfType<ModuleOp>();
   if (!moduleOp)
     return failure();
 
-  auto mallocFn = LLVM::lookupOrCreateMallocFn(
-      builder, moduleOp, getI64Type(builder.getContext()));
+  auto mallocFn = LLVM::lookupOrCreateFn(
+      builder, moduleOp, "mulberry_boehm_malloc",
+      {getI64Type(builder.getContext())}, getPtrType(builder.getContext()));
   if (failed(mallocFn))
     return failure();
 
   auto mallocCall = LLVM::CallOp::create(
       builder, location, *mallocFn, ValueRange{sizeInBytes});
   return mallocCall.getResult();
-}
-
-static auto callFree(Location location, OpBuilder& builder, Operation* op,
-                     Value pointer) -> LogicalResult {
-  auto moduleOp = op->getParentOfType<ModuleOp>();
-  if (!moduleOp)
-    return failure();
-
-  auto freeFn = LLVM::lookupOrCreateFreeFn(builder, moduleOp);
-  if (failed(freeFn))
-    return failure();
-
-  LLVM::CallOp::create(builder, location, *freeFn, ValueRange{pointer});
-  return success();
 }
 
 static auto createEscapedListData(
@@ -389,15 +358,17 @@ static auto createEscapedListData(
   auto elementBytes = createSizeOf(location, rewriter, *elementType);
   auto totalBytes = arith::MulIOp::create(
       rewriter, location, lengthI64.getResult(), elementBytes);
-  auto heapStorage = callMalloc(location, rewriter, op, totalBytes.getResult());
+  auto heapStorage = callBoehmMalloc(location, rewriter, op,
+                                     totalBytes.getResult());
   if (failed(heapStorage))
     return failure();
 
   auto zero = arith::ConstantIndexOp::create(rewriter, location, 0);
   auto one = arith::ConstantIndexOp::create(rewriter, location, 1);
-  // Return descriptors own a malloc buffer. Scalar list storage starts as a
-  // memref, while TensorDesc list storage starts as an LLVM pointer to stack
-  // alloca; both must be copied into the same ABI-owned data buffer.
+  // Return descriptors use Boehm-managed storage so callers do not need an
+  // explicit ownership convention. Scalar list storage starts as a memref, while
+  // TensorDesc list storage starts as an LLVM pointer to stack alloca; both must
+  // be copied into the same ABI data buffer.
   scf::ForOp::create(
       rewriter, location, zero, length, one, ValueRange{},
       [&](OpBuilder& builder, Location loopLoc, Value index, ValueRange args) {
@@ -562,6 +533,8 @@ static auto createTensorABIDesc(
                                     layout.descriptorType);
   auto tensorType = llvm::cast<MemRefType>(tensor.getType());
   auto dataMemRefType = convertMemRefToDataMemRefType(tensorType);
+  // Field 0 stores only the tensor data pointer. The memref metadata is
+  // re-materialized below as explicit sizes/strides fields.
   auto dataMemRef = memref::MemorySpaceCastOp::create(
       rewriter, location, dataMemRefType, tensor);
   auto dataPointer = ptr::ToPtrOp::create(
@@ -614,6 +587,8 @@ static auto createTensorFromABIDesc(
   auto layout = MemRefLayoutAttrInterface{};
   auto baseType = MemRefType::get({}, type.getElementType(), layout,
                                   getTensorDataAddressSpace(context));
+  // The ABI data pointer has no memref metadata attached. Start from a scalar
+  // base memref, then reinterpret it with the descriptor's sizes and strides.
   auto base = ptr::FromPtrOp::create(
       rewriter, location, baseType, dataPointer.getResult(), Value{});
 
@@ -947,80 +922,14 @@ static auto containsListDescOp(Operation* op) -> bool {
   op->walk([&](Operation* nestedOp) {
     if (llvm::isa<mulberry::ListDescPackOp, mulberry::ListDescLengthOp,
                   mulberry::ListDescDataOp, mulberry::ListDescGetOp,
-                  mulberry::ListDescToABIOp, mulberry::ListDescDeallocOp,
-                  mulberry::ListToDescOp>(nestedOp)) {
+                  mulberry::ListDescToABIOp, mulberry::ListToDescOp>(
+            nestedOp)) {
       found = true;
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
   return found;
-}
-
-static auto canInsertLocalListDealloc(mulberry::ListCreateOp op) -> bool {
-  auto listType = llvm::dyn_cast<mulberry::ListType>(op.getResult().getType());
-  if (!listType || !convertToListStorageType(listType))
-    return false;
-
-  for (auto& use : op->getUses()) {
-    auto *user = use.getOwner();
-    if (llvm::isa<mulberry::ListGetOp, mulberry::ListSizeOp>(user))
-      continue;
-    return false;
-  }
-
-  return true;
-}
-
-static auto insertLocalListDeallocs(Operation* root) -> void {
-  root->walk([&](func::FuncOp funcOp) {
-    if (funcOp.isExternal() || funcOp.empty())
-      return WalkResult::advance();
-
-    auto& entryBlock = funcOp.front();
-    auto returnOp = llvm::dyn_cast<func::ReturnOp>(entryBlock.getTerminator());
-    if (!returnOp)
-      return WalkResult::advance();
-
-    std::vector<mulberry::ListCreateOp> creates;
-    for (auto& op : entryBlock) {
-      auto createOp = llvm::dyn_cast<mulberry::ListCreateOp>(&op);
-      if (createOp && canInsertLocalListDealloc(createOp))
-        creates.push_back(createOp);
-    }
-
-    for (auto createOp : creates) {
-      // This pass only handles entry-block SSA list owners. Those are the common
-      // local list values produced by source literals. Lists crossing function
-      // boundaries are cleaned through list_desc ownership rules instead.
-      OpBuilder createBuilder(createOp);
-      auto listType =
-          llvm::cast<mulberry::ListType>(createOp.getResult().getType());
-      auto storageType = convertToListStorageType(listType);
-      if (!storageType)
-        return WalkResult::advance();
-
-      auto length = arith::ConstantIndexOp::create(
-          createBuilder, createOp.getLoc(), createOp.getElements().size());
-      auto storage = mulberry::ListAllocOp::create(
-          createBuilder, createOp.getLoc(), *storageType, length);
-
-      for (auto element : llvm::enumerate(createOp.getElements())) {
-        auto index = arith::ConstantIndexOp::create(
-            createBuilder, createOp.getLoc(), element.index());
-        mulberry::ListStoreOp::create(createBuilder, createOp.getLoc(),
-                                      element.value(), storage, index);
-      }
-
-      createOp.replaceAllUsesWith(storage.getResult());
-      OpBuilder returnBuilder(returnOp);
-      mulberry::ListDeallocOp::create(returnBuilder, createOp.getLoc(),
-                                      storage.getResult());
-      createOp.erase();
-    }
-
-    return WalkResult::advance();
-  });
 }
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
@@ -1123,27 +1032,6 @@ public:
   }
 };
 
-static auto getRecordType(Type type) -> mulberry::RecordType {
-  auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type);
-  if (!ptrType)
-    return {};
-
-  return llvm::dyn_cast<mulberry::RecordType>(ptrType.getPointeeType());
-}
-
-static auto getRecordFieldType(mulberry::RecordType recordType,
-                               StringRef field) -> Type {
-  return convertToBackendType(recordType.getFieldType(field)).value_or(Type{});
-}
-
-static auto getPtrPointeeType(Type type) -> Type {
-  auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type);
-  if (!ptrType)
-    return {};
-
-  return ptrType.getPointeeType();
-}
-
 class AllocaOpLowering : public OpConversionPattern<mulberry::AllocaOp> {
 public:
   using OpConversionPattern<mulberry::AllocaOp>::OpConversionPattern;
@@ -1206,8 +1094,12 @@ public:
   auto matchAndRewrite(mulberry::StoreOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto elementType = convertAllocaElementType(getPtrPointeeType(
-        op.getPtr().getType()));
+    auto ptrType = llvm::dyn_cast<mulberry::PtrType>(op.getPtr().getType());
+    if (!ptrType)
+      return rewriter.notifyMatchFailure(
+          op, "store target must be a Mulberry pointer");
+
+    auto elementType = convertAllocaElementType(ptrType.getPointeeType());
     if (!elementType)
       return rewriter.notifyMatchFailure(
           op, "store target must be a lowered storage slot");
@@ -1558,37 +1450,6 @@ public:
   }
 };
 
-class ListDeallocOpLowering
-    : public OpConversionPattern<mulberry::ListDeallocOp> {
-public:
-  using OpConversionPattern<mulberry::ListDeallocOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDeallocOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto storageType = convertToListBackendStorageType(op.getStorage().getType());
-    if (!storageType)
-      return rewriter.notifyMatchFailure(
-          op, "list dealloc needs lowered list storage");
-
-    if (llvm::isa<MemRefType>(*storageType)) {
-      memref::DeallocOp::create(rewriter, op.getLoc(), adaptor.getStorage());
-      rewriter.eraseOp(op);
-      return success();
-    }
-
-    if (llvm::isa<LLVM::LLVMPointerType>(*storageType)) {
-      // Descriptor-backed list storage created by list.alloc is stack alloca
-      // today. Stack storage is released automatically with the function frame.
-      rewriter.eraseOp(op);
-      return success();
-    }
-
-    return rewriter.notifyMatchFailure(
-        op, "list dealloc needs lowered list storage");
-  }
-};
-
 class ListEscapeStorageOpLowering
     : public OpConversionPattern<mulberry::ListEscapeStorageOp> {
 public:
@@ -1598,7 +1459,7 @@ public:
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     // This op is an ownership marker, not a storage transform. desc_pack sees
-    // the source marker and materializes the malloc-owned ABI data pointer.
+    // the source marker and materializes the Boehm-managed ABI data pointer.
     rewriter.replaceOp(op, adaptor.getStorage());
     return success();
   }
@@ -1781,27 +1642,6 @@ public:
   }
 };
 
-class ListDescDeallocOpLowering
-    : public OpRewritePattern<mulberry::ListDescDeallocOp> {
-public:
-  using OpRewritePattern<mulberry::ListDescDeallocOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListDescDeallocOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto pack = op.getDesc().getDefiningOp<mulberry::ListDescPackOp>();
-    if (!pack)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor dealloc needs a local desc_pack");
-
-    mulberry::ListDeallocOp::create(rewriter, op.getLoc(), pack.getData());
-    rewriter.eraseOp(op);
-    if (pack->use_empty())
-      rewriter.eraseOp(pack);
-    return success();
-  }
-};
-
 class ListDescLengthOpLowering
     : public OpRewritePattern<mulberry::ListDescLengthOp> {
 public:
@@ -1958,7 +1798,7 @@ public:
           loweredStorage, loweredLength);
       if (failed(escapedData))
         return rewriter.notifyMatchFailure(
-            op, "escaped list descriptor needs malloc-backed storage");
+            op, "escaped list descriptor needs Boehm-managed storage");
       dataPointer = *escapedData;
     } else {
       auto dataType = adaptor.getData().getType();
@@ -1979,35 +1819,6 @@ public:
                                   length.getResult(), dataPointer);
 
     rewriter.replaceOp(op, desc);
-    return success();
-  }
-};
-
-class ListDescDeallocOpConversion
-    : public OpConversionPattern<mulberry::ListDescDeallocOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescDeallocOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescDeallocOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getDesc().getType());
-    if (!convertToListABIElementType(descType.getElementType()))
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor dealloc needs a lowerable ABI element");
-
-    // List ABI field 1 is the heap data pointer for escaped return
-    // descriptors. Local descriptor cleanup is folded before conversion.
-    auto data = LLVM::ExtractValueOp::create(
-        rewriter, op.getLoc(), getPtrType(op.getContext()), adaptor.getDesc(),
-        ArrayRef<int64_t>{1});
-    if (failed(callFree(op.getLoc(), rewriter, op.getOperation(),
-                        data.getResult())))
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor dealloc needs a free declaration");
-
-    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -2096,13 +1907,20 @@ public:
   auto matchAndRewrite(mulberry::RecordGetFieldOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto recordType = getRecordType(op.getRecord().getType());
+    auto ptrType = llvm::dyn_cast<mulberry::PtrType>(op.getRecord().getType());
+    if (!ptrType)
+      return rewriter.notifyMatchFailure(
+          op, "field address needs a pointer to a record");
+
+    auto recordType =
+        llvm::dyn_cast<mulberry::RecordType>(ptrType.getPointeeType());
     if (!recordType)
       return rewriter.notifyMatchFailure(
           op, "field address needs a pointer to a record");
 
     auto llvmRecordType = getTypeConverter()->convertType(recordType);
-    auto fieldType = getRecordFieldType(recordType, op.getField());
+    auto fieldType = convertToBackendType(recordType.getFieldType(
+        op.getField()));
     if (!llvmRecordType || !fieldType)
       return rewriter.notifyMatchFailure(
           op, "field address needs a lowerable record field");
@@ -2127,7 +1945,12 @@ public:
       -> LogicalResult final {
     auto recordType = llvm::dyn_cast<mulberry::RecordType>(
         op.getRecord().getType());
-    auto fieldType = getRecordFieldType(recordType, op.getField());
+    if (!recordType)
+      return rewriter.notifyMatchFailure(
+          op, "record extract needs a record value");
+
+    auto fieldType = convertToBackendType(recordType.getFieldType(
+        op.getField()));
     if (!fieldType)
       return rewriter.notifyMatchFailure(
           op, "record extract needs a lowerable field");
@@ -2135,7 +1958,7 @@ public:
     auto fieldIndex = static_cast<int64_t>(
         recordType.getFieldIndex(op.getField()));
     auto extracted = LLVM::ExtractValueOp::create(
-        rewriter, op.getLoc(), fieldType, adaptor.getRecord(), fieldIndex);
+        rewriter, op.getLoc(), *fieldType, adaptor.getRecord(), fieldIndex);
     rewriter.replaceOp(op, extracted.getResult());
     return success();
   }
@@ -2303,8 +2126,6 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
   auto runOnOperation() -> void final {
-    insertLocalListDeallocs(getOperation());
-
     if (failed(rejectListEscape(getOperation())))
       return signalPassFailure();
 
@@ -2326,8 +2147,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     // finalization. LLVM structs cannot directly contain memref-typed fields.
     if (containsListDescOp(getOperation())) {
       RewritePatternSet descPatterns(&getContext());
-      descPatterns.add<ListDescDataOpLowering, ListDescDeallocOpLowering,
-                       ListDescGetOpLowering, ListDescLengthOpLowering,
+      descPatterns.add<ListDescDataOpLowering, ListDescGetOpLowering,
+                       ListDescLengthOpLowering,
                        ListDescPackOpLowering, ListToDescOpLowering>(
           &getContext());
       if (failed(
@@ -2372,11 +2193,10 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, FileCloseOpLowering, FileOpenOpLowering,
                  FileReadOpLowering, FileWriteOpLowering, ListAllocOpLowering,
-                 ListCreateOpLowering, ListDeallocOpLowering,
-                 ListEscapeStorageOpLowering, ListGetOpLowering,
-                 ListLengthOpLowering, ListLoadOpLowering,
-                 ListDescDataOpConversion, ListDescDeallocOpConversion,
-                 ListDescGetOpConversion, ListDescLengthOpConversion,
+                 ListCreateOpLowering, ListEscapeStorageOpLowering,
+                 ListGetOpLowering, ListLengthOpLowering, ListLoadOpLowering,
+                 ListDescDataOpConversion, ListDescGetOpConversion,
+                 ListDescLengthOpConversion,
                  ListDescPackOpConversion, ListDescToABIOpLowering,
                  ListSizeOpLowering, ListStoreOpLowering, LoadOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
