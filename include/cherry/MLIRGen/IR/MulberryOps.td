@@ -44,11 +44,6 @@ def Mulberry_AnyListStorageType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListStorageType>($_self)">,
     "Mulberry list storage type">;
 
-def Mulberry_AnyListOrListStorageType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::ListType, "
-          "::mlir::mulberry::ListStorageType>($_self)">,
-    "Mulberry list or list storage type">;
-
 def Mulberry_AnyListDescType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListDescType>($_self)">,
     "Mulberry list descriptor type">;
@@ -348,14 +343,6 @@ def Mulberry_ListAllocOp : Mulberry_Op<"list.alloc"> {
   let assemblyFormat = "$length attr-dict `:` type($result)";
 }
 
-def Mulberry_ListDeallocOp : Mulberry_Op<"list.dealloc"> {
-  let summary = "Deallocate Mulberry list storage";
-
-  let arguments = (ins Mulberry_AnyListOrListStorageType:$storage);
-
-  let assemblyFormat = "$storage attr-dict `:` type($storage)";
-}
-
 def Mulberry_ListEscapeStorageOp : Mulberry_Op<"list.escape_storage"> {
   let summary = "Mark Mulberry list storage as escaping";
 
@@ -454,14 +441,6 @@ def Mulberry_ListDescToABIOp : Mulberry_Op<"list.desc_to_abi"> {
   let assemblyFormat = "$desc attr-dict `:` type($desc) `->` type($result)";
 
   let hasVerifier = 1;
-}
-
-def Mulberry_ListDescDeallocOp : Mulberry_Op<"list.desc_dealloc"> {
-  let summary = "Deallocate Mulberry list descriptor storage";
-
-  let arguments = (ins Mulberry_AnyListDescType:$desc);
-
-  let assemblyFormat = "$desc attr-dict `:` type($desc)";
 }
 
 #endif // MULBERRY_OPS

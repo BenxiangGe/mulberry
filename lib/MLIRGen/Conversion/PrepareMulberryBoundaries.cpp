@@ -15,7 +15,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include <iterator>
 #include <optional>
 #include <vector>
 
@@ -96,6 +95,9 @@ static auto checkNoSourceBoundaryList(Operation *op, TypeRange types,
     if (!isBoundaryList(type))
       continue;
 
+    // This pass first rewrites the supported List<T> boundary subset. Any
+    // remaining source-level List<T> here means the rewrite logic did not
+    // recognize this boundary shape yet.
     op->emitError() << "source-level List<T> "
                     << describeBoundaryKind(kind)
                     << " boundary preparation is not implemented yet";
@@ -201,33 +203,6 @@ static auto rewriteListUses(Value list, Value desc) -> LogicalResult {
   return success();
 }
 
-static auto insertDescDeallocAfterLastUse(Value desc) -> LogicalResult {
-  Operation *lastUser = nullptr;
-  auto lastIndex = std::optional<unsigned>{};
-  auto *block = desc.getParentBlock();
-
-  for (auto &use : desc.getUses()) {
-    auto *user = use.getOwner();
-    if (user->getBlock() != block)
-      return failure();
-
-    auto index = static_cast<unsigned>(
-        std::distance(block->begin(), Block::iterator(user)));
-    if (!lastIndex || index > *lastIndex) {
-      lastIndex = index;
-      lastUser = user;
-    }
-  }
-
-  if (!lastUser)
-    return success();
-
-  OpBuilder builder(lastUser);
-  builder.setInsertionPointAfter(lastUser);
-  mulberry::ListDescDeallocOp::create(builder, lastUser->getLoc(), desc);
-  return success();
-}
-
 static auto getPreparedTypes(TypeRange types)
     -> std::optional<std::vector<Type>> {
   std::vector<Type> preparedTypes;
@@ -298,16 +273,23 @@ static auto checkFunctionArgUses(func::FuncOp funcOp, ArrayRef<Type> inputTypes)
 }
 
 static auto emitUnsupportedCallArgRewrite(Operation *op) -> InFlightDiagnostic {
-  return op->emitError() << "unsupported function boundary argument rewrite";
+  return op->emitError()
+         << "List<T> call argument rewrite only supports source List<T> "
+            "operands rewritten to list_desc<T> parameters";
 }
 
 static auto emitUnsupportedCallResultRewrite(Operation *op)
     -> InFlightDiagnostic {
-  return op->emitError() << "unsupported function boundary result rewrite";
+  return op->emitError()
+         << "List<T> call result rewrite only supports source List<T> results "
+            "rewritten from list_desc<T> call results";
 }
 
 static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
                              ArrayRef<Type> resultTypes) -> LogicalResult {
+  // We rebuild func.call with a new signature instead of mutating it in
+  // place. Per-operand/result attrs are not rewritten here yet, so any call
+  // that relies on them must fail fast instead of silently losing metadata.
   if (callOp.getArgAttrsAttr() || callOp.getResAttrsAttr())
     return callOp.emitError()
            << "List<T> call-site boundary preparation with call "
@@ -342,7 +324,6 @@ static auto checkCallRewrite(func::CallOp callOp, ArrayRef<Type> inputTypes,
 static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
                         ArrayRef<Type> resultTypes) -> LogicalResult {
   std::vector<Value> operands;
-  std::vector<Value> argDescs;
   auto changed = false;
 
   for (auto [operand, inputType] :
@@ -360,7 +341,6 @@ static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
     auto desc = mulberry::ListToDescOp::create(builder, callOp.getLoc(),
                                                descType, operand);
     operands.push_back(desc);
-    argDescs.push_back(desc);
     changed = true;
   }
 
@@ -385,19 +365,7 @@ static auto rewriteCall(func::CallOp callOp, ArrayRef<Type> inputTypes,
 
     if (failed(rewriteListUses(oldResult, newResult)))
       return failure();
-
-    // Prepared call results transfer descriptor ownership to this call site.
-    // This is intentionally restricted to direct list.size/list.get users by
-    // checkListUses() above, so inserting the cleanup after the last user is
-    // safe in the current straight-line boundary subset.
-    if (llvm::isa<mulberry::ListDescType>(newResult.getType()) &&
-        failed(insertDescDeallocAfterLastUse(newResult)))
-      return emitUnsupportedCallResultRewrite(newCallOp);
   }
-
-  builder.setInsertionPointAfter(newCallOp);
-  for (auto desc : argDescs)
-    mulberry::ListDescDeallocOp::create(builder, callOp.getLoc(), desc);
 
   callOp.erase();
   return success();
@@ -428,9 +396,8 @@ static auto buildEscapedDesc(mulberry::ListCreateOp createOp,
                                   storage.getResult(), index.getResult());
   }
 
-  // Returning a list transfers descriptor ownership to the caller. Copy the
-  // local storage to escaping ABI storage so caller-side desc_dealloc can free
-  // the returned data uniformly for scalar lists and tensor lists.
+  // Returning a list copies local storage to Boehm-managed ABI storage. There is
+  // no explicit descriptor dealloc op in the Boehm-only ownership model.
   auto escaped = mulberry::ListEscapeStorageOp::create(
       builder, createOp.getLoc(), storageType, storage.getResult(),
       length.getResult());
@@ -616,7 +583,6 @@ struct PrepareMulberryBoundaries
 
     getOperation()->walk([&](Operation *op) {
       if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
-
         auto funcType = funcOp.getFunctionType();
         if (failed(checkNoSourceBoundaryList(
                 op, funcType.getInputs(), BoundaryKind::FunctionParameter)) ||
