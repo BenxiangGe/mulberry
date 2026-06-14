@@ -289,14 +289,23 @@ auto TensorHandleFromDescOp::verify() -> LogicalResult {
   return success();
 }
 
+static auto isTensorABIDataPtrType(Type type) -> bool {
+  auto ptrType = llvm::dyn_cast<ptr::PtrType>(type);
+  if (!ptrType)
+    return false;
+
+  auto addressSpace = llvm::dyn_cast<LLVM::AddressSpaceAttr>(
+      ptrType.getMemorySpace());
+  return addressSpace && addressSpace.getAddressSpace() == 0;
+}
+
 static auto isTensorABIRecordType(Type type, unsigned rank) -> bool {
   auto structType = llvm::dyn_cast<LLVM::LLVMStructType>(type);
   if (!structType || structType.isOpaque())
     return false;
 
   auto fields = structType.getBody();
-  if (fields.size() != 3 ||
-      !llvm::isa<LLVM::LLVMPointerType, ptr::PtrType>(fields[0]))
+  if (fields.size() != 3 || !isTensorABIDataPtrType(fields[0]))
     return false;
 
   auto sizesType = llvm::dyn_cast<LLVM::LLVMArrayType>(fields[1]);

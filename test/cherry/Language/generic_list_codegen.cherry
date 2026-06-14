@@ -29,8 +29,7 @@ fn main(): UInt64 {
 # CHECK: mulberry.list.size
 # CHECK-SAME: !mulberry.list<i64>
 
-# LOWER-DAG: llvm.func @free(!llvm.ptr)
-# LOWER-DAG: llvm.func @malloc(i64) -> !llvm.ptr
+# LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # LOWER-LABEL: func.func @first
 # LOWER-SAME: !llvm.struct<(i64, ptr)>
 # LOWER: llvm.extractvalue
@@ -38,7 +37,7 @@ fn main(): UInt64 {
 # LOWER-LABEL: func.func @make
 # LOWER-SAME: -> !llvm.struct<(i64, ptr)>
 # LOWER: memref.alloc
-# LOWER: llvm.call @malloc
+# LOWER: llvm.call @mulberry_boehm_malloc
 # LOWER: scf.for
 # LOWER: llvm.store
 # LOWER: llvm.insertvalue
@@ -46,5 +45,5 @@ fn main(): UInt64 {
 # LOWER: call @first
 # LOWER: call @make
 # LOWER: llvm.extractvalue
-# LOWER: llvm.call @free
+# LOWER-NOT: llvm.call @free
 # LOWER-NOT: mulberry.

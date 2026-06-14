@@ -64,8 +64,45 @@ fn main(): UInt64 {
     ()
   };
 
-  const finalWeights: List<Float32[?, ?]> = [w1, w2];
-  const finalBiases: List<Float32[?, ?]> = [b1, b2];
+  const w1Output: File = open("/tmp/cherry_mnist_training_saved_w1.f32", "wb");
+  write(w1Output, w1);
+  close(w1Output);
+
+  const b1Output: File = open("/tmp/cherry_mnist_training_saved_b1.f32", "wb");
+  write(b1Output, b1);
+  close(b1Output);
+
+  const w2Output: File = open("/tmp/cherry_mnist_training_saved_w2.f32", "wb");
+  write(w2Output, w2);
+  close(w2Output);
+
+  const b2Output: File = open("/tmp/cherry_mnist_training_saved_b2.f32", "wb");
+  write(b2Output, b2);
+  close(b2Output);
+
+  var savedW1: Float32[30, 784] = zeros();
+  var savedB1: Float32[30, 1] = zeros();
+  var savedW2: Float32[10, 30] = zeros();
+  var savedB2: Float32[10, 1] = zeros();
+
+  const w1Input: File = open("/tmp/cherry_mnist_training_saved_w1.f32", "rb");
+  read(w1Input, savedW1);
+  close(w1Input);
+
+  const b1Input: File = open("/tmp/cherry_mnist_training_saved_b1.f32", "rb");
+  read(b1Input, savedB1);
+  close(b1Input);
+
+  const w2Input: File = open("/tmp/cherry_mnist_training_saved_w2.f32", "rb");
+  read(w2Input, savedW2);
+  close(w2Input);
+
+  const b2Input: File = open("/tmp/cherry_mnist_training_saved_b2.f32", "rb");
+  read(b2Input, savedB2);
+  close(b2Input);
+
+  const finalWeights: List<Float32[?, ?]> = [savedW1, savedW2];
+  const finalBiases: List<Float32[?, ?]> = [savedB1, savedB2];
 
   const inferenceFile: File = open("/tmp/cherry_mnist_training_inference.safetensors",
                                    "rb");
