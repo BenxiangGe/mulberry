@@ -8,6 +8,10 @@
 #ifndef CHERRY_SEMA_H
 #define CHERRY_SEMA_H
 
+#include <map>
+#include <string>
+#include <string_view>
+
 namespace llvm {
 class SourceMgr;
 } // end namespace llvm
@@ -17,6 +21,9 @@ class Module;
 class CherryResult;
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST)
+    -> CherryResult;
+auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST,
+          const std::map<std::string, std::string> &importAliases)
     -> CherryResult;
 
 } // end namespace cherry

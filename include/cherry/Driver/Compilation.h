@@ -10,7 +10,12 @@
 
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
+#include <memory>
+#include <map>
+#include <set>
+#include <string>
 
 namespace mlir {
 template <typename OpTy> class OwningOpRef;
@@ -49,8 +54,15 @@ private:
   llvm::SourceMgr _sourceManager;
   bool _enableOpt;
   mlir::MLIRContext _mlirContext;
+  std::string _inputFilename;
+  std::map<std::string, std::string> _importAliases;
+  std::set<std::string> _loadedModules;
 
   auto parse(std::unique_ptr<Module> &module) -> CherryResult;
+  auto parseFile(const std::string &filename, llvm::SMLoc includeLocation,
+                 std::unique_ptr<Module> &module) -> CherryResult;
+  auto loadImports(Module &module) -> CherryResult;
+  auto resolveImportPath(std::string_view moduleName) -> std::string;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
       -> CherryResult;
 };

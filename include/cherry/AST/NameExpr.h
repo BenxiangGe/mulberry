@@ -75,6 +75,8 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
+  auto setName(std::string_view name) -> void { _name = name; }
+
   auto expressions() const -> const VectorUniquePtr<Expr> & {
     return _expressions;
   }

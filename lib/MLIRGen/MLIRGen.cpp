@@ -302,6 +302,8 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
 
 auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
   switch (node->getKind()) {
+  case Decl::Decl_Import:
+    return nullptr;
   case Decl::Decl_Function: {
     return gen(cast<FunctionDecl>(node));
   }

@@ -1,0 +1,5 @@
+package std.core;
+
+fn identity(value: UInt64): UInt64 {
+  value
+}

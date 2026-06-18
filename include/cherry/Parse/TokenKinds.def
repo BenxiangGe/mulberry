@@ -64,6 +64,8 @@ TOK_PUNCTUATION(rem, "%")
 // Keywords
 
 TOK_KEYWORD(fn)
+TOK_KEYWORD(import)
+TOK_KEYWORD(package)
 TOK_KEYWORD(struct)
 TOK_KEYWORD(var)
 TOK_KEYWORD(const)

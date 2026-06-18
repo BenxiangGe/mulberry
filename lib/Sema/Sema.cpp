@@ -52,6 +52,12 @@ public:
     addBuiltins();
   }
 
+  SemaImpl(const llvm::SourceMgr &sourceManager,
+           const std::map<std::string, std::string> &importAliases)
+      : _sourceManager{sourceManager}, _importAliases{importAliases} {
+    addBuiltins();
+  }
+
   auto sema(Module &node) -> CherryResult {
     for (auto &decl : node)
       if (sema(decl.get()))
@@ -69,6 +75,8 @@ private:
   const llvm::SourceMgr &_sourceManager;
   TypeContext _typeContext;
   Symbols _symbols;
+  const std::map<std::string, std::string> &_importAliases =
+      emptyImportAliases();
 
   enum class UnitPolicy {
     Allow,
@@ -168,8 +176,31 @@ private:
     return _symbols.lookupFunction(name);
   }
 
+  static auto emptyImportAliases()
+      -> const std::map<std::string, std::string> & {
+    static const std::map<std::string, std::string> aliases;
+    return aliases;
+  }
+
+  auto canonicalizeImportedName(std::string_view name) const -> std::string {
+    auto dot = name.find('.');
+    if (dot == std::string_view::npos)
+      return std::string(name);
+
+    auto alias = _importAliases.find(std::string(name.substr(0, dot)));
+    if (alias == _importAliases.end())
+      return std::string(name);
+
+    std::string fullName = alias->second;
+    fullName += ".";
+    fullName += name.substr(dot + 1);
+    return fullName;
+  }
+
   auto lookupType(std::string_view name) -> const Type * {
-    return _symbols.lookupType(name);
+    if (auto *type = _symbols.lookupType(name))
+      return type;
+    return _symbols.lookupType(canonicalizeImportedName(name));
   }
 
   auto lookupStructType(std::string_view name) -> const StructType * {
@@ -308,6 +339,8 @@ private:
 
 auto SemaImpl::sema(Decl *node) -> CherryResult {
   switch (node->getKind()) {
+  case Decl::Decl_Import:
+    return success();
   case Decl::Decl_Function:
     return sema(cast<FunctionDecl>(node));
   case Decl::Decl_Struct:
@@ -481,6 +514,7 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
 }
 
 auto SemaImpl::sema(CallExpr *node) -> CherryResult {
+  node->setName(canonicalizeImportedName(node->name()));
   auto name = node->name();
 
   if (name == builtins::print) {
@@ -558,7 +592,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
-  auto *structType = lookupStructType(node->name());
+  auto *structType = lookupStructType(canonicalizeImportedName(node->name()));
   if (!structType)
     return emitError(node, diag::undefined_type);
   node->setStructType(structType);
@@ -1337,6 +1371,12 @@ namespace cherry {
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST)
     -> CherryResult {
   return SemaImpl(sourceManager).sema(moduleAST);
+}
+
+auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST,
+          const std::map<std::string, std::string> &importAliases)
+    -> CherryResult {
+  return SemaImpl(sourceManager, importAliases).sema(moduleAST);
 }
 
 } // end namespace cherry
