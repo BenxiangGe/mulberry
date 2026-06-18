@@ -10,6 +10,25 @@ using namespace cherry;
 using std::make_unique;
 using std::unique_ptr;
 
+namespace {
+auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
+    -> std::unique_ptr<Expr> {
+  auto dot = name.find('.');
+  if (dot == std::string_view::npos)
+    return make_unique<VariableExpr>(location, name);
+
+  std::unique_ptr<Expr> expr =
+      make_unique<VariableExpr>(location, name.substr(0, dot));
+  while (dot != std::string_view::npos) {
+    auto nextDot = name.find('.', dot + 1);
+    auto fieldName = name.substr(dot + 1, nextDot - dot - 1);
+    expr = make_unique<MemberExpr>(location, std::move(expr), fieldName);
+    dot = nextDot;
+  }
+  return expr;
+}
+} // namespace
+
 auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
   auto loc = tokenLoc();
   VectorUniquePtr<Decl> declarations;
@@ -63,8 +82,8 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
     return parseUnitType(typeNode);
 
   auto location = tokenLoc();
-  auto name = spelling();
-  if (parseToken(Token::identifier, diag::expected_type))
+  std::string name;
+  if (parseQualifiedName(name, diag::expected_type))
     return failure();
 
   if (name == "List")
@@ -98,11 +117,27 @@ auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
   return success();
 }
 
+auto Parser::parseQualifiedName(std::string &name, const char *const message)
+    -> CherryResult {
+  name = std::string(spelling());
+  if (parseToken(Token::identifier, message))
+    return failure();
+
+  while (consumeIf(Token::dot)) {
+    name += ".";
+    name += spelling();
+    if (parseToken(Token::identifier, diag::expected_id))
+      return failure();
+  }
+
+  return success();
+}
+
 auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
                                const char *const message) -> CherryResult {
   auto location = tokenLoc();
-  auto name = spelling();
-  if (parseToken(Token::identifier, message))
+  std::string name;
+  if (parseQualifiedName(name, message))
     return failure();
   functionName = make_unique<FunctionName>(location, name);
   return success();
@@ -111,8 +146,8 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
 auto Parser::parseStructName(unique_ptr<StructName> &structName,
                              const char *const message) -> CherryResult {
   auto location = tokenLoc();
-  auto name = spelling();
-  if (parseToken(Token::identifier, message))
+  std::string name;
+  if (parseQualifiedName(name, message))
     return failure();
   structName = make_unique<StructName>(location, name);
   return success();
@@ -504,19 +539,20 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
 
 auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
   auto location = tokenLoc();
-  auto name = spelling();
-  consume(Token::identifier);
+  std::string name;
+  if (parseQualifiedName(name, diag::expected_id))
+    return failure();
   switch (tokenKind()) {
   case Token::l_paren:
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
-      expr = make_unique<VariableExpr>(location, name);
+      expr = createMemberAccessChain(location, name);
       return success();
     }
     return parseStructLiteral(location, name, expr);
   default:
-    expr = make_unique<VariableExpr>(location, name);
+    expr = createMemberAccessChain(location, name);
     return success();
   }
 }
