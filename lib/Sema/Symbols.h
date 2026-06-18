@@ -19,6 +19,7 @@
 #include <vector>
 
 namespace cherry {
+class TypeNode;
 using llvm::failure;
 using llvm::success;
 
@@ -30,6 +31,11 @@ struct VariableSymbol {
 struct FunctionSymbol {
   std::vector<const Type *> parameterTypes;
   const Type *returnType = nullptr;
+};
+
+struct ComptimeTypeAliasSymbol {
+  std::string parameterName;
+  const TypeNode *bodyTypeNode = nullptr;
 };
 
 template <typename T>
@@ -62,6 +68,23 @@ public:
     if (type == _typesByName.end())
       return nullptr;
     return type->second;
+  }
+
+  auto declareComptimeTypeAlias(std::string_view name,
+                                std::string_view parameterName,
+                                const TypeNode *bodyTypeNode)
+      -> CherryResult {
+    return declareSymbol(_comptimeTypeAliasesByName, name,
+                         ComptimeTypeAliasSymbol{
+                             std::string(parameterName), bodyTypeNode});
+  }
+
+  auto lookupComptimeTypeAlias(std::string_view name)
+      -> const ComptimeTypeAliasSymbol * {
+    auto alias = _comptimeTypeAliasesByName.find(name);
+    if (alias == _comptimeTypeAliasesByName.end())
+      return nullptr;
+    return &alias->second;
   }
 
   auto resetVariables() {
@@ -103,6 +126,7 @@ private:
 
   NameMap<FunctionSymbol> _functionsByName;
   NameMap<const Type *> _typesByName;
+  NameMap<ComptimeTypeAliasSymbol> _comptimeTypeAliasesByName;
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;
 };
 

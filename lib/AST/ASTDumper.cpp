@@ -38,6 +38,7 @@ private:
   auto dump(const Prototype *node) -> void;
   auto dump(const FunctionDecl *node) -> void;
   auto dump(const StructDecl *node) -> void;
+  auto dump(const ComptimeTypeAliasDecl *node) -> void;
 
   // Expressions
   auto dump(const Expr *node) -> void;
@@ -95,6 +96,10 @@ private:
     if (auto *listType = dyn_cast<ListTypeNode>(node))
       return "List<" + formatTypeNode(listType->elementTypeNode()) + ">";
 
+    if (auto *genericType = dyn_cast<GenericTypeNode>(node))
+      return std::string(genericType->name()) + "<" +
+             formatTypeNode(genericType->argumentTypeNode()) + ">";
+
     auto *namedType = cast<NamedTypeNode>(node);
     return std::string(namedType->name());
   }
@@ -124,7 +129,7 @@ auto Dumper::dump(const Module *node) -> void {
 
 auto Dumper::dump(const Decl *node) -> void {
   llvm::TypeSwitch<const Decl *>(node)
-      .Case<ImportDecl, FunctionDecl, StructDecl>(
+      .Case<ImportDecl, FunctionDecl, StructDecl, ComptimeTypeAliasDecl>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Decl *) { llvm_unreachable("Unexpected declaration"); });
@@ -161,6 +166,14 @@ auto Dumper::dump(const StructDecl *node) -> void {
          << " (name=" << id->name() << " " << loc(id) << ")\n";
   for (auto &var : node->variables())
     dump(var.get());
+}
+
+auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
+  INDENT();
+  errs() << "ComptimeTypeAliasDecl " << loc(node)
+         << " (name=" << node->name()
+         << " parameter=" << node->parameterName()
+         << " type=" << formatTypeNode(node->bodyTypeNode()) << ")\n";
 }
 
 auto Dumper::dump(const Expr *node) -> void {

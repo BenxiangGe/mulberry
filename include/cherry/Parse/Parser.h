@@ -123,6 +123,7 @@ private:
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> CherryResult;
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
+  auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseArrayLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;

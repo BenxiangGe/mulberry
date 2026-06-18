@@ -29,6 +29,7 @@ public:
     Decl_Import,
     Decl_Function,
     Decl_Struct,
+    Decl_ComptimeTypeAlias,
   };
 
   explicit Decl(DeclarationKind kind, llvm::SMLoc location)
@@ -140,6 +141,33 @@ public:
     return _variables.begin();
   }
   auto end() const -> decltype(_variables.end()) { return _variables.end(); }
+};
+
+// Type-level comptime alias function. e.g. `comptime Vector<T> = List<T>;`
+class ComptimeTypeAliasDecl final : public Decl {
+public:
+  ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,
+                        std::string_view parameterName,
+                        std::unique_ptr<TypeNode> bodyTypeNode)
+      : Decl{Decl_ComptimeTypeAlias, location}, _name(name),
+        _parameterName(parameterName), _bodyTypeNode(std::move(bodyTypeNode)) {}
+
+  static auto classof(const Decl *node) -> bool {
+    return node->getKind() == Decl_ComptimeTypeAlias;
+  }
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto parameterName() const -> std::string_view { return _parameterName; }
+
+  auto bodyTypeNode() const -> const TypeNode * {
+    return _bodyTypeNode.get();
+  }
+
+private:
+  std::string _name;
+  std::string _parameterName;
+  std::unique_ptr<TypeNode> _bodyTypeNode;
 };
 
 } // end namespace cherry
