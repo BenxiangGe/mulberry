@@ -533,7 +533,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   auto name = node->name();
   DBG("gen(CallExpr). functionName: {0}", name);
 
-  if (name == builtins::print)
+  if (name == builtins::builtinPrint || name == builtins::print)
     return genPrint(node);
   if (name == nn::matmul)
     return genMatmul(node);

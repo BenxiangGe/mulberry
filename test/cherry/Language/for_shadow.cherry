@@ -2,14 +2,14 @@
 
 fn main(): UInt64 {
   var i: UInt64 = 7;
-  print(i);
+  io.print(i);
 
   for i in 0 .. 2 {
-    print(i);
+    io.print(i);
     ()
   };
 
-  print(i);
+  io.print(i);
   0
 }
 

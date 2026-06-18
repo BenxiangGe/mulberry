@@ -5,7 +5,7 @@
 fn main(): UInt64 {
   var values: Float32[4] = zeros();
   values[2] = 1.0;
-  print(argmax(values));
+  io.print(argmax(values));
   0
 }
 

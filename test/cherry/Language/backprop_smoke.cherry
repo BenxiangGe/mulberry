@@ -34,10 +34,10 @@ fn main(): UInt64 {
   var nextB1: Float32[?, ?] = matsub(biases[0], matscale(nablaB1, eta));
   var nextB2: Float32[?, ?] = matsub(biases[1], matscale(nablaB2, eta));
 
-  print(size(nextW1));
-  print(size(nextW2));
-  print(size(nextB1));
-  print(size(nextB2));
+  io.print(size(nextW1));
+  io.print(size(nextW2));
+  io.print(size(nextB1));
+  io.print(size(nextB2));
   0
 }
 

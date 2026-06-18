@@ -112,7 +112,7 @@ fn main(): UInt64 {
                                 finalBiases[layer]));
     ()
   };
-  print(argmax(activation));
+  io.print(argmax(activation));
 
   0
 }

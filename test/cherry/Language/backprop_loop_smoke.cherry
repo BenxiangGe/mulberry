@@ -44,10 +44,10 @@ fn main(): UInt64 {
     ()
   };
 
-  print(size(w1));
-  print(size(w2));
-  print(size(b1));
-  print(size(b2));
+  io.print(size(w1));
+  io.print(size(w2));
+  io.print(size(b1));
+  io.print(size(b2));
   0
 }
 

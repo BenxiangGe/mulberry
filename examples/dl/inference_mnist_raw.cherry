@@ -35,6 +35,6 @@ fn main(): UInt64 {
     ()
   };
 
-  print(argmax(activation));
+  io.print(argmax(activation));
   0
 }

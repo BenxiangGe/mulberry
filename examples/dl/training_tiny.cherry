@@ -50,7 +50,7 @@ fn main(): UInt64 {
                                  finalBiases[layer]));
     ()
   };
-  print(argmax(activation0));
+  io.print(argmax(activation0));
 
   var activation1: Float32[?, ?] = xs[1];
   for layer in 0 .. size(finalWeights) {
@@ -58,7 +58,7 @@ fn main(): UInt64 {
                                  finalBiases[layer]));
     ()
   };
-  print(argmax(activation1));
+  io.print(argmax(activation1));
 
   0
 }

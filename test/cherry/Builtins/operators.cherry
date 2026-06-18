@@ -1,60 +1,60 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  print(20 + 10);
-  print(18446744073709551615 + 0);
-  print(18446744073709551615 + 1);
+  io.print(20 + 10);
+  io.print(18446744073709551615 + 0);
+  io.print(18446744073709551615 + 1);
 
-  print(20 - 10);
-  print(0 - 1);
+  io.print(20 - 10);
+  io.print(0 - 1);
 
-  print(20 * 10);
+  io.print(20 * 10);
 
-  print(20 / 10);
-  print(20 / 3);
+  io.print(20 / 10);
+  io.print(20 / 3);
 
-  print(20 % 10);
-  print(20 % 3);
+  io.print(20 % 10);
+  io.print(20 % 3);
 
-  print(boolToUInt64(20 lt 10));
-  print(boolToUInt64(10 lt 20));
-  print(boolToUInt64(10 lt 10));
+  io.print(boolToUInt64(20 lt 10));
+  io.print(boolToUInt64(10 lt 20));
+  io.print(boolToUInt64(10 lt 10));
 
-  print(boolToUInt64(20 le 10));
-  print(boolToUInt64(10 le 20));
-  print(boolToUInt64(10 le 10));
+  io.print(boolToUInt64(20 le 10));
+  io.print(boolToUInt64(10 le 20));
+  io.print(boolToUInt64(10 le 10));
 
-  print(boolToUInt64(20 gt 10));
-  print(boolToUInt64(10 gt 20));
-  print(boolToUInt64(10 gt 10));
+  io.print(boolToUInt64(20 gt 10));
+  io.print(boolToUInt64(10 gt 20));
+  io.print(boolToUInt64(10 gt 10));
 
-  print(boolToUInt64(20 ge 10));
-  print(boolToUInt64(10 ge 20));
-  print(boolToUInt64(10 ge 10));
+  io.print(boolToUInt64(20 ge 10));
+  io.print(boolToUInt64(10 ge 20));
+  io.print(boolToUInt64(10 ge 10));
 
-  print(boolToUInt64(20 eq 10));
-  print(boolToUInt64(10 ge 20));
-  print(boolToUInt64(10 eq 10));
+  io.print(boolToUInt64(20 eq 10));
+  io.print(boolToUInt64(10 ge 20));
+  io.print(boolToUInt64(10 eq 10));
 
-  print(boolToUInt64(20 neq 10));
-  print(boolToUInt64(10 neq 20));
-  print(boolToUInt64(10 neq 10));
+  io.print(boolToUInt64(20 neq 10));
+  io.print(boolToUInt64(10 neq 20));
+  io.print(boolToUInt64(10 neq 10));
 
-  print(boolToUInt64(true eq true));
-  print(boolToUInt64(true eq false));
+  io.print(boolToUInt64(true eq true));
+  io.print(boolToUInt64(true eq false));
 
-  print(boolToUInt64(true neq true));
-  print(boolToUInt64(true neq false));
+  io.print(boolToUInt64(true neq true));
+  io.print(boolToUInt64(true neq false));
 
-  print(boolToUInt64(false and false));
-  print(boolToUInt64(false and true));
-  print(boolToUInt64(true and false));
-  print(boolToUInt64(true and true));
+  io.print(boolToUInt64(false and false));
+  io.print(boolToUInt64(false and true));
+  io.print(boolToUInt64(true and false));
+  io.print(boolToUInt64(true and true));
 
-  print(boolToUInt64(false or false));
-  print(boolToUInt64(false or true));
-  print(boolToUInt64(true or false));
-  print(boolToUInt64(true or true));
+  io.print(boolToUInt64(false or false));
+  io.print(boolToUInt64(false or true));
+  io.print(boolToUInt64(true or false));
+  io.print(boolToUInt64(true or true));
 
   0
 }
@@ -74,5 +74,5 @@ fn main(): UInt64 {
 # CHECK: arith.ori
 # CHECK: arith.extui
 # CHECK-SAME: i1 to i64
-# CHECK: cherry.print
+# CHECK: call @std.io.print
 # CHECK-NOT: cir.

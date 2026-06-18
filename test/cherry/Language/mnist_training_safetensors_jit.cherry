@@ -9,9 +9,9 @@ fn main(): UInt64 {
 
   close(file);
 
-  print(size(x0));
-  print(argmax(y0));
-  print(argmax(y1));
+  io.print(size(x0));
+  io.print(argmax(y0));
+  io.print(argmax(y1));
   0
 }
 
