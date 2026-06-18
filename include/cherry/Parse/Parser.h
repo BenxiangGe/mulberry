@@ -16,6 +16,7 @@
 #include "mlir/IR/Location.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace cherry {
@@ -90,6 +91,9 @@ private:
   // Parse Identifiers
 
   auto parseType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
+
+  auto parseQualifiedName(std::string &name,
+                          const char *const message) -> CherryResult;
 
   auto parseFunctionName(std::unique_ptr<FunctionName> &functionName,
                          const char *const message) -> CherryResult;
