@@ -551,7 +551,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genSize(node);
   if (name == builtins::zeros)
     return genZeros(node);
-  if (name == builtins::open)
+  if (name == builtins::builtinOpen || name == builtins::open)
     return genOpen(node);
   if (name == builtins::read)
     return genRead(node);
@@ -559,7 +559,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
     return genReadTensor(node);
   if (name == builtins::write)
     return genWrite(node);
-  if (name == builtins::close)
+  if (name == builtins::builtinClose || name == builtins::close)
     return genClose(node);
   if (name == builtins::boolToUInt64) {
     auto value = gen(node->expressions().front().get());

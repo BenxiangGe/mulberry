@@ -1,5 +1,5 @@
 fn main(): UInt64 {
-  const file: File = open("data/mnist-784-30-10.safetensors", "rb");
+  const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
 
   var w1: Float32[?, ?] = readTensor(file, "w1");
   var b1: Float32[?, ?] = readTensor(file, "b1");
@@ -7,7 +7,7 @@ fn main(): UInt64 {
   var b2: Float32[?, ?] = readTensor(file, "b2");
   var x: Float32[?, ?] = readTensor(file, "x");
 
-  close(file);
+  io.close(file);
 
   const weights: List<Float32[?, ?]> = [w1, w2];
   const biases: List<Float32[?, ?]> = [b1, b2];
