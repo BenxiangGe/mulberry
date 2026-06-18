@@ -81,6 +81,10 @@ auto importAlias(std::string_view moduleName) -> std::string {
   return std::string(moduleName.substr(dot + 1));
 }
 
+auto isStdlibPackage(std::string_view packageName) -> bool {
+  return packageName == "std" || packageName.rfind("std.", 0) == 0;
+}
+
 auto registerLLVMTranslations(mlir::ModuleOp module) -> void {
   mlir::registerBuiltinDialectTranslation(*module->getContext());
   mlir::registerLLVMDialectTranslation(*module->getContext());
@@ -136,6 +140,9 @@ auto Compilation::parse(std::unique_ptr<Module> &module) -> CherryResult {
   if (parseFile(_inputFilename, llvm::SMLoc(), module))
     return failure();
 
+  if (!isStdlibPackage(module->packageName()) && loadPrelude(*module))
+    return failure();
+
   return loadImports(*module);
 }
 
@@ -155,6 +162,20 @@ auto Compilation::parseFile(const std::string &filename,
   return parser.parseModule(module);
 }
 
+auto Compilation::resolveStdlibPath(std::string_view relativePath)
+    -> std::string {
+  std::string path;
+  if (const char *envPath = std::getenv("CHERRY_STDLIB_PATH")) {
+    path = envPath;
+  } else {
+    path = getDefaultStdlibPath();
+  }
+
+  llvm::SmallString<256> fullPath(path);
+  llvm::sys::path::append(fullPath, relativePath);
+  return std::string(fullPath.str());
+}
+
 auto Compilation::resolveImportPath(std::string_view moduleName)
     -> std::string {
   if (moduleName.rfind("std.", 0) != 0) {
@@ -163,18 +184,24 @@ auto Compilation::resolveImportPath(std::string_view moduleName)
     return {};
   }
 
-  std::string path;
-  if (const char *envPath = std::getenv("CHERRY_STDLIB_PATH")) {
-    path = envPath;
-  } else {
-    path = getDefaultStdlibPath();
-  }
-
   std::string relativePath(moduleName);
   std::replace(relativePath.begin(), relativePath.end(), '.', '/');
-  llvm::SmallString<256> fullPath(path);
-  llvm::sys::path::append(fullPath, relativePath + ".cherry");
-  return std::string(fullPath.str());
+  return resolveStdlibPath(relativePath + ".cherry");
+}
+
+auto Compilation::loadPrelude(Module &module) -> CherryResult {
+  std::unique_ptr<Module> preludeModule;
+  auto preludePath = resolveStdlibPath("prelude.cherry");
+  if (parseFile(preludePath, module.location(), preludeModule) ||
+      loadImports(*preludeModule))
+    return failure();
+
+  VectorUniquePtr<Decl> declarations = preludeModule->takeDeclarations();
+  for (auto &decl : module.takeDeclarations())
+    declarations.push_back(std::move(decl));
+
+  module.setDeclarations(std::move(declarations));
+  return success();
 }
 
 auto Compilation::loadImports(Module &module) -> CherryResult {
