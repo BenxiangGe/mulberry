@@ -21,6 +21,8 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
+  auto setName(std::string_view name) -> void { _name = name; }
+
 private:
   std::string _name;
 };

@@ -26,6 +26,7 @@ class VariableStat;
 class Decl : public Node {
 public:
   enum DeclarationKind {
+    Decl_Import,
     Decl_Function,
     Decl_Struct,
   };
@@ -37,6 +38,24 @@ public:
 
 private:
   const DeclarationKind _kind;
+};
+
+// _____________________________________________________________________________
+// Import declaration
+
+class ImportDecl final : public Decl {
+public:
+  explicit ImportDecl(llvm::SMLoc location, std::string_view moduleName)
+      : Decl{Decl_Import, location}, _moduleName{moduleName} {}
+
+  static auto classof(const Decl *node) -> bool {
+    return node->getKind() == Decl_Import;
+  }
+
+  auto moduleName() const -> std::string_view { return _moduleName; }
+
+private:
+  std::string _moduleName;
 };
 
 // _____________________________________________________________________________

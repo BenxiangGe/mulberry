@@ -27,6 +27,11 @@ Lexer::Lexer(const llvm::SourceMgr &sourceMgr) {
   _curPtr = _curBuffer.begin();
 }
 
+Lexer::Lexer(const llvm::SourceMgr &sourceMgr, unsigned bufferID) {
+  _curBuffer = sourceMgr.getMemoryBuffer(bufferID)->getBuffer();
+  _curPtr = _curBuffer.begin();
+}
+
 auto Lexer::lexToken() -> Token {
   while (true) {
   Restart:

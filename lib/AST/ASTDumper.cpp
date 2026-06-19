@@ -34,6 +34,7 @@ private:
 
   // Declarations
   auto dump(const Decl *node) -> void;
+  auto dump(const ImportDecl *node) -> void;
   auto dump(const Prototype *node) -> void;
   auto dump(const FunctionDecl *node) -> void;
   auto dump(const StructDecl *node) -> void;
@@ -112,15 +113,27 @@ struct Indent {
 } // end namespace
 
 auto Dumper::dump(const Module *node) -> void {
+  if (!node->packageName().empty()) {
+    INDENT();
+    errs() << "Package " << loc(node)
+           << " name=" << node->packageName() << "\n";
+  }
   for (auto &decl : *node)
     dump(decl.get());
 }
 
 auto Dumper::dump(const Decl *node) -> void {
   llvm::TypeSwitch<const Decl *>(node)
-      .Case<FunctionDecl, StructDecl>([&](auto *node) { this->dump(node); })
+      .Case<ImportDecl, FunctionDecl, StructDecl>(
+          [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Decl *) { llvm_unreachable("Unexpected declaration"); });
+}
+
+auto Dumper::dump(const ImportDecl *node) -> void {
+  INDENT();
+  errs() << "ImportDecl " << loc(node)
+         << " module=" << node->moduleName() << "\n";
 }
 
 auto Dumper::dump(const Prototype *node) -> void {

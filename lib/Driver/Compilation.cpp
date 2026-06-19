@@ -38,8 +38,11 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -61,6 +64,21 @@ auto getCherryRuntimeLibPath() -> std::string {
 #else
   return {};
 #endif
+}
+
+auto getDefaultStdlibPath() -> std::string {
+#ifdef CHERRY_STDLIB_DIR
+  return CHERRY_STDLIB_DIR;
+#else
+  return "stdlib";
+#endif
+}
+
+auto importAlias(std::string_view moduleName) -> std::string {
+  auto dot = moduleName.rfind('.');
+  if (dot == std::string_view::npos)
+    return std::string(moduleName);
+  return std::string(moduleName.substr(dot + 1));
 }
 
 auto registerLLVMTranslations(mlir::ModuleOp module) -> void {
@@ -92,13 +110,6 @@ Compilation::Compilation() : _mlirContext{makeContext()} {}
 
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
-  auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
-
-  if (auto ec = fileOrErr.getError()) {
-    llvm::errs() << "error: " << ec.message() << ": '" << filename << "'\n";
-    return {};
-  }
-
   auto compilation = std::make_unique<Compilation>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
   compilation->_mlirContext
@@ -113,16 +124,86 @@ auto Compilation::make(llvm::StringRef filename,
   compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::ptr::PtrDialect>();
 
-  compilation->sourceManager().AddNewSourceBuffer(std::move(fileOrErr.get()),
-                                                  llvm::SMLoc());
+  compilation->_inputFilename = std::string(filename);
   compilation->_enableOpt = enableOpt;
   return compilation;
 }
 
 auto Compilation::parse(std::unique_ptr<Module> &module) -> CherryResult {
-  auto lexer = std::make_unique<Lexer>(_sourceManager);
+  _importAliases.clear();
+  _loadedModules.clear();
+
+  if (parseFile(_inputFilename, llvm::SMLoc(), module))
+    return failure();
+
+  return loadImports(*module);
+}
+
+auto Compilation::parseFile(const std::string &filename,
+                            llvm::SMLoc includeLocation,
+                            std::unique_ptr<Module> &module) -> CherryResult {
+  auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
+  if (auto ec = fileOrErr.getError()) {
+    llvm::errs() << "error: " << ec.message() << ": '" << filename << "'\n";
+    return failure();
+  }
+
+  auto bufferId = _sourceManager.AddNewSourceBuffer(std::move(fileOrErr.get()),
+                                                    includeLocation);
+  auto lexer = std::make_unique<Lexer>(_sourceManager, bufferId);
   auto parser = Parser{std::move(lexer), _sourceManager};
   return parser.parseModule(module);
+}
+
+auto Compilation::resolveImportPath(std::string_view moduleName)
+    -> std::string {
+  if (moduleName.rfind("std.", 0) != 0) {
+    llvm::errs() << "error: only stdlib imports are supported now: '"
+                 << moduleName << "'\n";
+    return {};
+  }
+
+  std::string path;
+  if (const char *envPath = std::getenv("CHERRY_STDLIB_PATH")) {
+    path = envPath;
+  } else {
+    path = getDefaultStdlibPath();
+  }
+
+  std::string relativePath(moduleName);
+  std::replace(relativePath.begin(), relativePath.end(), '.', '/');
+  llvm::SmallString<256> fullPath(path);
+  llvm::sys::path::append(fullPath, relativePath + ".cherry");
+  return std::string(fullPath.str());
+}
+
+auto Compilation::loadImports(Module &module) -> CherryResult {
+  VectorUniquePtr<Decl> mergedDeclarations;
+  for (auto &decl : module.takeDeclarations()) {
+    if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
+      auto moduleName = std::string(importDecl->moduleName());
+      _importAliases[importAlias(moduleName)] = moduleName;
+      if (_loadedModules.insert(moduleName).second) {
+        std::unique_ptr<Module> importedModule;
+        auto importPath = resolveImportPath(moduleName);
+        if (importPath.empty())
+          return failure();
+        if (parseFile(importPath, importDecl->location(), importedModule) ||
+            loadImports(*importedModule))
+          return failure();
+
+        for (auto &importedDecl : importedModule->takeDeclarations())
+          mergedDeclarations.push_back(std::move(importedDecl));
+      }
+
+      continue;
+    }
+
+    mergedDeclarations.push_back(std::move(decl));
+  }
+
+  module.setDeclarations(std::move(mergedDeclarations));
+  return success();
 }
 
 auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
@@ -131,7 +212,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (parse(moduleAST))
     return failure();
 
-  if (cherry::sema(_sourceManager, *moduleAST.get()) ||
+  if (cherry::sema(_sourceManager, *moduleAST.get(), _importAliases) ||
       mlirGen(_sourceManager, _mlirContext, *moduleAST, module))
     return failure();
 
@@ -169,7 +250,8 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
 auto Compilation::typecheck() -> int {
   std::unique_ptr<Module> module;
-  if (parse(module) || cherry::sema(_sourceManager, *module.get()))
+  if (parse(module) ||
+      cherry::sema(_sourceManager, *module.get(), _importAliases))
     return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
@@ -241,7 +323,16 @@ auto Compilation::genObjectFile(const char *outputFileName) -> int {
 }
 
 auto Compilation::dumpTokens() -> int {
-  auto lexer = std::make_unique<Lexer>(_sourceManager);
+  auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(_inputFilename);
+  if (auto ec = fileOrErr.getError()) {
+    llvm::errs() << "error: " << ec.message() << ": '" << _inputFilename
+                 << "'\n";
+    return EXIT_FAILURE;
+  }
+
+  auto bufferId = _sourceManager.AddNewSourceBuffer(std::move(fileOrErr.get()),
+                                                    llvm::SMLoc());
+  auto lexer = std::make_unique<Lexer>(_sourceManager, bufferId);
   Lexer::tokenize(_sourceManager, *lexer);
   return EXIT_SUCCESS;
 }
@@ -257,7 +348,8 @@ auto Compilation::dumpParse() -> int {
 
 auto Compilation::dumpAST() -> int {
   std::unique_ptr<Module> module;
-  if (parse(module) || cherry::sema(_sourceManager, *module.get()))
+  if (parse(module) ||
+      cherry::sema(_sourceManager, *module.get(), _importAliases))
     return EXIT_FAILURE;
 
   cherry::dumpAST(_sourceManager, *module);

@@ -17,6 +17,7 @@ namespace cherry {
 class Lexer {
 public:
   explicit Lexer(const llvm::SourceMgr &sourceMgr);
+  Lexer(const llvm::SourceMgr &sourceMgr, unsigned bufferID);
 
   auto lexToken() -> Token;
 

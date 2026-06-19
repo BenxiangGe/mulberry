@@ -37,6 +37,7 @@ private:
   std::unique_ptr<Lexer> _lexer;
   llvm::SourceMgr &_sourceManager;
   bool _stopBeforeStructLiteral = false;
+  std::string _packageName;
 
   // ___________________________________________________________________________
   // Lex
@@ -90,6 +91,7 @@ private:
   // _____________________________________________________________________________
   // Parse Identifiers
 
+  auto parsePackageDecl() -> CherryResult;
   auto parseType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
 
   auto parseQualifiedName(std::string &name,
@@ -101,6 +103,8 @@ private:
   auto parseStructName(std::unique_ptr<StructName> &structName,
                        const char *const message) -> CherryResult;
 
+  auto qualifyPackageName(std::string_view name) const -> std::string;
+
   auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
   auto parseListType(std::unique_ptr<TypeNode> &typeNode,
                      llvm::SMLoc location) -> CherryResult;
@@ -109,6 +113,8 @@ private:
   // Parse Declarations
 
   auto parseDeclaration(std::unique_ptr<Decl> &decl) -> CherryResult;
+
+  auto parseImportDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
   auto parseFunctionDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 

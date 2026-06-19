@@ -31,6 +31,9 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
 
 auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
   auto loc = tokenLoc();
+  if (tokenIs(Token::kw_package) && parsePackageDecl())
+    return failure();
+
   VectorUniquePtr<Decl> declarations;
   do {
     unique_ptr<Decl> decl;
@@ -40,6 +43,7 @@ auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
   } while (!tokenIs(Token::eof));
 
   module = make_unique<Module>(loc, std::move(declarations));
+  module->setPackageName(_packageName);
   return success();
 }
 
@@ -67,6 +71,14 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
 
 // _____________________________________________________________________________
 // Parse Identifiers
+
+auto Parser::parsePackageDecl() -> CherryResult {
+  consume(Token::kw_package);
+  if (parseQualifiedName(_packageName, diag::expected_id) ||
+      parseToken(Token::semi, diag::expected_semi))
+    return failure();
+  return success();
+}
 
 auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   auto location = tokenLoc();
@@ -139,6 +151,7 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
   std::string name;
   if (parseQualifiedName(name, message))
     return failure();
+  name = qualifyPackageName(name);
   functionName = make_unique<FunctionName>(location, name);
   return success();
 }
@@ -149,8 +162,19 @@ auto Parser::parseStructName(unique_ptr<StructName> &structName,
   std::string name;
   if (parseQualifiedName(name, message))
     return failure();
+  name = qualifyPackageName(name);
   structName = make_unique<StructName>(location, name);
   return success();
+}
+
+auto Parser::qualifyPackageName(std::string_view name) const -> std::string {
+  if (_packageName.empty() || name.find('.') != std::string_view::npos)
+    return std::string(name);
+
+  std::string qualifiedName = _packageName;
+  qualifiedName += ".";
+  qualifiedName += name;
+  return qualifiedName;
 }
 
 // _____________________________________________________________________________
@@ -158,6 +182,8 @@ auto Parser::parseStructName(unique_ptr<StructName> &structName,
 
 auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
   switch (tokenKind()) {
+  case Token::kw_import:
+    return parseImportDecl(decl);
   case Token::kw_fn:
     return parseFunctionDecl(decl);
   case Token::kw_struct:
@@ -165,6 +191,19 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
   default:
     return emitError(diag::expected_fun_struct);
   }
+}
+
+auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_import);
+
+  std::string moduleName;
+  if (parseQualifiedName(moduleName, diag::expected_id) ||
+      parseToken(Token::semi, diag::expected_semi))
+    return failure();
+
+  decl = make_unique<ImportDecl>(loc, moduleName);
+  return success();
 }
 
 auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
