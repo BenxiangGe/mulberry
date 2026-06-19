@@ -65,6 +65,11 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
         cloneTypeNode(listType->elementTypeNode()), listType->location());
   }
 
+  if (auto *ptrType = dyn_cast<PtrTypeNode>(node)) {
+    return std::make_unique<PtrTypeNode>(
+        cloneTypeNode(ptrType->pointeeTypeNode()), ptrType->location());
+  }
+
   auto *genericType = cast<GenericTypeNode>(node);
   return std::make_unique<GenericTypeNode>(
       genericType->location(), genericType->name(),
@@ -92,6 +97,13 @@ auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
         substituteTypeNode(listType->elementTypeNode(), parameterName,
                            argumentTypeNode),
         listType->location());
+  }
+
+  if (auto *ptrType = dyn_cast<PtrTypeNode>(node)) {
+    return std::make_unique<PtrTypeNode>(
+        substituteTypeNode(ptrType->pointeeTypeNode(), parameterName,
+                           argumentTypeNode),
+        ptrType->location());
   }
 
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
@@ -356,6 +368,14 @@ private:
     return _typeContext.createListType(elementType);
   }
 
+  auto resolveType(const PtrTypeNode *typeNode) -> const Type * {
+    auto *pointeeType = resolveType(typeNode->pointeeTypeNode());
+    if (!pointeeType)
+      return nullptr;
+
+    return _typeContext.createPtrType(pointeeType);
+  }
+
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
     auto *alias = _symbols.lookupComptimeTypeAlias(typeNode->name());
     if (!alias)
@@ -383,6 +403,9 @@ private:
 
     if (auto *listType = dyn_cast<ListTypeNode>(typeNode))
       return resolveType(listType);
+
+    if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
+      return resolveType(ptrType);
 
     if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode))
       return resolveType(genericType);

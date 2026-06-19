@@ -83,7 +83,8 @@ struct TensorDimSource {
 };
 
 auto isValueType(const Type *type) -> bool {
-  return cherry::isTensorType(type) || cherry::isListType(type);
+  return cherry::isTensorType(type) || cherry::isListType(type) ||
+         cherry::isPtrType(type);
 }
 
 class MLIRGenImpl {

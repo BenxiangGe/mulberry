@@ -112,6 +112,17 @@ auto ListType::elementType() const -> const Type * {
   return _elementType;
 }
 
+PtrType::PtrType(const Type *pointeeType)
+    : Type(TypeKind::Ptr), _pointeeType(pointeeType) {}
+
+auto PtrType::classof(const Type *type) -> bool {
+  return type && type->kind() == TypeKind::Ptr;
+}
+
+auto PtrType::pointeeType() const -> const Type * {
+  return _pointeeType;
+}
+
 namespace {
 
 auto formatBuiltinType(const BuiltinType& type) -> std::string {
@@ -133,6 +144,10 @@ auto formatTensorType(const TensorType& type) -> std::string {
 
 auto formatListType(const ListType& type) -> std::string {
   return "List<" + formatType(type.elementType()) + ">";
+}
+
+auto formatPtrType(const PtrType& type) -> std::string {
+  return "Ptr<" + formatType(type.pointeeType()) + ">";
 }
 
 auto alignTo(uint64_t offset, uint64_t alignment) -> uint64_t {
@@ -231,6 +246,10 @@ auto sameListType(const ListType& lhs, const ListType& rhs) -> bool {
   return sameType(lhs.elementType(), rhs.elementType());
 }
 
+auto samePtrType(const PtrType& lhs, const PtrType& rhs) -> bool {
+  return sameType(lhs.pointeeType(), rhs.pointeeType());
+}
+
 auto structTypeStorage()
     -> std::vector<std::unique_ptr<StructType>> & {
   static auto &types = *new std::vector<std::unique_ptr<StructType>>();
@@ -249,6 +268,12 @@ auto listTypeStorage()
   return types;
 }
 
+auto ptrTypeStorage()
+    -> std::vector<std::unique_ptr<PtrType>> & {
+  static auto &types = *new std::vector<std::unique_ptr<PtrType>>();
+  return types;
+}
+
 auto findTensorType(const Type *elementType, const std::vector<int64_t> &shape)
     -> const TensorType * {
   for (const auto &type : tensorTypeStorage())
@@ -260,6 +285,13 @@ auto findTensorType(const Type *elementType, const std::vector<int64_t> &shape)
 auto findListType(const Type *elementType) -> const ListType * {
   for (const auto &type : listTypeStorage())
     if (type->elementType() == elementType)
+      return type.get();
+  return nullptr;
+}
+
+auto findPtrType(const Type *pointeeType) -> const PtrType * {
+  for (const auto &type : ptrTypeStorage())
+    if (type->pointeeType() == pointeeType)
       return type.get();
   return nullptr;
 }
@@ -320,6 +352,9 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
   case TypeKind::List:
     return sameListType(*llvm::cast<ListType>(lhs),
                         *llvm::cast<ListType>(rhs));
+  case TypeKind::Ptr:
+    return samePtrType(*llvm::cast<PtrType>(lhs),
+                       *llvm::cast<PtrType>(rhs));
   }
 
   return false;
@@ -339,6 +374,10 @@ auto getStructType(const Type *type) -> const StructType * {
 
 auto getListType(const Type *type) -> const ListType * {
   return llvm::dyn_cast_if_present<ListType>(type);
+}
+
+auto getPtrType(const Type *type) -> const PtrType * {
+  return llvm::dyn_cast_if_present<PtrType>(type);
 }
 
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool {
@@ -390,6 +429,10 @@ auto isListType(const Type *type) -> bool {
   return getListType(type) != nullptr;
 }
 
+auto isPtrType(const Type *type) -> bool {
+  return getPtrType(type) != nullptr;
+}
+
 auto hasUnitType(const Type *type) -> bool {
   if (isUnitType(type))
     return true;
@@ -402,6 +445,10 @@ auto hasUnitType(const Type *type) -> bool {
   if (listType)
     return hasUnitType(listType->elementType());
 
+  auto *ptrType = getPtrType(type);
+  if (ptrType)
+    return hasUnitType(ptrType->pointeeType());
+
   return false;
 }
 
@@ -413,6 +460,10 @@ auto hasUnitElementType(const Type *type) -> bool {
   auto *listType = getListType(type);
   if (listType)
     return hasUnitType(listType->elementType());
+
+  auto *ptrType = getPtrType(type);
+  if (ptrType)
+    return hasUnitType(ptrType->pointeeType());
 
   return false;
 }
@@ -430,6 +481,8 @@ auto formatType(const Type *type) -> std::string {
     return formatTensorType(*llvm::cast<TensorType>(type));
   case TypeKind::List:
     return formatListType(*llvm::cast<ListType>(type));
+  case TypeKind::Ptr:
+    return formatPtrType(*llvm::cast<PtrType>(type));
   }
 
   return "";
@@ -501,6 +554,16 @@ auto TypeContext::createListType(const Type *elementType) const
   auto &listTypes = listTypeStorage();
   listTypes.push_back(std::make_unique<ListType>(elementType));
   return listTypes.back().get();
+}
+
+auto TypeContext::createPtrType(const Type *pointeeType) const
+    -> const PtrType * {
+  if (auto *type = findPtrType(pointeeType))
+    return type;
+
+  auto &ptrTypes = ptrTypeStorage();
+  ptrTypes.push_back(std::make_unique<PtrType>(pointeeType));
+  return ptrTypes.back().get();
 }
 
 } // namespace cherry

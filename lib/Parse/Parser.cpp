@@ -102,6 +102,9 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (name == "List")
     return parseListType(typeNode, location);
 
+  if (name == "Ptr")
+    return parsePtrType(typeNode, location);
+
   if (tokenIs(Token::less)) {
     consume(Token::less);
     unique_ptr<TypeNode> argumentTypeNode;
@@ -138,6 +141,20 @@ auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
     return failure();
 
   typeNode = make_unique<ListTypeNode>(std::move(elementTypeNode), location);
+  return success();
+}
+
+auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
+                          llvm::SMLoc location) -> CherryResult {
+  if (parseToken(Token::less, diag::expected_less))
+    return failure();
+
+  unique_ptr<TypeNode> pointeeTypeNode;
+  if (parseType(pointeeTypeNode) ||
+      parseToken(Token::greater, diag::expected_greater))
+    return failure();
+
+  typeNode = make_unique<PtrTypeNode>(std::move(pointeeTypeNode), location);
   return success();
 }
 
