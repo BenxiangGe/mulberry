@@ -13,6 +13,7 @@ fn main(): UInt64 {
   0
 }
 
+# CHECK-LABEL: func.func @main
 # CHECK: %[[INNER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
 # CHECK: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
 # CHECK: arith.constant 7 : i64

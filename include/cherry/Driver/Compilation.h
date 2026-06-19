@@ -61,7 +61,9 @@ private:
   auto parse(std::unique_ptr<Module> &module) -> CherryResult;
   auto parseFile(const std::string &filename, llvm::SMLoc includeLocation,
                  std::unique_ptr<Module> &module) -> CherryResult;
+  auto loadPrelude(Module &module) -> CherryResult;
   auto loadImports(Module &module) -> CherryResult;
+  auto resolveStdlibPath(std::string_view relativePath) -> std::string;
   auto resolveImportPath(std::string_view moduleName) -> std::string;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
       -> CherryResult;
