@@ -1,0 +1,19 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  io.print(11);
+  0
+}
+
+# AST: Prototype {{.*}}name=std.io.print
+# AST: CallExpr {{.*}}type=UInt64 callee=builtinPrint
+# AST: CallExpr {{.*}}type=UInt64 callee=std.io.print
+
+# MLIR-LABEL: func.func @std.io.print
+# MLIR: cherry.print
+# MLIR-LABEL: func.func @main
+# MLIR: call @std.io.print
+
+# JIT: 11

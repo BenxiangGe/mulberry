@@ -166,6 +166,8 @@ private:
     declareBuiltinType(BuiltinTypeKind::String);
     declareBuiltinType(BuiltinTypeKind::File);
 
+    declareFunction(builtins::builtinPrint,
+                    std::vector<const Type *>{uint64Type}, uint64Type);
     declareFunction(builtins::print, std::vector<const Type *>{uint64Type},
                     uint64Type);
     declareFunction(builtins::boolToUInt64,
@@ -517,7 +519,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   node->setName(canonicalizeImportedName(node->name()));
   auto name = node->name();
 
-  if (name == builtins::print) {
+  if (name == builtins::builtinPrint || name == builtins::print) {
     return semaPrint(node);
   }
   if (name == nn::matmul) {

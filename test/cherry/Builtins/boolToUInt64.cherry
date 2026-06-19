@@ -1,17 +1,17 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  print(boolToUInt64(true));
+  io.print(boolToUInt64(true));
   
-  print(boolToUInt64(false));
+  io.print(boolToUInt64(false));
 
   0
 }
 
 # CHECK: arith.extui
 # CHECK-SAME: i1 to i64
-# CHECK: cherry.print
+# CHECK: call @std.io.print
 # CHECK: arith.extui
 # CHECK-SAME: i1 to i64
-# CHECK: cherry.print
+# CHECK: call @std.io.print
 # CHECK-NOT: cir.

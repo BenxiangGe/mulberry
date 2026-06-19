@@ -897,7 +897,7 @@ fn main(): UInt64 {
 
   var pred: UInt64 = argmax(activation);
 
-  print(pred);
+  io.print(pred);
 
   0
 }

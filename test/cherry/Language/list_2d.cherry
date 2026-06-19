@@ -2,7 +2,7 @@
 
 fn main(): UInt64 {
   var t: UInt64[2, 3] = [[1, 2, 3], [4, 5, 6]];
-  print(t[1, 2]);
+  io.print(t[1, 2]);
 
   56789
 }

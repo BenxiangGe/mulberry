@@ -3,7 +3,7 @@
 
 fn main(): UInt64 {
   for i in 0 .. size(xs) {
-    print(i);
+    io.print(i);
     ()
   };
 

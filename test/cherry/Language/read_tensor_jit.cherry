@@ -5,7 +5,7 @@ fn main(): UInt64 {
   var x: Float32[?, ?] = readTensor(file, "x");
   close(file);
 
-  print(size(x));
+  io.print(size(x));
   0
 }
 

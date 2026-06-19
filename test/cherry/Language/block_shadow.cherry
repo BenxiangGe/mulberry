@@ -2,17 +2,17 @@
 
 fn main(): UInt64 {
   var value: UInt64 = 1;
-  print(value);
+  io.print(value);
 
   var unit: () = if true {
     var value: UInt64 = 2;
-    print(value);
+    io.print(value);
     ()
   } else {
     ()
   };
 
-  print(value);
+  io.print(value);
   0
 }
 

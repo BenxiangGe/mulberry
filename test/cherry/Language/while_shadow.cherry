@@ -3,16 +3,16 @@
 fn main(): UInt64 {
   var value: UInt64 = 3;
   var keepGoing: Bool = true;
-  print(value);
+  io.print(value);
 
   var unit: () = while keepGoing {
     var value: UInt64 = 4;
-    print(value);
+    io.print(value);
     keepGoing = false;
     ()
   };
 
-  print(value);
+  io.print(value);
   0
 }
 

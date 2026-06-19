@@ -27,11 +27,11 @@ fn main(): UInt64 {
   const xCount: UInt64 = read(xFile, x);
   close(xFile);
 
-  print(w1Count);
-  print(b1Count);
-  print(w2Count);
-  print(b2Count);
-  print(xCount);
+  io.print(w1Count);
+  io.print(b1Count);
+  io.print(w2Count);
+  io.print(b2Count);
+  io.print(xCount);
 
   const weights: List<Float32[?, ?]> = [w1, w2];
   const biases: List<Float32[?, ?]> = [b1, b2];
@@ -43,7 +43,7 @@ fn main(): UInt64 {
     ()
   };
 
-  print(argmax(activation));
+  io.print(argmax(activation));
   0
 }
 

@@ -11,9 +11,9 @@ fn main(): UInt64 {
   const readCount: UInt64 = read(input, inputValues);
   close(input);
 
-  print(writeCount);
-  print(readCount);
-  print(argmax(inputValues));
+  io.print(writeCount);
+  io.print(readCount);
+  io.print(argmax(inputValues));
   0
 }
 

@@ -1,0 +1,5 @@
+package std.io;
+
+fn print(value: UInt64): UInt64 {
+  builtinPrint(value)
+}

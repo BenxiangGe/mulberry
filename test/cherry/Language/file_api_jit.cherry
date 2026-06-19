@@ -11,7 +11,7 @@ fn main(): UInt64 {
   const count: UInt64 = read(input, inputBytes);
   close(input);
 
-  print(count);
+  io.print(count);
   print(inputBytes[0]);
   print(inputBytes[1]);
   print(inputBytes[2]);

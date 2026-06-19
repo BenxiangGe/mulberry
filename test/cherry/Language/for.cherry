@@ -9,7 +9,7 @@ fn main(): UInt64 {
     ()
   };
 
-  print(sum);
+  io.print(sum);
   0
 }
 
