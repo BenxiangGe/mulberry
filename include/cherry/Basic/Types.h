@@ -14,6 +14,7 @@ enum class TypeKind {
   Struct,
   Tensor,
   List,
+  Ptr,
 };
 
 enum class BuiltinTypeKind {
@@ -111,11 +112,24 @@ private:
   const Type *_elementType;
 };
 
+class PtrType final : public Type {
+public:
+  explicit PtrType(const Type *pointeeType);
+
+  static auto classof(const Type *type) -> bool;
+
+  auto pointeeType() const -> const Type *;
+
+private:
+  const Type *_pointeeType;
+};
+
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getTensorType(const Type *type) -> const TensorType *;
 auto getStructType(const Type *type) -> const StructType *;
 auto getListType(const Type *type) -> const ListType *;
+auto getPtrType(const Type *type) -> const PtrType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
 auto isUInt8Type(const Type *type) -> bool;
@@ -128,6 +142,7 @@ auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
 auto isTensorType(const Type *type) -> bool;
 auto isListType(const Type *type) -> bool;
+auto isPtrType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
 // Display-only formatter for diagnostics and dumps; not for type identity.
@@ -148,6 +163,8 @@ public:
       -> const TensorType *;
 
   auto createListType(const Type *elementType) const -> const ListType *;
+
+  auto createPtrType(const Type *pointeeType) const -> const PtrType *;
 };
 
 } // namespace cherry

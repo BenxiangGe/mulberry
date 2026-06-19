@@ -97,6 +97,9 @@ private:
     if (auto *listType = dyn_cast<ListTypeNode>(node))
       return "List<" + formatTypeNode(listType->elementTypeNode()) + ">";
 
+    if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
+      return "Ptr<" + formatTypeNode(ptrType->pointeeTypeNode()) + ">";
+
     if (auto *genericType = dyn_cast<GenericTypeNode>(node))
       return std::string(genericType->name()) + "<" +
              formatTypeNode(genericType->argumentTypeNode()) + ">";

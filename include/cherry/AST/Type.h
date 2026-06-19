@@ -24,6 +24,7 @@ public:
     Named,
     Tensor,
     List,
+    Ptr,
     Generic,
   };
 
@@ -104,6 +105,26 @@ public:
 
 private:
   std::unique_ptr<TypeNode> _elementType;
+};
+
+// Typed pointer node. e.g. `Ptr<UInt64>`
+class PtrTypeNode final : public TypeNode {
+public:
+  PtrTypeNode(std::unique_ptr<TypeNode> pointeeType,
+              llvm::SMLoc location)
+      : TypeNode(location, TypeNode::Kind::Ptr),
+        _pointeeType(std::move(pointeeType)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Ptr;
+  }
+
+  auto pointeeTypeNode() const -> const TypeNode * {
+    return _pointeeType.get();
+  }
+
+private:
+  std::unique_ptr<TypeNode> _pointeeType;
 };
 
 // Generic type application node. e.g. `Vector<UInt64>` or `Matrix<Float32>`.

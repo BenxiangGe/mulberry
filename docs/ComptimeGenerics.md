@@ -121,6 +121,9 @@ Float32[?, ?]
 - generic struct
 - generic function
 
+统一 `Ptr<T>` / heap object handle 模型见 `docs/PtrAndHeapObjectModel.md`；
+标准库 `List<T>` 的目标源码形态见 `docs/StdlibList.md`。
+
 到那时，`mulberry.list` 可以逐步退化为 lowering helper，或者完全消失。
 
 ## 后续阶段

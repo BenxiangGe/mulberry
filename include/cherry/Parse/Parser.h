@@ -108,6 +108,8 @@ private:
   auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
   auto parseListType(std::unique_ptr<TypeNode> &typeNode,
                      llvm::SMLoc location) -> CherryResult;
+  auto parsePtrType(std::unique_ptr<TypeNode> &typeNode,
+                    llvm::SMLoc location) -> CherryResult;
 
   // ___________________________________________________________________________
   // Parse Declarations
