@@ -13,6 +13,7 @@ ERROR(mismatch_type_then_else,
 ERROR(wrong_return_type, "wrong return type")
 ERROR(wrong_num_arg, "wrong number of arguments")
 ERROR(unexpected_unit_type, "unexpected unit type")
+ERROR(unsupported_type_layout, "unsupported type layout")
 
 ERROR(expected_bool, "expected Bool")
 ERROR(expected_field, "expected struct field")

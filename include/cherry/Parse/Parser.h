@@ -156,6 +156,9 @@ private:
 
   auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
+  auto parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
+                           std::unique_ptr<Expr> &expr) -> CherryResult;
+
   auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseStructLiteral(llvm::SMLoc location, std::string_view name,

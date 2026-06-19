@@ -53,6 +53,7 @@ private:
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
+  auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
   auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
@@ -180,6 +181,7 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
+            TypeLayoutExpr,
             ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -270,6 +272,17 @@ auto Dumper::dump(const StringLiteralExpr *node) -> void {
   errs() << "StringLiteralExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " value=\"" << node->value() << "\"\n";
+}
+
+auto Dumper::dump(const TypeLayoutExpr *node) -> void {
+  INDENT();
+  auto query = node->query() == TypeLayoutExpr::Query::SizeOf ? "sizeof"
+                                                              : "alignof";
+  errs() << "TypeLayoutExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " query=" << query
+         << " target=" << formatTypeNode(node->typeNode())
+         << " value=" << node->value() << "\n";
 }
 
 auto Dumper::dump(const ArrayLiteralExpr *node) -> void {
