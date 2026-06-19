@@ -547,7 +547,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   if (name == builtins::zeros) {
     return emitError(node, diag::mismatch_type);
   }
-  if (name == builtins::open) {
+  if (name == builtins::builtinOpen || name == builtins::open) {
     return semaFileOpen(node);
   }
   if (name == builtins::read) {
@@ -559,7 +559,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   if (name == builtins::write) {
     return semaFileWrite(node);
   }
-  if (name == builtins::close) {
+  if (name == builtins::builtinClose || name == builtins::close) {
     return semaFileClose(node);
   }
 

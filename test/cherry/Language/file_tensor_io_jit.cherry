@@ -2,14 +2,14 @@
 
 fn main(): UInt64 {
   var outputValues: Float32[4] = [1.0, 7.0, 3.0, 4.0];
-  const output: File = open("/tmp/cherry_file_tensor_io_jit.bin", "wb");
+  const output: File = io.open("/tmp/cherry_file_tensor_io_jit.bin", "wb");
   const writeCount: UInt64 = write(output, outputValues);
-  close(output);
+  io.close(output);
 
   var inputValues: Float32[4] = [0.0, 0.0, 0.0, 0.0];
-  const input: File = open("/tmp/cherry_file_tensor_io_jit.bin", "rb");
+  const input: File = io.open("/tmp/cherry_file_tensor_io_jit.bin", "rb");
   const readCount: UInt64 = read(input, inputValues);
-  close(input);
+  io.close(input);
 
   io.print(writeCount);
   io.print(readCount);

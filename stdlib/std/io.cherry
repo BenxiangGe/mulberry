@@ -3,3 +3,11 @@ package std.io;
 fn print(value: UInt64): UInt64 {
   builtinPrint(value)
 }
+
+fn open(path: String, mode: String): File {
+  builtinOpen(path, mode)
+}
+
+fn close(file: File): UInt64 {
+  builtinClose(file)
+}

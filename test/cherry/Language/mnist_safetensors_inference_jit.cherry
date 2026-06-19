@@ -1,7 +1,7 @@
 # RUN: %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_mnist_safetensors_inference.safetensors > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  const file: File = open("/tmp/cherry_mnist_safetensors_inference.safetensors",
+  const file: File = io.open("/tmp/cherry_mnist_safetensors_inference.safetensors",
                           "rb");
 
   var w1: Float32[?, ?] = readTensor(file, "w1");
@@ -10,7 +10,7 @@ fn main(): UInt64 {
   var b2: Float32[?, ?] = readTensor(file, "b2");
   var x: Float32[?, ?] = readTensor(file, "x");
 
-  close(file);
+  io.close(file);
 
   const weights: List<Float32[?, ?]> = [w1, w2];
   const biases: List<Float32[?, ?]> = [b1, b2];

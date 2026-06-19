@@ -7,25 +7,25 @@ fn main(): UInt64 {
   var b2: Float32[10, 1] = zeros();
   var x: Float32[784, 1] = zeros();
 
-  const w1File: File = open("/tmp/cherry_mnist_raw_inference/w1.f32", "rb");
+  const w1File: File = io.open("/tmp/cherry_mnist_raw_inference/w1.f32", "rb");
   const w1Count: UInt64 = read(w1File, w1);
-  close(w1File);
+  io.close(w1File);
 
-  const b1File: File = open("/tmp/cherry_mnist_raw_inference/b1.f32", "rb");
+  const b1File: File = io.open("/tmp/cherry_mnist_raw_inference/b1.f32", "rb");
   const b1Count: UInt64 = read(b1File, b1);
-  close(b1File);
+  io.close(b1File);
 
-  const w2File: File = open("/tmp/cherry_mnist_raw_inference/w2.f32", "rb");
+  const w2File: File = io.open("/tmp/cherry_mnist_raw_inference/w2.f32", "rb");
   const w2Count: UInt64 = read(w2File, w2);
-  close(w2File);
+  io.close(w2File);
 
-  const b2File: File = open("/tmp/cherry_mnist_raw_inference/b2.f32", "rb");
+  const b2File: File = io.open("/tmp/cherry_mnist_raw_inference/b2.f32", "rb");
   const b2Count: UInt64 = read(b2File, b2);
-  close(b2File);
+  io.close(b2File);
 
-  const xFile: File = open("/tmp/cherry_mnist_raw_inference/x.f32", "rb");
+  const xFile: File = io.open("/tmp/cherry_mnist_raw_inference/x.f32", "rb");
   const xCount: UInt64 = read(xFile, x);
-  close(xFile);
+  io.close(xFile);
 
   io.print(w1Count);
   io.print(b1Count);

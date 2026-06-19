@@ -1,16 +1,16 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  const file: File = open("data/mnist-784-30-10.safetensors", "rb");
+  const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
   var w1: Float32[?, ?] = readTensor(file, "w1");
-  close(file);
+  io.close(file);
   size(w1)
 }
 
 # CHECK-LABEL: func.func @main
 # CHECK: mulberry.string.literal "data/mnist-784-30-10.safetensors" : !mulberry.string
 # CHECK: mulberry.string.literal "rb" : !mulberry.string
-# CHECK: mulberry.file.open
+# CHECK: call @std.io.open
 # CHECK-SAME: -> !mulberry.file
 # CHECK: %[[NAME:.*]] = mulberry.string.literal "w1" : !mulberry.string
 # CHECK: mulberry.safetensor.read %{{.*}}, %[[NAME]] : !mulberry.file, !mulberry.string -> !mulberry.tensor<?x?xf32>
