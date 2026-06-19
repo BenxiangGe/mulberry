@@ -40,6 +40,7 @@ public:
     Expr_If,
     Expr_While,
     Expr_For,
+    Expr_TypeLayout,
   };
 
   explicit Expr(ExpressionKind kind, llvm::SMLoc location)

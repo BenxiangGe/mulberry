@@ -2,6 +2,7 @@
 #define CHERRY_TYPES_H
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -131,6 +132,8 @@ auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
 // Display-only formatter for diagnostics and dumps; not for type identity.
 auto formatType(const Type *type) -> std::string;
+auto sizeOfType(const Type *type) -> std::optional<uint64_t>;
+auto alignOfType(const Type *type) -> std::optional<uint64_t>;
 
 class TypeContext {
 public:

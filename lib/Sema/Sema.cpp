@@ -166,6 +166,7 @@ private:
   auto sema(FloatLiteralExpr *node) -> CherryResult;
   auto sema(BoolLiteralExpr *node) -> CherryResult;
   auto sema(StringLiteralExpr *node) -> CherryResult;
+  auto sema(TypeLayoutExpr *node) -> CherryResult;
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
   auto checkAssignable(const Expr *expr) -> CherryResult;
@@ -530,6 +531,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_StringLiteral:
     return sema(cast<StringLiteralExpr>(node));
+  case Expr::Expr_TypeLayout:
+    return sema(cast<TypeLayoutExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -755,6 +758,23 @@ auto SemaImpl::sema(BoolLiteralExpr *node) -> CherryResult {
 
 auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
   setBuiltinType(node, BuiltinTypeKind::String);
+  return success();
+}
+
+auto SemaImpl::sema(TypeLayoutExpr *node) -> CherryResult {
+  auto *queriedType = resolveType(node->typeNode());
+  if (!queriedType)
+    return failure();
+
+  auto value = node->query() == TypeLayoutExpr::Query::SizeOf
+                   ? sizeOfType(queriedType)
+                   : alignOfType(queriedType);
+  if (!value)
+    return emitError(node, diag::unsupported_type_layout);
+
+  node->setQueriedType(queriedType);
+  node->setValue(*value);
+  setBuiltinType(node, BuiltinTypeKind::UInt64);
   return success();
 }
 

@@ -1,7 +1,9 @@
 #include "cherry/Basic/Types.h"
 #include "llvm/Support/Casting.h"
 
+#include <algorithm>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -131,6 +133,74 @@ auto formatTensorType(const TensorType& type) -> std::string {
 
 auto formatListType(const ListType& type) -> std::string {
   return "List<" + formatType(type.elementType()) + ">";
+}
+
+auto alignTo(uint64_t offset, uint64_t alignment) -> uint64_t {
+  auto remainder = offset % alignment;
+  if (remainder == 0)
+    return offset;
+  return offset + alignment - remainder;
+}
+
+auto sizeOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
+  switch (type.builtinKind()) {
+  case BuiltinTypeKind::Bool:
+  case BuiltinTypeKind::UInt8:
+    return 1;
+  case BuiltinTypeKind::UInt64:
+    return 8;
+  case BuiltinTypeKind::Float32:
+    return 4;
+  case BuiltinTypeKind::Unit:
+  case BuiltinTypeKind::String:
+  case BuiltinTypeKind::File:
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+auto alignOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
+  switch (type.builtinKind()) {
+  case BuiltinTypeKind::Bool:
+  case BuiltinTypeKind::UInt8:
+    return 1;
+  case BuiltinTypeKind::UInt64:
+    return 8;
+  case BuiltinTypeKind::Float32:
+    return 4;
+  case BuiltinTypeKind::Unit:
+  case BuiltinTypeKind::String:
+  case BuiltinTypeKind::File:
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+auto sizeOfStructType(const StructType& type) -> std::optional<uint64_t> {
+  uint64_t offset = 0;
+  uint64_t maxAlignment = 1;
+  for (const auto& field : type.fields()) {
+    auto fieldSize = sizeOfType(field.type());
+    auto fieldAlignment = alignOfType(field.type());
+    if (!fieldSize || !fieldAlignment)
+      return std::nullopt;
+
+    offset = alignTo(offset, *fieldAlignment);
+    offset += *fieldSize;
+    maxAlignment = std::max(maxAlignment, *fieldAlignment);
+  }
+  return alignTo(offset, maxAlignment);
+}
+
+auto alignOfStructType(const StructType& type) -> std::optional<uint64_t> {
+  uint64_t maxAlignment = 1;
+  for (const auto& field : type.fields()) {
+    auto fieldAlignment = alignOfType(field.type());
+    if (!fieldAlignment)
+      return std::nullopt;
+    maxAlignment = std::max(maxAlignment, *fieldAlignment);
+  }
+  return maxAlignment;
 }
 
 auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs)
@@ -363,6 +433,22 @@ auto formatType(const Type *type) -> std::string {
   }
 
   return "";
+}
+
+auto sizeOfType(const Type *type) -> std::optional<uint64_t> {
+  if (auto *builtinType = getBuiltinType(type))
+    return sizeOfBuiltinType(*builtinType);
+  if (auto *structType = getStructType(type))
+    return sizeOfStructType(*structType);
+  return std::nullopt;
+}
+
+auto alignOfType(const Type *type) -> std::optional<uint64_t> {
+  if (auto *builtinType = getBuiltinType(type))
+    return alignOfBuiltinType(*builtinType);
+  if (auto *structType = getStructType(type))
+    return alignOfStructType(*structType);
+  return std::nullopt;
 }
 
 auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const

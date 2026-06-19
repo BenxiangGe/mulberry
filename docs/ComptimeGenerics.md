@@ -32,6 +32,25 @@ comptime Matrix<T> = T[?, ?];
 `types.Matrix<T>`，而不是裸 `Vector<T>`。这样可以保留最后一级包名，既不会太长，
 也不会把标准库名字直接塞进全局命名空间。
 
+## 类型布局查询
+
+`sizeof(T)` 和 `alignof(T)` 是类型级查询，但结果是普通 `UInt64` 常量：
+
+```cherry
+const itemSize: UInt64 = sizeof(UInt64);
+const itemAlign: UInt64 = alignof(UInt64);
+```
+
+第一阶段只支持布局已经明确的类型：
+
+- `Bool`、`UInt8`、`UInt64`、`Float32`
+- 只包含上述类型或其它已支持 struct 的 `struct`
+
+`String`、`File`、`Tensor`、`List<T>` 暂时不支持 `sizeof/alignof`。这些类型的真实
+运行时表示涉及 descriptor、指针或 lowering ABI，现在强行给出大小会误导后续设计。
+后面把 `List<T>` 迁到标准库时，会先补齐需要的 pointer/generic struct 能力，再扩大
+布局查询支持范围。
+
 ## 非目标
 
 第一阶段不实现完整 Zig comptime：

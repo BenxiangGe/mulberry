@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/Parse/Parser.h"
+#include "cherry/Basic/Builtins.h"
 using namespace cherry;
 using std::make_unique;
 using std::unique_ptr;
@@ -622,6 +623,8 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
     return failure();
   switch (tokenKind()) {
   case Token::l_paren:
+    if (name == builtins::sizeOf || name == builtins::alignOf)
+      return parseTypeLayoutExpr(location, name, expr);
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
@@ -633,6 +636,20 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
     expr = createMemberAccessChain(location, name);
     return success();
   }
+}
+
+auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
+                                 unique_ptr<Expr> &expr) -> CherryResult {
+  consume(Token::l_paren);
+
+  unique_ptr<TypeNode> typeNode;
+  if (parseType(typeNode) || parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  auto query = name == builtins::sizeOf ? TypeLayoutExpr::Query::SizeOf
+                                        : TypeLayoutExpr::Query::AlignOf;
+  expr = make_unique<TypeLayoutExpr>(location, query, std::move(typeNode));
+  return success();
 }
 
 auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
