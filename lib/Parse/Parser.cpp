@@ -101,6 +101,17 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (name == "List")
     return parseListType(typeNode, location);
 
+  if (tokenIs(Token::less)) {
+    consume(Token::less);
+    unique_ptr<TypeNode> argumentTypeNode;
+    if (parseType(argumentTypeNode) ||
+        parseToken(Token::greater, diag::expected_greater))
+      return failure();
+    typeNode = make_unique<GenericTypeNode>(
+        location, name, std::move(argumentTypeNode));
+    return success();
+  }
+
   auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
   if (tokenIs(Token::l_square)) {
     std::vector<int64_t> shape;
@@ -188,6 +199,8 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
     return parseFunctionDecl(decl);
   case Token::kw_struct:
     return parseStructDecl(decl);
+  case Token::kw_comptime:
+    return parseComptimeTypeAliasDecl(decl);
   default:
     return emitError(diag::expected_fun_struct);
   }
@@ -316,6 +329,32 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
 
   // Make StructDecl
   decl = make_unique<StructDecl>(loc, std::move(name), std::move(fields));
+  return success();
+}
+
+auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
+    -> CherryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_comptime);
+
+  std::string name = std::string(spelling());
+  if (parseToken(Token::identifier, diag::expected_id) ||
+      parseToken(Token::less, diag::expected_less))
+    return failure();
+  name = qualifyPackageName(name);
+
+  auto parameterName = spelling();
+  if (parseToken(Token::identifier, diag::expected_id) ||
+      parseToken(Token::greater, diag::expected_greater) ||
+      parseToken(Token::assign, diag::expected_assign))
+    return failure();
+
+  unique_ptr<TypeNode> bodyTypeNode;
+  if (parseType(bodyTypeNode) || parseToken(Token::semi, diag::expected_semi))
+    return failure();
+
+  decl = make_unique<ComptimeTypeAliasDecl>(
+      location, name, parameterName, std::move(bodyTypeNode));
   return success();
 }
 

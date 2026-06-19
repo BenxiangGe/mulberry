@@ -10,6 +10,7 @@
 #include "cherry/AST/AST.h"
 #include "cherry/Basic/Builtins.h"
 #include "cherry/Sema/DiagnosticsSema.h"
+#include <memory>
 #include <set>
 #include <string>
 #include <string_view>
@@ -43,6 +44,64 @@ auto formatNameSizeDiagnostic(const char *diagnostic, std::string_view name,
 
 auto declareName(NameSet &names, std::string_view name) -> bool {
   return names.insert(std::string(name)).second;
+}
+
+auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
+  if (auto *unitType = dyn_cast<UnitTypeNode>(node))
+    return std::make_unique<UnitTypeNode>(unitType->location());
+
+  if (auto *namedType = dyn_cast<NamedTypeNode>(node))
+    return std::make_unique<NamedTypeNode>(namedType->location(),
+                                           namedType->name());
+
+  if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
+    return std::make_unique<TensorTypeNode>(
+        cloneTypeNode(tensorType->elementTypeNode()), tensorType->shape(),
+        tensorType->location());
+  }
+
+  if (auto *listType = dyn_cast<ListTypeNode>(node)) {
+    return std::make_unique<ListTypeNode>(
+        cloneTypeNode(listType->elementTypeNode()), listType->location());
+  }
+
+  auto *genericType = cast<GenericTypeNode>(node);
+  return std::make_unique<GenericTypeNode>(
+      genericType->location(), genericType->name(),
+      cloneTypeNode(genericType->argumentTypeNode()));
+}
+
+auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
+                        const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<TypeNode> {
+  if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
+    if (namedType->name() == parameterName)
+      return cloneTypeNode(argumentTypeNode);
+    return cloneTypeNode(namedType);
+  }
+
+  if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
+    return std::make_unique<TensorTypeNode>(
+        substituteTypeNode(tensorType->elementTypeNode(), parameterName,
+                           argumentTypeNode),
+        tensorType->shape(), tensorType->location());
+  }
+
+  if (auto *listType = dyn_cast<ListTypeNode>(node)) {
+    return std::make_unique<ListTypeNode>(
+        substituteTypeNode(listType->elementTypeNode(), parameterName,
+                           argumentTypeNode),
+        listType->location());
+  }
+
+  if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    return std::make_unique<GenericTypeNode>(
+        genericType->location(), genericType->name(),
+        substituteTypeNode(genericType->argumentTypeNode(), parameterName,
+                           argumentTypeNode));
+  }
+
+  return cloneTypeNode(node);
 }
 
 class SemaImpl {
@@ -90,6 +149,7 @@ private:
   auto sema(Prototype *node) -> CherryResult;
   auto sema(FunctionDecl *node) -> CherryResult;
   auto sema(StructDecl *node) -> CherryResult;
+  auto sema(ComptimeTypeAliasDecl *node) -> CherryResult;
 
   // Expressions
   auto sema(Expr *node) -> CherryResult;
@@ -295,6 +355,24 @@ private:
     return _typeContext.createListType(elementType);
   }
 
+  auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
+    auto *alias = _symbols.lookupComptimeTypeAlias(typeNode->name());
+    if (!alias)
+      alias = _symbols.lookupComptimeTypeAlias(
+          canonicalizeImportedName(typeNode->name()));
+    if (!alias) {
+      emitError(typeNode, diag::undefined_type);
+      return nullptr;
+    }
+
+    // Type-level comptime is AST substitution, not runtime lowering. MLIRGen
+    // only sees the concrete type returned by this second resolveType call.
+    auto instantiatedTypeNode =
+        substituteTypeNode(alias->bodyTypeNode, alias->parameterName,
+                           typeNode->argumentTypeNode());
+    return resolveType(instantiatedTypeNode.get());
+  }
+
   auto resolveType(const TypeNode *typeNode) -> const Type * {
     if (auto *unitType = dyn_cast<UnitTypeNode>(typeNode))
       return resolveType(unitType);
@@ -304,6 +382,9 @@ private:
 
     if (auto *listType = dyn_cast<ListTypeNode>(typeNode))
       return resolveType(listType);
+
+    if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode))
+      return resolveType(genericType);
 
     return resolveType(cast<NamedTypeNode>(typeNode));
   }
@@ -347,6 +428,8 @@ auto SemaImpl::sema(Decl *node) -> CherryResult {
     return sema(cast<FunctionDecl>(node));
   case Decl::Decl_Struct:
     return sema(cast<StructDecl>(node));
+  case Decl::Decl_ComptimeTypeAlias:
+    return sema(cast<ComptimeTypeAliasDecl>(node));
   }
 }
 
@@ -421,6 +504,17 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   id->setType(structType);
   if (declareStructType(structType))
     return emitError(id, diag::redefinition_type);
+  return success();
+}
+
+auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
+  if (_symbols.lookupType(node->name()) ||
+      _symbols.lookupComptimeTypeAlias(node->name()))
+    return emitError(node, diag::redefinition_type);
+
+  if (_symbols.declareComptimeTypeAlias(node->name(), node->parameterName(),
+                                        node->bodyTypeNode()))
+    return emitError(node, diag::redefinition_type);
   return success();
 }
 

@@ -24,6 +24,7 @@ public:
     Named,
     Tensor,
     List,
+    Generic,
   };
 
   auto kind() const -> Kind { return _kind; }
@@ -103,6 +104,29 @@ public:
 
 private:
   std::unique_ptr<TypeNode> _elementType;
+};
+
+// Generic type application node. e.g. `Vector<UInt64>` or `Matrix<Float32>`.
+class GenericTypeNode final : public TypeNode {
+public:
+  GenericTypeNode(llvm::SMLoc location, std::string_view name,
+                  std::unique_ptr<TypeNode> argumentType)
+      : TypeNode(location, TypeNode::Kind::Generic), _name(name),
+        _argumentType(std::move(argumentType)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Generic;
+  }
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto argumentTypeNode() const -> const TypeNode * {
+    return _argumentType.get();
+  }
+
+private:
+  std::string _name;
+  std::unique_ptr<TypeNode> _argumentType;
 };
 
 } // end namespace cherry

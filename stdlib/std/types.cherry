@@ -1,0 +1,4 @@
+package std.types;
+
+comptime Vector<T> = List<T>;
+comptime Matrix<T> = T[?, ?];

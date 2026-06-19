@@ -311,6 +311,8 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
     gen(cast<StructDecl>(node));
     return nullptr;
   }
+  case Decl::Decl_ComptimeTypeAlias:
+    return nullptr;
   }
 }
 
