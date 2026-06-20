@@ -15,9 +15,13 @@ module {
 
 // CHECK-LABEL: func.func @main
 // CHECK-SAME: -> memref<2xf32>
-// CHECK: %[[SLOT:.*]] = memref.alloca() : memref<memref<2xf32>>
+// CHECK: %[[SLOT:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(ptr, array<1 x i64>, array<1 x i64>)>
 // CHECK: %[[TENSOR:.*]] = memref.alloc() : memref<2xf32>
-// CHECK: memref.store %[[TENSOR]], %[[SLOT]][] : memref<memref<2xf32>>
-// CHECK: %[[LOADED:.*]] = memref.load %[[SLOT]][] : memref<memref<2xf32>>
+// CHECK: %[[DESC:.*]] = llvm.mlir.undef : !llvm.struct<(ptr, array<1 x i64>, array<1 x i64>)>
+// CHECK: memref.extract_aligned_pointer_as_index %[[TENSOR]]
+// CHECK: llvm.store %{{.*}}, %[[SLOT]]
+// CHECK: %[[LOADED_DESC:.*]] = llvm.load %[[SLOT]]
+// CHECK: builtin.unrealized_conversion_cast
+// CHECK: %[[LOADED:.*]] = memref.memory_space_cast
 // CHECK: return %[[LOADED]] : memref<2xf32>
 // CHECK-NOT: mulberry.

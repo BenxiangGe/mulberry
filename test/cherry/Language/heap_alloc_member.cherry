@@ -1,0 +1,35 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct Pair {
+  x: UInt64,
+  y: Bool
+}
+
+fn direct(): UInt64 {
+  heap.alloc<Pair>().x = 7;
+  0
+}
+
+fn viaVariable(): UInt64 {
+  var p: Ptr<Pair> = heap.alloc<Pair>();
+  p.x = 8;
+  p.x
+}
+
+fn main(): UInt64 {
+  0
+}
+
+# CHECK-LABEL: func.func @direct()
+# CHECK: %[[ONE:.*]] = arith.constant 1 : index
+# CHECK: %[[DIRECT:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
+# CHECK: %[[DIRECT_X:.*]] = mulberry.record.get_field %[[DIRECT]]["x"]
+# CHECK: mulberry.store
+
+# CHECK-LABEL: func.func @viaVariable()
+# CHECK: %[[ONE:.*]] = arith.constant 1 : index
+# CHECK: %[[PAIR:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
+# CHECK: %[[X:.*]] = mulberry.record.get_field %[[PAIR]]["x"]
+# CHECK: mulberry.store
+# CHECK: %[[X2:.*]] = mulberry.record.get_field %[[PAIR]]["x"]
+# CHECK: mulberry.load %[[X2]]

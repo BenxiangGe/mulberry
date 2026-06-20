@@ -54,6 +54,8 @@ private:
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
+  auto dump(const HeapAllocExpr *node) -> void;
+  auto dump(const DerefExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
   auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
@@ -104,6 +106,20 @@ private:
       return std::string(genericType->name()) + "<" +
              formatTypeNode(genericType->argumentTypeNode()) + ">";
 
+    if (auto *structType = dyn_cast<StructTypeNode>(node)) {
+      std::string result = "struct {";
+      std::string separator;
+      for (auto &field : structType->fields()) {
+        result += separator;
+        result += field->variable()->name();
+        result += ": ";
+        result += formatTypeNode(field->typeNode());
+        separator = ", ";
+      }
+      result += "}";
+      return result;
+    }
+
     auto *namedType = cast<NamedTypeNode>(node);
     return std::string(namedType->name());
   }
@@ -149,7 +165,10 @@ auto Dumper::dump(const Prototype *node) -> void {
   auto id = node->id().get();
   auto typeNode = node->returnTypeNode();
   INDENT();
-  errs() << "Prototype " << loc(node) << " (name=" << id->name() << " "
+  errs() << "Prototype " << loc(node) << " (name=" << id->name();
+  if (node->isGeneric())
+    errs() << " parameter=" << node->typeParameterName();
+  errs() << " "
          << loc(id) << " (type=" << formatTypeNode(typeNode) << " "
          << loc(typeNode) << ")\n";
   for (auto &parameter : node->parameters())
@@ -184,7 +203,7 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            TypeLayoutExpr,
+            TypeLayoutExpr, HeapAllocExpr, DerefExpr,
             ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -219,7 +238,7 @@ auto Dumper::dump(const StructLiteralExpr *node) -> void {
   INDENT();
   errs() << "StructLiteralExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " name=" << node->name() << "\n";
+         << " literalType=" << formatTypeNode(node->typeNode()) << "\n";
   for (auto &expr : *node)
     dump(expr.get());
 }
@@ -286,6 +305,22 @@ auto Dumper::dump(const TypeLayoutExpr *node) -> void {
          << " query=" << query
          << " target=" << formatTypeNode(node->typeNode())
          << " value=" << node->value() << "\n";
+}
+
+auto Dumper::dump(const HeapAllocExpr *node) -> void {
+  INDENT();
+  errs() << "HeapAllocExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " allocated=" << formatType(node->allocatedType()) << "\n";
+  if (node->count())
+    dump(node->count().get());
+}
+
+auto Dumper::dump(const DerefExpr *node) -> void {
+  INDENT();
+  errs() << "DerefExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->pointer().get());
 }
 
 auto Dumper::dump(const ArrayLiteralExpr *node) -> void {

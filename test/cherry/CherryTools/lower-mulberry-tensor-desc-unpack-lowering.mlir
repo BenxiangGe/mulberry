@@ -16,11 +16,12 @@ module {
 }
 
 // CHECK-LABEL: func.func @local_tensor_desc_unpack
-// CHECK: ptr.to_ptr
 // CHECK: %[[DATA:.*]] = llvm.extractvalue
 // CHECK-SAME: [0]
-// CHECK: ptr.from_ptr %[[DATA]]
-// CHECK-SAME: -> memref<f32, #llvm.address_space<0>>
+// CHECK: %[[MEMREF_DESC:.*]] = llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64)>
+// CHECK: llvm.insertvalue %[[DATA]], %[[MEMREF_DESC]][0]
+// CHECK: builtin.unrealized_conversion_cast
+// CHECK-SAME: to memref<f32, #llvm.address_space<0>>
 // CHECK: memref.reinterpret_cast
 // CHECK: memref.memory_space_cast
 // CHECK: memref.dim

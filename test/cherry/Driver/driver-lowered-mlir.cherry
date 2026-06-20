@@ -6,7 +6,7 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main
-# CHECK: memref.alloca() : memref<memref<4xf32>>
+# CHECK: llvm.alloca %{{.*}} x !llvm.struct<(ptr, array<1 x i64>, array<1 x i64>)>
 # CHECK: linalg.generic
 # CHECK: return
 # CHECK-NOT: cherry_nn.

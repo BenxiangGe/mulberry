@@ -9,9 +9,9 @@ module {
     %desc = mulberry.list.desc_get %xs[%index]
         : !mulberry.list_desc<!mulberry.tensor_desc<?x?xf32>>
             -> !mulberry.tensor_desc<?x?xf32>
-    %handle = mulberry.tensor.handle_from_desc %desc
+    %tensor = mulberry.tensor.desc_unpack %desc
         : !mulberry.tensor_desc<?x?xf32>
-            -> !mulberry.tensor_handle<?x?xf32>
+            -> !mulberry.tensor<?x?xf32>
     %result = arith.constant 0 : i64
     return %result : i64
   }
@@ -22,5 +22,5 @@ module {
 // CHECK: mulberry.list.desc_length
 // CHECK: mulberry.list.desc_get
 // CHECK-SAME: -> !mulberry.tensor_desc<?x?xf32>
-// CHECK: mulberry.tensor.handle_from_desc
-// CHECK-SAME: -> !mulberry.tensor_handle<?x?xf32>
+// CHECK: mulberry.tensor.desc_unpack
+// CHECK-SAME: -> !mulberry.tensor<?x?xf32>

@@ -100,7 +100,7 @@ llvm-generate-project:
 .PHONY: llvm-build - Build LLVM.
 llvm-build:
 	echo "LLVM - Build"
-	cmake --build ${LLVM_BUILD_DIR}
+	cmake --build ${LLVM_BUILD_DIR} $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
 
 # _____________________________________________________________________________
 # Targets - Cherry
@@ -134,7 +134,8 @@ cherry-copy-compile-commands:
 .PHONY: cherry-build - Build Cherry.
 cherry-build:
 	echo "Cherry - Build"
-	cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose
+	cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
+	# echo cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
 
 # _____________________________________________________________________________
 # Presets

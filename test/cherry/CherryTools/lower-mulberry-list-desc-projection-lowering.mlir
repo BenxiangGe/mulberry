@@ -3,7 +3,7 @@
 module {
   func.func @tensor_desc_list_desc_projection(%length: index, %index: index,
                                               %n: index, %m: index)
-      -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)> {
+      -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)> {
     %tensor = mulberry.tensor.alloc(%n, %m)
         : !mulberry.tensor<?x?xf32>
     %tensorDesc = mulberry.tensor.desc_pack %tensor
@@ -26,13 +26,13 @@ module {
             -> !mulberry.tensor_desc<?x?xf32>
     %abi = mulberry.tensor.desc_to_abi %loaded
         : !mulberry.tensor_desc<?x?xf32>
-            -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
-    return %abi : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+            -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+    return %abi : !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
   }
 }
 
 // CHECK-LABEL: func.func @tensor_desc_list_desc_projection
-// CHECK-SAME: -> !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+// CHECK-SAME: -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[LIST_DESC:.*]] = llvm.mlir.undef : !llvm.struct<(i64, ptr)>
 // CHECK: %[[WITH_LENGTH:.*]] = llvm.insertvalue %{{.*}}, %[[LIST_DESC]][0]
 // CHECK: %[[ABI:.*]] = llvm.insertvalue %{{.*}}, %[[WITH_LENGTH]][1]
@@ -41,9 +41,10 @@ module {
 // CHECK: %[[DATA:.*]] = llvm.extractvalue %[[ABI]][1] : !llvm.struct<(i64, ptr)>
 // CHECK: %[[INDEX:.*]] = arith.index_cast %[[LENGTH]] : index to i64
 // CHECK: %[[LOAD_PTR:.*]] = llvm.getelementptr %[[DATA]][%[[INDEX]]]
-// CHECK-SAME: -> !llvm.ptr, !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+// CHECK-SAME: -> !llvm.ptr, !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[LOADED:.*]] = llvm.load %[[LOAD_PTR]]
-// CHECK: return %[[LOADED]] : !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+// CHECK-SAME: -> !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+// CHECK: return %[[LOADED]] : !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
 // CHECK-NOT: !mulberry.tensor_desc
 // CHECK-NOT: !mulberry.list_desc
 // CHECK-NOT: !mulberry.list_storage

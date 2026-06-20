@@ -17,6 +17,8 @@
 
 namespace cherry {
 
+class VariableStat;
+
 class TypeNode : public Node {
 public:
   enum class Kind {
@@ -26,6 +28,7 @@ public:
     List,
     Ptr,
     Generic,
+    Struct,
   };
 
   auto kind() const -> Kind { return _kind; }
@@ -148,6 +151,25 @@ public:
 private:
   std::string _name;
   std::unique_ptr<TypeNode> _argumentType;
+};
+
+class StructTypeNode final : public TypeNode {
+public:
+  explicit StructTypeNode(llvm::SMLoc location,
+                          VectorUniquePtr<VariableStat> fields)
+      : TypeNode(location, TypeNode::Kind::Struct),
+        _fields(std::move(fields)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Struct;
+  }
+
+  auto fields() const -> const VectorUniquePtr<VariableStat> & {
+    return _fields;
+  }
+
+private:
+  VectorUniquePtr<VariableStat> _fields;
 };
 
 } // end namespace cherry

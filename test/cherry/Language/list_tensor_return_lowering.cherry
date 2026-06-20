@@ -17,8 +17,9 @@ fn main(): UInt64 {
 # CHECK: memref.cast
 # CHECK-SAME: memref<2x2xf32> to memref<?x?xf32>
 # CHECK: llvm.alloca
-# CHECK-SAME: !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
-# CHECK: ptr.to_ptr
+# CHECK-SAME: !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+# CHECK: memref.extract_aligned_pointer_as_index
+# CHECK: llvm.inttoptr
 # CHECK: llvm.call @mulberry_boehm_malloc
 # CHECK: scf.for
 # CHECK: llvm.store
@@ -28,7 +29,7 @@ fn main(): UInt64 {
 # CHECK: call @make() : () -> !llvm.struct<(i64, ptr)>
 # CHECK: llvm.extractvalue %{{.*}}[1] : !llvm.struct<(i64, ptr)>
 # CHECK: llvm.load
-# CHECK: ptr.from_ptr
+# CHECK: builtin.unrealized_conversion_cast
 # CHECK: memref.reinterpret_cast
 # CHECK: memref.memory_space_cast
 # CHECK: linalg.generic

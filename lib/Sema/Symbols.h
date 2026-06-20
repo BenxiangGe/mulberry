@@ -19,6 +19,7 @@
 #include <vector>
 
 namespace cherry {
+class FunctionDecl;
 class TypeNode;
 using llvm::failure;
 using llvm::success;
@@ -34,8 +35,13 @@ struct FunctionSymbol {
 };
 
 struct ComptimeTypeAliasSymbol {
+  std::string packageName;
   std::string parameterName;
   const TypeNode *bodyTypeNode = nullptr;
+};
+
+struct GenericFunctionSymbol {
+  const FunctionDecl *decl = nullptr;
 };
 
 template <typename T>
@@ -59,6 +65,20 @@ public:
     return &symbol->second;
   }
 
+  auto declareGenericFunction(std::string_view name,
+                              const FunctionDecl *decl) -> CherryResult {
+    return declareSymbol(_genericFunctionsByName, name,
+                         GenericFunctionSymbol{decl});
+  }
+
+  auto lookupGenericFunction(std::string_view name)
+      -> const GenericFunctionSymbol * {
+    auto symbol = _genericFunctionsByName.find(name);
+    if (symbol == _genericFunctionsByName.end())
+      return nullptr;
+    return &symbol->second;
+  }
+
   auto declareType(std::string_view name, const Type *type) -> CherryResult {
     return declareSymbol(_typesByName, name, type);
   }
@@ -71,11 +91,13 @@ public:
   }
 
   auto declareComptimeTypeAlias(std::string_view name,
+                                std::string_view packageName,
                                 std::string_view parameterName,
                                 const TypeNode *bodyTypeNode)
       -> CherryResult {
     return declareSymbol(_comptimeTypeAliasesByName, name,
                          ComptimeTypeAliasSymbol{
+                             std::string(packageName),
                              std::string(parameterName), bodyTypeNode});
   }
 
@@ -125,6 +147,7 @@ private:
   }
 
   NameMap<FunctionSymbol> _functionsByName;
+  NameMap<GenericFunctionSymbol> _genericFunctionsByName;
   NameMap<const Type *> _typesByName;
   NameMap<ComptimeTypeAliasSymbol> _comptimeTypeAliasesByName;
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;

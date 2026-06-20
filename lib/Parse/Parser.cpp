@@ -185,6 +185,18 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
   return success();
 }
 
+auto Parser::parseOptionalTypeParameter(std::string &typeParameterName)
+    -> CherryResult {
+  if (!consumeIf(Token::less))
+    return success();
+
+  typeParameterName = std::string(spelling());
+  if (parseToken(Token::identifier, diag::expected_id) ||
+      parseToken(Token::greater, diag::expected_greater))
+    return failure();
+  return success();
+}
+
 auto Parser::parseStructName(unique_ptr<StructName> &structName,
                              const char *const message) -> CherryResult {
   auto location = tokenLoc();
@@ -256,7 +268,9 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto) -> CherryResult {
 
   // Parse name
   unique_ptr<FunctionName> name;
+  std::string typeParameterName;
   if (parseFunctionName(name, diag::expected_id) ||
+      parseOptionalTypeParameter(typeParameterName) ||
       parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
 
@@ -282,7 +296,8 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto) -> CherryResult {
 
   // Make Proto
   proto = make_unique<Prototype>(location, std::move(name),
-                                 std::move(parameters), std::move(typeNode));
+                                 std::move(parameters), std::move(typeNode),
+                                 typeParameterName);
   return success();
 }
 
@@ -327,26 +342,48 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
       parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
 
-  // Parse List
   VectorUniquePtr<VariableStat> fields;
-  if (parseList(Token::comma, Token::r_brace, diag::expected_comma_or_r_brace,
-                diag::expected_r_brace, fields,
-                [this](unique_ptr<VariableStat> &elem) -> CherryResult {
-                  unique_ptr<VariableExpr> var;
-                  unique_ptr<TypeNode> typeNode;
-                  if (parseVariableExpr(var) ||
-                      parseToken(Token::colon, diag::expected_colon) ||
-                      parseType(typeNode))
-                    return failure();
-                  elem = make_unique<VariableStat>(
-                      var->location(), std::move(var), std::move(typeNode),
-                      nullptr);
-                  return success();
-                }))
+  if (parseStructFields(fields))
     return failure();
 
-  // Make StructDecl
   decl = make_unique<StructDecl>(loc, std::move(name), std::move(fields));
+  return success();
+}
+
+auto Parser::parseStructFields(VectorUniquePtr<VariableStat> &fields)
+    -> CherryResult {
+  return parseList(Token::comma, Token::r_brace,
+                   diag::expected_comma_or_r_brace, diag::expected_r_brace,
+                   fields,
+                   [this](unique_ptr<VariableStat> &elem) -> CherryResult {
+                     unique_ptr<VariableExpr> var;
+                     unique_ptr<TypeNode> typeNode;
+                     if (parseVariableExpr(var) ||
+                         parseToken(Token::colon, diag::expected_colon) ||
+                         parseType(typeNode))
+                       return failure();
+                     elem = make_unique<VariableStat>(
+                         var->location(), std::move(var), std::move(typeNode),
+                         nullptr);
+                     return success();
+                   });
+}
+
+auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
+    -> CherryResult {
+  if (!tokenIs(Token::kw_struct))
+    return parseType(typeNode);
+
+  auto location = tokenLoc();
+  consume(Token::kw_struct);
+  if (parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+
+  VectorUniquePtr<VariableStat> fields;
+  if (parseStructFields(fields))
+    return failure();
+
+  typeNode = make_unique<StructTypeNode>(location, std::move(fields));
   return success();
 }
 
@@ -368,7 +405,8 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
     return failure();
 
   unique_ptr<TypeNode> bodyTypeNode;
-  if (parseType(bodyTypeNode) || parseToken(Token::semi, diag::expected_semi))
+  if (parseComptimeAliasBody(bodyTypeNode) ||
+      parseToken(Token::semi, diag::expected_semi))
     return failure();
 
   decl = make_unique<ComptimeTypeAliasDecl>(
@@ -486,6 +524,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseString(expr);
   case Token::diff:
     return parseNegativeFloat(expr);
+  case Token::mul:
+    return parseDerefExpr(expr);
   case Token::identifier:
     return parseIdentifierExpr(expr);
   case Token::l_square:
@@ -633,12 +673,37 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::string_literal_invalid);
 }
 
+auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> CherryResult {
+  auto location = tokenLoc();
+  consume(Token::mul);
+
+  unique_ptr<Expr> pointer;
+  if (parsePrimaryExpression(pointer))
+    return failure();
+  while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
+    if (tokenIs(Token::dot)) {
+      if (parseMemberAccess(pointer))
+        return failure();
+      continue;
+    }
+    if (parseIndex(pointer))
+      return failure();
+  }
+
+  expr = make_unique<DerefExpr>(location, std::move(pointer));
+  return success();
+}
+
 auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, diag::expected_id))
     return failure();
   switch (tokenKind()) {
+  case Token::less:
+    if (name != "heap.alloc")
+      return parseGenericStructLiteral(location, name, expr);
+    return parseHeapAllocExpr(location, name, expr);
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
@@ -648,7 +713,8 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
       expr = createMemberAccessChain(location, name);
       return success();
     }
-    return parseStructLiteral(location, name, expr);
+    return parseStructLiteral(
+        location, make_unique<NamedTypeNode>(location, name), expr);
   default:
     expr = createMemberAccessChain(location, name);
     return success();
@@ -669,6 +735,29 @@ auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
   return success();
 }
 
+auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
+                                unique_ptr<Expr> &expr) -> CherryResult {
+  if (name != "heap.alloc")
+    return emitError(diag::expected_expr);
+
+  consume(Token::less);
+  unique_ptr<TypeNode> typeNode;
+  if (parseType(typeNode) ||
+      parseToken(Token::greater, diag::expected_greater) ||
+      parseToken(Token::l_paren, diag::expected_l_paren))
+    return failure();
+
+  unique_ptr<Expr> count;
+  if (!tokenIs(Token::r_paren) && parseExpression(count))
+    return failure();
+  if (parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<HeapAllocExpr>(location, std::move(typeNode),
+                                    std::move(count));
+  return success();
+}
+
 auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
                                unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_paren);
@@ -680,15 +769,33 @@ auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
   return success();
 }
 
-auto Parser::parseStructLiteral(llvm::SMLoc location, std::string_view name,
+auto Parser::parseStructLiteral(llvm::SMLoc location,
+                                unique_ptr<TypeNode> typeNode,
                                 unique_ptr<Expr> &expr) -> CherryResult {
   consume(Token::l_brace);
   auto expressions = VectorUniquePtr<Expr>();
   if (parseExpressions(expressions, Token::comma, Token::r_brace,
                        diag::expected_comma_or_r_brace, diag::expected_r_brace))
     return failure();
-  expr = make_unique<StructLiteralExpr>(location, name, std::move(expressions));
+  expr = make_unique<StructLiteralExpr>(
+      location, std::move(typeNode), std::move(expressions));
   return success();
+}
+
+auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
+                                       std::string_view name,
+                                       unique_ptr<Expr> &expr) -> CherryResult {
+  consume(Token::less);
+  unique_ptr<TypeNode> argumentTypeNode;
+  if (parseType(argumentTypeNode) ||
+      parseToken(Token::greater, diag::expected_greater))
+    return failure();
+
+  auto typeNode = make_unique<GenericTypeNode>(
+      location, name, std::move(argumentTypeNode));
+  if (!tokenIs(Token::l_brace))
+    return emitError(diag::expected_l_brace);
+  return parseStructLiteral(location, std::move(typeNode), expr);
 }
 
 auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)

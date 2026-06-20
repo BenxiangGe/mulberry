@@ -32,10 +32,6 @@ def Mulberry_AnyTensorDescType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorDescType>($_self)">,
     "Mulberry tensor descriptor type">;
 
-def Mulberry_AnyTensorHandleType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::TensorHandleType>($_self)">,
-    "Mulberry tensor handle type">;
-
 def Mulberry_AnyListType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::ListType>($_self)">,
     "Mulberry list type">;
@@ -59,6 +55,29 @@ def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let results = (outs Mulberry_AnyPtrType:$result);
 
   let assemblyFormat = "$elementType attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_HeapAllocOp : Mulberry_Op<"heap.alloc"> {
+  let summary = "Allocate a Mulberry heap object";
+
+  let arguments = (ins TypeAttr:$elementType, Index:$count);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$elementType `,` $count attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_PtrIndexOp : Mulberry_Op<"ptr.index"> {
+  let summary = "Get the address of a pointer element";
+
+  let arguments = (ins Mulberry_AnyPtrType:$ptr, Index:$index);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$ptr `[` $index `]` attr-dict `:` type($ptr) "
+                       "`->` type($result)";
 
   let hasVerifier = 1;
 }
@@ -257,19 +276,6 @@ def Mulberry_TensorDescUnpackOp : Mulberry_Op<"tensor.desc_unpack"> {
 
   let arguments = (ins Mulberry_AnyTensorDescType:$desc);
   let results = (outs Mulberry_AnyTensorType:$result);
-
-  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
-                       "type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorHandleFromDescOp
-    : Mulberry_Op<"tensor.handle_from_desc"> {
-  let summary = "Reconstruct a Mulberry tensor handle from descriptor fields";
-
-  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
-  let results = (outs Mulberry_AnyTensorHandleType:$result);
 
   let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
                        "type($result)";

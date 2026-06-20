@@ -9,6 +9,8 @@
 #define CHERRY_STRUCT_LITERAL_EXPR_H
 
 #include "cherry/AST/Expr.h"
+#include "cherry/AST/Type.h"
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -18,16 +20,17 @@ class StructType;
 
 class StructLiteralExpr final : public Expr {
 public:
-  explicit StructLiteralExpr(llvm::SMLoc location, std::string_view name,
+  explicit StructLiteralExpr(llvm::SMLoc location,
+                             std::unique_ptr<TypeNode> typeNode,
                              VectorUniquePtr<Expr> expressions)
-      : Expr{Expr_StructLiteral, location}, _name(name),
+      : Expr{Expr_StructLiteral, location}, _typeNode(std::move(typeNode)),
         _expressions(std::move(expressions)){};
 
   static auto classof(const Expr *node) -> bool {
     return node->getKind() == Expr_StructLiteral;
   }
 
-  auto name() const -> std::string_view { return _name; }
+  auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
 
   auto setStructType(const StructType *type) -> void { _structType = type; }
 
@@ -38,7 +41,7 @@ public:
   }
 
 private:
-  std::string _name;
+  std::unique_ptr<TypeNode> _typeNode;
   const StructType *_structType = nullptr;
   VectorUniquePtr<Expr> _expressions;
 

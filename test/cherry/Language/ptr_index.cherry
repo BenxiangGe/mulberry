@@ -1,0 +1,78 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Pair {
+  x: UInt64,
+  y: Bool
+}
+
+fn scalar(): UInt64 {
+  var p: Ptr<UInt64> = heap.alloc<UInt64>(3);
+  p[0] = 10;
+  p[1] = 32;
+  p[0] + p[1]
+}
+
+fn record(): UInt64 {
+  var p: Ptr<Pair> = heap.alloc<Pair>(2);
+  p[0].x = 5;
+  p[1].x = 8;
+  p[0].x + p[1].x
+}
+
+fn main(): UInt64 {
+  io.print(scalar());
+  io.print(record());
+  0
+}
+
+# MLIR-LABEL: func.func @scalar()
+# MLIR: %[[COUNT:.*]] = arith.constant 3 : index
+# MLIR: %[[PTR:.*]] = mulberry.heap.alloc i64, %[[COUNT]] : !mulberry.ptr<i64>
+# MLIR: %[[P0:.*]] = mulberry.ptr.index %[[PTR]]
+# MLIR-SAME: -> !mulberry.ptr<i64>
+# MLIR: mulberry.store {{.*}}, %[[P0]] : i64, !mulberry.ptr<i64>
+# MLIR: %[[P1:.*]] = mulberry.ptr.index %[[PTR]]
+# MLIR-SAME: -> !mulberry.ptr<i64>
+# MLIR: mulberry.store {{.*}}, %[[P1]] : i64, !mulberry.ptr<i64>
+# MLIR: mulberry.load
+
+# MLIR-LABEL: func.func @record()
+# MLIR: %[[COUNT:.*]] = arith.constant 2 : index
+# MLIR: %[[PTR:.*]] = mulberry.heap.alloc !mulberry.record<Pair
+# MLIR-SAME: , %[[COUNT]]
+# MLIR: %[[P0:.*]] = mulberry.ptr.index %[[PTR]]
+# MLIR: mulberry.record.get_field %[[P0]]["x"]
+# MLIR: %[[P1:.*]] = mulberry.ptr.index %[[PTR]]
+# MLIR: mulberry.record.get_field %[[P1]]["x"]
+
+# LOWER-LABEL: func.func @scalar()
+# LOWER: %[[COUNT_INDEX:.*]] = arith.constant 3 : index
+# LOWER: %[[COUNT:.*]] = arith.index_cast %[[COUNT_INDEX]] : index to i64
+# LOWER: %[[BYTES:.*]] = arith.muli {{.*}}, %[[COUNT]] : i64
+# LOWER: %[[PTR:.*]] = llvm.call @mulberry_boehm_malloc(%[[BYTES]]) : (i64) -> !llvm.ptr
+# LOWER: %[[P0:.*]] = llvm.getelementptr %[[PTR]]
+# LOWER-SAME: i64
+# LOWER: llvm.store {{.*}}, %[[P0]] : i64, !llvm.ptr
+# LOWER: %[[P1:.*]] = llvm.getelementptr %[[PTR]]
+# LOWER-SAME: i64
+# LOWER: llvm.store {{.*}}, %[[P1]] : i64, !llvm.ptr
+
+# LOWER-LABEL: func.func @record()
+# LOWER: %[[COUNT_INDEX:.*]] = arith.constant 2 : index
+# LOWER: %[[COUNT:.*]] = arith.index_cast %[[COUNT_INDEX]] : index to i64
+# LOWER: %[[BYTES:.*]] = arith.muli {{.*}}, %[[COUNT]] : i64
+# LOWER: %[[PTR:.*]] = llvm.call @mulberry_boehm_malloc(%[[BYTES]]) : (i64) -> !llvm.ptr
+# LOWER: %[[P0:.*]] = llvm.getelementptr %[[PTR]]
+# LOWER-SAME: !llvm.struct<(i64, i1)>
+# LOWER: %[[X0:.*]] = llvm.getelementptr %[[P0]][0, 0]
+# LOWER: llvm.store {{.*}}, %[[X0]] : i64, !llvm.ptr
+# LOWER: %[[P1:.*]] = llvm.getelementptr %[[PTR]]
+# LOWER-SAME: !llvm.struct<(i64, i1)>
+# LOWER: %[[X1:.*]] = llvm.getelementptr %[[P1]][0, 0]
+# LOWER: llvm.store {{.*}}, %[[X1]] : i64, !llvm.ptr
+# LOWER-NOT: mulberry.
+
+# JIT: 42
+# JIT-NEXT: 13
