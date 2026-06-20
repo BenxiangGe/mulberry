@@ -20,7 +20,10 @@ module {
 // CHECK: %[[LOAD_PTR:.*]] = llvm.getelementptr %[[DATA_LIST]]
 // CHECK: %[[TENSOR_DESC:.*]] = llvm.load %[[LOAD_PTR]]
 // CHECK: %[[DATA:.*]] = llvm.extractvalue %[[TENSOR_DESC]][0]
-// CHECK: ptr.from_ptr %[[DATA]]
+// CHECK: %[[MEMREF_DESC:.*]] = llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64)>
+// CHECK: llvm.insertvalue %[[DATA]], %[[MEMREF_DESC]][0]
+// CHECK: builtin.unrealized_conversion_cast
+// CHECK-SAME: to memref<f32, #llvm.address_space<0>>
 // CHECK: memref.reinterpret_cast
 // CHECK: memref.memory_space_cast
 // CHECK: return

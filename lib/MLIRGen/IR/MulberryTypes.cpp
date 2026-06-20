@@ -120,20 +120,6 @@ void mlir::mulberry::TensorDescType::print(AsmPrinter& printer) const {
   printShapedElementType(printer, getShape(), getElementType());
 }
 
-Type mlir::mulberry::TensorHandleType::parse(AsmParser& parser) {
-  SmallVector<int64_t> shape;
-  Type elementType;
-  if (parseShapedElementType(parser, shape, elementType))
-    return {};
-
-  return mlir::mulberry::TensorHandleType::get(parser.getContext(), shape,
-                                               elementType);
-}
-
-void mlir::mulberry::TensorHandleType::print(AsmPrinter& printer) const {
-  printShapedElementType(printer, getShape(), getElementType());
-}
-
 LogicalResult RecordType::verify(
     llvm::function_ref<InFlightDiagnostic()> emitError, StringRef name,
     ArrayRef<Field> fields) {

@@ -260,15 +260,13 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   }
 
   if (lowering >= Lowering::LLVM) {
-    mlir::ConvertToLLVMPassOptions llvmOptions;
-    llvmOptions.filterDialects = {"arith", "cf", "func", "math", "memref"};
     pm.addPass(mlir::cherry::createLowerCherryRuntime());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::createConvertLinalgToLoopsPass());
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::LLVM::createLLVMRequestCWrappersPass());
-    pm.addPass(mlir::createConvertToLLVMPass(std::move(llvmOptions)));
+    pm.addPass(mlir::cherry::createConvertCherryToLLVM());
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
   }
 

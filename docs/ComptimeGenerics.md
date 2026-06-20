@@ -17,6 +17,52 @@ fn main(): UInt64 {
 这里的 `types.Vector<UInt64>` 会在 Sema 阶段实例化成 `List<UInt64>`。MLIRGen
 只看见已经实例化后的 concrete type，不需要知道 generic。
 
+当前还支持 generic struct alias：
+
+```cherry
+comptime List<T> = struct {
+  length: UInt64,
+  capacity: UInt64,
+  data: Ptr<T>
+};
+```
+
+`List<UInt64>` 会在 Sema 阶段实例化成一个 concrete struct type。MLIRGen
+仍然只看到普通 `mulberry.record`，不会把 generic 语义带进 IR。
+
+当前还支持最小 generic function：
+
+```cherry
+fn first<T>(ptr: Ptr<T>): T {
+  ptr[0]
+}
+```
+
+调用处不需要显式写类型参数：
+
+```cherry
+var data: Ptr<UInt64> = heap.alloc<UInt64>(1);
+first(data)
+```
+
+Sema 会从实参类型 `Ptr<UInt64>` 推断 `T = UInt64`，再生成一个 concrete function，
+内部名字类似 `first__UInt64`。MLIRGen 只看到 `first__UInt64` 这种普通函数和普通
+`func.call`，不会处理 generic。
+
+如果调用表达式出现在带有 expected type 的位置，Sema 也可以从返回类型反推 `T`：
+
+```cherry
+fn make<T>(): Ptr<T> {
+  heap.alloc<T>()
+}
+
+var value: Ptr<UInt64> = make();
+```
+
+这里变量声明的 expected type 是 `Ptr<UInt64>`，所以 `make()` 会被实例化为
+`make__UInt64`。这让 `new<T>()` 这类无参数 factory 可以保持源码简洁，不需要引入
+`make<UInt64>()` 这种显式 generic call 语法。
+
 ## 标准库入口
 
 `stdlib/std/types.cherry` 里先放最小的类型级 alias：
@@ -101,7 +147,7 @@ Float32[?, ?]
 当前分层保持简单：
 
 - Parser 只构建 `ComptimeTypeAliasDecl` 和 `GenericTypeNode`。
-- Sema 负责解析 alias、维护类型参数作用域、实例化 concrete type。
+- Sema 负责解析 alias、维护类型参数作用域、实例化 concrete type/function。
 - MLIRGen 不处理 generic，只处理 Sema 后的 concrete type。
 - Mulberry dialect 不承载 generic 语义。
 
@@ -120,6 +166,20 @@ Float32[?, ?]
 - heap allocation primitive
 - generic struct
 - generic function
+
+当前 generic struct alias 已经可以生成高层 MLIR/`mulberry.record`。Lowering/JIT
+是否能跑通，仍取决于 concrete struct 里包含的字段类型以及函数边界是否已经有对应的
+LowerMulberry 支持；不要为了让某个 generic struct 例子 JIT 而把 lowering workaround
+塞回 MLIRGen。
+
+当前 generic function 是最小单态化：
+
+- 只支持单个类型参数：`fn name<T>(...)`。
+- 类型参数从普通调用实参中推断；在有 expected type 的位置，也可以从返回类型反推。
+- 不支持 `name<UInt64>(...)` 显式调用语法。
+- 实例化结果会追加成普通 concrete function，generic template 本身不会进入 MLIR。
+- 支持从 `Ptr<T>`、`List<T>`、Tensor element、以及 generic struct alias body 中推断
+  `T`。
 
 统一 `Ptr<T>` / heap object handle 模型见 `docs/PtrAndHeapObjectModel.md`；
 标准库 `List<T>` 的目标源码形态见 `docs/StdlibList.md`。

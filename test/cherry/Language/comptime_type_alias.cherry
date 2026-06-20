@@ -12,10 +12,8 @@ fn main(): UInt64 {
   use(xs, ys)
 }
 
-# AST: ComptimeTypeAliasDecl
-# AST-SAME: name=std.types.Vector parameter=T type=List<T>
-# AST: ComptimeTypeAliasDecl
-# AST-SAME: name=std.types.Matrix parameter=T type=T[?, ?]
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Vector parameter=T type=List<T>
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Matrix parameter=T type=T[?, ?]
 # AST: Prototype
 # AST-SAME: name=use
 # AST: VariableStat (id=xs

@@ -1,0 +1,45 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var w2: Float32[?, ?] = [[1.0, 1.0]];
+  var weights: Ptr<collections.List<Float32[?, ?]>> =
+      collections.withCapacity(2);
+  collections.push(weights, w1);
+  collections.push(weights, w2);
+
+  var x: Float32[?, ?] = [[0.2], [0.8]];
+  var y: Float32[?, ?] = matmul(collections.get(weights, 0), x);
+  io.print(argmax(y));
+  0
+}
+
+# AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__Float32______
+# AST-DAG: CallExpr {{.*}}callee=std_collections_push__Float32______
+# AST-DAG: CallExpr {{.*}}callee=std_collections_get__Float32______
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_collections_withCapacity__Float32______
+# MLIR: call @std_collections_push__Float32______
+# MLIR: call @std_collections_get__Float32______
+# MLIR-DAG: func.func @std_collections_push__Float32______
+# MLIR-DAG: mulberry.ptr.index
+# MLIR-NOT: mulberry.list.create
+# MLIR-NOT: mulberry.list.get
+# MLIR-NOT: mulberry.list.size
+
+# LOWER-LABEL: func.func @main()
+# LOWER: call @std_collections_withCapacity__Float32______
+# LOWER: call @std_collections_push__Float32______
+# LOWER: call @std_collections_get__Float32______
+# LOWER-DAG: llvm.getelementptr
+# LOWER-DAG: memref.reinterpret_cast
+# LOWER-DAG: linalg.generic
+# LOWER-NOT: mulberry.list.create
+# LOWER-NOT: mulberry.list.get
+# LOWER-NOT: mulberry.list.size
+
+# JIT: 1

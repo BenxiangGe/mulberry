@@ -1,0 +1,29 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: Ptr<collections.List<UInt64>> = collections.withCapacity(2);
+  xs.length = 2;
+  collections.set(xs, 0, 42);
+  collections.set(xs, 1, 58);
+  io.print(collections.size(xs));
+  io.print(collections.get(xs, 0) + collections.get(xs, 1));
+  0
+}
+
+# AST: CallExpr {{.*}}callee=std_collections_withCapacity__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_set__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_get__UInt64
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_collections_withCapacity__UInt64
+# MLIR-DAG: func.func @std_collections_withCapacity__UInt64
+# MLIR-DAG: mulberry.heap.alloc !mulberry.record<std_collections_List__UInt64
+# MLIR-DAG: mulberry.heap.alloc i64
+# MLIR-NOT: mulberry.list.create
+# MLIR-NOT: mulberry.list.get
+# MLIR-NOT: mulberry.list.size
+
+# JIT: 2
+# JIT-NEXT: 100

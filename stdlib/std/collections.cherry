@@ -1,0 +1,43 @@
+package std.collections;
+
+comptime List<T> = struct {
+  length: UInt64,
+  capacity: UInt64,
+  data: Ptr<T>
+};
+
+fn new<T>(): Ptr<std.collections.List<T>> {
+  var list: Ptr<std.collections.List<T>> =
+      heap.alloc<std.collections.List<T>>();
+  list.length = 0;
+  list.capacity = 0;
+  list
+}
+
+fn withCapacity<T>(capacity: UInt64): Ptr<std.collections.List<T>> {
+  var list: Ptr<std.collections.List<T>> =
+      heap.alloc<std.collections.List<T>>();
+  list.length = 0;
+  list.capacity = capacity;
+  list.data = heap.alloc<T>(capacity);
+  list
+}
+
+fn size<T>(list: Ptr<std.collections.List<T>>): UInt64 {
+  list.length
+}
+
+fn get<T>(list: Ptr<std.collections.List<T>>, index: UInt64): T {
+  list.data[index]
+}
+
+fn set<T>(list: Ptr<std.collections.List<T>>, index: UInt64, value: T): UInt64 {
+  list.data[index] = value;
+  0
+}
+
+fn push<T>(list: Ptr<std.collections.List<T>>, value: T): UInt64 {
+  list.data[list.length] = value;
+  list.length = list.length + 1;
+  0
+}

@@ -29,6 +29,16 @@ def LowerCherryRuntime : Pass<"lower-cherry-runtime"> {
   let dependentDialects = ["arith::ArithDialect", "LLVM::LLVMDialect"];
 }
 
+def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
+  let summary = "Convert Cherry storage-level IR to LLVM";
+  let description = [{
+    This pass delegates most lowering to MLIR's normal ConvertToLLVM dialect
+    interfaces, but adds the memory-space conversion Cherry needs for tensor
+    ABI data pointers that use LLVM address-space attributes in the ptr dialect.
+  }];
+  let dependentDialects = ["LLVM::LLVMDialect"];
+}
+
 def LowerMulberry : Pass<"lower-mulberry"> {
   let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
   let description = [{
@@ -39,7 +49,7 @@ def LowerMulberry : Pass<"lower-mulberry"> {
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",
-                           "ptr::PtrDialect", "scf::SCFDialect"];
+                           "scf::SCFDialect"];
 }
 
 def PrepareMulberryBoundaries : Pass<"prepare-mulberry-boundaries"> {

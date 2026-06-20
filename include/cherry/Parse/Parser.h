@@ -99,6 +99,8 @@ private:
 
   auto parseFunctionName(std::unique_ptr<FunctionName> &functionName,
                          const char *const message) -> CherryResult;
+  auto parseOptionalTypeParameter(std::string &typeParameterName)
+      -> CherryResult;
 
   auto parseStructName(std::unique_ptr<StructName> &structName,
                        const char *const message) -> CherryResult;
@@ -126,6 +128,10 @@ private:
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
   auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
+  auto parseStructFields(VectorUniquePtr<VariableStat> &fields)
+      -> CherryResult;
+  auto parseComptimeAliasBody(std::unique_ptr<TypeNode> &typeNode)
+      -> CherryResult;
 
   auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> CherryResult;
   auto parseArrayLiteral(std::unique_ptr<Expr> &expr) -> CherryResult;
@@ -155,16 +161,23 @@ private:
   auto parseFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseString(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseDerefExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
                            std::unique_ptr<Expr> &expr) -> CherryResult;
 
+  auto parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
+                          std::unique_ptr<Expr> &expr) -> CherryResult;
+
   auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> CherryResult;
-  auto parseStructLiteral(llvm::SMLoc location, std::string_view name,
+  auto parseStructLiteral(llvm::SMLoc location,
+                          std::unique_ptr<TypeNode> typeNode,
                           std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseGenericStructLiteral(llvm::SMLoc location, std::string_view name,
+                                 std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
       -> CherryResult;

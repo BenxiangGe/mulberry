@@ -143,6 +143,8 @@ private:
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
   auto gen(const TypeLayoutExpr *node) -> mlir::Value;
+  auto gen(const HeapAllocExpr *node) -> mlir::Value;
+  auto gen(const DerefExpr *node) -> mlir::Value;
   auto gen(const AssignExpr *node) -> mlir::Value;
   auto gen(const BinaryExpr *node) -> mlir::Value;
 
@@ -260,9 +262,11 @@ private:
   void genAssignment(const IndexExpr *lhs, const Expr *rhs);
 
   auto genLValue(const Expr *node) -> mlir::Value;
+  auto genRecordPtrForMember(const MemberExpr *memberExpr) -> mlir::Value;
   auto getStructField(const MemberExpr *memberExpr) const
       -> const StructField *;
   auto genIndexValue(const Expr *node) -> mlir::Value;
+  auto genPtrIndex(const IndexExpr *expr, mlir::Value ptr) -> mlir::Value;
   auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
@@ -307,7 +311,10 @@ auto MLIRGenImpl::gen(const Decl *node) -> mlir::Operation * {
   case Decl::Decl_Import:
     return nullptr;
   case Decl::Decl_Function: {
-    return gen(cast<FunctionDecl>(node));
+    auto *function = cast<FunctionDecl>(node);
+    if (function->proto()->isGeneric())
+      return nullptr;
+    return gen(function);
   }
   case Decl::Decl_Struct: {
     gen(cast<StructDecl>(node));
@@ -406,6 +413,10 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<StringLiteralExpr>(node));
   case Expr::Expr_TypeLayout:
     return gen(cast<TypeLayoutExpr>(node));
+  case Expr::Expr_HeapAlloc:
+    return gen(cast<HeapAllocExpr>(node));
+  case Expr::Expr_Deref:
+    return gen(cast<DerefExpr>(node));
   case Expr::Expr_Call:
     return gen(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -574,19 +585,17 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   }
 
   auto calleeOpIter = findFunction(node->name());
-  if (calleeOpIter == _functionsByName.end()) {
-    // TODO: placeholder for functions implemented after the caller
-    ERR("callee {0} DOESN'T exist.", node->name());
-    return nullptr;
-  }
-  auto calleeType = calleeOpIter->second.getFunctionType();
+  auto hasCallee = calleeOpIter != _functionsByName.end();
+  auto calleeType = hasCallee ? calleeOpIter->second.getFunctionType()
+                              : mlir::FunctionType{};
 
   llvm::SmallVector<mlir::Value, 4> operands;
   for (const auto &indexedExpr : llvm::enumerate(*node)) {
     auto *expr = indexedExpr.value().get();
     auto value = gen(expr);
-    value = castToType(value, calleeType.getInput(indexedExpr.index()),
-                       loc(expr));
+    if (hasCallee)
+      value = castToType(value, calleeType.getInput(indexedExpr.index()),
+                         loc(expr));
     DBG("gen(CallExpr). value: {0}", value);
     operands.push_back(value);
   }
@@ -605,7 +614,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
   auto *structType = node->structType();
   if (!structType) {
-    ERR("struct literal `{0}` has no Cherry struct type", node->name());
+    ERR("struct literal has no Cherry struct type");
     return nullptr;
   }
 
@@ -796,6 +805,11 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   return getVariableValue(node->name(), loc(node));
 }
 
+auto MLIRGenImpl::gen(const DerefExpr *node) -> mlir::Value {
+  auto ptr = gen(node->pointer().get());
+  return createLoad(ptr, getMLIRType(node), loc(node));
+}
+
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   auto *field = getStructField(node);
   if (!field) {
@@ -803,7 +817,7 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
     return nullptr;
   }
 
-  if (node->base()->isLvalue()) {
+  if (node->isLvalue()) {
     auto ptr = genLValue(node);
     return createLoad(ptr, getMLIRType(node), loc(node));
   }
@@ -844,6 +858,17 @@ auto MLIRGenImpl::gen(const TypeLayoutExpr *node) -> mlir::Value {
                                             node->value(), 64);
 }
 
+auto MLIRGenImpl::gen(const HeapAllocExpr *node) -> mlir::Value {
+  auto allocatedType = getMLIRType(node->allocatedType());
+  auto resultType = llvm::cast<mlir::mulberry::PtrType>(getMLIRType(node));
+  auto count = node->count()
+                   ? genIndexValue(node->count().get())
+                   : mlir::arith::ConstantIndexOp::create(_builder, loc(node),
+                                                          1);
+  return mlir::mulberry::HeapAllocOp::create(_builder, loc(node), resultType,
+                                             allocatedType, count);
+}
+
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   if (auto varExpr = llvm::dyn_cast<VariableExpr>(node)) {
     DBG("varExpr->name(): {0}", varExpr->name());
@@ -852,8 +877,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   }
 
   if (auto *memberExpr = llvm::dyn_cast<MemberExpr>(node)) {
-    auto base = memberExpr->base().get();
-    mlir::Value basePtr = genLValue(base);
+    mlir::Value basePtr = genRecordPtrForMember(memberExpr);
 
     if (auto *field = getStructField(memberExpr)) {
       return createStructFieldPtr(basePtr, *field, loc(node));
@@ -863,16 +887,39 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
     return nullptr;
   }
 
+  if (auto *derefExpr = llvm::dyn_cast<DerefExpr>(node))
+    return gen(derefExpr->pointer().get());
+
+  if (auto *indexExpr = llvm::dyn_cast<IndexExpr>(node)) {
+    auto source = gen(indexExpr->base().get());
+    if (llvm::isa<mlir::mulberry::PtrType>(source.getType()))
+      return genPtrIndex(indexExpr, source);
+  }
+
   ERR("unknown EXPR");
   llvm_unreachable("unexpected lvalue expression");
 
   return nullptr;
 }
 
+auto MLIRGenImpl::genRecordPtrForMember(const MemberExpr *memberExpr)
+    -> mlir::Value {
+  auto *base = memberExpr->base().get();
+  if (auto *ptrType = cherry::getPtrType(base->type())) {
+    if (cherry::getStructType(ptrType->pointeeType()))
+      return gen(base);
+  }
+
+  return genLValue(base);
+}
+
 auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
     -> const StructField * {
   auto *base = memberExpr->base().get();
-  auto *structType = cherry::getStructType(base->type());
+  auto *baseType = base->type();
+  auto *ptrType = cherry::getPtrType(baseType);
+  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
+                             : cherry::getStructType(baseType);
   if (!structType)
     return nullptr;
 
@@ -1007,6 +1054,13 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
 
         createStore(rhs, lhsPtr, loc(node));
       })
+      .Case<DerefExpr>([&](const auto *deref) {
+        mlir::Value lhsPtr = genLValue(deref);
+        auto rhs = castToType(gen(node->rhs().get()),
+                              getMLIRType(deref), loc(node));
+
+        createStore(rhs, lhsPtr, loc(node));
+      })
       .Case<IndexExpr>([&](const auto *index) {
         genAssignment(index, node->rhs().get());
       })
@@ -1062,9 +1116,7 @@ auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
 auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
                                    const StructType *structType,
                                    mlir::Value targetPtr) -> mlir::Value {
-  DBG("structType: {0}, structLiteral->name(): {1}",
-      formatType(structType),
-      structLiteral->name());
+  DBG("struct literal type: {0}", formatType(structType));
 
   auto recordType =
       llvm::dyn_cast<mlir::mulberry::RecordType>(getMLIRType(structType));
@@ -1248,6 +1300,14 @@ auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
                                           _builder.getIndexType(), value);
 }
 
+auto MLIRGenImpl::genPtrIndex(const IndexExpr *expr, mlir::Value ptr)
+    -> mlir::Value {
+  auto ptrType = llvm::cast<mlir::mulberry::PtrType>(ptr.getType());
+  auto index = genIndexValue(expr->indices().front().get());
+  return mlir::mulberry::PtrIndexOp::create(_builder, loc(expr), ptrType, ptr,
+                                            index);
+}
+
 auto MLIRGenImpl::genTensorElementValue(const Expr *node,
                                         mlir::Type elementType) -> mlir::Value {
   if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node)) {
@@ -1390,12 +1450,25 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
   if (llvm::isa<mlir::mulberry::ListType>(source.getType()))
     return genListGet(expr, source);
 
+  if (llvm::isa<mlir::mulberry::PtrType>(source.getType())) {
+    auto ptr = genPtrIndex(expr, source);
+    return createLoad(ptr, getMLIRType(expr), loc(expr));
+  }
+
   auto loaded = genTensorGet(expr, source);
   return castToType(loaded, getMLIRType(expr), loc(expr));
 }
 
 void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
-  mlir::Value tensor = gen(lhs->base().get());
+  mlir::Value source = gen(lhs->base().get());
+  if (llvm::isa<mlir::mulberry::PtrType>(source.getType())) {
+    auto ptr = genPtrIndex(lhs, source);
+    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    createStore(rhsValue, ptr, loc(lhs));
+    return;
+  }
+
+  mlir::Value tensor = source;
   auto tensorType =
       llvm::cast<mlir::mulberry::TensorType>(tensor.getType());
 
@@ -1412,6 +1485,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto *varType = node->type();
   auto *tensorType = cherry::getTensorType(varType);
   auto *listType = cherry::getListType(varType);
+  auto *ptrType = cherry::getPtrType(varType);
   auto *structType = cherry::getStructType(varType);
   auto varName = node->variable()->name();
 
@@ -1446,6 +1520,15 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
         llvm::cast<mlir::mulberry::ListType>(getMLIRType(varType));
     auto value = gen(node->init().get());
     value = castToType(value, targetType, loc(node));
+    setVariableValue(varName, value);
+    return;
+  }
+
+  if (ptrType) {
+    DBG("use Cherry variable ptr type `{0}`", formatType(ptrType));
+    auto targetType =
+        llvm::cast<mlir::mulberry::PtrType>(getMLIRType(varType));
+    auto value = castToType(gen(node->init().get()), targetType, loc(node));
     setVariableValue(varName, value);
     return;
   }

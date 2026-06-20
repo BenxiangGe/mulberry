@@ -1,0 +1,19 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: Ptr<collections.List<UInt64>> = collections.new();
+  io.print(collections.size(xs));
+  0
+}
+
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.List parameter=T
+# AST: VariableStat {{.*}}id=xs{{.*}}type=Ptr<collections.List<UInt64>>
+# AST: CallExpr {{.*}}callee=std_collections_new__UInt64
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_collections_new__UInt64
+# MLIR-DAG: func.func @std_collections_new__UInt64() -> !mulberry.ptr<!mulberry.record<std_collections_List__UInt64
+
+# JIT: 0

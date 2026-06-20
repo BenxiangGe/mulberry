@@ -41,6 +41,8 @@ public:
     Expr_While,
     Expr_For,
     Expr_TypeLayout,
+    Expr_HeapAlloc,
+    Expr_Deref,
   };
 
   explicit Expr(ExpressionKind kind, llvm::SMLoc location)

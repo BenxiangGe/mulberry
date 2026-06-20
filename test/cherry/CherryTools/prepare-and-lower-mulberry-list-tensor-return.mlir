@@ -32,7 +32,7 @@ module {
 
 // CHECK-LABEL: func.func private @make_tensor_list
 // CHECK-SAME: -> !llvm.struct<(i64, ptr)>
-// CHECK: %[[LOCAL:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(!ptr.ptr<#llvm.address_space<0>>, array<2 x i64>, array<2 x i64>)>
+// CHECK: %[[LOCAL:.*]] = llvm.alloca %{{.*}} x !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
 // CHECK: %[[HEAP:.*]] = llvm.call @mulberry_boehm_malloc
 // CHECK-SAME: (i64) -> !llvm.ptr
 // CHECK: scf.for

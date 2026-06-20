@@ -48,7 +48,9 @@ public:
 
   auto fieldName() const -> std::string_view { return _fieldName; }
 
-  auto isLvalue() const -> bool override { return _base->isLvalue(); }
+  auto isLvalue() const -> bool override { return _isLValue; }
+
+  auto setLvalue(bool isLvalue) -> void { _isLValue = isLvalue; }
 
   auto fieldIndex() const -> unsigned { return _fieldIndex; }
 
@@ -60,6 +62,7 @@ private:
   std::unique_ptr<Expr> _base;
   std::string _fieldName;
   unsigned _fieldIndex = 0;
+  bool _isLValue = false;
 };
 
 class CallExpr final : public Expr {

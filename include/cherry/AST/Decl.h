@@ -11,6 +11,7 @@
 #include "cherry/AST/Name.h"
 #include "cherry/AST/Node.h"
 #include "cherry/AST/Type.h"
+#include <string>
 
 namespace cherry {
 
@@ -66,12 +67,20 @@ class Prototype final : public Node {
 public:
   explicit Prototype(llvm::SMLoc location, std::unique_ptr<FunctionName> id,
                      VectorUniquePtr<VariableStat> parameters,
-                     std::unique_ptr<TypeNode> returnTypeNode)
+                     std::unique_ptr<TypeNode> returnTypeNode,
+                     std::string_view typeParameterName = {})
       : Node{location},
         _id(std::move(id)), _parameters{std::move(parameters)},
-        _returnTypeNode{std::move(returnTypeNode)} {};
+        _returnTypeNode{std::move(returnTypeNode)},
+        _typeParameterName(typeParameterName) {};
 
   auto id() const -> const std::unique_ptr<FunctionName> & { return _id; }
+
+  auto typeParameterName() const -> std::string_view {
+    return _typeParameterName;
+  }
+
+  auto isGeneric() const -> bool { return !_typeParameterName.empty(); }
 
   auto parameters() const -> const VectorUniquePtr<VariableStat> & {
     return _parameters;
@@ -89,6 +98,7 @@ private:
   std::unique_ptr<FunctionName> _id;
   VectorUniquePtr<VariableStat> _parameters;
   std::unique_ptr<TypeNode> _returnTypeNode;
+  std::string _typeParameterName;
   const Type *_type = nullptr;
 };
 

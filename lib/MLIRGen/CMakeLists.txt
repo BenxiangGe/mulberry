@@ -10,6 +10,7 @@ add_mlir_dialect_library(cherryMLIRGen
         ${LIB_HEADERS}/Conversion/CherryPasses.h
         Conversion/CherryNNToLinalgPatterns.cpp
         Conversion/ConvertCherryToArithCfFunc.cpp
+        Conversion/ConvertCherryToLLVM.cpp
         Conversion/ConvertCherryToSCF.cpp
         Conversion/LowerCherryRuntime.cpp
         Conversion/LowerMulberry.cpp
@@ -40,6 +41,8 @@ add_mlir_dialect_library(cherryMLIRGen
         LINK_LIBS PUBLIC
         cherryBasic
         MLIRArithDialect
+        MLIRConvertToLLVMInterface
+        MLIRLLVMCommonConversion
         MLIRIR
         MLIRInferTypeOpInterface
         MLIRFuncDialect

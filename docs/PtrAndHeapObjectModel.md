@@ -14,7 +14,7 @@ Ptr<T> = pointer to T
 
 - primitive 仍然是 value：`Bool`、`UInt8`、`UInt64`、`Float32` 赋值时复制值。
 - `struct` 默认也是 value；需要共享时显式使用 `Ptr<StructType>`。
-- `List<T>`、动态 Tensor、String 这类复杂对象默认采用 heap object handle。
+- `List<T>`、动态 Tensor、String 这类复杂对象默认采用 heap object pointer。
 - heap object 由 Boehm GC 管理，不设计用户可见的 `free`。
 - 函数返回复杂对象时返回 handle，而不是 by-value descriptor。
 - lowering 不应该为了函数边界再发明 escape descriptor 语义。
@@ -31,6 +31,30 @@ var p: Ptr<UInt64>;
 ```
 
 表示 `p` 保存一个地址，地址指向 `UInt64` storage。
+
+当前 source-level 读写使用 C/C++ 风格的解引用语法：
+
+```cherry
+var p: Ptr<UInt64> = heap.alloc<UInt64>();
+*p = 42;
+var value: UInt64 = *p;
+```
+
+连续 storage 使用带元素个数的 `heap.alloc<T>(count)` 分配，`p[i]` 表示第 `i`
+个元素的 lvalue：
+
+```cherry
+var p: Ptr<UInt64> = heap.alloc<UInt64>(3);
+p[0] = 10;
+p[1] = 32;
+var value: UInt64 = p[0] + p[1];
+```
+
+`Ptr<T>` 自身仍然不保存长度；`count` 只决定本次 heap allocation 的字节数。
+越界检查、空指针表达和分配失败策略都属于后续语言/runtime 设计。
+
+`ptr.load()` / `ptr.store()` 这类函数不作为用户 API 暴露。它们对应的是底层
+load/store 语义，源码层应该使用 `*p` 和 `*p = value`。
 
 未来 source-level `Ptr<T>` 在 IR 中映射到：
 
@@ -58,19 +82,16 @@ struct Buffer<T> {
 
 ## Heap object handle
 
-复杂对象应该设计成小 handle，handle 里保存指向 heap storage/header 的指针。
+复杂对象应该显式使用 `Ptr<T>` 表达共享和可变语义。`T` 本身描述对象 layout，
+`Ptr<T>` 才是 heap object handle。
 
 List 的形态：
 
 ```cherry
-comptime ListStorage<T> = struct {
+comptime List<T> = struct {
   length: UInt64,
   capacity: UInt64,
   data: Ptr<T>
-};
-
-comptime List<T> = struct {
-  storage: Ptr<ListStorage<T>>
 };
 ```
 
@@ -87,6 +108,10 @@ comptime Tensor<T, Rank> = struct {
   storage: Ptr<TensorStorage<T, Rank>>
 };
 ```
+
+注意：旧的 `!mulberry.tensor_handle` / `tensor.handle_from_desc` 实验 IR 已删除。
+真正的 Tensor heap object handle 应该是上面这种 source-level record/Ptr 形态，不能
+复用旧 marker 偷换语义。
 
 String 的形态可以类似：
 
@@ -114,10 +139,10 @@ fn make(): List<UInt64> {
 }
 ```
 
-底层等价于返回：
+如果需要返回可变共享 list object，函数应该返回：
 
 ```text
-{ storage: Ptr<ListStorage<UInt64>> }
+Ptr<List<UInt64>>
 ```
 
 不再返回：
@@ -150,7 +175,8 @@ var b = a;
 push(b, 1);
 ```
 
-`a` 和 `b` 指向同一个 `ListStorage`，因此 `size(a)` 能看到 `push(b, 1)` 的结果。
+如果 `makeList()` 返回 `Ptr<List<UInt64>>`，`a` 和 `b` 指向同一个 list heap object，
+因此 `size(a)` 能看到 `push(b, 1)` 的结果。
 
 如果用户需要深拷贝，应该显式调用：
 
@@ -166,10 +192,10 @@ var b = clone(a);
 heap object 由 Boehm GC 分配和回收：
 
 ```cherry
-var storage: Ptr<ListStorage<T>> = heap.alloc<ListStorage<T>>(1);
+var list: Ptr<List<T>> = heap.alloc<List<T>>();
 ```
 
-只要 `storage` 仍能从栈、全局变量、其它 heap object 等 root 找到，Boehm 就不会回收
+只要 `list` 仍能从栈、全局变量、其它 heap object 等 root 找到，Boehm 就不会回收
 它。扩容时，新 data buffer 也用 GC 分配；旧 buffer 如果不再被引用，后续由 GC 回收。
 
 当前阶段不设计：
@@ -215,15 +241,15 @@ source List<T>
 建议后续按下面顺序推进：
 
 ```text
-C4.2  实现 source-level Ptr<T>
-C4.3  实现最小 pointer load/store/index 能力
-C4.4  实现 Boehm-backed heap.alloc<T>(count)
-C4.5  支持 generic struct，用 Mulberry 表达 ListStorage<T>
-C4.6  支持 generic function，用 Mulberry 表达 List<T> API
-C4.7  把 List<T> 迁到 std.collections
-C4.8  设计 Tensor heap object handle
-C4.9  用 Tensor handle 替换动态 Tensor descriptor boundary
-C4.10 删除旧 list descriptor / escape_storage / boundary rewrite
+C4.9  引入 `*p` / `*p = value`，移除临时 ptr.load / ptr.store API
+C4.10 清理 Ptr API 文档和测试命名
+C4.11 删除旧的 Tensor handle marker IR，避免把 descriptor reconstruction 当成 handle
+C4.12 实现 `heap.alloc<T>(count)` 和 `p[i]` 指针索引
+C4.13 支持 generic struct，用 Mulberry 表达 List<T>
+C4.14 支持 generic function，用 Mulberry 表达 List<T> API
+C4.15 把 List<T> 迁到 std.collections
+C4.16 设计 Tensor heap object handle
+C4.17 删除旧 list descriptor / escape_storage / boundary rewrite
 ```
 
 每一步都应该优先保持模型简单。如果某一步需要引入很难解释的桥接层，就说明底层能力

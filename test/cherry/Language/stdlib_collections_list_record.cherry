@@ -1,0 +1,45 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Pair {
+  x: UInt64,
+  y: UInt64
+}
+
+fn main(): UInt64 {
+  var xs: Ptr<collections.List<Pair>> = collections.withCapacity(2);
+  collections.push(xs, Pair { 10, 32 });
+  collections.push(xs, Pair { 4, 9 });
+  io.print(collections.size(xs));
+  io.print(collections.get(xs, 0).x + collections.get(xs, 1).y);
+  0
+}
+
+# AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__Pair
+# AST-DAG: CallExpr {{.*}}callee=std_collections_push__Pair
+# AST-DAG: CallExpr {{.*}}callee=std_collections_get__Pair
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_collections_withCapacity__Pair
+# MLIR: call @std_collections_push__Pair
+# MLIR-DAG: func.func @std_collections_push__Pair
+# MLIR-DAG: mulberry.ptr.index
+# MLIR-DAG: mulberry.record.extract
+# MLIR-NOT: mulberry.list.create
+# MLIR-NOT: mulberry.list.get
+# MLIR-NOT: mulberry.list.size
+
+# LOWER-LABEL: func.func @main()
+# LOWER: call @std_collections_withCapacity__Pair
+# LOWER: call @std_collections_push__Pair
+# LOWER: call @std_collections_get__Pair
+# LOWER-DAG: llvm.getelementptr
+# LOWER-DAG: llvm.extractvalue
+# LOWER-NOT: mulberry.list.create
+# LOWER-NOT: mulberry.list.get
+# LOWER-NOT: mulberry.list.size
+
+# JIT: 2
+# JIT-NEXT: 19

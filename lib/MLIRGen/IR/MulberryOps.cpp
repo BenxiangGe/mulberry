@@ -8,7 +8,6 @@
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
 
@@ -39,11 +38,6 @@ static auto isRawFileTensorType(Type type) -> bool {
 static auto getTensorDescType(Type type)
     -> mlir::mulberry::TensorDescType {
   return llvm::dyn_cast<mlir::mulberry::TensorDescType>(type);
-}
-
-static auto getTensorHandleType(Type type)
-    -> mlir::mulberry::TensorHandleType {
-  return llvm::dyn_cast<mlir::mulberry::TensorHandleType>(type);
 }
 
 static auto getListType(Type type) -> mlir::mulberry::ListType {
@@ -123,6 +117,21 @@ auto AllocaOp::verify() -> LogicalResult {
   auto resultPointeeType = getPtrPointeeType(getResult().getType());
   if (resultPointeeType != getElementType())
     return emitOpError("result pointer pointee type must match alloca type");
+  return success();
+}
+
+auto HeapAllocOp::verify() -> LogicalResult {
+  auto resultPointeeType = getPtrPointeeType(getResult().getType());
+  if (resultPointeeType != getElementType())
+    return emitOpError("result pointer pointee type must match heap alloc type");
+  return success();
+}
+
+auto PtrIndexOp::verify() -> LogicalResult {
+  auto inputPointeeType = getPtrPointeeType(getPtr().getType());
+  auto resultPointeeType = getPtrPointeeType(getResult().getType());
+  if (inputPointeeType != resultPointeeType)
+    return emitOpError("result pointer pointee type must match input pointer");
   return success();
 }
 
@@ -275,28 +284,8 @@ auto TensorDescUnpackOp::verify() -> LogicalResult {
   return success();
 }
 
-auto TensorHandleFromDescOp::verify() -> LogicalResult {
-  auto descType = getTensorDescType(getDesc().getType());
-  auto handleType = getTensorHandleType(getResult().getType());
-
-  if (descType.getElementType() != handleType.getElementType())
-    return emitOpError(
-        "handle element type must match descriptor element type");
-
-  if (!descShapeFitsTensor(descType.getShape(), handleType.getShape()))
-    return emitOpError("handle shape must be compatible with descriptor shape");
-
-  return success();
-}
-
 static auto isTensorABIDataPtrType(Type type) -> bool {
-  auto ptrType = llvm::dyn_cast<ptr::PtrType>(type);
-  if (!ptrType)
-    return false;
-
-  auto addressSpace = llvm::dyn_cast<LLVM::AddressSpaceAttr>(
-      ptrType.getMemorySpace());
-  return addressSpace && addressSpace.getAddressSpace() == 0;
+  return llvm::isa<LLVM::LLVMPointerType>(type);
 }
 
 static auto isTensorABIRecordType(Type type, unsigned rank) -> bool {

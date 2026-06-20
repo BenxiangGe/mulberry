@@ -1,0 +1,73 @@
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Pair {
+  x: UInt64,
+  y: Bool
+}
+
+fn setScalar(p: Ptr<UInt64>): Ptr<UInt64> {
+  *p = 42;
+  p
+}
+
+fn readScalar(p: Ptr<UInt64>): UInt64 {
+  *p
+}
+
+fn setPair(p: Ptr<Pair>): Ptr<Pair> {
+  p.x = 7;
+  p
+}
+
+fn readPair(p: Ptr<Pair>): UInt64 {
+  p.x
+}
+
+fn main(): UInt64 {
+  var scalarPtr: Ptr<UInt64> = heap.alloc<UInt64>();
+  var sameScalar: Ptr<UInt64> = setScalar(scalarPtr);
+  io.print(readScalar(sameScalar));
+
+  var pairPtr: Ptr<Pair> = heap.alloc<Pair>();
+  var samePair: Ptr<Pair> = setPair(pairPtr);
+  io.print(readPair(samePair));
+
+  0
+}
+
+# LOWER-LABEL: func.func @setScalar(
+# LOWER-SAME: %[[P:.*]]: !llvm.ptr) -> !llvm.ptr
+# LOWER: llvm.store {{.*}}, %[[P]] : i64, !llvm.ptr
+# LOWER: return %[[P]] : !llvm.ptr
+
+# LOWER-LABEL: func.func @readScalar(
+# LOWER-SAME: %[[P:.*]]: !llvm.ptr) -> i64
+# LOWER: %[[VALUE:.*]] = llvm.load %[[P]] : !llvm.ptr -> i64
+# LOWER: return %[[VALUE]] : i64
+
+# LOWER-LABEL: func.func @setPair(
+# LOWER-SAME: %[[P:.*]]: !llvm.ptr) -> !llvm.ptr
+# LOWER: %[[X:.*]] = llvm.getelementptr %[[P]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i64, i1)>
+# LOWER: llvm.store {{.*}}, %[[X]] : i64, !llvm.ptr
+# LOWER: return %[[P]] : !llvm.ptr
+
+# LOWER-LABEL: func.func @readPair(
+# LOWER-SAME: %[[P:.*]]: !llvm.ptr) -> i64
+# LOWER: %[[X:.*]] = llvm.getelementptr %[[P]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(i64, i1)>
+# LOWER: %[[VALUE:.*]] = llvm.load %[[X]] : !llvm.ptr -> i64
+# LOWER: return %[[VALUE]] : i64
+
+# LOWER-LABEL: func.func @main()
+# LOWER: call @setScalar
+# LOWER-SAME: (!llvm.ptr) -> !llvm.ptr
+# LOWER: call @readScalar
+# LOWER-SAME: (!llvm.ptr) -> i64
+# LOWER: call @setPair
+# LOWER-SAME: (!llvm.ptr) -> !llvm.ptr
+# LOWER: call @readPair
+# LOWER-SAME: (!llvm.ptr) -> i64
+# LOWER-NOT: mulberry.
+
+# JIT: 42
+# JIT-NEXT: 7

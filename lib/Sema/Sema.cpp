@@ -14,6 +14,8 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 using namespace cherry;
@@ -46,6 +48,13 @@ auto declareName(NameSet &names, std::string_view name) -> bool {
   return names.insert(std::string(name)).second;
 }
 
+auto packageNameOf(std::string_view name) -> std::string {
+  auto dot = name.rfind('.');
+  if (dot == std::string_view::npos)
+    return {};
+  return std::string(name.substr(0, dot));
+}
+
 auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   if (auto *unitType = dyn_cast<UnitTypeNode>(node))
     return std::make_unique<UnitTypeNode>(unitType->location());
@@ -70,10 +79,47 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
         cloneTypeNode(ptrType->pointeeTypeNode()), ptrType->location());
   }
 
-  auto *genericType = cast<GenericTypeNode>(node);
-  return std::make_unique<GenericTypeNode>(
-      genericType->location(), genericType->name(),
-      cloneTypeNode(genericType->argumentTypeNode()));
+  if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    return std::make_unique<GenericTypeNode>(
+        genericType->location(), genericType->name(),
+        cloneTypeNode(genericType->argumentTypeNode()));
+  }
+
+  auto *structType = cast<StructTypeNode>(node);
+  VectorUniquePtr<VariableStat> fields;
+  for (auto &field : structType->fields()) {
+    auto variable = std::make_unique<VariableExpr>(
+        field->variable()->location(), field->variable()->name());
+    fields.push_back(std::make_unique<VariableStat>(
+        field->location(), std::move(variable),
+        cloneTypeNode(field->typeNode()), nullptr));
+  }
+  return std::make_unique<StructTypeNode>(
+      structType->location(), std::move(fields));
+}
+
+auto typeToTypeNode(const Type *type, llvm::SMLoc location)
+    -> std::unique_ptr<TypeNode> {
+  if (auto *builtinType = getBuiltinType(type))
+    return std::make_unique<NamedTypeNode>(location, builtinType->name());
+
+  if (auto *structType = getStructType(type))
+    return std::make_unique<NamedTypeNode>(location, structType->name());
+
+  if (auto *tensorType = getTensorType(type)) {
+    return std::make_unique<TensorTypeNode>(
+        typeToTypeNode(tensorType->elementType(), location),
+        tensorType->shape(), location);
+  }
+
+  if (auto *listType = getListType(type)) {
+    return std::make_unique<ListTypeNode>(
+        typeToTypeNode(listType->elementType(), location), location);
+  }
+
+  auto *ptrType = cast<PtrType>(type);
+  return std::make_unique<PtrTypeNode>(
+      typeToTypeNode(ptrType->pointeeType(), location), location);
 }
 
 auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
@@ -113,7 +159,267 @@ auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
                            argumentTypeNode));
   }
 
-  return cloneTypeNode(node);
+  auto *structType = cast<StructTypeNode>(node);
+  VectorUniquePtr<VariableStat> fields;
+  for (auto &field : structType->fields()) {
+    auto variable = std::make_unique<VariableExpr>(
+        field->variable()->location(), field->variable()->name());
+    fields.push_back(std::make_unique<VariableStat>(
+        field->location(), std::move(variable),
+        substituteTypeNode(field->typeNode(), parameterName, argumentTypeNode),
+        nullptr));
+  }
+  return std::make_unique<StructTypeNode>(
+      structType->location(), std::move(fields));
+}
+
+auto hasTypeParameter(const TypeNode *node, std::string_view parameterName)
+    -> bool {
+  if (auto *namedType = dyn_cast<NamedTypeNode>(node))
+    return namedType->name() == parameterName;
+
+  if (auto *tensorType = dyn_cast<TensorTypeNode>(node))
+    return hasTypeParameter(tensorType->elementTypeNode(), parameterName);
+
+  if (auto *listType = dyn_cast<ListTypeNode>(node))
+    return hasTypeParameter(listType->elementTypeNode(), parameterName);
+
+  if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
+    return hasTypeParameter(ptrType->pointeeTypeNode(), parameterName);
+
+  if (auto *genericType = dyn_cast<GenericTypeNode>(node))
+    return hasTypeParameter(genericType->argumentTypeNode(), parameterName);
+
+  if (auto *structType = dyn_cast<StructTypeNode>(node)) {
+    for (auto &field : structType->fields())
+      if (hasTypeParameter(field->typeNode(), parameterName))
+        return true;
+  }
+
+  return false;
+}
+
+auto substituteExpr(const Expr *node, std::string_view parameterName,
+                    const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<Expr>;
+
+auto substituteBlockExpr(const BlockExpr *node, std::string_view parameterName,
+                         const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<BlockExpr> {
+  VectorUniquePtr<Stat> statements;
+  for (auto &statement : node->statements()) {
+    if (auto *variable = dyn_cast<VariableStat>(statement.get())) {
+      auto clonedVariable = std::make_unique<VariableExpr>(
+          variable->variable()->location(), variable->variable()->name());
+      auto clonedInit = variable->init()
+                            ? substituteExpr(variable->init().get(),
+                                             parameterName, argumentTypeNode)
+                            : nullptr;
+      statements.push_back(std::make_unique<VariableStat>(
+          variable->location(), std::move(clonedVariable),
+          substituteTypeNode(variable->typeNode(), parameterName,
+                             argumentTypeNode),
+          std::move(clonedInit), variable->isConst()));
+      continue;
+    }
+
+    auto *exprStat = cast<ExprStat>(statement.get());
+    statements.push_back(std::make_unique<ExprStat>(
+        exprStat->location(),
+        substituteExpr(exprStat->expression().get(), parameterName,
+                       argumentTypeNode)));
+  }
+
+  return std::make_unique<BlockExpr>(
+      node->location(), std::move(statements),
+      substituteExpr(node->expression().get(), parameterName,
+                     argumentTypeNode));
+}
+
+auto substituteExpr(const Expr *node, std::string_view parameterName,
+                    const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<Expr> {
+  switch (node->getKind()) {
+  case Expr::Expr_Unit:
+    return std::make_unique<UnitExpr>(node->location());
+  case Expr::Expr_DecimalLiteral: {
+    auto *expr = cast<DecimalLiteralExpr>(node);
+    return std::make_unique<DecimalLiteralExpr>(expr->location(),
+                                                expr->value());
+  }
+  case Expr::Expr_FloatLiteral: {
+    auto *expr = cast<FloatLiteralExpr>(node);
+    return std::make_unique<FloatLiteralExpr>(expr->location(),
+                                              expr->value());
+  }
+  case Expr::Expr_BoolLiteral: {
+    auto *expr = cast<BoolLiteralExpr>(node);
+    return std::make_unique<BoolLiteralExpr>(expr->location(), expr->value());
+  }
+  case Expr::Expr_StringLiteral: {
+    auto *expr = cast<StringLiteralExpr>(node);
+    return std::make_unique<StringLiteralExpr>(
+        expr->location(), std::string(expr->value()));
+  }
+  case Expr::Expr_ArrayLiteral: {
+    auto *expr = cast<ArrayLiteralExpr>(node);
+    std::vector<std::unique_ptr<Expr>> elements;
+    for (auto &element : expr->getElements())
+      elements.push_back(
+          substituteExpr(element.get(), parameterName, argumentTypeNode));
+    return std::make_unique<ArrayLiteralExpr>(expr->location(),
+                                              std::move(elements));
+  }
+  case Expr::Expr_Index: {
+    auto *expr = cast<IndexExpr>(node);
+    std::vector<std::unique_ptr<Expr>> indices;
+    for (auto &index : expr->indices())
+      indices.push_back(
+          substituteExpr(index.get(), parameterName, argumentTypeNode));
+    return std::make_unique<IndexExpr>(
+        expr->location(),
+        substituteExpr(expr->base().get(), parameterName, argumentTypeNode),
+        std::move(indices));
+  }
+  case Expr::Expr_Member: {
+    auto *expr = cast<MemberExpr>(node);
+    return std::make_unique<MemberExpr>(
+        expr->location(),
+        substituteExpr(expr->base().get(), parameterName, argumentTypeNode),
+        expr->fieldName());
+  }
+  case Expr::Expr_Variable: {
+    auto *expr = cast<VariableExpr>(node);
+    return std::make_unique<VariableExpr>(expr->location(), expr->name());
+  }
+  case Expr::Expr_Assign: {
+    auto *expr = cast<AssignExpr>(node);
+    return std::make_unique<AssignExpr>(
+        expr->location(),
+        substituteExpr(expr->lhs().get(), parameterName, argumentTypeNode),
+        substituteExpr(expr->rhs().get(), parameterName, argumentTypeNode));
+  }
+  case Expr::Expr_Binary: {
+    auto *expr = cast<BinaryExpr>(node);
+    return std::make_unique<BinaryExpr>(
+        expr->location(), expr->opEnum(),
+        substituteExpr(expr->lhs().get(), parameterName, argumentTypeNode),
+        substituteExpr(expr->rhs().get(), parameterName, argumentTypeNode));
+  }
+  case Expr::Expr_Block:
+    return substituteBlockExpr(cast<BlockExpr>(node), parameterName,
+                               argumentTypeNode);
+  case Expr::Expr_If: {
+    auto *expr = cast<IfExpr>(node);
+    return std::make_unique<IfExpr>(
+        expr->location(),
+        substituteExpr(expr->conditionExpr().get(), parameterName,
+                       argumentTypeNode),
+        substituteBlockExpr(expr->thenBlock().get(), parameterName,
+                            argumentTypeNode),
+        substituteBlockExpr(expr->elseBlock().get(), parameterName,
+                            argumentTypeNode));
+  }
+  case Expr::Expr_While: {
+    auto *expr = cast<WhileExpr>(node);
+    return std::make_unique<WhileExpr>(
+        expr->location(),
+        substituteExpr(expr->conditionExpr().get(), parameterName,
+                       argumentTypeNode),
+        substituteBlockExpr(expr->bodyBlock().get(), parameterName,
+                            argumentTypeNode));
+  }
+  case Expr::Expr_For: {
+    auto *expr = cast<ForExpr>(node);
+    return std::make_unique<ForExpr>(
+        expr->location(), expr->variableName(),
+        substituteExpr(expr->startExpr().get(), parameterName,
+                       argumentTypeNode),
+        substituteExpr(expr->endExpr().get(), parameterName,
+                       argumentTypeNode),
+        substituteBlockExpr(expr->bodyBlock().get(), parameterName,
+                            argumentTypeNode));
+  }
+  case Expr::Expr_TypeLayout: {
+    auto *expr = cast<TypeLayoutExpr>(node);
+    return std::make_unique<TypeLayoutExpr>(
+        expr->location(), expr->query(),
+        substituteTypeNode(expr->typeNode(), parameterName,
+                           argumentTypeNode));
+  }
+  case Expr::Expr_HeapAlloc: {
+    auto *expr = cast<HeapAllocExpr>(node);
+    auto count = expr->count()
+                     ? substituteExpr(expr->count().get(), parameterName,
+                                      argumentTypeNode)
+                     : nullptr;
+    return std::make_unique<HeapAllocExpr>(
+        expr->location(),
+        substituteTypeNode(expr->typeNode(), parameterName, argumentTypeNode),
+        std::move(count));
+  }
+  case Expr::Expr_Deref: {
+    auto *expr = cast<DerefExpr>(node);
+    return std::make_unique<DerefExpr>(
+        expr->location(),
+        substituteExpr(expr->pointer().get(), parameterName,
+                       argumentTypeNode));
+  }
+  case Expr::Expr_Call: {
+    auto *expr = cast<CallExpr>(node);
+    VectorUniquePtr<Expr> expressions;
+    for (auto &argument : expr->expressions())
+      expressions.push_back(
+          substituteExpr(argument.get(), parameterName, argumentTypeNode));
+    return std::make_unique<CallExpr>(
+        expr->location(), expr->name(), std::move(expressions));
+  }
+  case Expr::Expr_StructLiteral: {
+    auto *expr = cast<StructLiteralExpr>(node);
+    VectorUniquePtr<Expr> expressions;
+    for (auto &argument : expr->expressions())
+      expressions.push_back(
+          substituteExpr(argument.get(), parameterName, argumentTypeNode));
+    return std::make_unique<StructLiteralExpr>(
+        expr->location(),
+        substituteTypeNode(expr->typeNode(), parameterName, argumentTypeNode),
+        std::move(expressions));
+  }
+  }
+
+  llvm_unreachable("Unexpected expression");
+}
+
+auto instantiateFunctionDecl(const FunctionDecl *node,
+                             std::string_view concreteName,
+                             std::string_view parameterName,
+                             const Type *argumentType)
+    -> std::unique_ptr<FunctionDecl> {
+  auto location = node->proto()->location();
+  auto argumentTypeNode = typeToTypeNode(argumentType, location);
+  VectorUniquePtr<VariableStat> parameters;
+  for (auto &parameter : node->proto()->parameters()) {
+    auto variable = std::make_unique<VariableExpr>(
+        parameter->variable()->location(), parameter->variable()->name());
+    parameters.push_back(std::make_unique<VariableStat>(
+        parameter->location(), std::move(variable),
+        substituteTypeNode(parameter->typeNode(), parameterName,
+                           argumentTypeNode.get()),
+        nullptr));
+  }
+
+  auto functionName =
+      std::make_unique<FunctionName>(node->proto()->id()->location(),
+                                     concreteName);
+  auto prototype = std::make_unique<Prototype>(
+      node->proto()->location(), std::move(functionName),
+      std::move(parameters),
+      substituteTypeNode(node->proto()->returnTypeNode(), parameterName,
+                         argumentTypeNode.get()));
+  return std::make_unique<FunctionDecl>(
+      node->location(), std::move(prototype),
+      substituteBlockExpr(node->body().get(), parameterName,
+                          argumentTypeNode.get()));
 }
 
 class SemaImpl {
@@ -134,6 +440,16 @@ public:
       if (sema(decl.get()))
         return failure();
 
+    for (size_t i = 0; i < _instantiatedFunctions.size(); ++i) {
+      if (sema(_instantiatedFunctions[i].get()))
+        return failure();
+    }
+
+    auto declarations = node.takeDeclarations();
+    for (auto &function : _instantiatedFunctions)
+      declarations.push_back(std::move(function));
+    node.setDeclarations(std::move(declarations));
+
     auto *mainSignature = lookupFunction("main");
     if (!mainSignature ||
         !mainSignature->parameterTypes.empty() ||
@@ -146,8 +462,13 @@ private:
   const llvm::SourceMgr &_sourceManager;
   TypeContext _typeContext;
   Symbols _symbols;
+  std::map<std::string, const StructType *> _genericStructTypes;
+  std::map<std::string, const FunctionSymbol *> _instantiatedFunctionSymbols;
+  std::map<std::string, std::string> _instantiatedFunctionPackages;
+  VectorUniquePtr<FunctionDecl> _instantiatedFunctions;
   const std::map<std::string, std::string> &_importAliases =
       emptyImportAliases();
+  std::string _currentPackageName;
 
   enum class UnitPolicy {
     Allow,
@@ -159,6 +480,13 @@ private:
   // Declarations
   auto sema(Decl *node) -> CherryResult;
   auto sema(Prototype *node) -> CherryResult;
+  auto semaFunctionParameters(Prototype *node,
+                              std::vector<const Type *> &parameterTypes)
+      -> CherryResult;
+  auto bindFunctionParameters(Prototype *node,
+                              const FunctionSymbol *signature)
+      -> CherryResult;
+  auto semaFunctionSignature(Prototype *node) -> CherryResult;
   auto sema(FunctionDecl *node) -> CherryResult;
   auto sema(StructDecl *node) -> CherryResult;
   auto sema(ComptimeTypeAliasDecl *node) -> CherryResult;
@@ -179,6 +507,8 @@ private:
   auto sema(BoolLiteralExpr *node) -> CherryResult;
   auto sema(StringLiteralExpr *node) -> CherryResult;
   auto sema(TypeLayoutExpr *node) -> CherryResult;
+  auto sema(HeapAllocExpr *node) -> CherryResult;
+  auto sema(DerefExpr *node) -> CherryResult;
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
   auto checkAssignable(const Expr *expr) -> CherryResult;
@@ -208,6 +538,8 @@ private:
   auto sema(ForExpr *node) -> CherryResult;
   auto semaTensorLiteralElement(Expr *expr, const Type *type)
       -> CherryResult;
+  auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
+                       const Type *expectedType = nullptr) -> CherryResult;
 
   // Statements
   auto sema(Stat *node) -> CherryResult;
@@ -251,6 +583,11 @@ private:
     return _symbols.lookupFunction(name);
   }
 
+  auto lookupGenericFunction(std::string_view name)
+      -> const GenericFunctionSymbol * {
+    return _symbols.lookupGenericFunction(name);
+  }
+
   static auto emptyImportAliases()
       -> const std::map<std::string, std::string> & {
     static const std::map<std::string, std::string> aliases;
@@ -272,14 +609,53 @@ private:
     return fullName;
   }
 
+  auto qualifyCurrentPackageName(std::string_view name) const -> std::string {
+    if (_currentPackageName.empty() ||
+        name.find('.') != std::string_view::npos)
+      return std::string(name);
+
+    std::string fullName = _currentPackageName;
+    fullName += ".";
+    fullName += name;
+    return fullName;
+  }
+
   auto lookupType(std::string_view name) -> const Type * {
     if (auto *type = _symbols.lookupType(name))
       return type;
-    return _symbols.lookupType(canonicalizeImportedName(name));
+
+    auto importedName = canonicalizeImportedName(name);
+    if (auto *type = _symbols.lookupType(importedName))
+      return type;
+
+    return _symbols.lookupType(qualifyCurrentPackageName(name));
   }
 
   auto lookupStructType(std::string_view name) -> const StructType * {
     return cherry::getStructType(lookupType(name));
+  }
+
+  auto comptimeTypeAliasName(std::string_view name) -> std::string {
+    if (_symbols.lookupComptimeTypeAlias(name))
+      return std::string(name);
+
+    auto importedName = canonicalizeImportedName(name);
+    if (_symbols.lookupComptimeTypeAlias(importedName))
+      return importedName;
+
+    auto packageName = qualifyCurrentPackageName(name);
+    if (_symbols.lookupComptimeTypeAlias(packageName))
+      return packageName;
+
+    return {};
+  }
+
+  auto lookupComptimeTypeAlias(std::string_view name)
+      -> const ComptimeTypeAliasSymbol * {
+    auto aliasName = comptimeTypeAliasName(name);
+    if (aliasName.empty())
+      return nullptr;
+    return _symbols.lookupComptimeTypeAlias(aliasName);
   }
 
   auto resolveType(const NamedTypeNode *typeNode) -> const Type * {
@@ -314,12 +690,32 @@ private:
     Symbols &_symbols;
   };
 
+  class PackageScope {
+  public:
+    PackageScope(std::string &currentPackageName, std::string_view packageName)
+        : _currentPackageName(currentPackageName),
+          _oldPackageName(currentPackageName) {
+      _currentPackageName = packageName;
+    }
+
+    ~PackageScope() { _currentPackageName = _oldPackageName; }
+
+  private:
+    std::string &_currentPackageName;
+    std::string _oldPackageName;
+  };
+
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
                        const Type *returnType)
       -> CherryResult {
     return _symbols.declareFunction(name, std::move(parameterTypes),
                                     returnType);
+  }
+
+  auto declareGenericFunction(std::string_view name,
+                              const FunctionDecl *decl) -> CherryResult {
+    return _symbols.declareGenericFunction(name, decl);
   }
 
   auto declareType(std::string_view name, const Type *type) -> CherryResult {
@@ -334,6 +730,134 @@ private:
 
   auto declareStructType(const StructType *type) -> CherryResult {
     return declareType(type->name(), type);
+  }
+
+  static auto mangleTypeName(std::string name) -> std::string {
+    for (auto &character : name) {
+      if ((character >= 'a' && character <= 'z') ||
+          (character >= 'A' && character <= 'Z') ||
+          (character >= '0' && character <= '9'))
+        continue;
+      character = '_';
+    }
+    return name;
+  }
+
+  auto genericStructName(std::string_view aliasName,
+                         const Type *argumentType) const -> std::string {
+    std::string name = mangleTypeName(std::string(aliasName));
+    name += "__";
+    name += mangleTypeName(formatType(argumentType));
+    return name;
+  }
+
+  auto genericFunctionName(std::string_view name,
+                           const Type *argumentType) const -> std::string {
+    std::string result = mangleTypeName(std::string(name));
+    result += "__";
+    result += mangleTypeName(formatType(argumentType));
+    return result;
+  }
+
+  auto functionPackageName(std::string_view name) const -> std::string {
+    auto package = _instantiatedFunctionPackages.find(std::string(name));
+    if (package != _instantiatedFunctionPackages.end())
+      return package->second;
+    return packageNameOf(name);
+  }
+
+  auto matchGenericType(const TypeNode *pattern, const Type *actualType,
+                        std::string_view parameterName,
+                        const Type *&argumentType) -> bool {
+    if (llvm::isa<UnitTypeNode>(pattern))
+      return isUnitType(actualType);
+
+    if (auto *namedType = dyn_cast<NamedTypeNode>(pattern)) {
+      if (namedType->name() == parameterName) {
+        if (!argumentType) {
+          argumentType = actualType;
+          return true;
+        }
+        return sameType(argumentType, actualType);
+      }
+
+      auto *patternType = resolveType(namedType);
+      return sameType(patternType, actualType);
+    }
+
+    if (auto *tensorPattern = dyn_cast<TensorTypeNode>(pattern)) {
+      auto *tensorType = getTensorType(actualType);
+      return tensorType &&
+             tensorPattern->shape() == tensorType->shape() &&
+             matchGenericType(tensorPattern->elementTypeNode(),
+                              tensorType->elementType(), parameterName,
+                              argumentType);
+    }
+
+    if (auto *listPattern = dyn_cast<ListTypeNode>(pattern)) {
+      auto *listType = getListType(actualType);
+      return listType &&
+             matchGenericType(listPattern->elementTypeNode(),
+                              listType->elementType(), parameterName,
+                              argumentType);
+    }
+
+    if (auto *ptrPattern = dyn_cast<PtrTypeNode>(pattern)) {
+      auto *ptrType = getPtrType(actualType);
+      return ptrType &&
+             matchGenericType(ptrPattern->pointeeTypeNode(),
+                              ptrType->pointeeType(), parameterName,
+                              argumentType);
+    }
+
+    if (auto *genericPattern = dyn_cast<GenericTypeNode>(pattern)) {
+      auto *alias = lookupComptimeTypeAlias(genericPattern->name());
+      if (!alias)
+        return false;
+
+      // A generic alias first expands in its definition package, then that
+      // body is matched structurally against the actual concrete type. This is
+      // the piece that lets a call infer T from `Ptr<List<T>>`.
+      auto argumentTypeNode =
+          hasTypeParameter(genericPattern->argumentTypeNode(), parameterName)
+              ? cloneTypeNode(genericPattern->argumentTypeNode())
+              : nullptr;
+      if (!argumentTypeNode) {
+        auto *argumentType = resolveType(genericPattern->argumentTypeNode());
+        if (!argumentType)
+          return false;
+        argumentTypeNode = typeToTypeNode(
+            argumentType, genericPattern->argumentTypeNode()->location());
+      }
+      auto aliasBody = substituteTypeNode(
+          alias->bodyTypeNode, alias->parameterName, argumentTypeNode.get());
+      PackageScope packageScope(_currentPackageName, alias->packageName);
+      return matchGenericType(aliasBody.get(), actualType, parameterName,
+                              argumentType);
+    }
+
+    if (auto *structPattern = dyn_cast<StructTypeNode>(pattern)) {
+      auto *structType = getStructType(actualType);
+      if (!structType)
+        return false;
+      auto &patternFields = structPattern->fields();
+      auto &actualFields = structType->fields();
+      if (patternFields.size() != actualFields.size())
+        return false;
+
+      for (size_t i = 0; i < patternFields.size(); ++i) {
+        if (patternFields[i]->variable()->name() != actualFields[i].name())
+          return false;
+        if (!matchGenericType(patternFields[i]->typeNode(),
+                              actualFields[i].type(), parameterName,
+                              argumentType))
+          return false;
+      }
+      return true;
+    }
+
+    auto *patternType = resolveType(pattern);
+    return sameType(patternType, actualType);
   }
 
   auto rejectUnitType(const TypeNode *typeNode, const Type *type)
@@ -376,21 +900,65 @@ private:
     return _typeContext.createPtrType(pointeeType);
   }
 
+  auto resolveType(const StructTypeNode *typeNode, std::string_view name)
+      -> const StructType * {
+    std::vector<StructField> fields;
+    NameSet fieldNames;
+    unsigned fieldIndex = 0;
+    for (auto &fieldDecl : typeNode->fields()) {
+      auto variable = fieldDecl->variable().get();
+      auto *fieldType = checkType(fieldDecl->typeNode(), UnitPolicy::Reject);
+      if (!fieldType)
+        return nullptr;
+      fieldDecl->setType(fieldType);
+      auto fieldName = variable->name();
+      if (!declareName(fieldNames, fieldName)) {
+        emitError(variable, diag::redefinition_var);
+        return nullptr;
+      }
+      fields.push_back(StructField{fieldName, fieldType, fieldIndex++});
+    }
+
+    return _typeContext.createStructType(name, std::move(fields));
+  }
+
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
-    auto *alias = _symbols.lookupComptimeTypeAlias(typeNode->name());
-    if (!alias)
-      alias = _symbols.lookupComptimeTypeAlias(
-          canonicalizeImportedName(typeNode->name()));
+    auto aliasName = comptimeTypeAliasName(typeNode->name());
+    auto *alias = aliasName.empty()
+                      ? nullptr
+                      : _symbols.lookupComptimeTypeAlias(aliasName);
     if (!alias) {
       emitError(typeNode, diag::undefined_type);
       return nullptr;
     }
 
-    // Type-level comptime is AST substitution, not runtime lowering. MLIRGen
-    // only sees the concrete type returned by this second resolveType call.
+    auto *argumentType = resolveType(typeNode->argumentTypeNode());
+    if (!argumentType)
+      return nullptr;
+
+    // The type argument belongs to the use site, while the alias body belongs
+    // to the definition package. Resolve the argument first, then substitute a
+    // concrete TypeNode before switching package scope for the alias body.
+    auto argumentTypeNode =
+        typeToTypeNode(argumentType, typeNode->argumentTypeNode()->location());
     auto instantiatedTypeNode =
         substituteTypeNode(alias->bodyTypeNode, alias->parameterName,
-                           typeNode->argumentTypeNode());
+                           argumentTypeNode.get());
+    PackageScope packageScope(_currentPackageName, alias->packageName);
+    if (auto *structTypeNode =
+            dyn_cast<StructTypeNode>(instantiatedTypeNode.get())) {
+      auto structName = genericStructName(aliasName, argumentType);
+      auto cached = _genericStructTypes.find(structName);
+      if (cached != _genericStructTypes.end())
+        return cached->second;
+
+      auto *structType = resolveType(structTypeNode, structName);
+      if (!structType)
+        return nullptr;
+      _genericStructTypes[structName] = structType;
+      return structType;
+    }
+
     return resolveType(instantiatedTypeNode.get());
   }
 
@@ -409,6 +977,9 @@ private:
 
     if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode))
       return resolveType(genericType);
+
+    if (auto *structType = dyn_cast<StructTypeNode>(typeNode))
+      return resolveType(structType, "$anonymous");
 
     return resolveType(cast<NamedTypeNode>(typeNode));
   }
@@ -458,7 +1029,15 @@ auto SemaImpl::sema(Decl *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(Prototype *node) -> CherryResult {
-  std::vector<const Type *> parameterTypes;
+  if (node->isGeneric())
+    return success();
+
+  return semaFunctionSignature(node);
+}
+
+auto SemaImpl::semaFunctionParameters(
+    Prototype *node, std::vector<const Type *> &parameterTypes)
+    -> CherryResult {
   for (auto &par : node->parameters()) {
     auto *parameterType = checkType(par->typeNode(), UnitPolicy::Reject);
     if (!parameterType)
@@ -468,6 +1047,28 @@ auto SemaImpl::sema(Prototype *node) -> CherryResult {
       return emitError(par->variable().get(), diag::redefinition_var);
     parameterTypes.push_back(parameterType);
   }
+  return success();
+}
+
+auto SemaImpl::bindFunctionParameters(Prototype *node,
+                                      const FunctionSymbol *signature)
+    -> CherryResult {
+  auto &parameters = node->parameters();
+  for (size_t i = 0; i < parameters.size(); ++i) {
+    auto &parameter = parameters[i];
+    auto *parameterType = signature->parameterTypes[i];
+    parameter->setType(parameterType);
+    if (declareVariable(parameter->variable()->name(), parameterType))
+      return emitError(parameter->variable().get(), diag::redefinition_var);
+  }
+  node->setType(signature->returnType);
+  return success();
+}
+
+auto SemaImpl::semaFunctionSignature(Prototype *node) -> CherryResult {
+  std::vector<const Type *> parameterTypes;
+  if (semaFunctionParameters(node, parameterTypes))
+    return failure();
 
   auto *returnType = resolveType(node->returnTypeNode());
   if (!returnType)
@@ -487,13 +1088,33 @@ auto SemaImpl::sema(Prototype *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
-  _symbols.resetVariables();
-  if (sema(node->proto().get()))
-    return failure();
+  PackageScope packageScope(_currentPackageName,
+                            functionPackageName(node->proto()->id()->name()));
+  if (node->proto()->isGeneric()) {
+    auto name = node->proto()->id()->name();
+    if (lookupFunction(name) || lookupGenericFunction(name)) {
+      auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
+      return emitError(node->proto()->id().get(), diagnostic);
+    }
+    if (declareGenericFunction(name, node)) {
+      auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
+      return emitError(node->proto()->id().get(), diagnostic);
+    }
+    return success();
+  }
 
+  _symbols.resetVariables();
   auto *signature = lookupFunction(node->proto()->id()->name());
-  if (!signature)
-    return failure();
+  if (signature) {
+    if (bindFunctionParameters(node->proto().get(), signature))
+      return failure();
+  } else {
+    if (sema(node->proto().get()))
+      return failure();
+    signature = lookupFunction(node->proto()->id()->name());
+    if (!signature)
+      return failure();
+  }
   if (sema(node->body().get(), signature->returnType))
     return failure();
 
@@ -505,6 +1126,8 @@ auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(StructDecl *node) -> CherryResult {
+  PackageScope packageScope(_currentPackageName,
+                            packageNameOf(node->id()->name()));
   std::vector<StructField> fields;
   NameSet fieldNames;
   unsigned fieldIndex = 0;
@@ -532,11 +1155,14 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
+  auto packageName = packageNameOf(node->name());
+  PackageScope packageScope(_currentPackageName, packageName);
   if (_symbols.lookupType(node->name()) ||
       _symbols.lookupComptimeTypeAlias(node->name()))
     return emitError(node, diag::redefinition_type);
 
-  if (_symbols.declareComptimeTypeAlias(node->name(), node->parameterName(),
+  if (_symbols.declareComptimeTypeAlias(node->name(), packageName,
+                                        node->parameterName(),
                                         node->bodyTypeNode()))
     return emitError(node, diag::redefinition_type);
   return success();
@@ -556,6 +1182,10 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<StringLiteralExpr>(node));
   case Expr::Expr_TypeLayout:
     return sema(cast<TypeLayoutExpr>(node));
+  case Expr::Expr_HeapAlloc:
+    return sema(cast<HeapAllocExpr>(node));
+  case Expr::Expr_Deref:
+    return sema(cast<DerefExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -608,7 +1238,89 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
     return semaReadTensor(call, tensorType);
   }
 
+  if (call) {
+    auto name = canonicalizeImportedName(call->name());
+    if (auto *genericFunction = lookupGenericFunction(name)) {
+      call->setName(name);
+      return semaGenericCall(call, genericFunction, type);
+    }
+  }
+
   return sema(node);
+}
+
+auto SemaImpl::semaGenericCall(CallExpr *node,
+                               const GenericFunctionSymbol *symbol,
+                               const Type *expectedType)
+    -> CherryResult {
+  auto *genericFunction = symbol->decl;
+  auto *genericProto = genericFunction->proto().get();
+  auto name = genericProto->id()->name();
+  PackageScope packageScope(_currentPackageName, packageNameOf(name));
+  auto &expressions = node->expressions();
+  auto &parameters = genericProto->parameters();
+  if (expressions.size() != parameters.size()) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, name, parameters.size());
+    return emitError(node, diagnostic);
+  }
+
+  for (auto &argument : expressions) {
+    if (sema(argument.get()))
+      return failure();
+  }
+
+  const Type *argumentType = nullptr;
+  auto parameterName = genericProto->typeParameterName();
+  for (size_t i = 0; i < expressions.size(); ++i) {
+    if (!matchGenericType(parameters[i]->typeNode(), expressions[i]->type(),
+                          parameterName, argumentType))
+      return emitError(expressions[i].get(), diag::mismatch_type);
+  }
+
+  if (expectedType &&
+      !matchGenericType(genericProto->returnTypeNode(), expectedType,
+                        parameterName, argumentType))
+    return emitError(node, diag::mismatch_type);
+
+  if (!argumentType)
+    return emitError(node, diag::mismatch_type);
+
+  auto concreteName = genericFunctionName(name, argumentType);
+  auto cached = _instantiatedFunctionSymbols.find(concreteName);
+  if (cached == _instantiatedFunctionSymbols.end()) {
+    auto concreteFunction = instantiateFunctionDecl(
+        genericFunction, concreteName, parameterName, argumentType);
+    _instantiatedFunctionPackages[concreteName] = packageNameOf(name);
+
+    VariableScope signatureScope(_symbols);
+    if (semaFunctionSignature(concreteFunction->proto().get()))
+      return failure();
+    auto *signature = lookupFunction(concreteName);
+    if (!signature)
+      return failure();
+
+    cached = _instantiatedFunctionSymbols
+                 .insert({concreteName, signature})
+                 .first;
+    _instantiatedFunctions.push_back(std::move(concreteFunction));
+  }
+
+  auto *signature = cached->second;
+  for (size_t i = 0; i < expressions.size(); ++i) {
+    auto &arg = expressions[i];
+    auto *parameterType = signature->parameterTypes[i];
+    if (!sameType(parameterType, arg->type()))
+      return emitError(arg.get(), diag::mismatch_type);
+    if (isTensorParameter(signature, i) &&
+        checkConstTensorUseAsMutable(arg.get()))
+      return failure();
+  }
+
+  node->setName(concreteName);
+  if (signature->returnType)
+    node->setType(signature->returnType);
+  return success();
 }
 
 auto SemaImpl::sema(UnitExpr *node) -> CherryResult {
@@ -685,6 +1397,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 
   auto *signature = lookupFunction(name);
   if (!signature) {
+    if (auto *genericFunction = lookupGenericFunction(name))
+      return semaGenericCall(node, genericFunction);
+
     auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
     return emitError(node, diagnostic);
   }
@@ -714,7 +1429,8 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
-  auto *structType = lookupStructType(canonicalizeImportedName(node->name()));
+  auto *type = resolveType(node->typeNode());
+  auto *structType = cherry::getStructType(type);
   if (!structType)
     return emitError(node, diag::undefined_type);
   node->setStructType(structType);
@@ -749,7 +1465,10 @@ auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
   if (sema(node->base().get()))
     return failure();
 
-  auto *structType = cherry::getStructType(node->base()->type());
+  auto *baseType = node->base()->type();
+  auto *ptrType = cherry::getPtrType(baseType);
+  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
+                             : cherry::getStructType(baseType);
   if (!structType)
     return emitError(node->base().get(), diag::mismatch_type);
 
@@ -761,6 +1480,7 @@ auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
 
   node->setType(field->type());
   node->setFieldIndex(field->index());
+  node->setLvalue(ptrType || node->base()->isLvalue());
   return success();
 }
 
@@ -798,6 +1518,35 @@ auto SemaImpl::sema(TypeLayoutExpr *node) -> CherryResult {
   node->setQueriedType(queriedType);
   node->setValue(*value);
   setBuiltinType(node, BuiltinTypeKind::UInt64);
+  return success();
+}
+
+auto SemaImpl::sema(HeapAllocExpr *node) -> CherryResult {
+  auto *allocatedType = checkType(node->typeNode(), UnitPolicy::Reject);
+  if (!allocatedType)
+    return failure();
+
+  if (node->count()) {
+    if (sema(node->count().get()))
+      return failure();
+    if (!isUInt64Type(node->count()->type()))
+      return emitError(node->count().get(), diag::mismatch_type);
+  }
+
+  node->setAllocatedType(allocatedType);
+  node->setType(_typeContext.createPtrType(allocatedType));
+  return success();
+}
+
+auto SemaImpl::sema(DerefExpr *node) -> CherryResult {
+  if (sema(node->pointer().get()))
+    return failure();
+
+  auto *ptrType = cherry::getPtrType(node->pointer()->type());
+  if (!ptrType)
+    return emitError(node->pointer().get(), diag::mismatch_type);
+
+  node->setType(ptrType->pointeeType());
   return success();
 }
 
@@ -891,8 +1640,11 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
     return checkAssignable(index->base().get());
   }
 
-  if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr))
+  if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr)) {
+    if (!memberAccess->isLvalue())
+      return emitError(memberAccess, diag::expected_lvalue);
     return checkAssignable(memberAccess->base().get());
+  }
 
   return success();
 }
@@ -1074,6 +1826,21 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
     }
 
     expr->setType(listType->elementType());
+    return success();
+  }
+
+  auto *ptrType = cherry::getPtrType(expr->base()->type());
+  if (ptrType) {
+    if (expr->indices().size() != 1)
+      return emitError(expr, diag::mismatch_type);
+    auto &index = expr->indices().front();
+    if (sema(index.get()))
+      return failure();
+    if (!isUInt64Type(index->type()))
+      return emitError(index.get(), diag::mismatch_type);
+
+    expr->setType(ptrType->pointeeType());
+    expr->setLvalue(true);
     return success();
   }
 
