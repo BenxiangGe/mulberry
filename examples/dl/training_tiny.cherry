@@ -4,24 +4,28 @@ fn main(): UInt64 {
   var b1: Float32[?, ?] = [[0.0], [0.0]];
   var b2: Float32[?, ?] = [[0.0], [0.0]];
 
-  const x0: Float32[2, 1] = [[1.0], [0.0]];
-  const x1: Float32[2, 1] = [[0.0], [1.0]];
-  const y0: Float32[2, 1] = [[1.0], [0.0]];
-  const y1: Float32[2, 1] = [[0.0], [1.0]];
-  const xs: List<Float32[?, ?]> = [x0, x1];
-  const ys: List<Float32[?, ?]> = [y0, y1];
+  var x0: Float32[?, ?] = [[1.0], [0.0]];
+  var x1: Float32[?, ?] = [[0.0], [1.0]];
+  var y0: Float32[?, ?] = [[1.0], [0.0]];
+  var y1: Float32[?, ?] = [[0.0], [1.0]];
+  var xs: List<Float32[?, ?]> = [x0, x1];
+  var ys: List<Float32[?, ?]> = [y0, y1];
   const eta: Float32 = 0.8;
 
   for epoch in 0 .. 4 {
-    for sample in 0 .. size(xs) {
-      const x: Float32[?, ?] = xs[sample];
-      const y: Float32[?, ?] = ys[sample];
-      const weights: List<Float32[?, ?]> = [w1, w2];
-      const biases: List<Float32[?, ?]> = [b1, b2];
+    for sample in 0 .. collections.size(xs) {
+      const x: Float32[?, ?] = collections.get(xs, sample);
+      const y: Float32[?, ?] = collections.get(ys, sample);
+      var weights: List<Float32[?, ?]> = [w1, w2];
+      var biases: List<Float32[?, ?]> = [b1, b2];
 
-      var z1: Float32[?, ?] = matadd(matmul(weights[0], x), biases[0]);
+      var z1: Float32[?, ?] = matadd(
+          matmul(collections.get(weights, 0), x),
+          collections.get(biases, 0));
       var a1: Float32[?, ?] = sigmoid(z1);
-      var z2: Float32[?, ?] = matadd(matmul(weights[1], a1), biases[1]);
+      var z2: Float32[?, ?] = matadd(
+          matmul(collections.get(weights, 1), a1),
+          collections.get(biases, 1));
       var a2: Float32[?, ?] = sigmoid(z2);
 
       var delta2: Float32[?, ?] =
@@ -29,33 +33,36 @@ fn main(): UInt64 {
       var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
 
       var delta1: Float32[?, ?] =
-        hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+        hadamard(matmul(transpose(collections.get(weights, 1)), delta2),
+                 sigmoidPrime(z1));
       var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
 
-      w1 = matsub(weights[0], matscale(nablaW1, eta));
-      w2 = matsub(weights[1], matscale(nablaW2, eta));
-      b1 = matsub(biases[0], matscale(delta1, eta));
-      b2 = matsub(biases[1], matscale(delta2, eta));
+      w1 = matsub(collections.get(weights, 0), matscale(nablaW1, eta));
+      w2 = matsub(collections.get(weights, 1), matscale(nablaW2, eta));
+      b1 = matsub(collections.get(biases, 0), matscale(delta1, eta));
+      b2 = matsub(collections.get(biases, 1), matscale(delta2, eta));
       ()
     };
     ()
   };
 
-  const finalWeights: List<Float32[?, ?]> = [w1, w2];
-  const finalBiases: List<Float32[?, ?]> = [b1, b2];
+  var finalWeights: List<Float32[?, ?]> = [w1, w2];
+  var finalBiases: List<Float32[?, ?]> = [b1, b2];
 
-  var activation0: Float32[?, ?] = xs[0];
-  for layer in 0 .. size(finalWeights) {
-    activation0 = sigmoid(matadd(matmul(finalWeights[layer], activation0),
-                                 finalBiases[layer]));
+  var activation0: Float32[?, ?] = collections.get(xs, 0);
+  for layer in 0 .. collections.size(finalWeights) {
+    activation0 = sigmoid(matadd(
+        matmul(collections.get(finalWeights, layer), activation0),
+        collections.get(finalBiases, layer)));
     ()
   };
   io.print(argmax(activation0));
 
-  var activation1: Float32[?, ?] = xs[1];
-  for layer in 0 .. size(finalWeights) {
-    activation1 = sigmoid(matadd(matmul(finalWeights[layer], activation1),
-                                 finalBiases[layer]));
+  var activation1: Float32[?, ?] = collections.get(xs, 1);
+  for layer in 0 .. collections.size(finalWeights) {
+    activation1 = sigmoid(matadd(
+        matmul(collections.get(finalWeights, layer), activation1),
+        collections.get(finalBiases, layer)));
     ()
   };
   io.print(argmax(activation1));

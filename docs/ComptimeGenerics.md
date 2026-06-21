@@ -20,15 +20,18 @@ fn main(): UInt64 {
 当前还支持 generic struct alias：
 
 ```cherry
-comptime List<T> = struct {
+comptime ListStorage<T> = struct {
   length: UInt64,
   capacity: UInt64,
   data: Ptr<T>
 };
+
+comptime List<T> = Ptr<ListStorage<T>>;
 ```
 
-`List<UInt64>` 会在 Sema 阶段实例化成一个 concrete struct type。MLIRGen
-仍然只看到普通 `mulberry.record`，不会把 generic 语义带进 IR。
+`ListStorage<UInt64>` 会在 Sema 阶段实例化成一个 concrete struct type，`List<UInt64>`
+再变成指向它的 typed pointer。MLIRGen 仍然只看到普通 `mulberry.record` 和
+`mulberry.ptr`，不会把 generic 语义带进 IR。
 
 当前还支持最小 generic function：
 
@@ -70,13 +73,15 @@ var value: Ptr<UInt64> = make();
 ```cherry
 package std.types;
 
+import collections.List;
+
 comptime Vector<T> = List<T>;
 comptime Matrix<T> = T[?, ?];
 ```
 
-`prelude.cherry` 默认 import `std.types`。用户代码使用 `types.Vector<T>`、
-`types.Matrix<T>`，而不是裸 `Vector<T>`。这样可以保留最后一级包名，既不会太长，
-也不会把标准库名字直接塞进全局命名空间。
+`prelude.cherry` 默认 import `collections.List` 和 `std.types`。用户代码直接使用裸
+`List<T>`；需要类型级别别名时再使用 `types.Vector<T>`、`types.Matrix<T>`。这样可以
+保留最后一级包名，既不会太长，也不会把标准库名字直接塞进全局命名空间。
 
 ## 类型布局查询
 
@@ -153,16 +158,12 @@ Float32[?, ?]
 
 这点很重要：generic 是语言类型系统能力，不是运行时 IR 语义。
 
-## 和 `mulberry.list` 的关系
+## 和旧 `mulberry.list` 的关系
 
-短期内，现有 `List<T>` 仍然是 compiler-known 类型，并继续 lower 到现有
-`mulberry.list` 路径。`comptime` 先让用户代码可以定义别名和类型构造器，例如
-`types.Vector<T>`、`types.Matrix<T>`。
-
-长期方向是补齐以下能力后，把 `List<T>` 的实现迁到标准库：
+`List<T>` 的实现已经迁到标准库/comptime 路径。旧 `mulberry.list` 路径已经删除。
+这依赖以下已经打开的基础能力：
 
 - `Ptr<T>`
-- `sizeof(T)` / `alignof(T)`
 - heap allocation primitive
 - generic struct
 - generic function
@@ -184,13 +185,14 @@ LowerMulberry 支持；不要为了让某个 generic struct 例子 JIT 而把 lo
 统一 `Ptr<T>` / heap object handle 模型见 `docs/PtrAndHeapObjectModel.md`；
 标准库 `List<T>` 的目标源码形态见 `docs/StdlibList.md`。
 
-到那时，`mulberry.list` 可以逐步退化为 lowering helper，或者完全消失。
+后续不要再把 generic/list 语义塞回 dialect。缺少容器能力时，应继续补
+stdlib/comptime/source type system。
 
 ## 后续阶段
 
-- `C1`：支持 `comptime Name<T> = Type;`
-- `C2`：给实例化结果和错误诊断补稳定格式
-- `C3`：设计 `sizeof(T)` / `alignof(T)`，先用于文档和后续标准库 `List<T>`
-- `C4`：设计标准库 `List<T>` 的源码形态
-- `C5`：保持现有 lowering/JIT 路径稳定，不再向 dialect 加新的泛型语义
-- `C6`：增加 demo，展示 `Vector<T>` / `Matrix<T>` 的实际用法
+- `C1` 已完成：支持 `comptime Name<T> = Type;`
+- `C2` 已完成：实例化结果和错误诊断已有基本稳定格式。
+- `C3` 已完成：`sizeof(T)` / `alignof(T)` 已支持当前明确 layout 的类型。
+- `C4` 已完成：标准库 `List<T>` 已迁到 `std.collections`。
+- `C5` 持续执行：保持现有 lowering/JIT 路径稳定，不再向 dialect 加新的泛型语义。
+- `C6` 已完成：已有 `Vector<T>` / `Matrix<T>` 和 stdlib List 相关测试。

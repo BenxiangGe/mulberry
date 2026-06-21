@@ -83,7 +83,6 @@ static auto convertToStringABILayout(mulberry::StringType type)
 static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type>;
 static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type>;
-static auto convertToListABIElementType(Type type) -> std::optional<Type>;
 
 static auto convertMemRefShape(ArrayRef<int64_t> shape)
     -> std::vector<int64_t> {
@@ -136,51 +135,6 @@ static auto convertAllocaElementType(Type type) -> std::optional<Type> {
   return convertToBackendType(type);
 }
 
-static auto convertListElementType(Type type) -> std::optional<Type> {
-  if (isScalarStorageType(type))
-    return type;
-
-  // Local List<Tensor> still stores the lowered memref handle so inference
-  // loops can lower to linalg. This is not a function-boundary ABI: memref
-  // storage cannot use Tensor ABI descriptor structs as element types.
-  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(type))
-    return convertTensorToMemRefType(tensorType);
-
-  return std::nullopt;
-}
-
-static auto convertToListStorageType(mulberry::ListType type)
-    -> std::optional<mulberry::ListStorageType> {
-  auto elementType = convertListElementType(type.getElementType());
-  if (!elementType)
-    return std::nullopt;
-
-  return mulberry::ListStorageType::get(type.getContext(), *elementType);
-}
-
-static auto convertToMemRefType(mulberry::ListStorageType type)
-    -> std::optional<MemRefType> {
-  auto elementType = type.getElementType();
-  // List<Tensor> stores lowered tensor handles. This is still a memref-level
-  // storage lowering, not the final Mulberry-to-LLVM ABI representation.
-  if (!isScalarStorageType(elementType) && !llvm::isa<MemRefType>(elementType))
-    return std::nullopt;
-
-  return MemRefType::get({ShapedType::kDynamic}, elementType);
-}
-
-static auto isDescriptorBackedStorage(Type type) -> bool {
-  auto storageType = llvm::dyn_cast<mulberry::ListStorageType>(type);
-  return storageType &&
-         llvm::isa<mulberry::TensorDescType>(storageType.getElementType());
-}
-
-static auto isEscapableListStorage(Type type) -> bool {
-  auto storageType = llvm::dyn_cast<mulberry::ListStorageType>(type);
-  return storageType &&
-         convertToListABIElementType(storageType.getElementType()).has_value();
-}
-
 using TensorABIDescriptorType = LLVM::LLVMStructType;
 
 // Tensor ABI descriptor layout:
@@ -227,48 +181,6 @@ static auto convertPointerElementType(Type type) -> std::optional<Type> {
     return convertTensorToABIDescriptorType(tensorType);
 
   return convertToBackendType(type);
-}
-
-using ListABIDescriptorType = LLVM::LLVMStructType;
-
-// List ABI descriptor layout:
-//
-//   { length: i64, data: ptr }
-//
-// `length` is the runtime element count. `data` is an opaque backend pointer to
-// contiguous element ABI storage; with LLVM opaque pointers, the element ABI
-// type is not encoded in the printed pointer type.
-struct ListABILayout {
-  ListABIDescriptorType descriptorType;
-};
-
-static auto convertToListABIElementType(Type type) -> std::optional<Type> {
-  if (isScalarStorageType(type))
-    return type;
-
-  if (auto tensorDescType = llvm::dyn_cast<mulberry::TensorDescType>(type))
-    return convertToTensorABILayout(tensorDescType).descriptorType;
-
-  return std::nullopt;
-}
-
-// This helper only describes the backend descriptor type. Function boundaries
-// still fail-fast before conversion, because type conversion alone cannot
-// materialize list storage into a backend pointer.
-static auto convertToListABILayout(mulberry::ListDescType type)
-    -> std::optional<ListABILayout> {
-  auto elementType = convertToListABIElementType(type.getElementType());
-  if (!elementType)
-    return std::nullopt;
-
-  auto context = type.getContext();
-
-  std::vector<Type> fields;
-  fields.push_back(getI64Type(context)); // runtime length
-  fields.push_back(getPtrType(context)); // data pointer
-  auto descriptorType = LLVM::LLVMStructType::getLiteral(context, fields);
-
-  return ListABILayout{descriptorType};
 }
 
 static auto createMemRefDataPointer(
@@ -346,77 +258,6 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
   auto mallocCall = LLVM::CallOp::create(
       builder, location, *mallocFn, ValueRange{sizeInBytes});
   return mallocCall.getResult();
-}
-
-static auto createEscapedListData(
-    Location location, ConversionPatternRewriter& rewriter, Operation* op,
-    mulberry::ListStorageType storageType, Value storage, Value length)
-    -> FailureOr<Value> {
-  auto elementType = convertToListABIElementType(storageType.getElementType());
-  if (!elementType)
-    return failure();
-
-  auto sourceType = storage.getType();
-  if (!llvm::isa<MemRefType, LLVM::LLVMPointerType>(sourceType))
-    return failure();
-
-  auto lengthI64 = arith::IndexCastOp::create(
-      rewriter, location, getI64Type(rewriter.getContext()), length);
-  auto elementBytes = createSizeOf(location, rewriter, *elementType);
-  auto totalBytes = arith::MulIOp::create(
-      rewriter, location, lengthI64.getResult(), elementBytes);
-  auto heapStorage = callBoehmMalloc(location, rewriter, op,
-                                     totalBytes.getResult());
-  if (failed(heapStorage))
-    return failure();
-
-  auto zero = arith::ConstantIndexOp::create(rewriter, location, 0);
-  auto one = arith::ConstantIndexOp::create(rewriter, location, 1);
-  // Return descriptors use Boehm-managed storage so callers do not need an
-  // explicit ownership convention. Scalar list storage starts as a memref, while
-  // TensorDesc list storage starts as an LLVM pointer to stack alloca; both must
-  // be copied into the same ABI data buffer.
-  scf::ForOp::create(
-      rewriter, location, zero, length, one, ValueRange{},
-      [&](OpBuilder& builder, Location loopLoc, Value index, ValueRange args) {
-        auto indexI64 = arith::IndexCastOp::create(
-            builder, loopLoc, getI64Type(builder.getContext()), index);
-        Value value;
-        if (llvm::isa<MemRefType>(sourceType)) {
-          value = memref::LoadOp::create(
-              builder, loopLoc, storage, index).getResult();
-        } else {
-          auto sourcePtr = LLVM::GEPOp::create(
-              builder, loopLoc, getPtrType(builder.getContext()), *elementType,
-              storage, ArrayRef<Value>{indexI64.getResult()});
-          value = LLVM::LoadOp::create(builder, loopLoc, *elementType,
-                                       sourcePtr.getResult()).getResult();
-        }
-        auto destPtr = LLVM::GEPOp::create(
-            builder, loopLoc, getPtrType(builder.getContext()), *elementType,
-            *heapStorage, ArrayRef<Value>{indexI64.getResult()});
-        LLVM::StoreOp::create(builder, loopLoc, value, destPtr.getResult());
-        scf::YieldOp::create(builder, loopLoc);
-      });
-
-  return *heapStorage;
-}
-
-// This only builds the backend ABI record value after both fields are already
-// legal backend values. It does not decide when List<T> may cross a function
-// boundary.
-static auto createListABIDesc(
-    Location location, ConversionPatternRewriter& rewriter,
-    const ListABILayout& layout, Value length, Value dataPointer) -> Value {
-  auto listAbiDesc = LLVM::UndefOp::create(rewriter, location,
-                                           layout.descriptorType);
-  auto withLength = LLVM::InsertValueOp::create(
-      rewriter, location, listAbiDesc.getResult(), length,
-      ArrayRef<int64_t>{0});
-  auto withData = LLVM::InsertValueOp::create(
-      rewriter, location, withLength.getResult(), dataPointer,
-      ArrayRef<int64_t>{1});
-  return withData.getResult();
 }
 
 static auto createStringABIDesc(
@@ -659,42 +500,6 @@ static auto createTensorFromABIDesc(
   return result.getResult();
 }
 
-static auto containsListType(Type type) -> bool {
-  if (llvm::isa<mulberry::ListType>(type))
-    return true;
-
-  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
-    for (auto field : recordType.getFields())
-      if (containsListType(field.type))
-        return true;
-
-  return false;
-}
-
-static auto containsListStorageType(Type type) -> bool {
-  if (llvm::isa<mulberry::ListStorageType>(type))
-    return true;
-
-  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
-    for (auto field : recordType.getFields())
-      if (containsListStorageType(field.type))
-        return true;
-
-  return false;
-}
-
-static auto containsListDescType(Type type) -> bool {
-  if (llvm::isa<mulberry::ListDescType>(type))
-    return true;
-
-  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
-    for (auto field : recordType.getFields())
-      if (containsListDescType(field.type))
-        return true;
-
-  return false;
-}
-
 static auto containsTensorDescType(Type type) -> bool {
   if (llvm::isa<mulberry::TensorDescType>(type))
     return true;
@@ -718,128 +523,6 @@ static auto containsTensorDescType(TypeRange types) -> bool {
 static auto containsTensorDescType(FunctionType type) -> bool {
   return containsTensorDescType(type.getInputs()) ||
          containsTensorDescType(type.getResults());
-}
-
-static auto isLowerableListDesc(Type type) -> bool {
-  auto listDescType = llvm::dyn_cast<mulberry::ListDescType>(type);
-  return listDescType && convertToListABIElementType(
-                             listDescType.getElementType()).has_value();
-}
-
-static auto containsLowerableListDesc(TypeRange types) -> bool {
-  for (auto type : types)
-    if (isLowerableListDesc(type))
-      return true;
-
-  return false;
-}
-
-static auto containsUnsupportedListBoundary(Type type) -> bool {
-  if (containsListType(type) || containsListStorageType(type))
-    return true;
-
-  if (containsListDescType(type) && !isLowerableListDesc(type))
-    return true;
-
-  return false;
-}
-
-static auto containsUnsupportedListBoundary(TypeRange types) -> bool {
-  for (auto type : types)
-    if (containsUnsupportedListBoundary(type))
-      return true;
-
-  return false;
-}
-
-static auto isEscapedListDesc(Value value) -> bool {
-  auto pack = value.getDefiningOp<mulberry::ListDescPackOp>();
-  if (!pack)
-    return false;
-
-  // A returned List descriptor must not point at local memref/alloca storage.
-  // `list.escape_storage` marks the path where descriptor data is copied into
-  // Boehm-managed heap storage before crossing the function boundary.
-  return !!pack.getData().getDefiningOp<mulberry::ListEscapeStorageOp>();
-}
-
-static auto rejectListReturns(Operation* root) -> LogicalResult {
-  auto result = success();
-  root->walk([&](Operation* op) {
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
-      if (funcOp.isExternal() &&
-          containsLowerableListDesc(funcOp.getFunctionType().getResults())) {
-        // Internal functions can return Boehm-managed list descriptor data after
-        // escape_storage. External functions still need a documented ownership
-        // ABI before we can trust their returned data pointer.
-        funcOp.emitError("failed to legalize operation 'func.func': "
-                         "List descriptor external returns need an explicit "
-                         "ownership ABI");
-        result = failure();
-        return WalkResult::interrupt();
-      }
-    }
-
-    if (auto returnOp = llvm::dyn_cast<func::ReturnOp>(op)) {
-      for (auto operand : returnOp.getOperands()) {
-        if (!isLowerableListDesc(operand.getType()))
-          continue;
-
-        if (!isEscapedListDesc(operand)) {
-          returnOp.emitError("failed to legalize operation 'func.return': "
-                             "List descriptor returns must use escaping "
-                             "list storage");
-          result = failure();
-          return WalkResult::interrupt();
-        }
-      }
-    }
-
-    return WalkResult::advance();
-  });
-
-  return result;
-}
-
-static auto rejectListBoundaries(Operation* root) -> LogicalResult {
-  auto result = success();
-  root->walk([&](Operation* op) {
-    if (auto funcOp = llvm::dyn_cast<func::FuncOp>(op)) {
-      auto funcType = funcOp.getFunctionType();
-      if (containsUnsupportedListBoundary(funcType.getInputs()) ||
-          containsUnsupportedListBoundary(funcType.getResults())) {
-        funcOp.emitError("failed to legalize operation 'func.func': "
-                         "List function boundaries are not supported yet");
-        result = failure();
-        return WalkResult::interrupt();
-      }
-    }
-
-    if (llvm::isa<func::CallOp>(op)) {
-      if (containsUnsupportedListBoundary(op->getOperandTypes()) ||
-          containsUnsupportedListBoundary(op->getResultTypes())) {
-        op->emitError()
-            << "failed to legalize operation '" << op->getName()
-            << "': List function boundaries are not supported yet";
-        result = failure();
-        return WalkResult::interrupt();
-      }
-    }
-
-    if (llvm::isa<func::ReturnOp>(op)) {
-      if (containsUnsupportedListBoundary(op->getOperandTypes())) {
-        op->emitError()
-            << "failed to legalize operation '" << op->getName()
-            << "': List function boundaries are not supported yet";
-        result = failure();
-        return WalkResult::interrupt();
-      }
-    }
-
-    return WalkResult::advance();
-  });
-
-  return result;
 }
 
 static auto rejectTensorDescBoundaries(Operation* root) -> LogicalResult {
@@ -870,35 +553,6 @@ static auto rejectTensorDescBoundaries(Operation* root) -> LogicalResult {
   });
 
   return result;
-}
-
-static auto rejectListEscape(Operation* root) -> LogicalResult {
-  auto result = success();
-  root->walk([&](mulberry::ListEscapeStorageOp op) {
-    if (isEscapableListStorage(op.getStorage().getType()))
-      return WalkResult::advance();
-
-    op.emitError("failed to legalize operation 'mulberry.list.escape_storage': "
-                 "list escaping storage needs a lowerable ABI element");
-    result = failure();
-    return WalkResult::interrupt();
-  });
-  return result;
-}
-
-static auto containsListDescOp(Operation* op) -> bool {
-  auto found = false;
-  op->walk([&](Operation* nestedOp) {
-    if (llvm::isa<mulberry::ListDescPackOp, mulberry::ListDescLengthOp,
-                  mulberry::ListDescDataOp, mulberry::ListDescGetOp,
-                  mulberry::ListDescToABIOp, mulberry::ListToDescOp>(
-            nestedOp)) {
-      found = true;
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  return found;
 }
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
@@ -944,15 +598,6 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
     if (!convertPtrType(ptrType))
       return failure();
 
-  if (llvm::isa<mulberry::ListType>(type))
-    return failure();
-
-  if (llvm::isa<mulberry::ListStorageType>(type))
-    return failure();
-
-  if (llvm::isa<mulberry::ListDescType>(type))
-    return failure();
-
   if (llvm::isa<mulberry::FileType>(type))
     return failure();
 
@@ -964,25 +609,9 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
 
 class MulberryTypeConverter : public TypeConverter {
 public:
-  MulberryTypeConverter() {
-    addConversion([](Type type) { return type; });
-    addConversion(rejectUnloweredMulberryType);
-    addConversion([](mulberry::ListType type) -> std::optional<Type> {
-      return convertToListStorageType(type);
-    });
-    addConversion([](mulberry::ListStorageType type) -> std::optional<Type> {
-      if (auto memRefType = convertToMemRefType(type))
-        return *memRefType;
-      if (llvm::isa<mulberry::TensorDescType>(type.getElementType()))
-        return getPtrType(type.getContext());
-      return std::nullopt;
-    });
-    addConversion([](mulberry::ListDescType type) -> std::optional<Type> {
-      auto layout = convertToListABILayout(type);
-      if (!layout)
-        return std::nullopt;
-      return layout->descriptorType;
-    });
+    MulberryTypeConverter() {
+      addConversion([](Type type) { return type; });
+      addConversion(rejectUnloweredMulberryType);
     addConversion([](mulberry::TensorDescType type) -> Type {
       return convertToTensorABILayout(type).descriptorType;
     });
@@ -1435,525 +1064,6 @@ public:
   }
 };
 
-class ListCreateOpLowering
-    : public OpConversionPattern<mulberry::ListCreateOp> {
-public:
-  using OpConversionPattern<mulberry::ListCreateOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListCreateOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto listType =
-        llvm::cast<mulberry::ListType>(op.getResult().getType());
-    auto storageType = convertToListStorageType(listType);
-    if (!storageType)
-      return rewriter.notifyMatchFailure(
-          op, "list storage needs a lowerable element type");
-
-    auto length = arith::ConstantIndexOp::create(
-        rewriter, op.getLoc(), op.getElements().size());
-    auto storage = mulberry::ListAllocOp::create(
-        rewriter, op.getLoc(), *storageType, length);
-
-    for (auto element : llvm::enumerate(adaptor.getElements())) {
-      auto index = arith::ConstantIndexOp::create(
-          rewriter, op.getLoc(), element.index());
-      mulberry::ListStoreOp::create(rewriter, op.getLoc(), element.value(),
-                                    storage, index);
-    }
-
-    rewriter.replaceOp(op, storage.getResult());
-    return success();
-  }
-};
-
-class ListAllocOpLowering : public OpConversionPattern<mulberry::ListAllocOp> {
-public:
-  using OpConversionPattern<mulberry::ListAllocOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListAllocOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto listStorageType = llvm::cast<mulberry::ListStorageType>(
-        op.getResult().getType());
-    if (auto memRefType = convertToMemRefType(listStorageType)) {
-      auto alloc = memref::AllocOp::create(rewriter, op.getLoc(), *memRefType,
-                                           adaptor.getLength());
-      rewriter.replaceOp(op, alloc.getResult());
-      return success();
-    }
-
-    auto tensorDescType = llvm::dyn_cast<mulberry::TensorDescType>(
-        listStorageType.getElementType());
-    if (!tensorDescType)
-      return rewriter.notifyMatchFailure(
-          op, "non-memref list storage currently requires TensorDesc elements");
-    auto tensorDescABIType =
-        convertToTensorABILayout(tensorDescType).descriptorType;
-
-    auto length = arith::IndexCastOp::create(
-        rewriter, op.getLoc(), getI64Type(op.getContext()),
-        adaptor.getLength());
-    // TensorDesc lowers to an LLVM descriptor record. That record cannot use
-    // memref element storage, so list_storage<TensorDesc> becomes a pointer to
-    // a contiguous array of tensor descriptor ABI records.
-    auto alloc = LLVM::AllocaOp::create(
-        rewriter, op.getLoc(), getPtrType(op.getContext()), tensorDescABIType,
-        length.getResult(), /*alignment=*/0);
-    rewriter.replaceOp(op, alloc.getResult());
-    return success();
-  }
-};
-
-class ListEscapeStorageOpLowering
-    : public OpConversionPattern<mulberry::ListEscapeStorageOp> {
-public:
-  using OpConversionPattern<mulberry::ListEscapeStorageOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListEscapeStorageOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    // This op is an ownership marker, not a storage transform. desc_pack sees
-    // the source marker and materializes the Boehm-managed ABI data pointer.
-    rewriter.replaceOp(op, adaptor.getStorage());
-    return success();
-  }
-};
-
-class ListGetOpLowering : public OpConversionPattern<mulberry::ListGetOp> {
-public:
-  using OpConversionPattern<mulberry::ListGetOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListGetOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto listType = llvm::cast<mulberry::ListType>(op.getList().getType());
-    auto elementType = convertListElementType(listType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "list load needs a lowerable result type");
-
-    auto loaded = mulberry::ListLoadOp::create(
-        rewriter, op.getLoc(), *elementType, adaptor.getList(),
-        adaptor.getIndex());
-    rewriter.replaceOp(op, loaded.getResult());
-    return success();
-  }
-};
-
-class ListLoadOpLowering : public OpConversionPattern<mulberry::ListLoadOp> {
-public:
-  using OpConversionPattern<mulberry::ListLoadOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListLoadOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (auto tensorDescType = llvm::dyn_cast<mulberry::TensorDescType>(
-            op.getResult().getType())) {
-      auto tensorDescABIType =
-          convertToTensorABILayout(tensorDescType).descriptorType;
-      auto index = arith::IndexCastOp::create(
-          rewriter, op.getLoc(), getI64Type(op.getContext()),
-          adaptor.getIndex());
-      // list_storage<TensorDesc> has already lowered to a backend pointer to
-      // contiguous Tensor ABI descriptors, so load through LLVM GEP/load.
-      auto elementPtr = LLVM::GEPOp::create(
-          rewriter, op.getLoc(), getPtrType(op.getContext()), tensorDescABIType,
-          adaptor.getStorage(), ArrayRef<Value>{index.getResult()});
-      auto load = LLVM::LoadOp::create(rewriter, op.getLoc(), tensorDescABIType,
-                                       elementPtr.getResult());
-      rewriter.replaceOp(op, load.getResult());
-      return success();
-    }
-
-    auto load = memref::LoadOp::create(rewriter, op.getLoc(),
-                                       adaptor.getStorage(),
-                                       adaptor.getIndex());
-    rewriter.replaceOp(op, load.getResult());
-    return success();
-  }
-};
-
-class ListSizeOpLowering : public OpConversionPattern<mulberry::ListSizeOp> {
-public:
-  using OpConversionPattern<mulberry::ListSizeOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListSizeOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto length = mulberry::ListLengthOp::create(
-        rewriter, op.getLoc(), rewriter.getIndexType(), adaptor.getList());
-    auto result = arith::IndexCastOp::create(
-        rewriter, op.getLoc(), op.getResult().getType(), length);
-    rewriter.replaceOp(op, result.getResult());
-    return success();
-  }
-};
-
-class ListToDescOpLowering
-    : public OpRewritePattern<mulberry::ListToDescOp> {
-public:
-  using OpRewritePattern<mulberry::ListToDescOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListToDescOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto createOp = op.getList().getDefiningOp<mulberry::ListCreateOp>();
-    if (!createOp)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor bridge needs a local list.create");
-
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getResult().getType());
-    auto descElementType = descType.getElementType();
-
-    auto storageType = mulberry::ListStorageType::get(
-        op.getContext(), descElementType);
-    auto length = arith::ConstantIndexOp::create(
-        rewriter, op.getLoc(), createOp.getElements().size());
-    auto storage = mulberry::ListAllocOp::create(
-        rewriter, op.getLoc(), storageType, length);
-
-    // Bridge high-level List<T> to ABI-ready ListDesc<T>. Tensor elements must
-    // be packed first; scalar elements can be stored directly.
-    for (auto element : llvm::enumerate(createOp.getElements())) {
-      auto index = arith::ConstantIndexOp::create(
-          rewriter, op.getLoc(), element.index());
-      Value value = element.value();
-      if (auto tensorDescType =
-              llvm::dyn_cast<mulberry::TensorDescType>(descElementType)) {
-        auto desc = mulberry::TensorDescPackOp::create(
-            rewriter, op.getLoc(), tensorDescType, element.value());
-        value = desc.getResult();
-      }
-      mulberry::ListStoreOp::create(rewriter, op.getLoc(), value, storage,
-                                    index);
-    }
-
-    auto listDesc = mulberry::ListDescPackOp::create(
-        rewriter, op.getLoc(), descType, length, storage);
-    rewriter.replaceOp(op, listDesc.getResult());
-    if (createOp->use_empty())
-      rewriter.eraseOp(createOp);
-    return success();
-  }
-};
-
-class ListStoreOpLowering : public OpConversionPattern<mulberry::ListStoreOp> {
-public:
-  using OpConversionPattern<mulberry::ListStoreOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListStoreOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (auto tensorDescType = llvm::dyn_cast<mulberry::TensorDescType>(
-            op.getValue().getType())) {
-      auto tensorDescABIType =
-          convertToTensorABILayout(tensorDescType).descriptorType;
-      auto index = arith::IndexCastOp::create(
-          rewriter, op.getLoc(), getI64Type(op.getContext()),
-          adaptor.getIndex());
-      // list_storage<TensorDesc> has already lowered to a backend pointer to
-      // contiguous Tensor ABI descriptors, so store through LLVM GEP/store.
-      auto elementPtr = LLVM::GEPOp::create(
-          rewriter, op.getLoc(), getPtrType(op.getContext()), tensorDescABIType,
-          adaptor.getStorage(), ArrayRef<Value>{index.getResult()});
-      LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
-                            elementPtr.getResult());
-      rewriter.eraseOp(op);
-      return success();
-    }
-
-    memref::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
-                            adaptor.getStorage(), adaptor.getIndex());
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-class ListLengthOpLowering
-    : public OpConversionPattern<mulberry::ListLengthOp> {
-public:
-  using OpConversionPattern<mulberry::ListLengthOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListLengthOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto zero = arith::ConstantIndexOp::create(rewriter, op.getLoc(), 0);
-    auto length = memref::DimOp::create(rewriter, op.getLoc(),
-                                        adaptor.getStorage(), zero);
-    rewriter.replaceOp(op, length.getResult());
-    return success();
-  }
-};
-
-class ListDescPackOpLowering
-    : public OpRewritePattern<mulberry::ListDescPackOp> {
-public:
-  using OpRewritePattern<mulberry::ListDescPackOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListDescPackOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (!op->use_empty())
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor still has projection users");
-
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-class ListDescLengthOpLowering
-    : public OpRewritePattern<mulberry::ListDescLengthOp> {
-public:
-  using OpRewritePattern<mulberry::ListDescLengthOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListDescLengthOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto pack = op.getDesc().getDefiningOp<mulberry::ListDescPackOp>();
-    if (!pack)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor length needs a local desc_pack");
-
-    // Descriptor-backed list storage is lowered to `{length, data}` first, then
-    // projected with llvm.extractvalue. Folding it here would bypass that ABI
-    // projection path and hide boundary-lowering bugs.
-    if (isDescriptorBackedStorage(pack.getData().getType()))
-      return rewriter.notifyMatchFailure(
-          op, "descriptor-backed list length needs ABI projection");
-
-    rewriter.replaceOp(op, pack.getLength());
-    if (pack->use_empty())
-      rewriter.eraseOp(pack);
-    return success();
-  }
-};
-
-class ListDescDataOpLowering
-    : public OpRewritePattern<mulberry::ListDescDataOp> {
-public:
-  using OpRewritePattern<mulberry::ListDescDataOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListDescDataOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto pack = op.getDesc().getDefiningOp<mulberry::ListDescPackOp>();
-    if (!pack)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor data needs a local desc_pack");
-
-    // Descriptor-backed list storage lowers to a backend pointer, not a memref.
-    // Leave it for conversion so desc_data becomes extractvalue field 1.
-    if (isDescriptorBackedStorage(pack.getData().getType()))
-      return rewriter.notifyMatchFailure(
-          op, "descriptor-backed list data needs ABI projection");
-
-    rewriter.replaceOp(op, pack.getData());
-    if (pack->use_empty())
-      rewriter.eraseOp(pack);
-    return success();
-  }
-};
-
-class ListDescGetOpLowering
-    : public OpRewritePattern<mulberry::ListDescGetOp> {
-public:
-  using OpRewritePattern<mulberry::ListDescGetOp>::OpRewritePattern;
-
-  auto matchAndRewrite(mulberry::ListDescGetOp op,
-                       PatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getDesc().getType());
-    auto descPack = op.getDesc().getDefiningOp<mulberry::ListDescPackOp>();
-    if (!descPack && isScalarStorageType(descType.getElementType()))
-      return rewriter.notifyMatchFailure(
-          op, "scalar list descriptor get needs ABI projection");
-
-    auto storageType = mulberry::ListStorageType::get(
-        op.getContext(), descType.getElementType());
-    auto data = mulberry::ListDescDataOp::create(
-        rewriter, op.getLoc(), storageType, op.getDesc());
-    auto loaded = mulberry::ListLoadOp::create(
-        rewriter, op.getLoc(), op.getResult().getType(), data.getResult(),
-        op.getIndex());
-    rewriter.replaceOp(op, loaded.getResult());
-    return success();
-  }
-};
-
-class ListDescGetOpConversion
-    : public OpConversionPattern<mulberry::ListDescGetOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescGetOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescGetOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getDesc().getType());
-    auto elementType = convertToListABIElementType(descType.getElementType());
-    if (!elementType || !isScalarStorageType(descType.getElementType()))
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor get needs a scalar ABI element");
-
-    auto data = LLVM::ExtractValueOp::create(
-        rewriter, op.getLoc(), getPtrType(op.getContext()),
-        adaptor.getDesc(), ArrayRef<int64_t>{1});
-    auto index = arith::IndexCastOp::create(
-        rewriter, op.getLoc(), getI64Type(op.getContext()),
-        adaptor.getIndex());
-    auto elementPtr = LLVM::GEPOp::create(
-        rewriter, op.getLoc(), getPtrType(op.getContext()), *elementType,
-        data.getResult(), ArrayRef<Value>{index.getResult()});
-    auto loaded = LLVM::LoadOp::create(
-        rewriter, op.getLoc(), *elementType, elementPtr.getResult());
-    rewriter.replaceOp(op, loaded.getResult());
-    return success();
-  }
-};
-
-class ListDescPackOpConversion
-    : public OpConversionPattern<mulberry::ListDescPackOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescPackOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescPackOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getResult().getType());
-    auto layout = convertToListABILayout(descType);
-    if (!layout)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor ABI needs a lowerable element type");
-
-    // desc_pack owns the actual `{length, data}` materialization. Keeping this
-    // here prevents desc_to_abi from becoming a hidden function-boundary bridge.
-    auto length = arith::IndexCastOp::create(
-        rewriter, op.getLoc(), getI64Type(op.getContext()),
-        adaptor.getLength());
-
-    Value dataPointer;
-    if (auto escape =
-            op.getData().getDefiningOp<mulberry::ListEscapeStorageOp>()) {
-      // Return-value descriptors must copy local list storage into GC-managed
-      // data. The original storage may be a stack slot or memref that cannot
-      // safely outlive the current function.
-      auto loweredStorage = rewriter.getRemappedValue(escape.getStorage());
-      if (!loweredStorage)
-        return rewriter.notifyMatchFailure(
-            op, "escaped list descriptor needs lowered storage");
-
-      auto loweredLength = rewriter.getRemappedValue(escape.getLength());
-      if (!loweredLength)
-        loweredLength = escape.getLength();
-
-      auto storageType = llvm::cast<mulberry::ListStorageType>(
-          escape.getStorage().getType());
-      auto escapedData = createEscapedListData(
-          op.getLoc(), rewriter, op.getOperation(), storageType,
-          loweredStorage, loweredLength);
-      if (failed(escapedData))
-        return rewriter.notifyMatchFailure(
-            op, "escaped list descriptor needs Boehm-managed storage");
-      dataPointer = *escapedData;
-    } else {
-      auto dataType = adaptor.getData().getType();
-      if (!dataType)
-        return rewriter.notifyMatchFailure(
-            op, "list descriptor ABI needs lowerable list storage");
-      if (!llvm::isa<MemRefType, LLVM::LLVMPointerType>(dataType))
-        return rewriter.notifyMatchFailure(
-            op, "list descriptor ABI needs lowered list storage");
-
-      dataPointer = adaptor.getData();
-      if (llvm::isa<MemRefType>(dataType))
-        dataPointer = createMemRefDataPointer(op.getLoc(), rewriter,
-                                              adaptor.getData());
-    }
-
-    auto desc = createListABIDesc(op.getLoc(), rewriter, *layout,
-                                  length.getResult(), dataPointer);
-
-    rewriter.replaceOp(op, desc);
-    return success();
-  }
-};
-
-class ListDescLengthOpConversion
-    : public OpConversionPattern<mulberry::ListDescLengthOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescLengthOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescLengthOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getDesc().getType());
-    auto layout = convertToListABILayout(descType);
-    if (!layout)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor length needs a lowerable ABI descriptor");
-
-    // List ABI field 0 is the runtime length stored as i64. The Mulberry op
-    // returns index because length is used by indexing and loop operations.
-    auto length = LLVM::ExtractValueOp::create(
-        rewriter, op.getLoc(), getI64Type(op.getContext()),
-        adaptor.getDesc(), ArrayRef<int64_t>{0});
-    auto indexLength = arith::IndexCastOp::create(
-        rewriter, op.getLoc(), rewriter.getIndexType(), length.getResult());
-    rewriter.replaceOp(op, indexLength.getResult());
-    return success();
-  }
-};
-
-class ListDescDataOpConversion
-    : public OpConversionPattern<mulberry::ListDescDataOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescDataOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescDataOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (!isDescriptorBackedStorage(op.getResult().getType()))
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor data needs pointer-backed storage");
-
-    // List ABI field 1 is the backend data pointer. Only pointer-backed
-    // descriptor storage can be reconstructed from this field today.
-    auto data = LLVM::ExtractValueOp::create(
-        rewriter, op.getLoc(), getPtrType(op.getContext()), adaptor.getDesc(),
-        ArrayRef<int64_t>{1});
-    rewriter.replaceOp(op, data.getResult());
-    return success();
-  }
-};
-
-class ListDescToABIOpLowering
-    : public OpConversionPattern<mulberry::ListDescToABIOp> {
-public:
-  using OpConversionPattern<mulberry::ListDescToABIOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::ListDescToABIOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto descType = llvm::cast<mulberry::ListDescType>(
-        op.getDesc().getType());
-    auto layout = convertToListABILayout(descType);
-    if (!layout)
-      return rewriter.notifyMatchFailure(
-          op, "list descriptor ABI needs a lowerable element type");
-
-    // This op is intentionally only a local marker. desc_pack lowering already
-    // materialized the backend ABI record for the descriptor operand.
-    rewriter.replaceOp(op, adaptor.getDesc());
-    return success();
-  }
-};
-
 class RecordGetFieldOpLowering
     : public OpConversionPattern<mulberry::RecordGetFieldOp> {
 public:
@@ -2162,32 +1272,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
   auto runOnOperation() -> void final {
-    if (failed(rejectListEscape(getOperation())))
-      return signalPassFailure();
-
-    if (failed(rejectListReturns(getOperation())))
-      return signalPassFailure();
-
-    if (failed(rejectListBoundaries(getOperation())))
-      return signalPassFailure();
-
     if (failed(rejectTensorDescBoundaries(getOperation())))
       return signalPassFailure();
-
-    // list_desc is only a descriptor-stage local value today. Folding local
-    // pack/projection pairs is safe, but function-boundary descriptors remain
-    // illegal until list storage is converted through MLIR's memref descriptor
-    // finalization. LLVM structs cannot directly contain memref-typed fields.
-    if (containsListDescOp(getOperation())) {
-      RewritePatternSet descPatterns(&getContext());
-      descPatterns.add<ListDescDataOpLowering, ListDescGetOpLowering,
-                       ListDescLengthOpLowering,
-                       ListDescPackOpLowering, ListToDescOpLowering>(
-          &getContext());
-      if (failed(
-              applyPatternsGreedily(getOperation(), std::move(descPatterns))))
-        return signalPassFailure();
-    }
 
     MulberryTypeConverter typeConverter;
 
@@ -2201,35 +1287,23 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     target.addIllegalDialect<mulberry::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
-          // Tensor function boundaries lower to memref today. Only explicit
-          // list_desc<TensorDesc> values may use the List ABI descriptor.
-          if (containsTensorDescType(op.getFunctionType()) ||
-              containsUnsupportedListBoundary(
-                  op.getFunctionType().getInputs()) ||
-              containsUnsupportedListBoundary(
-                  op.getFunctionType().getResults()))
+          // Tensor function boundaries lower to memref today. Tensor descriptor
+          // values are local ABI helpers and must not cross function boundaries.
+          if (containsTensorDescType(op.getFunctionType()))
             return false;
           return typeConverter.isSignatureLegal(op.getFunctionType());
         });
     target.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
         [&](Operation* op) {
           if (containsTensorDescType(op->getOperandTypes()) ||
-              containsTensorDescType(op->getResultTypes()) ||
-              containsUnsupportedListBoundary(op->getOperandTypes()) ||
-              containsUnsupportedListBoundary(op->getResultTypes()))
+              containsTensorDescType(op->getResultTypes()))
             return false;
           return typeConverter.isLegal(op);
         });
 
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, FileCloseOpLowering, FileOpenOpLowering,
-                 FileReadOpLowering, FileWriteOpLowering, ListAllocOpLowering,
-                 ListCreateOpLowering, ListEscapeStorageOpLowering,
-                 ListGetOpLowering, ListLengthOpLowering, ListLoadOpLowering,
-                 ListDescDataOpConversion, ListDescGetOpConversion,
-                 ListDescLengthOpConversion,
-                 ListDescPackOpConversion, ListDescToABIOpLowering,
-                 ListSizeOpLowering, ListStoreOpLowering,
+                 FileReadOpLowering, FileWriteOpLowering,
                  HeapAllocOpLowering, LoadOpLowering, PtrIndexOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
                  SafetensorReadOpLowering, StoreOpLowering,

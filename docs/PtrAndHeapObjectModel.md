@@ -88,11 +88,13 @@ struct Buffer<T> {
 List 的形态：
 
 ```cherry
-comptime List<T> = struct {
+comptime ListStorage<T> = struct {
   length: UInt64,
   capacity: UInt64,
   data: Ptr<T>
 };
+
+comptime List<T> = Ptr<ListStorage<T>>;
 ```
 
 动态 Tensor 的形态：
@@ -175,7 +177,7 @@ var b = a;
 push(b, 1);
 ```
 
-如果 `makeList()` 返回 `Ptr<List<UInt64>>`，`a` 和 `b` 指向同一个 list heap object，
+如果 `makeList()` 返回 `Ptr<ListStorage<UInt64>>`，`a` 和 `b` 指向同一个 list heap object，
 因此 `size(a)` 能看到 `push(b, 1)` 的结果。
 
 如果用户需要深拷贝，应该显式调用：
@@ -192,7 +194,7 @@ var b = clone(a);
 heap object 由 Boehm GC 分配和回收：
 
 ```cherry
-var list: Ptr<List<T>> = heap.alloc<List<T>>();
+var list: Ptr<ListStorage<T>> = heap.alloc<ListStorage<T>>();
 ```
 
 只要 `list` 仍能从栈、全局变量、其它 heap object 等 root 找到，Boehm 就不会回收
@@ -236,20 +238,32 @@ source List<T>
   -> ordinary pointer/record passing
 ```
 
+旧 `mulberry.list` / `list_desc` 路径已经删除。后续如果需要跨 module ABI 或 FFI
+descriptor，也应作为普通 `Ptr<T>` object 的 ABI wrapper 重新设计，而不是恢复
+list-specific boundary rewrite。
+
 ## 后续实现顺序
 
-建议后续按下面顺序推进：
+当前已完成：
 
 ```text
-C4.9  引入 `*p` / `*p = value`，移除临时 ptr.load / ptr.store API
-C4.10 清理 Ptr API 文档和测试命名
-C4.11 删除旧的 Tensor handle marker IR，避免把 descriptor reconstruction 当成 handle
-C4.12 实现 `heap.alloc<T>(count)` 和 `p[i]` 指针索引
-C4.13 支持 generic struct，用 Mulberry 表达 List<T>
-C4.14 支持 generic function，用 Mulberry 表达 List<T> API
-C4.15 把 List<T> 迁到 std.collections
-C4.16 设计 Tensor heap object handle
-C4.17 删除旧 list descriptor / escape_storage / boundary rewrite
+C4.9   引入 `*p` / `*p = value`，不把 ptr.load / ptr.store 暴露为用户 API
+C4.10  清理 Ptr API 文档和测试命名
+C4.11  删除旧的 Tensor handle marker IR
+C4.12  实现 `heap.alloc<T>(count)` 和 `p[i]` 指针索引
+C4.13  支持 generic struct，用 Mulberry 表达 List<T>
+C4.14  支持 generic function，用 Mulberry 表达 List<T> API
+C4.15  把 List<T> 迁到 std.collections
+C4.16  删除旧 list descriptor / escape_storage / boundary rewrite
+```
+
+后续建议：
+
+```text
+P4.5   继续验证 nested List、record field List 和 Tensor element List 的正向路径
+P4.6   设计 List grow / capacity 策略，只在 training 需要时实现
+P4.7   设计 Tensor heap object handle；不要复用 tensor descriptor 伪装 handle
+P4.8   如果要继续缩小 Mulberry dialect，逐项迁移 string/file/heap/record，而不是整块删除
 ```
 
 每一步都应该优先保持模型简单。如果某一步需要引入很难解释的桥接层，就说明底层能力

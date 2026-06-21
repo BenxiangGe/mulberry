@@ -1,0 +1,27 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: List<UInt64> = [10, 20, 30];
+  io.print(collections.get(xs, 1));
+  collections.size(xs)
+}
+
+# CHECK-LABEL: func.func @main()
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_push__UInt64
+# CHECK: call @std_collections_push__UInt64
+# CHECK: call @std_collections_push__UInt64
+# CHECK: call @std_collections_get__UInt64
+# CHECK: call @std_collections_size__UInt64
+# CHECK-NOT: mulberry.list.create
+
+# LOWER-LABEL: func.func @main
+# LOWER: call @std_collections_withCapacity__UInt64
+# LOWER: call @std_collections_push__UInt64
+# LOWER: call @std_collections_get__UInt64
+# LOWER: call @std_collections_size__UInt64
+# LOWER-NOT: mulberry.list.create
+
+# JIT: 20

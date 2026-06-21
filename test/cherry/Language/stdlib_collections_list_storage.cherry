@@ -4,8 +4,8 @@
 
 fn main(): UInt64 {
   var data: Ptr<UInt64> = heap.alloc<UInt64>(2);
-  var xs: Ptr<collections.List<UInt64>> =
-      heap.alloc<collections.List<UInt64>>();
+  var xs: Ptr<collections.ListStorage<UInt64>> =
+      heap.alloc<collections.ListStorage<UInt64>>();
   xs.length = 2;
   xs.capacity = 2;
   xs.data = data;
@@ -16,13 +16,13 @@ fn main(): UInt64 {
   0
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.List parameter=T
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.ListStorage parameter=T
 # AST-DAG: CallExpr {{.*}}callee=std_collections_set__UInt64
 # AST-DAG: CallExpr {{.*}}callee=std_collections_size__UInt64
 # AST-DAG: CallExpr {{.*}}callee=std_collections_get__UInt64
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc !mulberry.record<std_collections_List__UInt64
+# MLIR: mulberry.heap.alloc !mulberry.record<std_collections_ListStorage__UInt64
 # MLIR: call @std_collections_set__UInt64
 # MLIR: call @std_collections_size__UInt64
 # MLIR: call @std_collections_get__UInt64

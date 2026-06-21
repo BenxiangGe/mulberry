@@ -6,10 +6,7 @@
 fn main(): UInt64 {
   var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
   var w2: Float32[?, ?] = [[1.0, 1.0]];
-  var weights: Ptr<collections.List<Float32[?, ?]>> =
-      collections.withCapacity(2);
-  collections.push(weights, w1);
-  collections.push(weights, w2);
+  var weights: List<Float32[?, ?]> = [w1, w2];
 
   var x: Float32[?, ?] = [[0.2], [0.8]];
   var y: Float32[?, ?] = matmul(collections.get(weights, 0), x);
@@ -17,8 +14,8 @@ fn main(): UInt64 {
   0
 }
 
-# AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__Float32______
-# AST-DAG: CallExpr {{.*}}callee=std_collections_push__Float32______
+# AST: VariableStat (id=weights
+# AST-NEXT: ArrayLiteralExpr {{.*}} type=Ptr<std_collections_ListStorage__Float32______
 # AST-DAG: CallExpr {{.*}}callee=std_collections_get__Float32______
 
 # MLIR-LABEL: func.func @main()

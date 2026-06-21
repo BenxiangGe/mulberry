@@ -12,23 +12,6 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=mlir_cherry.")
 
 declare_mlir_python_sources(CherryPythonSources)
 
-declare_mlir_dialect_python_bindings(
-  ADD_TO_PARENT CherryPythonSources
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir_cherry"
-  TD_FILE dialects/CherryOps.td
-  SOURCES
-    dialects/cherry.py
-  DIALECT_NAME cherry)
-
-declare_mlir_python_extension(CherryPythonSources.Extension
-  MODULE_NAME _cherryDialects
-  ADD_TO_PARENT CherryPythonSources
-  SOURCES
-        CherryExtension.cpp
-  EMBED_CAPI_LINK_LIBS
-    CherryCAPI
-)
-
 ################################################################################
 # Common CAPI
 ################################################################################

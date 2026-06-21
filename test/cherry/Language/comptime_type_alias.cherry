@@ -3,16 +3,16 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn use(xs: types.Vector<UInt64>, ys: types.Matrix<Float32>): UInt64 {
-  size(xs) + size(ys)
+  collections.size(xs) + size(ys)
 }
 
 fn main(): UInt64 {
-  const xs: types.Vector<UInt64> = [1, 2, 3];
+  var xs: types.Vector<UInt64> = [1, 2, 3];
   var ys: types.Matrix<Float32> = [[1.0, 2.0], [3.0, 4.0]];
   use(xs, ys)
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Vector parameter=T type=List<T>
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Vector parameter=T type=collections.List<T>
 # AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Matrix parameter=T type=T[?, ?]
 # AST: Prototype
 # AST-SAME: name=use
@@ -20,4 +20,5 @@ fn main(): UInt64 {
 # AST-SAME: type=types.Vector<UInt64>
 # AST: VariableStat (id=ys
 # AST-SAME: type=types.Matrix<Float32>
-# MLIR: func.func @use(%arg0: !mulberry.list<i64>, %arg1: !mulberry.tensor<?x?xf32>) -> i64
+# MLIR: func.func @use(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR-SAME: %arg1: !mulberry.tensor<?x?xf32>) -> i64

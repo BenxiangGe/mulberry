@@ -28,35 +28,40 @@ fn main(): UInt64 {
 
   io.close(file);
 
-  const xs: List<Float32[?, ?]> = [x0, x1, x2, x3, x4,
-                                   x5, x6, x7, x8, x9];
-  const ys: List<Float32[?, ?]> = [y0, y1, y2, y3, y4,
-                                   y5, y6, y7, y8, y9];
+  var xs: List<Float32[?, ?]> =
+      [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9];
+  var ys: List<Float32[?, ?]> =
+      [y0, y1, y2, y3, y4, y5, y6, y7, y8, y9];
   const eta: Float32 = 0.1;
 
   for epoch in 0 .. 30 {
-    for sample in 0 .. size(xs) {
-      const x: Float32[?, ?] = xs[sample];
-      const y: Float32[?, ?] = ys[sample];
-      const weights: List<Float32[?, ?]> = [w1, w2];
-      const biases: List<Float32[?, ?]> = [b1, b2];
+    for sample in 0 .. collections.size(xs) {
+      const x: Float32[?, ?] = collections.get(xs, sample);
+      const y: Float32[?, ?] = collections.get(ys, sample);
+      var weights: List<Float32[?, ?]> = [w1, w2];
+      var biases: List<Float32[?, ?]> = [b1, b2];
 
-      var z1: Float32[?, ?] = matadd(matmul(weights[0], x), biases[0]);
+      var z1: Float32[?, ?] = matadd(
+          matmul(collections.get(weights, 0), x),
+          collections.get(biases, 0));
       var a1: Float32[?, ?] = sigmoid(z1);
-      var z2: Float32[?, ?] = matadd(matmul(weights[1], a1), biases[1]);
+      var z2: Float32[?, ?] = matadd(
+          matmul(collections.get(weights, 1), a1),
+          collections.get(biases, 1));
       var a2: Float32[?, ?] = sigmoid(z2);
 
       var delta2: Float32[?, ?] = matsub(a2, y);
       var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
 
       var delta1: Float32[?, ?] =
-        hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+        hadamard(matmul(transpose(collections.get(weights, 1)), delta2),
+                 sigmoidPrime(z1));
       var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
 
-      w1 = matsub(weights[0], matscale(nablaW1, eta));
-      w2 = matsub(weights[1], matscale(nablaW2, eta));
-      b1 = matsub(biases[0], matscale(delta1, eta));
-      b2 = matsub(biases[1], matscale(delta2, eta));
+      w1 = matsub(collections.get(weights, 0), matscale(nablaW1, eta));
+      w2 = matsub(collections.get(weights, 1), matscale(nablaW2, eta));
+      b1 = matsub(collections.get(biases, 0), matscale(delta1, eta));
+      b2 = matsub(collections.get(biases, 1), matscale(delta2, eta));
       ()
     };
     ()
@@ -99,17 +104,20 @@ fn main(): UInt64 {
   read(b2Input, savedB2);
   io.close(b2Input);
 
-  const finalWeights: List<Float32[?, ?]> = [savedW1, savedW2];
-  const finalBiases: List<Float32[?, ?]> = [savedB1, savedB2];
+  var finalWeights: List<Float32[?, ?]> =
+      [savedW1, savedW2];
+  var finalBiases: List<Float32[?, ?]> =
+      [savedB1, savedB2];
 
   const inferenceFile: File = io.open("data/mnist-784-30-10.safetensors", "rb");
   var x: Float32[?, ?] = readTensor(inferenceFile, "x");
   io.close(inferenceFile);
 
   var activation: Float32[?, ?] = x;
-  for layer in 0 .. size(finalWeights) {
-    activation = sigmoid(matadd(matmul(finalWeights[layer], activation),
-                                finalBiases[layer]));
+  for layer in 0 .. collections.size(finalWeights) {
+    activation = sigmoid(matadd(
+        matmul(collections.get(finalWeights, layer), activation),
+        collections.get(finalBiases, layer)));
     ()
   };
   io.print(argmax(activation));

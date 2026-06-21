@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Tools/Plugins/DialectPlugin.h"
@@ -23,7 +22,6 @@ extern "C" LLVM_ATTRIBUTE_WEAK DialectPluginLibraryInfo
 mlirGetDialectPluginInfo() {
   return {MLIR_PLUGIN_API_VERSION, "Cherry", LLVM_VERSION_STRING,
           [](DialectRegistry *registry) {
-            registry->insert<mlir::cherry::CherryDialect>();
             mlir::cherry::registerCherryConversionPasses();
           }};
 }

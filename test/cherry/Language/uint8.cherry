@@ -15,22 +15,19 @@ fn minByte(lhs: UInt8, rhs: UInt8): UInt8 {
 }
 
 fn main(): UInt64 {
-  const empty: List<UInt8> = [];
   0
 }
 
 # AST: Prototype {{.*}}name=first{{.*}}type=UInt8
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[?]
 # AST: Prototype {{.*}}name=minByte{{.*}}type=UInt8
-# AST: VariableStat const {{.*}}id=empty{{.*}}type=List<UInt8>
 
 # MLIR-LABEL: func.func @first(%arg0: !mulberry.tensor<?xi8>) -> i8
 # MLIR: mulberry.tensor.load
 # MLIR-SAME: !mulberry.tensor<?xi8> -> i8
 # MLIR-LABEL: func.func @minByte(%arg0: i8, %arg1: i8) -> i8
 # MLIR: arith.cmpi ult, {{.*}} : i8
-# MLIR: mulberry.list.create
-# MLIR-SAME: !mulberry.list<i8>
+# MLIR-NOT: mulberry.list.create
 
 # LOWERED-LABEL: func.func @first(%arg0: memref<?xi8>) -> i8
 # LOWERED: memref.load

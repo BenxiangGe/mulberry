@@ -22,7 +22,6 @@ public:
 private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
   auto convert(const TensorType& type) const -> mlir::mulberry::TensorType;
-  auto convert(const ListType& type) const -> mlir::mulberry::ListType;
   auto convert(const PtrType& type) const -> mlir::mulberry::PtrType;
   auto convertTensorElement(const BuiltinType& type) const -> mlir::Type;
   auto convert(const StructType& type) const -> mlir::mulberry::RecordType;

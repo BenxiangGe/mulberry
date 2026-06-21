@@ -1,4 +1,5 @@
-import std.core;
-import std.collections;
-import std.io;
-import std.types;
+import core;
+import collections;
+import collections.List;
+import io;
+import types;

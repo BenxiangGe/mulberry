@@ -9,16 +9,14 @@ struct Pair {
 }
 
 fn main(): UInt64 {
-  var xs: Ptr<collections.List<Pair>> = collections.withCapacity(2);
-  collections.push(xs, Pair { 10, 32 });
-  collections.push(xs, Pair { 4, 9 });
+  var xs: List<Pair> = [Pair { 10, 32 }, Pair { 4, 9 }];
   io.print(collections.size(xs));
   io.print(collections.get(xs, 0).x + collections.get(xs, 1).y);
   0
 }
 
-# AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__Pair
-# AST-DAG: CallExpr {{.*}}callee=std_collections_push__Pair
+# AST: VariableStat (id=xs
+# AST-NEXT: ArrayLiteralExpr {{.*}} type=Ptr<std_collections_ListStorage__Pair>
 # AST-DAG: CallExpr {{.*}}callee=std_collections_get__Pair
 
 # MLIR-LABEL: func.func @main()

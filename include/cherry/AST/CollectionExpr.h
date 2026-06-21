@@ -11,6 +11,8 @@
 #include "cherry/AST/Expr.h"
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace cherry {
@@ -19,6 +21,12 @@ namespace cherry {
 // expected type where available.
 class ArrayLiteralExpr final : public Expr {
 public:
+  enum class LiteralKind {
+    Unknown,
+    Tensor,
+    StdlibList,
+  };
+
   ArrayLiteralExpr(llvm::SMLoc loc,
                    std::vector<std::unique_ptr<Expr>> elements)
       : Expr(Expr_ArrayLiteral, loc), _elements(std::move(elements)) {}
@@ -40,9 +48,40 @@ public:
     return _inferredShape;
   }
 
+  auto literalKind() const -> LiteralKind { return _literalKind; }
+
+  auto setTensorLiteral() -> void {
+    _literalKind = LiteralKind::Tensor;
+  }
+
+  auto setStdlibListLiteral(const Type *elementType,
+                            std::string_view withCapacityFunctionName,
+                            std::string_view pushFunctionName) -> void {
+    _literalKind = LiteralKind::StdlibList;
+    _stdlibListElementType = elementType;
+    _withCapacityFunctionName = withCapacityFunctionName;
+    _pushFunctionName = pushFunctionName;
+  }
+
+  auto stdlibListElementType() const -> const Type * {
+    return _stdlibListElementType;
+  }
+
+  auto withCapacityFunctionName() const -> std::string_view {
+    return _withCapacityFunctionName;
+  }
+
+  auto pushFunctionName() const -> std::string_view {
+    return _pushFunctionName;
+  }
+
 private:
   std::vector<std::unique_ptr<Expr>> _elements;
   std::vector<int64_t> _inferredShape;
+  LiteralKind _literalKind = LiteralKind::Unknown;
+  const Type *_stdlibListElementType = nullptr;
+  std::string _withCapacityFunctionName;
+  std::string _pushFunctionName;
 };
 
 // Source `base[...]` is type-neutral. Sema classifies it by base type.

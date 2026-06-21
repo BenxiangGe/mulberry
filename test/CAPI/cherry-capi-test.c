@@ -7,7 +7,6 @@
 
 // RUN: cherry-capi-test 2>&1 | FileCheck %s
 
-#include "cherry/MLIRGen/Cherry-c/Dialects.h"
 #include "mlir-c/IR.h"
 #include "mlir-c/RegisterEverything.h"
 #include <stdio.h>
@@ -21,14 +20,16 @@ static void registerAllUpstreamDialects(MlirContext ctx) {
 
 int main(int argc, char **argv) {
   MlirContext ctx = mlirContextCreate();
-  // TODO: Create the dialect handles for the builtin dialects and avoid this.
-  // This adds dozens of MB of binary size over just the cherry dialect.
   registerAllUpstreamDialects(ctx);
-  mlirDialectHandleRegisterDialect(mlirGetDialectHandle__cherry__(), ctx);
 
   MlirModule module = mlirModuleCreateParse(
-      ctx, mlirStringRefCreateFromCString("%0 = arith.constant 10 : i64\n"
-                                          "%1 = cherry.print %0 : (i64) -> i64"));
+      ctx, mlirStringRefCreateFromCString("llvm.func @printU64(i64)\n"
+                                          "func.func @main() -> i64 {\n"
+                                          "  %0 = arith.constant 10 : i64\n"
+                                          "  llvm.call @printU64(%0) : (i64) -> ()\n"
+                                          "  %1 = arith.constant 0 : i64\n"
+                                          "  func.return %1 : i64\n"
+                                          "}"));
   if (mlirModuleIsNull(module)) {
     printf("ERROR: Could not parse.\n");
     mlirContextDestroy(ctx);
@@ -37,7 +38,7 @@ int main(int argc, char **argv) {
   MlirOperation op = mlirModuleGetOperation(module);
 
   // CHECK: %[[C:.*]] = arith.constant 10 : i64
-  // CHECK: cherry.print %[[C]] : (i64) -> i64
+  // CHECK: llvm.call @printU64(%[[C]]) : (i64) -> ()
   mlirOperationDump(op);
 
   mlirModuleDestroy(module);

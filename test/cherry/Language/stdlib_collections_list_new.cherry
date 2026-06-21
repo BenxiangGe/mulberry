@@ -3,17 +3,26 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var xs: Ptr<collections.List<UInt64>> = collections.new();
+  var xs: collections.List<UInt64> = collections.new();
+  collections.push(xs, 42);
+  collections.push(xs, 58);
   io.print(collections.size(xs));
+  io.print(collections.get(xs, 0) + collections.get(xs, 1));
   0
 }
 
 # AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.List parameter=T
-# AST: VariableStat {{.*}}id=xs{{.*}}type=Ptr<collections.List<UInt64>>
+# AST: VariableStat {{.*}}id=xs{{.*}}type=collections.List<UInt64>
 # AST: CallExpr {{.*}}callee=std_collections_new__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_push__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_get__UInt64
 
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_new__UInt64
-# MLIR-DAG: func.func @std_collections_new__UInt64() -> !mulberry.ptr<!mulberry.record<std_collections_List__UInt64
+# MLIR-DAG: func.func @std_collections_new__UInt64() -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR-DAG: func.func @std_collections_grow__UInt64
+# MLIR-DAG: scf.while
+# MLIR-DAG: call @std_collections_push__UInt64
 
-# JIT: 0
+# JIT: 2
+# JIT-NEXT: 100

@@ -164,19 +164,24 @@ def writeCherrySource(
     output.parent.mkdir(parents=True, exist_ok=True)
     body = "\n\n".join(
         [
-            emitVariable("w1", w1, isConst=True),
-            emitVariable("b1", b1, isConst=True),
-            emitVariable("w2", w2, isConst=True),
-            emitVariable("b2", b2, isConst=True),
-            "  const weights: List<Float32[?, ?]> = [w1, w2];",
-            "  const biases: List<Float32[?, ?]> = [b1, b2];",
+            emitVariable("w1", w1),
+            emitVariable("b1", b1),
+            emitVariable("w2", w2),
+            emitVariable("b2", b2),
+            "\n".join(
+                [
+                    "  var weights: Ptr<collections.List<Float32[?, ?]>> = [w1, w2];",
+                    "  var biases: Ptr<collections.List<Float32[?, ?]>> = [b1, b2];",
+                ]
+            ),
             emitVariable("activation", x, typeAnnotation="Float32[?, ?]"),
             f"  const y: UInt64 = {y};",
             "\n".join(
                 [
-                    "  for layer in 0 .. size(weights) {",
-                    "    activation = sigmoid(matadd(matmul(weights[layer], activation),",
-                    "                                biases[layer]));",
+                    "  for layer in 0 .. collections.size(weights) {",
+                    "    activation = sigmoid(matadd(",
+                    "        matmul(collections.get(weights, layer), activation),",
+                    "        collections.get(biases, layer)));",
                     "    ()",
                     "  };",
                 ]

@@ -4,12 +4,14 @@
 comptime LocalVector<T> = List<T>;
 
 fn first(xs: LocalVector<UInt64>): UInt64 {
-  xs[0]
+  collections.get(xs, 0)
 }
 
 fn main(): UInt64 {
-  const xs: LocalVector<UInt64> = [9, 8];
+  var xs: LocalVector<UInt64> = [9, 8];
   first(xs)
 }
 
-# CHECK: func.func @first(%arg0: !mulberry.list<i64>) -> i64
+# CHECK: func.func @first(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# CHECK-SAME: -> i64
+# CHECK: call @std_collections_get__UInt64

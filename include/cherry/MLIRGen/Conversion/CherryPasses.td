@@ -10,25 +10,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def ConvertCherryToSCF : Pass<"convert-cherry-to-scf"> {
-  let summary = "Convert some Cherry ops to SCF ops";
-  let dependentDialects = ["scf::SCFDialect"];
-}
-
-def ConvertCherryToArithCfFunc : Pass<"convert-cherry-to-arith-cf-func"> {
-  let summary = "Convert some Cherry ops to arith, cf and func ops";
-  let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect"];
-}
-
-def LowerCherryRuntime : Pass<"lower-cherry-runtime"> {
-  let summary = "Lower Cherry runtime-facing ops";
-  let description = [{
-    This pass lowers Cherry ops that represent runtime calls after high-level
-    Mulberry lowering has finished.
-  }];
-  let dependentDialects = ["arith::ArithDialect", "LLVM::LLVMDialect"];
-}
-
 def ConvertCherryToLLVM : Pass<"convert-cherry-to-llvm"> {
   let summary = "Convert Cherry storage-level IR to LLVM";
   let description = [{
@@ -50,18 +31,6 @@ def LowerMulberry : Pass<"lower-mulberry"> {
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",
                            "scf::SCFDialect"];
-}
-
-def PrepareMulberryBoundaries : Pass<"prepare-mulberry-boundaries"> {
-  let summary = "Prepare supported Mulberry function boundaries";
-  let description = [{
-    This pass rewrites supported source-level boundaries before lower-mulberry,
-    such as List<Tensor> -> list_desc<TensorDesc>. Unsupported boundary shapes
-    still fail fast instead of hiding the conversion inside MLIRGen or
-    lower-mulberry.
-  }];
-  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
-                           "mulberry::MulberryDialect"];
 }
 
 #endif // CHERRY_PASSES_TD

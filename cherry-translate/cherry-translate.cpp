@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "mlir/InitAllTranslations.h"
 #include "mlir/Tools/mlir-translate/MlirTranslateMain.h"
 

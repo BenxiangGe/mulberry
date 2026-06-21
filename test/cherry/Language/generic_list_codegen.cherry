@@ -2,48 +2,47 @@
 # RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn first(xs: List<UInt64>): UInt64 {
-  xs[0]
+  collections.get(xs, 0)
 }
 
 fn make(): List<UInt64> {
-  [1, 2, 3]
+  var numbers: List<UInt64> = [1, 2, 3];
+  numbers
 }
 
 fn main(): UInt64 {
-  const numbers: List<UInt64> = [4, 5, 6];
+  var numbers: List<UInt64> = [4, 5, 6];
   io.print(first(numbers));
-  size(make())
+  collections.size(make())
 }
 
-# CHECK-LABEL: func.func @first(%arg0: !mulberry.list<i64>) -> i64
-# CHECK: mulberry.list.get %arg0
-# CHECK-SAME: !mulberry.list<i64> -> i64
-# CHECK-LABEL: func.func @make() -> !mulberry.list<i64>
-# CHECK: mulberry.list.create
-# CHECK-SAME: !mulberry.list<i64>
+# CHECK-LABEL: func.func @first(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# CHECK-SAME: -> i64
+# CHECK: call @std_collections_get__UInt64
+# CHECK-LABEL: func.func @make()
+# CHECK-SAME: -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_push__UInt64
 # CHECK-LABEL: func.func @main()
-# CHECK: mulberry.list.create
-# CHECK-SAME: !mulberry.list<i64>
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_push__UInt64
 # CHECK: call @first
 # CHECK: call @make
-# CHECK: mulberry.list.size
-# CHECK-SAME: !mulberry.list<i64>
+# CHECK: call @std_collections_size__UInt64
+# CHECK-NOT: mulberry.list.create
+# CHECK-NOT: mulberry.list.get
+# CHECK-NOT: mulberry.list.size
 
 # LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # LOWER-LABEL: func.func @first
-# LOWER-SAME: !llvm.struct<(i64, ptr)>
-# LOWER: llvm.extractvalue
-# LOWER: llvm.load
+# LOWER-SAME: !llvm.ptr
+# LOWER: call @std_collections_get__UInt64
 # LOWER-LABEL: func.func @make
-# LOWER-SAME: -> !llvm.struct<(i64, ptr)>
-# LOWER: memref.alloc
-# LOWER: llvm.call @mulberry_boehm_malloc
-# LOWER: scf.for
-# LOWER: llvm.store
-# LOWER: llvm.insertvalue
+# LOWER-SAME: -> !llvm.ptr
+# LOWER: call @std_collections_withCapacity__UInt64
+# LOWER: call @std_collections_push__UInt64
 # LOWER-LABEL: func.func @main
 # LOWER: call @first
 # LOWER: call @make
-# LOWER: llvm.extractvalue
+# LOWER: call @std_collections_size__UInt64
 # LOWER-NOT: llvm.call @free
-# LOWER-NOT: mulberry.
