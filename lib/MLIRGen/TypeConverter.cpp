@@ -68,15 +68,6 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
                                          mlirElementType);
 }
 
-auto MLIRTypeConverter::convert(const ListType& type) const
-    -> mlir::mulberry::ListType {
-  auto elementType = convert(type.elementType());
-  if (!elementType)
-    return {};
-
-  return mlir::mulberry::ListType::get(_builder.getContext(), elementType);
-}
-
 auto MLIRTypeConverter::convert(const PtrType& type) const
     -> mlir::mulberry::PtrType {
   auto pointeeType = convert(type.pointeeType());
@@ -124,8 +115,11 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
   if (auto *tensorType = cherry::getTensorType(type))
     return convert(*tensorType);
 
-  if (auto *listType = cherry::getListType(type))
-    return convert(*listType);
+  // Source-level List<T> should be a stdlib/comptime alias to
+  // Ptr<ListStorage<T>> before MLIRGen. The old !mulberry.list IR path has been
+  // removed, so a remaining semantic ListType is not lowerable here.
+  if (cherry::getListType(type))
+    return {};
 
   if (auto *ptrType = cherry::getPtrType(type))
     return convert(*ptrType);

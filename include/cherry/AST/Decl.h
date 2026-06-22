@@ -153,7 +153,7 @@ public:
   auto end() const -> decltype(_variables.end()) { return _variables.end(); }
 };
 
-// Type-level comptime alias function. e.g. `comptime Vector<T> = List<T>;`
+// Type-level comptime alias function. e.g. `comptime List<T> = Ptr<...>;`
 class ComptimeTypeAliasDecl final : public Decl {
 public:
   ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,

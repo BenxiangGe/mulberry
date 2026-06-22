@@ -3,7 +3,7 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var xs: Ptr<collections.List<UInt64>> = collections.withCapacity(2);
+  var xs: List<UInt64> = collections.withCapacity(2);
   xs.length = 2;
   collections.set(xs, 0, 42);
   collections.set(xs, 1, 58);
@@ -19,7 +19,7 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_withCapacity__UInt64
 # MLIR-DAG: func.func @std_collections_withCapacity__UInt64
-# MLIR-DAG: mulberry.heap.alloc !mulberry.record<std_collections_List__UInt64
+# MLIR-DAG: mulberry.heap.alloc !mulberry.record<std_collections_ListStorage__UInt64
 # MLIR-DAG: mulberry.heap.alloc i64
 # MLIR-NOT: mulberry.list.create
 # MLIR-NOT: mulberry.list.get

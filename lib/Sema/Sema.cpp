@@ -450,7 +450,10 @@ public:
       declarations.push_back(std::move(function));
     node.setDeclarations(std::move(declarations));
 
-    auto *mainSignature = lookupFunction("main");
+    std::string mainName = node.packageName().empty()
+                               ? "main"
+                               : std::string(node.packageName()) + ".main";
+    auto *mainSignature = lookupFunction(mainName);
     if (!mainSignature ||
         !mainSignature->parameterTypes.empty() ||
         !isUInt64Type(mainSignature->returnType))
@@ -516,7 +519,8 @@ private:
   auto checkConstTensorBinding(const VariableStat *node,
                                const Type *type) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr) -> CherryResult;
-  auto sema(ArrayLiteralExpr *expr, const ListType *type) -> CherryResult;
+  auto semaStdlibListLiteral(ArrayLiteralExpr *expr, const Type *type,
+                             const Type *elementType) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
   auto semaZeros(CallExpr *node, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
@@ -580,12 +584,41 @@ private:
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {
-    return _symbols.lookupFunction(name);
+    if (auto *signature = _symbols.lookupFunction(name))
+      return signature;
+
+    auto importedName = canonicalizeImportedName(name);
+    if (auto *signature = _symbols.lookupFunction(importedName))
+      return signature;
+
+    return _symbols.lookupFunction(qualifyCurrentPackageName(name));
+  }
+
+  auto resolveFunctionName(std::string_view name) -> std::string {
+    if (_symbols.lookupFunction(name))
+      return std::string(name);
+
+    auto importedName = canonicalizeImportedName(name);
+    if (_symbols.lookupFunction(importedName))
+      return importedName;
+
+    auto qualifiedName = qualifyCurrentPackageName(name);
+    if (_symbols.lookupFunction(qualifiedName))
+      return qualifiedName;
+
+    return {};
   }
 
   auto lookupGenericFunction(std::string_view name)
       -> const GenericFunctionSymbol * {
-    return _symbols.lookupGenericFunction(name);
+    if (auto *genericFunction = _symbols.lookupGenericFunction(name))
+      return genericFunction;
+
+    auto importedName = canonicalizeImportedName(name);
+    if (auto *genericFunction = _symbols.lookupGenericFunction(importedName))
+      return genericFunction;
+
+    return _symbols.lookupGenericFunction(qualifyCurrentPackageName(name));
   }
 
   static auto emptyImportAliases()
@@ -595,6 +628,10 @@ private:
   }
 
   auto canonicalizeImportedName(std::string_view name) const -> std::string {
+    auto importedName = _importAliases.find(std::string(name));
+    if (importedName != _importAliases.end())
+      return importedName->second;
+
     auto dot = name.find('.');
     if (dot == std::string_view::npos)
       return std::string(name);
@@ -757,6 +794,42 @@ private:
     result += "__";
     result += mangleTypeName(formatType(argumentType));
     return result;
+  }
+
+  auto instantiateGenericFunction(const Node *diagnosticNode,
+                                  std::string_view name,
+                                  const Type *argumentType,
+                                  std::string &concreteName)
+      -> CherryResult {
+    auto *symbol = lookupGenericFunction(name);
+    if (!symbol) {
+      auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
+      return emitError(diagnosticNode, diagnostic);
+    }
+
+    auto *genericFunction = symbol->decl;
+    auto *genericProto = genericFunction->proto().get();
+    auto parameterName = genericProto->typeParameterName();
+    concreteName = genericFunctionName(name, argumentType);
+
+    auto cached = _instantiatedFunctionSymbols.find(concreteName);
+    if (cached != _instantiatedFunctionSymbols.end())
+      return success();
+
+    auto concreteFunction = instantiateFunctionDecl(
+        genericFunction, concreteName, parameterName, argumentType);
+    _instantiatedFunctionPackages[concreteName] = packageNameOf(name);
+
+    VariableScope signatureScope(_symbols);
+    if (semaFunctionSignature(concreteFunction->proto().get()))
+      return failure();
+    auto *signature = lookupFunction(concreteName);
+    if (!signature)
+      return failure();
+
+    _instantiatedFunctionSymbols.insert({concreteName, signature});
+    _instantiatedFunctions.push_back(std::move(concreteFunction));
+    return success();
   }
 
   auto functionPackageName(std::string_view name) const -> std::string {
@@ -1011,6 +1084,31 @@ private:
     return type && isFloat32Type(type->elementType());
   }
 
+  static auto stdlibListElementType(const Type *type) -> const Type * {
+    auto *ptrType = cherry::getPtrType(type);
+    if (!ptrType)
+      return nullptr;
+
+    auto *structType = cherry::getStructType(ptrType->pointeeType());
+    if (!structType)
+      return nullptr;
+
+    auto &fields = structType->fields();
+    if (fields.size() != 3)
+      return nullptr;
+    if (fields[0].name() != "length" || !isUInt64Type(fields[0].type()))
+      return nullptr;
+    if (fields[1].name() != "capacity" || !isUInt64Type(fields[1].type()))
+      return nullptr;
+    if (fields[2].name() != "data")
+      return nullptr;
+
+    auto *dataPtrType = cherry::getPtrType(fields[2].type());
+    if (!dataPtrType)
+      return nullptr;
+    return dataPtrType->pointeeType();
+  }
+
 };
 
 } // end namespace
@@ -1217,11 +1315,11 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
   auto *arrayLiteral = dyn_cast<ArrayLiteralExpr>(node);
   if (arrayLiteral) {
     // Source `[...]` is neutral syntax. Expected type decides whether it is a
-    // Tensor literal or a List literal; other expressions stay bottom-up.
-    if (auto *listType = cherry::getListType(type))
-      return sema(arrayLiteral, listType);
+    // Tensor literal or a stdlib List alias; other expressions stay bottom-up.
     if (auto *tensorType = cherry::getTensorType(type))
       return sema(arrayLiteral, tensorType);
+    if (auto *elementType = stdlibListElementType(type))
+      return semaStdlibListLiteral(arrayLiteral, type, elementType);
   }
 
   auto *call = dyn_cast<CallExpr>(node);
@@ -1422,6 +1520,10 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
         checkConstTensorUseAsMutable(arg.get()))
       return failure();
   }
+
+  auto resolvedName = resolveFunctionName(name);
+  if (!resolvedName.empty())
+    node->setName(resolvedName);
 
   if (signature->returnType)
     node->setType(signature->returnType);
@@ -1702,14 +1804,16 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr) -> CherryResult {
   expr->setInferredShape(currentShape);
   auto *tensorType =
       _typeContext.createTensorType(elementType, std::move(currentShape));
+  expr->setTensorLiteral();
   expr->setType(tensorType);
   return success();
 }
 
-auto SemaImpl::sema(ArrayLiteralExpr *expr, const ListType *type)
+auto SemaImpl::semaStdlibListLiteral(ArrayLiteralExpr *expr,
+                                     const Type *type,
+                                     const Type *elementType)
     -> CherryResult {
   auto &elements = expr->getElements();
-  auto *elementType = type->elementType();
   for (auto &element : elements) {
     if (sema(element.get(), elementType))
       return failure();
@@ -1717,6 +1821,18 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ListType *type)
       return emitError(element.get(), diag::mismatch_type);
   }
 
+  // The literal lowers to normal stdlib calls. Pre-instantiating the generic
+  // helpers here keeps MLIRGen simple and avoids a separate list-literal IR op.
+  std::string withCapacityFunctionName;
+  std::string pushFunctionName;
+  if (instantiateGenericFunction(expr, "std.collections.withCapacity",
+                                 elementType, withCapacityFunctionName) ||
+      instantiateGenericFunction(expr, "std.collections.push",
+                                 elementType, pushFunctionName))
+    return failure();
+
+  expr->setStdlibListLiteral(elementType, withCapacityFunctionName,
+                             pushFunctionName);
   expr->setType(type);
   return success();
 }
@@ -1742,6 +1858,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
         return failure();
 
     expr->setInferredShape(std::move(inferredShape));
+    expr->setTensorLiteral();
     expr->setType(type);
     return success();
   }
@@ -1766,6 +1883,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
   inferredShape.insert(inferredShape.end(), firstNestedShape.begin(),
                        firstNestedShape.end());
   expr->setInferredShape(std::move(inferredShape));
+  expr->setTensorLiteral();
   expr->setType(type);
   return success();
 }
@@ -1813,21 +1931,6 @@ auto SemaImpl::semaZeros(CallExpr *node, const TensorType *type)
 auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   if (sema(expr->base().get()))
     return failure();
-
-  auto *listType = cherry::getListType(expr->base()->type());
-  if (listType) {
-    if (expr->indices().size() != 1)
-      return emitError(expr, diag::mismatch_type);
-    for (auto &index : expr->indices()) {
-      if (sema(index.get()))
-        return failure();
-      if (!isUInt64Type(index->type()))
-        return emitError(index.get(), diag::mismatch_type);
-    }
-
-    expr->setType(listType->elementType());
-    return success();
-  }
 
   auto *ptrType = cherry::getPtrType(expr->base()->type());
   if (ptrType) {
@@ -2056,12 +2159,6 @@ auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
 
   if (sema(expressions[0].get()))
     return failure();
-
-  auto *listType = cherry::getListType(expressions[0]->type());
-  if (listType) {
-    setBuiltinType(node, BuiltinTypeKind::UInt64);
-    return success();
-  }
 
   auto *tensorType = cherry::getTensorType(expressions[0]->type());
   if (!tensorType)

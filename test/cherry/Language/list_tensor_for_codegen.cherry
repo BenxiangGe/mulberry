@@ -2,19 +2,20 @@
 # RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn main(): UInt64 {
-  const w1: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
-  const w2: Float32[1, 2] = [[1.0, 1.0]];
-  const b1: Float32[2, 1] = [[0.0], [0.0]];
-  const b2: Float32[1, 1] = [[0.0]];
+  var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var w2: Float32[?, ?] = [[1.0, 1.0]];
+  var b1: Float32[?, ?] = [[0.0], [0.0]];
+  var b2: Float32[?, ?] = [[0.0]];
   const x: Float32[2, 1] = [[0.2], [0.8]];
 
-  const weights: List<Float32[?, ?]> = [w1, w2];
-  const biases: List<Float32[?, ?]> = [b1, b2];
+  var weights: List<Float32[?, ?]> = [w1, w2];
+  var biases: List<Float32[?, ?]> = [b1, b2];
   var activation: Float32[?, ?] = [[0.2], [0.8]];
 
-  for layer in 0 .. size(weights) {
-    activation = sigmoid(matadd(matmul(weights[layer], activation),
-                                biases[layer]));
+  for layer in 0 .. collections.size(weights) {
+    activation = sigmoid(matadd(
+        matmul(collections.get(weights, layer), activation),
+        collections.get(biases, layer)));
     ()
   };
 
@@ -22,18 +23,20 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main()
-# CHECK: mulberry.list.create
-# CHECK-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# CHECK: call @std_collections_withCapacity__Float32______
+# CHECK: call @std_collections_push__Float32______
 # CHECK: scf.for unsigned
-# CHECK: mulberry.list.get
+# CHECK: call @std_collections_get__Float32______
 # CHECK: cherry_nn.matmul
 # CHECK: cherry_nn.matadd
 # CHECK: cherry_nn.sigmoid
 # CHECK: cherry_nn.argmax
 
 # LOWER-LABEL: func.func @main
-# LOWER: memref.alloc(%{{.*}}) : memref<?xmemref<?x?xf32>>
+# LOWER: call @std_collections_withCapacity__Float32______
+# LOWER: call @std_collections_push__Float32______
 # LOWER: scf.for unsigned
+# LOWER: call @std_collections_get__Float32______
 # LOWER: linalg.generic
 # LOWER: arith.mulf
 # LOWER: arith.addf

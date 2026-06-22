@@ -3,7 +3,7 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var xs: Ptr<collections.List<UInt64>> = collections.withCapacity(2);
+  var xs: List<UInt64> = collections.withCapacity(2);
   collections.push(xs, 42);
   collections.push(xs, 58);
   io.print(collections.size(xs));

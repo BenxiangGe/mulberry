@@ -99,9 +99,6 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   if (parseQualifiedName(name, diag::expected_type))
     return failure();
 
-  if (name == "List")
-    return parseListType(typeNode, location);
-
   if (name == "Ptr")
     return parsePtrType(typeNode, location);
 

@@ -3,20 +3,22 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  const w1: Float32[2, 2] = [[0.1, 0.2], [0.3, 0.4]];
-  const w2: Float32[1, 2] = [[0.5, 0.6]];
-  const b1: Float32[2, 1] = [[0.01], [0.02]];
-  const b2: Float32[1, 1] = [[0.03]];
-  const x: Float32[2, 1] = [[0.7], [0.8]];
-  const y: Float32[1, 1] = [[1.0]];
+  var w1: Float32[?, ?] = [[0.1, 0.2], [0.3, 0.4]];
+  var w2: Float32[?, ?] = [[0.5, 0.6]];
+  var b1: Float32[?, ?] = [[0.01], [0.02]];
+  var b2: Float32[?, ?] = [[0.03]];
+  var x: Float32[?, ?] = [[0.7], [0.8]];
+  var y: Float32[?, ?] = [[1.0]];
   const eta: Float32 = 0.5;
 
-  const weights: List<Float32[?, ?]> = [w1, w2];
-  const biases: List<Float32[?, ?]> = [b1, b2];
+  var weights: List<Float32[?, ?]> = [w1, w2];
+  var biases: List<Float32[?, ?]> = [b1, b2];
 
-  var z1: Float32[?, ?] = matadd(matmul(weights[0], x), biases[0]);
+  var z1: Float32[?, ?] = matadd(
+      matmul(collections.get(weights, 0), x), collections.get(biases, 0));
   var a1: Float32[?, ?] = sigmoid(z1);
-  var z2: Float32[?, ?] = matadd(matmul(weights[1], a1), biases[1]);
+  var z2: Float32[?, ?] = matadd(
+      matmul(collections.get(weights, 1), a1), collections.get(biases, 1));
   var a2: Float32[?, ?] = sigmoid(z2);
 
   var delta2: Float32[?, ?] =
@@ -25,14 +27,19 @@ fn main(): UInt64 {
   var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
 
   var delta1: Float32[?, ?] =
-    hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+    hadamard(matmul(transpose(collections.get(weights, 1)), delta2),
+             sigmoidPrime(z1));
   var nablaB1: Float32[?, ?] = delta1;
   var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
 
-  var nextW1: Float32[?, ?] = matsub(weights[0], matscale(nablaW1, eta));
-  var nextW2: Float32[?, ?] = matsub(weights[1], matscale(nablaW2, eta));
-  var nextB1: Float32[?, ?] = matsub(biases[0], matscale(nablaB1, eta));
-  var nextB2: Float32[?, ?] = matsub(biases[1], matscale(nablaB2, eta));
+  var nextW1: Float32[?, ?] =
+      matsub(collections.get(weights, 0), matscale(nablaW1, eta));
+  var nextW2: Float32[?, ?] =
+      matsub(collections.get(weights, 1), matscale(nablaW2, eta));
+  var nextB1: Float32[?, ?] =
+      matsub(collections.get(biases, 0), matscale(nablaB1, eta));
+  var nextB2: Float32[?, ?] =
+      matsub(collections.get(biases, 1), matscale(nablaB2, eta));
 
   io.print(size(nextW1));
   io.print(size(nextW2));
@@ -41,8 +48,9 @@ fn main(): UInt64 {
   0
 }
 
-# MLIR: mulberry.list.create
-# MLIR-SAME: -> !mulberry.list<!mulberry.tensor<?x?xf32>>
+# MLIR: call @std_collections_withCapacity__Float32______
+# MLIR: call @std_collections_push__Float32______
+# MLIR: call @std_collections_get__Float32______
 # MLIR: cherry_nn.matmul
 # MLIR: cherry_nn.matadd
 # MLIR: cherry_nn.sigmoid

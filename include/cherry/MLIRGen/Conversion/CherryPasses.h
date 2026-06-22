@@ -8,8 +8,6 @@
 #ifndef CHERRY_PASSES_H
 #define CHERRY_PASSES_H
 
-#include "cherry/MLIRGen/IR/CherryDialect.h"
-#include "cherry/MLIRGen/IR/CherryOps.h"
 #include "mlir/Pass/Pass.h"
 #include <memory>
 

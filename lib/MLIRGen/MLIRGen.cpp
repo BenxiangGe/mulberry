@@ -12,18 +12,20 @@
 #include "cherry/Basic/Logging.h"
 #include "cherry/Basic/ScopeStack.h"
 #include "cherry/MLIRGen/IR/CherryNNOps.h"
-#include "cherry/MLIRGen/IR/CherryOps.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -35,7 +37,6 @@
 #include <vector>
 
 namespace {
-using namespace mlir::cherry;
 using namespace mlir::arith;
 using namespace cherry;
 using llvm::cast;
@@ -49,8 +50,8 @@ template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
 struct VariableBinding {
-  // Scalar, struct, and mutable tensor variables are address-bound. List
-  // variables bind descriptor values; assignment replaces the binding.
+  // Scalar, struct, and mutable tensor variables are address-bound. Tensor and
+  // pointer-like values bind directly; assignment replaces the binding.
   enum Kind {
     Address,
     Value,
@@ -83,8 +84,7 @@ struct TensorDimSource {
 };
 
 auto isValueType(const Type *type) -> bool {
-  return cherry::isTensorType(type) || cherry::isListType(type) ||
-         cherry::isPtrType(type);
+  return cherry::isTensorType(type) || cherry::isPtrType(type);
 }
 
 class MLIRGenImpl {
@@ -230,7 +230,6 @@ private:
                          mlir::Location location) -> mlir::Value;
   auto createTensorDim(mlir::Value tensor, int64_t dimension,
                        mlir::Location location) -> mlir::Value;
-  auto createListSize(mlir::Value list, mlir::Location location) -> mlir::Value;
   auto literalDynamicSizes(const ArrayLiteralExpr *expr,
                            mlir::mulberry::TensorType tensorType)
       -> std::vector<mlir::Value>;
@@ -249,8 +248,7 @@ private:
   auto gen(const ArrayLiteralExpr *expr) -> mlir::Value;
   auto genTensorLiteral(const ArrayLiteralExpr *expr,
                         mlir::mulberry::TensorType tensorType) -> mlir::Value;
-  auto genListLiteral(const ArrayLiteralExpr *expr,
-                      mlir::mulberry::ListType listType) -> mlir::Value;
+  auto genStdlibListLiteral(const ArrayLiteralExpr *expr) -> mlir::Value;
   void storeTensorElements(const ArrayLiteralExpr *expr, mlir::Value tensor,
                            mlir::Type elementType,
                            std::vector<mlir::Value> &indices);
@@ -270,7 +268,6 @@ private:
   auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
-  auto genListGet(const IndexExpr *expr, mlir::Value list) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
   auto getMLIRType(const Type *type) const -> mlir::Type;
@@ -625,10 +622,34 @@ auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto *expr = expressions.front().get();
-  auto operand = gen(expr);
-  return PrintOp::create(_builder, loc(node), operand);
+  auto location = loc(node);
+  auto *expr = node->expressions().front().get();
+  auto value = gen(expr);
+
+  auto moduleOp = module.getOperation();
+  value = castToType(value, _builder.getI64Type(), location);
+
+  auto printFn = mlir::LLVM::lookupOrCreatePrintU64Fn(_builder, moduleOp);
+  if (failed(printFn)) {
+    ERR("failed to declare printU64");
+    return nullptr;
+  }
+  auto newlineFn =
+      mlir::LLVM::lookupOrCreatePrintNewlineFn(_builder, moduleOp);
+  if (failed(newlineFn)) {
+    ERR("failed to declare printNewline");
+    return nullptr;
+  }
+
+  mlir::LLVM::CallOp::create(_builder, location, *printFn,
+                             mlir::ValueRange{value});
+  mlir::LLVM::CallOp::create(_builder, location, *newlineFn,
+                             mlir::ValueRange{});
+
+  // Print is a sequencing side effect. Keep an i64 placeholder so the
+  // source-level std.io.print still typechecks without a separate runtime
+  // lowering pass.
+  return mlir::arith::ConstantIntOp::create(_builder, location, 0, 64);
 }
 
 auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
@@ -729,12 +750,9 @@ auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
-  if (cherry::isListType(expressions.front()->type()))
-    return createListSize(gen(expressions.front().get()), loc(node));
-
   auto *tensorType = cherry::getTensorType(expressions.front()->type());
   if (!tensorType) {
-    ERR("size() argument has no Cherry tensor/list type");
+    ERR("size() argument has no Cherry tensor type");
     return nullptr;
   }
 
@@ -1204,12 +1222,6 @@ auto MLIRGenImpl::createTensorDim(mlir::Value tensor, int64_t dimension,
                                              index);
 }
 
-auto MLIRGenImpl::createListSize(mlir::Value list,
-                                 mlir::Location location) -> mlir::Value {
-  return mlir::mulberry::ListSizeOp::create(_builder, location,
-                                            _builder.getI64Type(), list);
-}
-
 auto MLIRGenImpl::literalDynamicSizes(
     const ArrayLiteralExpr *expr,
     mlir::mulberry::TensorType tensorType) -> std::vector<mlir::Value> {
@@ -1282,6 +1294,19 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
     return mlir::mulberry::TensorCastOp::create(_builder, location, type,
                                                 value);
 
+  auto sourceIntType = llvm::dyn_cast<mlir::IntegerType>(value.getType());
+  auto targetIntType = llvm::dyn_cast<mlir::IntegerType>(type);
+  if (sourceIntType && targetIntType) {
+    // Cherry only has unsigned integer scalars today, so integer casts use
+    // zero-extension and truncation instead of signed variants.
+    if (sourceIntType.getWidth() < targetIntType.getWidth()) {
+      DBG("castToType zero-extend integer {0} -> {1}", value.getType(), type);
+      return mlir::arith::ExtUIOp::create(_builder, location, type, value);
+    }
+    DBG("castToType truncate integer {0} -> {1}", value.getType(), type);
+    return mlir::arith::TruncIOp::create(_builder, location, type, value);
+  }
+
   return nullptr;
 }
 
@@ -1335,13 +1360,23 @@ auto MLIRGenImpl::genTensorElementValue(const Expr *node,
 }
 
 auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
+  switch (expr->literalKind()) {
+  case ArrayLiteralExpr::LiteralKind::Tensor: {
+    auto tensorType =
+        llvm::cast<mlir::mulberry::TensorType>(getMLIRType(expr));
+    return genTensorLiteral(expr, tensorType);
+  }
+  case ArrayLiteralExpr::LiteralKind::StdlibList:
+    return genStdlibListLiteral(expr);
+  case ArrayLiteralExpr::LiteralKind::Unknown:
+    break;
+  }
+
   auto type = getMLIRType(expr);
   if (auto tensorType = llvm::dyn_cast<mlir::mulberry::TensorType>(type))
     return genTensorLiteral(expr, tensorType);
-  if (auto listType = llvm::dyn_cast<mlir::mulberry::ListType>(type))
-    return genListLiteral(expr, listType);
 
-  llvm_unreachable("array literal must lower to tensor or list");
+  llvm_unreachable("array literal must lower to tensor or stdlib List");
 }
 
 auto MLIRGenImpl::genTensorLiteral(
@@ -1357,18 +1392,28 @@ auto MLIRGenImpl::genTensorLiteral(
   return allocatedTensor;
 }
 
-auto MLIRGenImpl::genListLiteral(
-    const ArrayLiteralExpr *expr,
-    mlir::mulberry::ListType listType) -> mlir::Value {
-  std::vector<mlir::Value> elements;
+auto MLIRGenImpl::genStdlibListLiteral(const ArrayLiteralExpr *expr)
+    -> mlir::Value {
+  auto location = loc(expr);
+  auto listType = getMLIRType(expr);
+  auto elementType = getMLIRType(expr->stdlibListElementType());
+
+  auto capacity = mlir::arith::ConstantIntOp::create(
+      _builder, location, expr->getElements().size(), 64);
+  auto list = mlir::func::CallOp::create(
+      _builder, location, expr->withCapacityFunctionName(),
+      mlir::TypeRange{listType}, mlir::ValueRange{capacity});
+
   for (auto &element : expr->getElements()) {
-    auto value = gen(element.get());
-    value = castToType(value, listType.getElementType(), loc(element.get()));
-    elements.push_back(value);
+    auto value = castToType(gen(element.get()), elementType,
+                            loc(element.get()));
+    mlir::func::CallOp::create(
+        _builder, loc(element.get()), expr->pushFunctionName(),
+        mlir::TypeRange{_builder.getI64Type()},
+        mlir::ValueRange{list.getResult(0), value});
   }
 
-  return mlir::mulberry::ListCreateOp::create(_builder, loc(expr), listType,
-                                              elements);
+  return list.getResult(0);
 }
 
 void MLIRGenImpl::storeTensorElements(
@@ -1438,18 +1483,8 @@ auto MLIRGenImpl::genTensorGet(const IndexExpr *expr,
       _builder, loc(expr), getMLIRType(expr), tensor, mlirIndices);
 }
 
-auto MLIRGenImpl::genListGet(const IndexExpr *expr,
-                             mlir::Value list) -> mlir::Value {
-  auto index = genIndexValue(expr->indices().front().get());
-  return mlir::mulberry::ListGetOp::create(_builder, loc(expr),
-                                           getMLIRType(expr), list, index);
-}
-
 mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
   auto source = gen(expr->base().get());
-  if (llvm::isa<mlir::mulberry::ListType>(source.getType()))
-    return genListGet(expr, source);
-
   if (llvm::isa<mlir::mulberry::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(expr, source);
     return createLoad(ptr, getMLIRType(expr), loc(expr));
@@ -1484,7 +1519,6 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto *varType = node->type();
   auto *tensorType = cherry::getTensorType(varType);
-  auto *listType = cherry::getListType(varType);
   auto *ptrType = cherry::getPtrType(varType);
   auto *structType = cherry::getStructType(varType);
   auto varName = node->variable()->name();
@@ -1511,16 +1545,6 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     auto alloca = createAlloca(targetType, loc(node));
     setVariableAddress(varName, alloca);
     createStore(value, alloca, loc(node));
-    return;
-  }
-
-  if (listType) {
-    DBG("use Cherry variable list type `{0}`", formatType(listType));
-    auto targetType =
-        llvm::cast<mlir::mulberry::ListType>(getMLIRType(varType));
-    auto value = gen(node->init().get());
-    value = castToType(value, targetType, loc(node));
-    setVariableValue(varName, value);
     return;
   }
 

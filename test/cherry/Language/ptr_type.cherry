@@ -18,7 +18,8 @@ fn idRecord(p: Ptr<Pair>): Ptr<Pair> {
   p
 }
 
-fn idList(p: Ptr<List<UInt64>>): Ptr<List<UInt64>> {
+fn idList(p: List<UInt64>):
+    List<UInt64> {
   p
 }
 
@@ -32,8 +33,8 @@ fn main(): UInt64 {
 # AST: VariableStat {{.*}}id=p{{.*}}type=Ptr<Float32[?, ?]>
 # AST: Prototype {{.*}}name=idRecord{{.*}}type=Ptr<Pair>
 # AST: VariableStat {{.*}}id=p{{.*}}type=Ptr<Pair>
-# AST: Prototype {{.*}}name=idList{{.*}}type=Ptr<List<UInt64>>
-# AST: VariableStat {{.*}}id=p{{.*}}type=Ptr<List<UInt64>>
+# AST: Prototype {{.*}}name=idList{{.*}}type=List<UInt64>
+# AST: VariableStat {{.*}}id=p{{.*}}type=List<UInt64>
 
 # MLIR-LABEL: func.func @idScalar(%arg0: !mulberry.ptr<i64>) -> !mulberry.ptr<i64>
 # MLIR: return %arg0 : !mulberry.ptr<i64>
@@ -42,5 +43,6 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @idRecord(%arg0: !mulberry.ptr<!mulberry.record<Pair
 # MLIR-SAME: -> !mulberry.ptr<!mulberry.record<Pair
 # MLIR: return %arg0 : !mulberry.ptr<!mulberry.record<Pair
-# MLIR-LABEL: func.func @idList(%arg0: !mulberry.ptr<!mulberry.list<i64>>) -> !mulberry.ptr<!mulberry.list<i64>>
-# MLIR: return %arg0 : !mulberry.ptr<!mulberry.list<i64>>
+# MLIR-LABEL: func.func @idList(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR: return %arg0 : !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64

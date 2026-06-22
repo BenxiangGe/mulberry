@@ -9,18 +9,10 @@ add_mlir_dialect_library(cherryMLIRGen
         # Conversion
         ${LIB_HEADERS}/Conversion/CherryPasses.h
         Conversion/CherryNNToLinalgPatterns.cpp
-        Conversion/ConvertCherryToArithCfFunc.cpp
         Conversion/ConvertCherryToLLVM.cpp
-        Conversion/ConvertCherryToSCF.cpp
-        Conversion/LowerCherryRuntime.cpp
         Conversion/LowerMulberry.cpp
-        Conversion/PrepareMulberryBoundaries.cpp
 
         # IR
-        ${LIB_HEADERS}/IR/CherryDialect.h
-        IR/CherryDialect.cpp
-        ${LIB_HEADERS}/IR/CherryOps.h
-        IR/CherryOps.cpp
         ${LIB_HEADERS}/IR/CherryNNDialect.h
         IR/CherryNNDialect.cpp
         ${LIB_HEADERS}/IR/CherryNNOps.h
@@ -33,7 +25,6 @@ add_mlir_dialect_library(cherryMLIRGen
         IR/MulberryTypes.cpp
 
         DEPENDS
-        MLIRCherryOpsIncGen
         MLIRCherryNNOpsIncGen
         MLIRMulberryOpsIncGen
         MLIRCherryConversionPassIncGen
@@ -54,5 +45,3 @@ add_mlir_dialect_library(cherryMLIRGen
         MLIRPtrDialect
         MLIRSCFDialect
 )
-
-add_subdirectory(CAPI)

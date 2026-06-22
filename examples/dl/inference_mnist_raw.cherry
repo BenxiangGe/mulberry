@@ -25,13 +25,14 @@ fn main(): UInt64 {
   read(xFile, x);
   io.close(xFile);
 
-  const weights: List<Float32[?, ?]> = [w1, w2];
-  const biases: List<Float32[?, ?]> = [b1, b2];
+  var weights: List<Float32[?, ?]> = [w1, w2];
+  var biases: List<Float32[?, ?]> = [b1, b2];
   var activation: Float32[?, ?] = x;
 
-  for layer in 0 .. size(weights) {
-    activation = sigmoid(matadd(matmul(weights[layer], activation),
-                                biases[layer]));
+  for layer in 0 .. collections.size(weights) {
+    activation = sigmoid(matadd(
+        matmul(collections.get(weights, layer), activation),
+        collections.get(biases, layer)));
     ()
   };
 

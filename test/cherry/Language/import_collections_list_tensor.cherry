@@ -1,0 +1,51 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import collections;
+import collections.List;
+import io;
+
+fn first(xs: List<Float32[?, ?]>): Float32[?, ?] {
+  collections.get(xs, 0)
+}
+
+fn main(): UInt64 {
+  var w1: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var w2: Float32[?, ?] = [[5.0, 6.0]];
+  var xs: List<Float32[?, ?]> = [w1, w2];
+
+  io.print(collections.size(xs));
+  io.print(size(first(xs)));
+  0
+}
+
+# MLIR-LABEL: func.func @first
+# MLIR-SAME: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__Float32______
+# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
+# MLIR: call @std_collections_get__Float32______
+# MLIR-LABEL: func.func @main
+# MLIR: call @std_collections_withCapacity__Float32______
+# MLIR: call @std_collections_push__Float32______
+# MLIR: call @std_collections_size__Float32______
+# MLIR: call @first
+# MLIR: call @std.io.print
+# MLIR-NOT: mulberry.list.create
+# MLIR-NOT: mulberry.list.get
+# MLIR-NOT: mulberry.list.size
+
+# LOWER-LABEL: func.func @first
+# LOWER-SAME: -> memref<?x?xf32>
+# LOWER: call @std_collections_get__Float32______
+# LOWER-LABEL: func.func @main
+# LOWER: call @std_collections_withCapacity__Float32______
+# LOWER: call @std_collections_push__Float32______
+# LOWER: call @std_collections_size__Float32______
+# LOWER: call @first
+# LOWER: call @std.io.print
+# LOWER-NOT: mulberry.list.create
+# LOWER-NOT: mulberry.list.get
+# LOWER-NOT: mulberry.list.size
+
+# JIT: 2
+# JIT-NEXT: 2

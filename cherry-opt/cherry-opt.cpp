@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -30,8 +29,8 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::arith::ArithDialect, mlir::cf::ControlFlowDialect,
-                  mlir::cherry::CherryDialect, mlir::cherry_nn::CherryNNDialect,
-                  mlir::func::FuncDialect, mlir::linalg::LinalgDialect,
+                  mlir::cherry_nn::CherryNNDialect, mlir::func::FuncDialect,
+                  mlir::linalg::LinalgDialect,
                   mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
                   mlir::memref::MemRefDialect, mlir::mulberry::MulberryDialect,
                   mlir::ptr::PtrDialect,

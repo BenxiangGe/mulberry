@@ -7,7 +7,6 @@
 
 #include "cherry/Driver/Compilation.h"
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryDialect.h"
 #include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "cherry/MLIRGen/MLIRGen.h"
@@ -36,6 +35,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Path.h"
@@ -85,6 +85,42 @@ auto isStdlibPackage(std::string_view packageName) -> bool {
   return packageName == "std" || packageName.rfind("std.", 0) == 0;
 }
 
+auto normalizeStdlibImportName(std::string_view importName) -> std::string {
+  if (importName == "std" || importName.rfind("std.", 0) == 0)
+    return std::string(importName);
+
+  std::string normalizedName = "std.";
+  normalizedName += importName;
+  return normalizedName;
+}
+
+auto splitQualifiedName(std::string_view name)
+    -> std::vector<std::string_view> {
+  std::vector<std::string_view> segments;
+  size_t start = 0;
+  while (start <= name.size()) {
+    auto dot = name.find('.', start);
+    if (dot == std::string_view::npos) {
+      segments.push_back(name.substr(start));
+      break;
+    }
+    segments.push_back(name.substr(start, dot - start));
+    start = dot + 1;
+  }
+  return segments;
+}
+
+auto joinQualifiedName(const std::vector<std::string_view> &segments,
+                       size_t begin, size_t end) -> std::string {
+  std::string name;
+  for (size_t index = begin; index < end; ++index) {
+    if (index != begin)
+      name += '.';
+    name += segments[index];
+  }
+  return name;
+}
+
 auto registerLLVMTranslations(mlir::ModuleOp module) -> void {
   mlir::registerBuiltinDialectTranslation(*module->getContext());
   mlir::registerLLVMDialectTranslation(*module->getContext());
@@ -115,7 +151,6 @@ Compilation::Compilation() : _mlirContext{makeContext()} {}
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::cherry::CherryDialect>();
   compilation->_mlirContext
       .getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::mulberry::MulberryDialect>();
@@ -126,6 +161,7 @@ auto Compilation::make(llvm::StringRef filename,
   compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::ptr::PtrDialect>();
 
   compilation->_inputFilename = std::string(filename);
@@ -178,15 +214,13 @@ auto Compilation::resolveStdlibPath(std::string_view relativePath)
 
 auto Compilation::resolveImportPath(std::string_view moduleName)
     -> std::string {
-  if (moduleName.rfind("std.", 0) != 0) {
-    llvm::errs() << "error: only stdlib imports are supported now: '"
-                 << moduleName << "'\n";
-    return {};
-  }
-
-  std::string relativePath(moduleName);
+  auto normalizedName = normalizeStdlibImportName(moduleName);
+  std::string relativePath(normalizedName);
   std::replace(relativePath.begin(), relativePath.end(), '.', '/');
-  return resolveStdlibPath(relativePath + ".cherry");
+  auto path = resolveStdlibPath(relativePath + ".cherry");
+  if (!llvm::sys::fs::exists(path))
+    return {};
+  return path;
 }
 
 auto Compilation::loadPrelude(Module &module) -> CherryResult {
@@ -208,13 +242,39 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
   VectorUniquePtr<Decl> mergedDeclarations;
   for (auto &decl : module.takeDeclarations()) {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
-      auto moduleName = std::string(importDecl->moduleName());
+      auto importName =
+          normalizeStdlibImportName(importDecl->moduleName());
+      auto segments = splitQualifiedName(importName);
+      std::string moduleName;
+      std::string importPath;
+      std::string importedName;
+
+      for (size_t moduleSize = segments.size(); moduleSize > 0; --moduleSize) {
+        auto candidateModuleName = joinQualifiedName(segments, 0, moduleSize);
+        auto candidatePath = resolveImportPath(candidateModuleName);
+        if (candidatePath.empty())
+          continue;
+
+        moduleName = std::move(candidateModuleName);
+        importPath = std::move(candidatePath);
+        if (moduleSize < segments.size())
+          importedName =
+              joinQualifiedName(segments, moduleSize, segments.size());
+        break;
+      }
+
+      if (moduleName.empty()) {
+        llvm::errs() << "error: unable to resolve stdlib import: '"
+                     << importDecl->moduleName() << "'\n";
+        return failure();
+      }
+
       _importAliases[importAlias(moduleName)] = moduleName;
+      if (!importedName.empty())
+        _importAliases[importedName] = moduleName + "." + importedName;
+
       if (_loadedModules.insert(moduleName).second) {
         std::unique_ptr<Module> importedModule;
-        auto importPath = resolveImportPath(moduleName);
-        if (importPath.empty())
-          return failure();
         if (parseFile(importPath, importDecl->location(), importedModule) ||
             loadImports(*importedModule))
           return failure();
@@ -248,19 +308,10 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (_enableOpt)
     optPM.addPass(mlir::createCanonicalizerPass());
 
-  if (lowering >= Lowering::SCF)
-    optPM.addPass(mlir::cherry::createConvertCherryToSCF());
-
-  if (lowering >= Lowering::ArithCfFunc)
-    optPM.addPass(mlir::cherry::createConvertCherryToArithCfFunc());
-
-  if (lowering >= Lowering::Mulberry) {
-    pm.addPass(mlir::cherry::createPrepareMulberryBoundaries());
+  if (lowering >= Lowering::Mulberry)
     pm.addPass(mlir::cherry::createLowerMulberry());
-  }
 
   if (lowering >= Lowering::LLVM) {
-    pm.addPass(mlir::cherry::createLowerCherryRuntime());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::createConvertLinalgToLoopsPass());
     pm.addPass(mlir::createSCFToControlFlowPass());

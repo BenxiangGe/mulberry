@@ -11,8 +11,11 @@ fn main(): UInt64 {
 # AST: CallExpr {{.*}}type=UInt64 callee=builtinPrint
 # AST: CallExpr {{.*}}type=UInt64 callee=std.io.print
 
+# MLIR: llvm.func @printNewline()
+# MLIR: llvm.func @printU64(i64)
 # MLIR-LABEL: func.func @std.io.print
-# MLIR: cherry.print
+# MLIR: llvm.call @printU64
+# MLIR: llvm.call @printNewline
 # MLIR-LABEL: func.func @main
 # MLIR: call @std.io.print
 

@@ -95,41 +95,6 @@ def Mulberry_TensorDescType : Mulberry_Type<"TensorDesc", "tensor_desc"> {
   let hasCustomAssemblyFormat = 1;
 }
 
-def Mulberry_ListType : Mulberry_Type<"List", "list"> {
-  let summary = "Mulberry list type";
-  let description = [{
-    A generic high-level Mulberry container value. Runtime storage is a lowering
-    concern; source codegen should keep it as one SSA value.
-  }];
-
-  let parameters = (ins "mlir::Type":$elementType);
-  let assemblyFormat = "`<` $elementType `>`";
-}
-
-def Mulberry_ListStorageType : Mulberry_Type<"ListStorage", "list_storage"> {
-  let summary = "Mulberry list storage type";
-  let description = [{
-    Storage-level representation for a generic Mulberry list. It models a list
-    descriptor with a length and element storage, without committing the core
-    source language to a concrete backend ABI.
-  }];
-
-  let parameters = (ins "mlir::Type":$elementType);
-  let assemblyFormat = "`<` $elementType `>`";
-}
-
-def Mulberry_ListDescType : Mulberry_Type<"ListDesc", "list_desc"> {
-  let summary = "Mulberry list descriptor type";
-  let description = [{
-    Descriptor-stage representation for a generic Mulberry list crossing
-    function parameters or returns. It is separate from local list storage so
-    the function-boundary ABI can be designed explicitly.
-  }];
-
-  let parameters = (ins "mlir::Type":$elementType);
-  let assemblyFormat = "`<` $elementType `>`";
-}
-
 def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
   let summary = "Mulberry pointer type";
   let description = [{
