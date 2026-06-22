@@ -177,7 +177,7 @@ var w1: Float32[30, ?] = readTensor(file, "w1");
 ```text
 Mulberry source
   -> Sema: readTensor() 必须有 expected Tensor type
-  -> MLIRGen: mulberry.safetensor.read
+  -> MLIRGen: temporary __cherry_safetensor_read_* marker call
   -> Lowering: runtime helper + tensor allocation + payload read
 ```
 

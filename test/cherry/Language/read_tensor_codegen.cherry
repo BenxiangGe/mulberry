@@ -8,10 +8,16 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main
-# CHECK: mulberry.string.literal "data/mnist-784-30-10.safetensors" : !mulberry.string
-# CHECK: mulberry.string.literal "rb" : !mulberry.string
+# CHECK: mulberry.heap.alloc i8
+# CHECK: mulberry.ptr.index
+# CHECK: mulberry.heap.alloc !mulberry.record<std.string.StringStorage
+# CHECK: mulberry.record.get_field {{.*}}["length"]
+# CHECK: mulberry.record.get_field {{.*}}["data"]
 # CHECK: call @std.io.open
-# CHECK-SAME: -> !mulberry.file
-# CHECK: %[[NAME:.*]] = mulberry.string.literal "w1" : !mulberry.string
-# CHECK: mulberry.safetensor.read %{{.*}}, %[[NAME]] : !mulberry.file, !mulberry.string -> !mulberry.tensor<?x?xf32>
+# CHECK-SAME: -> !mulberry.ptr<!mulberry.record<std.io.FileStorage {handle: !mulberry.ptr<i8>}>>
+# CHECK: mulberry.heap.alloc !mulberry.record<std.string.StringStorage
+# CHECK: call @__cherry_safetensor_read_
+# CHECK-SAME: -> !mulberry.tensor<?x?xf32>
+# CHECK-NOT: mulberry.string
+# CHECK-NOT: mulberry.safetensor
 # CHECK-NOT: cir.

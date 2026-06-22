@@ -125,6 +125,9 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
 auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
                         const TypeNode *argumentTypeNode)
     -> std::unique_ptr<TypeNode> {
+  if (parameterName.empty())
+    return cloneTypeNode(node);
+
   if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
     if (namedType->name() == parameterName)
       return cloneTypeNode(argumentTypeNode);
@@ -175,6 +178,9 @@ auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
 
 auto hasTypeParameter(const TypeNode *node, std::string_view parameterName)
     -> bool {
+  if (parameterName.empty())
+    return false;
+
   if (auto *namedType = dyn_cast<NamedTypeNode>(node))
     return namedType->name() == parameterName;
 
@@ -572,8 +578,6 @@ private:
     declareBuiltinType(BuiltinTypeKind::UInt8);
     auto *uint64Type = declareBuiltinType(BuiltinTypeKind::UInt64);
     declareBuiltinType(BuiltinTypeKind::Float32);
-    declareBuiltinType(BuiltinTypeKind::String);
-    declareBuiltinType(BuiltinTypeKind::File);
 
     declareFunction(builtins::builtinPrint,
                     std::vector<const Type *>{uint64Type}, uint64Type);
@@ -1259,6 +1263,15 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
       _symbols.lookupComptimeTypeAlias(node->name()))
     return emitError(node, diag::redefinition_type);
 
+  if (node->parameterName().empty()) {
+    auto *bodyType = checkType(node->bodyTypeNode(), UnitPolicy::Reject);
+    if (!bodyType)
+      return failure();
+    if (_symbols.declareType(node->name(), bodyType))
+      return emitError(node, diag::redefinition_type);
+    return success();
+  }
+
   if (_symbols.declareComptimeTypeAlias(node->name(), packageName,
                                         node->parameterName(),
                                         node->bodyTypeNode()))
@@ -1602,7 +1615,10 @@ auto SemaImpl::sema(BoolLiteralExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
-  setBuiltinType(node, BuiltinTypeKind::String);
+  auto *type = lookupType("String");
+  if (!type)
+    return emitError(node, diag::undefined_type);
+  node->setType(type);
   return success();
 }
 
@@ -2180,11 +2196,15 @@ auto SemaImpl::semaFileOpen(CallExpr *node) -> CherryResult {
   for (auto &expr : expressions) {
     if (sema(expr.get()))
       return failure();
-    if (!isStringType(expr->type()))
+    if (!sameType(expr->type(), lookupType("String")))
       return emitError(expr.get(), diag::mismatch_type);
   }
 
-  setBuiltinType(node, BuiltinTypeKind::File);
+  auto *fileType = lookupType("File");
+  if (!fileType)
+    return emitError(node, diag::undefined_type);
+
+  node->setType(fileType);
   return success();
 }
 
@@ -2233,7 +2253,7 @@ auto SemaImpl::semaReadTensor(CallExpr *node, const TensorType *type)
 
   if (sema(expressions[1].get()))
     return failure();
-  if (!isStringType(expressions[1]->type()))
+  if (!sameType(expressions[1]->type(), lookupType("String")))
     return emitError(expressions[1].get(), diag::mismatch_type);
 
   node->setType(type);

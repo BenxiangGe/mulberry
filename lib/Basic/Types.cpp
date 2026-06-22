@@ -36,10 +36,6 @@ auto BuiltinType::name() const -> std::string_view {
     return "UInt64";
   case BuiltinTypeKind::Float32:
     return "Float32";
-  case BuiltinTypeKind::String:
-    return "String";
-  case BuiltinTypeKind::File:
-    return "File";
   }
   return {};
 }
@@ -167,8 +163,6 @@ auto sizeOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::Float32:
     return 4;
   case BuiltinTypeKind::Unit:
-  case BuiltinTypeKind::String:
-  case BuiltinTypeKind::File:
     return std::nullopt;
   }
   return std::nullopt;
@@ -184,8 +178,6 @@ auto alignOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::Float32:
     return 4;
   case BuiltinTypeKind::Unit:
-  case BuiltinTypeKind::String:
-  case BuiltinTypeKind::File:
     return std::nullopt;
   }
   return std::nullopt;
@@ -321,16 +313,6 @@ auto getFloat32Type() -> const BuiltinType * {
   return &type;
 }
 
-auto getStringType() -> const BuiltinType * {
-  static const BuiltinType type{BuiltinTypeKind::String};
-  return &type;
-}
-
-auto getFileType() -> const BuiltinType * {
-  static const BuiltinType type{BuiltinTypeKind::File};
-  return &type;
-}
-
 } // namespace
 
 auto sameType(const Type *lhs, const Type *rhs) -> bool {
@@ -405,12 +387,21 @@ auto isFloat32Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Float32);
 }
 
-auto isStringType(const Type *type) -> bool {
-  return isBuiltinType(type, BuiltinTypeKind::String);
-}
-
 auto isFileType(const Type *type) -> bool {
-  return isBuiltinType(type, BuiltinTypeKind::File);
+  auto *ptrType = getPtrType(type);
+  if (!ptrType)
+    return false;
+
+  auto *structType = getStructType(ptrType->pointeeType());
+  if (!structType || structType->name() != "std.io.FileStorage")
+    return false;
+
+  auto &fields = structType->fields();
+  if (fields.size() != 1 || fields[0].name() != "handle")
+    return false;
+
+  auto *handleType = getPtrType(fields[0].type());
+  return handleType && isUInt8Type(handleType->pointeeType());
 }
 
 auto isNumericType(const Type *type) -> bool {
@@ -517,10 +508,6 @@ auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const
     return getUInt64Type();
   case BuiltinTypeKind::Float32:
     return getFloat32Type();
-  case BuiltinTypeKind::String:
-    return getStringType();
-  case BuiltinTypeKind::File:
-    return getFileType();
   }
   return nullptr;
 }

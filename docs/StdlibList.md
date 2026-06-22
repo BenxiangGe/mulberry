@@ -219,7 +219,7 @@ fn push<T>(xs: collections.List<T>, value: T): UInt64 {
 当前 `std.collections` 已经实现最小 `ListStorage<T>` layout，以及 public
 `List<T>` alias，和 `new<T>()`、`withCapacity<T>()`、`size<T>()`、`get<T>()`、
 `set<T>()`、`push<T>()`。其中 `withCapacity<T>()` 会分配 list header 和 element
-buffer；`push<T>()` 当前只支持容量足够的正向路径，还不做 grow。
+buffer；`push<T>()` 在容量不足时会按 `0 -> 1 -> 2x` 策略分配新 buffer 并复制旧元素。
 
 当前 C4.9 已经完成：旧 `mulberry.list` / `mulberry.list_storage` /
 `mulberry.list_desc` type、op、lowering 和直接测试这些 IR 的 lit 已删除。

@@ -35,8 +35,12 @@ lower 到 LLVM dialect、LLVM IR，并在当前正向子集上执行 JIT：
   表达用户 struct 和 generic struct alias 实例化后的 concrete record。
 - `mulberry.ptr` / `mulberry.heap.alloc` / `mulberry.alloca` / `mulberry.load` /
   `mulberry.store` / `mulberry.ptr.index`：表达统一的 C/C++ typed pointer 模型。
-- `mulberry.string` / `mulberry.file.*` / `mulberry.safetensor.read`：表达当前
-  stdlib IO 和 safetensors runtime API 的高层边界。
+- safetensors runtime API 不再有 dedicated Mulberry op。`readTensor(file, name)`
+  通过 temporary `func.call @__cherry_safetensor_read_*` marker 进入 LowerMulberry，
+  再展开成 shape query、Tensor allocation 和 payload read。File 已经是 stdlib
+  `Ptr<FileStorage>`；String 已经是 stdlib `Ptr<StringStorage>`，不再有
+  `mulberry.string.*` 专用 op。`open/close/read/write/readTensor` 都不再依赖
+  file-specific dialect op。
 - `mulberry.tensor.*` / `mulberry.tensor_desc`：表达可写 Tensor 和当前 memref /
   `cherry_nn` lowering 所需的 tensor descriptor 过渡层。
 
@@ -99,32 +103,96 @@ row-major layout 访问元素时的步长。这个 layout 借鉴 MLIR memref des
 这里有一个重要约束：`desc_unpack` 不拥有 data 的生命周期。它只重建 view；data
 必须由函数参数、返回 descriptor、heap list storage 或未来 runtime 保证仍然有效。
 
+### Tensor raw-byte view
+
+`read(file, tensor)` / `write(file, tensor)` 需要的是一个更小的 lowering-only 边界：
+
+```text
+TensorByteView = {
+  data: ptr,
+  byteSize: i64
+}
+```
+
+这个 view 只表达“把 tensor 当作连续字节块读写”的 runtime ABI，不表达 shape、
+stride 或生命周期。当前 lowering 通过：
+
+- `createMemRefDataPointer()` 取出 memref 的 raw aligned data pointer。
+- `createTensorByteSize()` 计算整个 tensor payload 的总字节数。
+
+MLIRGen 先生成 temporary `func.call @__cherry_file_read_*` /
+`@__cherry_file_write_*` marker。LowerMulberry 识别 marker 后创建这个 raw-byte view，
+再把它传给 `fread` / `fwrite`，并删除 marker declaration。这条边界和
+`tensor.desc_pack` 不同：后者服务 Tensor descriptor / `cherry_nn`，前者只服务 raw
+file IO。marker 不是 runtime ABI，不能泄露到 lowered MLIR 之后。
+
 旧的实验性 `!mulberry.tensor_handle` / `tensor.handle_from_desc` 已删除，避免和
 新的 heap object handle 方向混淆。未来真正的 Tensor heap object handle 应该是
 source-level record/Ptr 模型，等 generic struct、连续 heap storage 和 Tensor
 storage header 能力补齐后再实现。
 
-## 字符串 ABI
+P4.7 已明确：当前不实现 Tensor heap object handle，也不允许把
+`tensor_desc` 伪装成 handle。原因是当前 `cherry_nn` 正向路径需要 Tensor lowering
+成 `memref`，再继续 lower 到 `linalg`。因此现阶段的边界是：
 
-Mulberry `String` 是源语言 builtin value，不是用户可见的 record。当前 lowering
-把 `!mulberry.string` 转成一个 LLVM descriptor：
+- `mulberry.tensor.*` 表示高层可写 Tensor value。
+- `mulberry.tensor_desc` 只是 lowering 内部的 ABI/view helper。
+- Tensor 函数边界继续 lower 成 `memref`。
+- `tensor_desc` 不能跨函数边界；跨边界时应 fail-fast，而不是自动 bridge。
+
+真正的 Tensor heap object handle 后续应以 source-level `Ptr<TensorStorage<...>>`
+形态设计，再在 lowering 入口显式 unwrap 成 memref view。不要复活旧
+`tensor.handle_from_desc` 或增加新的 descriptor marker。
+
+## 字符串 Storage
+
+Mulberry `String` 现在是 stdlib alias，不再是 builtin value。源语言语义上它就是
+`Ptr<StringStorage>`，lowering 也直接把它当成普通 pointer 处理：
 
 ```text
-StringABI = { length: i64, data: ptr }
+StringStorage = { length: i64, data: ptr }
 ```
 
-`length` 是源码字符串的字节数，不包含结尾的 `\0`。`data` 指向只读字节数据。
+`length` 是源码字符串的字节数，不包含结尾的 `\0`。`data` 指向字节数据。这个
+layout 是第一阶段迁移结果：函数边界和 runtime helper 传递普通 pointer，不再传
+`{ length, data }` by-value descriptor。
 
-字符串字面量会 materialize 成一个 internal constant LLVM global byte array，并在
-末尾额外放一个 `\0`：
+字符串字面量会 materialize 成一个 heap byte buffer，并在末尾额外放一个 `\0`：
 
 ```text
-"data/mnist.bin" -> global bytes "data/mnist.bin\0"
+"data/mnist.bin" -> heap UInt8[15] = "data/mnist.bin\0"
 ```
 
 这个额外的 NUL 不属于 Mulberry `String` 的长度语义，只是 ABI/runtime 便利：
 后续 `open/read/write/close` 这类 runtime API 如果走 C ABI，可以直接复用同一个
 data pointer 作为 C string。
+
+P5.2.1 后续收敛为更简单的方案：string literal 不再使用 string-specific op，也不再
+创建 global byte array。MLIRGen 直接生成 `heap.alloc<UInt8>(length + 1)`、
+逐 byte store、`heap.alloc<StringStorage>()` 和字段写入。这样 `String` 只是普通
+`Ptr<StringStorage>` heap object，lowering 也复用 generic heap/ptr/record/store 路径。
+
+`io.open`、`readTensor` 等 runtime 边界在 lowering call site 显式读取
+`StringStorage.data`，再传给 `fopen` 或 safetensors runtime helper。
+
+现在 source-level `String` 已经搬到 stdlib alias，所以这里不再需要旧的 builtin
+string 语义。
+
+## 文件 ABI
+
+当前 `File` 是 stdlib alias，源语言语义是普通 `Ptr<FileStorage>`：
+
+```text
+FileStorage = { handle: ptr }
+File = Ptr<FileStorage>
+```
+
+`handle` 保存 `fopen` 返回的 opaque C `FILE*`。`io.open/read/write/close` 已经在源码层
+放在 `std.io` 下；其中 `open/close` 通过普通 runtime wrapper function 调用
+`fopen`/`fclose`，`read/write` 通过 temporary `func.call` marker 进入
+LowerMulberry，再改写成 `fread`/`fwrite`。
+
+旧 `!mulberry.file` type 和 `mulberry.file.*` op 已经删除。
 
 ## 旧 Boundary Preparation 已移除
 
@@ -257,3 +325,6 @@ P4.3 已完成：删除旧 `mulberry.list.*` type/op/lowering/test。source-leve
 P4.4 已完成：明确剩余 `mulberry` dialect 边界。当前不能整块删除 `mulberry`，
 因为它仍承载 record/ptr/heap/string/file/tensor 的高层对象模型；后续清理必须按
 具体 op/type 逐项迁移。
+
+P4.7 已完成设计检查：当前不实现 Tensor heap object handle；`tensor_desc` 保留为
+lowering 内部 ABI/view helper，不能跨函数边界，也不能伪装成 source-level handle。

@@ -390,16 +390,20 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
   consume(Token::kw_comptime);
 
   std::string name = std::string(spelling());
-  if (parseToken(Token::identifier, diag::expected_id) ||
-      parseToken(Token::less, diag::expected_less))
+  if (parseToken(Token::identifier, diag::expected_id))
     return failure();
   name = qualifyPackageName(name);
 
-  auto parameterName = spelling();
-  if (parseToken(Token::identifier, diag::expected_id) ||
-      parseToken(Token::greater, diag::expected_greater) ||
-      parseToken(Token::assign, diag::expected_assign))
+  std::string parameterName;
+  if (consumeIf(Token::less)) {
+    parameterName = spelling();
+    if (parseToken(Token::identifier, diag::expected_id) ||
+        parseToken(Token::greater, diag::expected_greater) ||
+        parseToken(Token::assign, diag::expected_assign))
+      return failure();
+  } else if (parseToken(Token::assign, diag::expected_assign)) {
     return failure();
+  }
 
   unique_ptr<TypeNode> bodyTypeNode;
   if (parseComptimeAliasBody(bodyTypeNode) ||

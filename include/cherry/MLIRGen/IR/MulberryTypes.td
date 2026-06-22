@@ -46,26 +46,6 @@ def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
   }];
 }
 
-def Mulberry_StringType : Mulberry_Type<"String", "string"> {
-  let summary = "Mulberry string type";
-  let description = [{
-    A high-level Mulberry string value. Runtime storage and ABI layout are
-    lowering concerns, not source-language record fields.
-  }];
-
-  let assemblyFormat = "";
-}
-
-def Mulberry_FileType : Mulberry_Type<"File", "file"> {
-  let summary = "Mulberry file handle type";
-  let description = [{
-    A high-level Mulberry file handle. It is intentionally opaque here; runtime
-    representation is decided by the file IO lowering/runtime ABI.
-  }];
-
-  let assemblyFormat = "";
-}
-
 def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
   let summary = "Mulberry tensor type";
   let description = [{
@@ -83,8 +63,10 @@ def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
 def Mulberry_TensorDescType : Mulberry_Type<"TensorDesc", "tensor_desc"> {
   let summary = "Mulberry tensor descriptor type";
   let description = [{
-    Descriptor-stage representation for a Mulberry tensor ABI value. The rank
-    is static; dynamic dimensions are carried as descriptor fields.
+    Lowering-internal descriptor for a Mulberry tensor ABI/view value. This is
+    not a source-level Tensor heap object handle and must not cross function
+    boundaries. The rank is static; dynamic dimensions are carried as
+    descriptor fields.
   }];
 
   let parameters = (ins

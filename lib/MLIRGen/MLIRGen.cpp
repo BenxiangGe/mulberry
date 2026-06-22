@@ -49,6 +49,13 @@ using llvm::success;
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
 
+constexpr std::string_view kRuntimeFileOpen = "mulberry_file_open";
+constexpr std::string_view kRuntimeFileClose = "mulberry_file_close";
+constexpr std::string_view kFileReadMarkerPrefix = "__cherry_file_read_";
+constexpr std::string_view kFileWriteMarkerPrefix = "__cherry_file_write_";
+constexpr std::string_view kSafetensorReadMarkerPrefix =
+    "__cherry_safetensor_read_";
+
 struct VariableBinding {
   // Scalar, struct, and mutable tensor variables are address-bound. Tensor and
   // pointer-like values bind directly; assignment replaces the binding.
@@ -106,6 +113,7 @@ private:
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   MLIRTypeConverter _typeConverter{_builder};
+  size_t _runtimeMarkerId = 0;
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
@@ -270,6 +278,14 @@ private:
   auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
+  auto getRuntimeFn(std::string_view name,
+                    llvm::ArrayRef<mlir::Type> inputs,
+                    llvm::ArrayRef<mlir::Type> results,
+                    mlir::Location location) -> mlir::func::FuncOp;
+  auto createRuntimeMarkerFn(std::string_view prefix,
+                             llvm::ArrayRef<mlir::Type> inputs,
+                             llvm::ArrayRef<mlir::Type> results,
+                             mlir::Location location) -> mlir::func::FuncOp;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
@@ -781,40 +797,67 @@ auto MLIRGenImpl::genOpen(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto path = gen(expressions[0].get());
   auto mode = gen(expressions[1].get());
-  return mlir::mulberry::FileOpenOp::create(_builder, loc(node),
-                                            getMLIRType(node), path, mode);
+  auto resultType = getMLIRType(node);
+  auto runtimeFn = getRuntimeFn(kRuntimeFileOpen,
+                                {path.getType(), mode.getType()},
+                                {resultType}, loc(node));
+  return mlir::func::CallOp::create(
+      _builder, loc(node), runtimeFn.getSymName(),
+      mlir::TypeRange{resultType}, mlir::ValueRange{path, mode})
+      .getResult(0);
 }
 
 auto MLIRGenImpl::genRead(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto file = gen(expressions[0].get());
   auto buffer = gen(expressions[1].get());
-  return mlir::mulberry::FileReadOp::create(_builder, loc(node),
-                                            _builder.getI64Type(), file,
-                                            buffer);
+  auto resultType = _builder.getI64Type();
+  auto markerFn = createRuntimeMarkerFn(kFileReadMarkerPrefix,
+                                        {file.getType(), buffer.getType()},
+                                        {resultType}, loc(node));
+  return mlir::func::CallOp::create(
+      _builder, loc(node), markerFn.getSymName(),
+      mlir::TypeRange{resultType}, mlir::ValueRange{file, buffer})
+      .getResult(0);
 }
 
 auto MLIRGenImpl::genReadTensor(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto file = gen(expressions[0].get());
   auto name = gen(expressions[1].get());
-  return mlir::mulberry::SafetensorReadOp::create(
-      _builder, loc(node), getMLIRType(node), file, name);
+  auto resultType = getMLIRType(node);
+  auto markerFn = createRuntimeMarkerFn(kSafetensorReadMarkerPrefix,
+                                        {file.getType(), name.getType()},
+                                        {resultType}, loc(node));
+  return mlir::func::CallOp::create(
+      _builder, loc(node), markerFn.getSymName(),
+      mlir::TypeRange{resultType}, mlir::ValueRange{file, name})
+      .getResult(0);
 }
 
 auto MLIRGenImpl::genWrite(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto file = gen(expressions[0].get());
   auto buffer = gen(expressions[1].get());
-  return mlir::mulberry::FileWriteOp::create(_builder, loc(node),
-                                             _builder.getI64Type(), file,
-                                             buffer);
+  auto resultType = _builder.getI64Type();
+  auto markerFn = createRuntimeMarkerFn(kFileWriteMarkerPrefix,
+                                        {file.getType(), buffer.getType()},
+                                        {resultType}, loc(node));
+  return mlir::func::CallOp::create(
+      _builder, loc(node), markerFn.getSymName(),
+      mlir::TypeRange{resultType}, mlir::ValueRange{file, buffer})
+      .getResult(0);
 }
 
 auto MLIRGenImpl::genClose(const CallExpr *node) -> mlir::Value {
   auto file = gen(node->expressions().front().get());
-  return mlir::mulberry::FileCloseOp::create(_builder, loc(node),
-                                             _builder.getI64Type(), file);
+  auto resultType = _builder.getI64Type();
+  auto runtimeFn = getRuntimeFn(kRuntimeFileClose, {file.getType()},
+                                {resultType}, loc(node));
+  return mlir::func::CallOp::create(
+      _builder, loc(node), runtimeFn.getSymName(),
+      mlir::TypeRange{resultType}, mlir::ValueRange{file})
+      .getResult(0);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
@@ -866,9 +909,61 @@ auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
-  return mlir::mulberry::StringLiteralOp::create(
-      _builder, loc(node), getMLIRType(node),
-      _builder.getStringAttr(node->value()));
+  auto location = loc(node);
+  auto stringPtrType =
+      llvm::cast<mlir::mulberry::PtrType>(getMLIRType(node));
+  auto storageType = llvm::cast<mlir::mulberry::RecordType>(
+      stringPtrType.getPointeeType());
+
+  // Materialize the literal bytes as a normal heap buffer, then wrap that
+  // buffer in the stdlib StringStorage heap object. This keeps String as a
+  // plain Ptr<StringStorage> and avoids a dedicated string dialect path.
+  auto bytes = node->value();
+  auto byteCount = mlir::arith::ConstantIndexOp::create(
+      _builder, location, bytes.size() + 1);
+  auto dataBuffer = mlir::mulberry::HeapAllocOp::create(
+                        _builder, location, getPtrType(_builder.getI8Type()),
+                        _builder.getI8Type(), byteCount)
+                        .getResult();
+
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    auto byteIndex = mlir::arith::ConstantIndexOp::create(
+        _builder, location, static_cast<int64_t>(index));
+    auto bytePtr = mlir::mulberry::PtrIndexOp::create(
+        _builder, location, getPtrType(_builder.getI8Type()), dataBuffer,
+        byteIndex);
+    auto byteValue = mlir::arith::ConstantIntOp::create(
+        _builder, location,
+        static_cast<int64_t>(static_cast<unsigned char>(bytes[index])), 8);
+    createStore(byteValue, bytePtr, location);
+  }
+
+  auto nulIndex = mlir::arith::ConstantIndexOp::create(
+      _builder, location, static_cast<int64_t>(bytes.size()));
+  auto nulPtr = mlir::mulberry::PtrIndexOp::create(
+      _builder, location, getPtrType(_builder.getI8Type()), dataBuffer,
+      nulIndex);
+  auto nulValue = mlir::arith::ConstantIntOp::create(_builder, location, 0, 8);
+  createStore(nulValue, nulPtr, location);
+
+  auto storage = mlir::mulberry::HeapAllocOp::create(
+                     _builder, location, stringPtrType, storageType,
+                     mlir::arith::ConstantIndexOp::create(_builder, location,
+                                                          1))
+                     .getResult();
+  auto lengthPtr = mlir::mulberry::RecordGetFieldOp::create(
+      _builder, location, getPtrType(_builder.getI64Type()),
+      storage, "length");
+  auto lengthValue = mlir::arith::ConstantIntOp::create(
+      _builder, location, static_cast<int64_t>(bytes.size()), 64);
+  createStore(lengthValue, lengthPtr, location);
+
+  auto dataPtr = mlir::mulberry::RecordGetFieldOp::create(
+      _builder, location,
+      getPtrType(getPtrType(_builder.getI8Type())), storage, "data");
+  createStore(dataBuffer, dataPtr, location);
+
+  return storage;
 }
 
 auto MLIRGenImpl::gen(const TypeLayoutExpr *node) -> mlir::Value {
@@ -1284,6 +1379,51 @@ auto MLIRGenImpl::getMemRefType(const Expr *expr) const -> mlir::MemRefType {
   return getMemRefType(expr->type());
 }
 
+auto MLIRGenImpl::getRuntimeFn(std::string_view name,
+                               llvm::ArrayRef<mlir::Type> inputs,
+                               llvm::ArrayRef<mlir::Type> results,
+                               mlir::Location location)
+    -> mlir::func::FuncOp {
+  auto fnName = std::string(name);
+  if (auto existing = module.lookupSymbol<mlir::func::FuncOp>(fnName))
+    return existing;
+
+  auto insertionPoint = _builder.saveInsertionPoint();
+  _builder.setInsertionPointToStart(module.getBody());
+
+  auto funcType = _builder.getFunctionType(inputs, results);
+  auto func = mlir::func::FuncOp::create(location, fnName, funcType);
+  mlir::SymbolTable::setSymbolVisibility(
+      func, mlir::SymbolTable::Visibility::Private);
+  _builder.insert(func);
+
+  _builder.restoreInsertionPoint(insertionPoint);
+  return func;
+}
+
+auto MLIRGenImpl::createRuntimeMarkerFn(std::string_view prefix,
+                                        llvm::ArrayRef<mlir::Type> inputs,
+                                        llvm::ArrayRef<mlir::Type> results,
+                                        mlir::Location location)
+    -> mlir::func::FuncOp {
+  std::string fnName;
+  do {
+    fnName = std::string(prefix) + std::to_string(_runtimeMarkerId++);
+  } while (module.lookupSymbol<mlir::func::FuncOp>(fnName));
+
+  auto insertionPoint = _builder.saveInsertionPoint();
+  _builder.setInsertionPointToStart(module.getBody());
+
+  auto funcType = _builder.getFunctionType(inputs, results);
+  auto func = mlir::func::FuncOp::create(location, fnName, funcType);
+  mlir::SymbolTable::setSymbolVisibility(
+      func, mlir::SymbolTable::Visibility::Private);
+  _builder.insert(func);
+
+  _builder.restoreInsertionPoint(insertionPoint);
+  return func;
+}
+
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
@@ -1550,9 +1690,9 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
 
   if (ptrType) {
     DBG("use Cherry variable ptr type `{0}`", formatType(ptrType));
-    auto targetType =
-        llvm::cast<mlir::mulberry::PtrType>(getMLIRType(varType));
-    auto value = castToType(gen(node->init().get()), targetType, loc(node));
+    auto targetType = getMLIRType(varType);
+    auto value = gen(node->init().get());
+    value = castToType(value, targetType, loc(node));
     setVariableValue(varName, value);
     return;
   }

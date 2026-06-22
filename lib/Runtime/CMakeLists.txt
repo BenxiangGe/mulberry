@@ -1,5 +1,6 @@
 add_library(cherryRuntime SHARED
         BoehmGC.cpp
+        File.cpp
         Safetensors.cpp
 )
 

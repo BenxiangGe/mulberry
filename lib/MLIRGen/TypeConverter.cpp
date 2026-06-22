@@ -27,10 +27,6 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
     return _builder.getF32Type();
   case BuiltinTypeKind::Bool:
     return _builder.getI1Type();
-  case BuiltinTypeKind::String:
-    return mlir::mulberry::StringType::get(_builder.getContext());
-  case BuiltinTypeKind::File:
-    return mlir::mulberry::FileType::get(_builder.getContext());
   }
 }
 
@@ -47,10 +43,6 @@ auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
     return _builder.getI1Type();
   case BuiltinTypeKind::Unit:
     llvm_unreachable("Unit cannot be used as a memref element type");
-  case BuiltinTypeKind::String:
-    llvm_unreachable("String cannot be used as a memref element type");
-  case BuiltinTypeKind::File:
-    llvm_unreachable("File cannot be used as a memref element type");
   }
 }
 
@@ -69,7 +61,7 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
 }
 
 auto MLIRTypeConverter::convert(const PtrType& type) const
-    -> mlir::mulberry::PtrType {
+    -> mlir::Type {
   auto pointeeType = convert(type.pointeeType());
   if (!pointeeType)
     return {};

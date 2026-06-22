@@ -115,7 +115,28 @@ comptime Tensor<T, Rank> = struct {
 真正的 Tensor heap object handle 应该是上面这种 source-level record/Ptr 形态，不能
 复用旧 marker 偷换语义。
 
-String 的形态可以类似：
+当前 P4.7 的设计结论是：暂时不实现 Tensor heap object handle。原因是现有
+`cherry_nn -> linalg` 正向路径依赖 Tensor lowering 成 MLIR `memref`，训练和推理
+JIT 都建立在这条路径上。现在如果强行把 `Float32[?, ?]` 改成 heap handle，会把
+Tensor 语义、memref view、函数边界 ABI 和 runtime ownership 一次性混在一起，风险
+很高。
+
+因此现阶段保留：
+
+- source-level Tensor 仍是可写 Tensor value，codegen 输出 `mulberry.tensor.*`。
+- lowering 继续把 Tensor value 转成 `memref`，供 `cherry_nn` / `linalg` 使用。
+- `TensorDescType` 只允许作为 lowering 内部的 ABI/view helper。
+- `TensorDescType` 不允许跨函数边界，也不能被包装成“伪 heap handle”。
+
+未来真正迁移时，应该新增 source-level `TensorStorage` / `Tensor` layout，并让
+Tensor value 明确变成普通 `Ptr<TensorStorage<...>>` 或等价 handle。迁移应分阶段做：
+
+1. 先补齐 rank/shape metadata 的 source-level 表达。
+2. 再定义 Tensor heap object 的 layout 和 alias 语义。
+3. 再让 `cherry_nn` 接受 handle 或在 lowering 入口显式 unwrap 成 memref view。
+4. 最后删除仅为旧 memref boundary 服务的 descriptor helper。
+
+String 的形态就是：
 
 ```cherry
 struct StringStorage {
@@ -123,13 +144,20 @@ struct StringStorage {
   data: Ptr<UInt8>
 }
 
-struct String {
-  storage: Ptr<StringStorage>
-}
+comptime String = Ptr<StringStorage>;
 ```
 
-具体字段可以后续调整，但核心原则不变：value 是 handle，metadata 和 data 都通过
-pointer 找到。
+`String` value 自身就是 heap object handle，metadata 和 data 都通过 pointer 找到。
+
+string literal 第一版直接分配 heap byte buffer，并把 `StringStorage` header 也放到
+Boehm heap：
+
+```text
+heap UInt8[4] = "abc\0" + heap StringStorage{length = 3, data = bytes}
+```
+
+这样 `String` 的 source-level 语义就是普通 pointer handle，literal materialization
+也直接复用 `heap.alloc`、`ptr.index`、`record.get_field` 和 `store` 的通用路径。
 
 ## 函数边界
 
@@ -262,7 +290,8 @@ C4.16  删除旧 list descriptor / escape_storage / boundary rewrite
 ```text
 P4.5   继续验证 nested List、record field List 和 Tensor element List 的正向路径
 P4.6   设计 List grow / capacity 策略，只在 training 需要时实现
-P4.7   设计 Tensor heap object handle；不要复用 tensor descriptor 伪装 handle
+P4.7   已完成设计检查：暂不实现 Tensor heap object handle；禁止把 tensor descriptor
+       伪装成 handle
 P4.8   如果要继续缩小 Mulberry dialect，逐项迁移 string/file/heap/record，而不是整块删除
 ```
 
