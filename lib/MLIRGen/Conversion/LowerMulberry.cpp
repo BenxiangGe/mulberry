@@ -22,6 +22,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -43,10 +44,6 @@ static auto getI64Type(MLIRContext* context) -> IntegerType {
   return IntegerType::get(context, 64);
 }
 
-static auto getI32Type(MLIRContext* context) -> IntegerType {
-  return IntegerType::get(context, 32);
-}
-
 static auto getTensorDataAddressSpace(MLIRContext* context) -> Attribute {
   return LLVM::AddressSpaceAttr::get(context, 0);
 }
@@ -55,29 +52,43 @@ static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
-using StringABIDescriptorType = LLVM::LLVMStructType;
+static constexpr std::string_view kFileReadMarkerPrefix =
+    "__cherry_file_read_";
+static constexpr std::string_view kFileWriteMarkerPrefix =
+    "__cherry_file_write_";
+static constexpr std::string_view kSafetensorReadMarkerPrefix =
+    "__cherry_safetensor_read_";
 
-// String ABI descriptor layout:
+using StringStorageType = LLVM::LLVMStructType;
+using FileStorageType = LLVM::LLVMStructType;
+
+static constexpr int32_t kStringDataField = 1;
+static constexpr int32_t kFileHandleField = 0;
+
+// Lowered StringStorage heap layout:
 //
 //   { length: i64, data: ptr }
 //
 // `length` is the source string byte count and excludes the trailing NUL.
-// String literals still materialize immutable global bytes with an extra NUL
-// so future runtime calls can pass the same data pointer to C APIs.
-struct StringABILayout {
-  StringABIDescriptorType descriptorType;
-};
-
-static auto convertToStringABILayout(mulberry::StringType type)
-    -> StringABILayout {
-  auto context = type.getContext();
-
+// `data` points to a NUL-terminated heap byte buffer so C runtime calls can
+// use it directly.
+static auto getStringStorageType(MLIRContext* context) -> StringStorageType {
   std::vector<Type> fields;
   fields.push_back(getI64Type(context)); // byte length, excluding trailing NUL
   fields.push_back(getPtrType(context)); // data pointer
-  auto descriptorType = LLVM::LLVMStructType::getLiteral(context, fields);
+  return LLVM::LLVMStructType::getLiteral(context, fields);
+}
 
-  return StringABILayout{descriptorType};
+// Lowered FileStorage heap layout:
+//
+//   { handle: ptr }
+//
+// `handle` is an opaque C runtime FILE* stored as an LLVM pointer. Source-level
+// File is just Ptr<FileStorage>; only the file runtime boundary looks inside.
+static auto getFileStorageType(MLIRContext* context) -> FileStorageType {
+  std::vector<Type> fields;
+  fields.push_back(getPtrType(context)); // opaque FILE* handle
+  return LLVM::LLVMStructType::getLiteral(context, fields);
 }
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
@@ -115,12 +126,6 @@ static auto convertToBackendType(Type type) -> std::optional<Type> {
 
   if (auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type))
     return convertPtrType(ptrType);
-
-  if (auto stringType = llvm::dyn_cast<mulberry::StringType>(type))
-    return convertToStringABILayout(stringType).descriptorType;
-
-  if (llvm::isa<mulberry::FileType>(type))
-    return getPtrType(type.getContext());
 
   if (isScalarStorageType(type))
     return type;
@@ -243,6 +248,27 @@ static auto createTensorByteSize(Location location,
   return byteSize.getResult();
 }
 
+// Shared raw-byte view for tensor-backed runtime edges:
+//   data: raw aligned pointer
+//   byteSize: total payload byte count
+// This is lowering-only ABI glue, not a source-level value type.
+struct TensorByteView {
+  Value data;
+  Value byteSize;
+};
+
+static auto createTensorByteView(Location location,
+                                 ConversionPatternRewriter& rewriter,
+                                 Value tensor)
+    -> FailureOr<TensorByteView> {
+  auto byteSize = createTensorByteSize(location, rewriter, tensor);
+  if (failed(byteSize))
+    return failure();
+
+  auto data = createMemRefDataPointer(location, rewriter, tensor);
+  return TensorByteView{data, *byteSize};
+}
+
 static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op,
                             Value sizeInBytes) -> FailureOr<Value> {
   auto moduleOp = op->getParentOfType<ModuleOp>();
@@ -260,67 +286,30 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
   return mallocCall.getResult();
 }
 
-static auto createStringABIDesc(
-    Location location, ConversionPatternRewriter& rewriter,
-    const StringABILayout& layout, Value length, Value dataPointer) -> Value {
-  auto desc = LLVM::UndefOp::create(rewriter, location,
-                                    layout.descriptorType);
-  auto withLength = LLVM::InsertValueOp::create(
-      rewriter, location, desc.getResult(), length, ArrayRef<int64_t>{0});
-  auto withData = LLVM::InsertValueOp::create(
-      rewriter, location, withLength.getResult(), dataPointer,
-      ArrayRef<int64_t>{1});
-  return withData.getResult();
-}
-
-static auto extractStringDataPointer(Location location, OpBuilder& builder,
-                                     Value stringDesc) -> Value {
-  return LLVM::ExtractValueOp::create(builder, location,
-                                      getPtrType(builder.getContext()),
-                                      stringDesc, ArrayRef<int64_t>{1})
-      .getResult();
-}
-
-static auto createStringGlobalName(ModuleOp moduleOp) -> std::string {
-  for (size_t index = 0;; ++index) {
-    auto name = "__mulberry_string_" + std::to_string(index);
-    if (!moduleOp.lookupSymbol<LLVM::GlobalOp>(name))
-      return name;
-  }
-}
-
-static auto createStringDataPointer(
-    Location location, OpBuilder& builder, Operation* op, StringRef value)
-    -> FailureOr<Value> {
-  auto moduleOp = op->getParentOfType<ModuleOp>();
-  if (!moduleOp)
-    return failure();
-
-  auto bytes = value.str();
-  bytes.push_back('\0');
-  auto name = createStringGlobalName(moduleOp);
+static auto loadStringDataPointer(Location location, OpBuilder& builder,
+                                  Value stringStorage) -> Value {
   auto context = builder.getContext();
+  auto storageType = getStringStorageType(context);
+  auto dataPtr = LLVM::GEPOp::create(
+      builder, location, getPtrType(context), storageType, stringStorage,
+      ArrayRef<LLVM::GEPArg>{0, kStringDataField});
+  return LLVM::LoadOp::create(builder, location, getPtrType(context),
+                              dataPtr.getResult()).getResult();
+}
 
-  LLVM::GlobalOp global;
-  {
-    OpBuilder::InsertionGuard insertGuard(builder);
-    builder.setInsertionPointToStart(moduleOp.getBody());
-    auto type = LLVM::LLVMArrayType::get(IntegerType::get(context, 8),
-                                         bytes.size());
-    global = LLVM::GlobalOp::create(builder, location, type,
-                                    /*isConstant=*/true,
-                                    LLVM::Linkage::Internal, name,
-                                    builder.getStringAttr(bytes),
-                                    /*alignment=*/0);
-  }
+static auto loadFileHandlePointer(Location location, OpBuilder& builder,
+                                  Value fileStorage) -> Value {
+  auto context = builder.getContext();
+  auto storageType = getFileStorageType(context);
+  auto handlePtr = LLVM::GEPOp::create(
+      builder, location, getPtrType(context), storageType, fileStorage,
+      ArrayRef<LLVM::GEPArg>{0, kFileHandleField});
+  return LLVM::LoadOp::create(builder, location, getPtrType(context),
+                              handlePtr.getResult()).getResult();
+}
 
-  auto globalPtr = LLVM::AddressOfOp::create(builder, location, global);
-  auto zero = LLVM::ConstantOp::create(builder, location, getI64Type(context),
-                                       builder.getI64IntegerAttr(0));
-  auto dataPointer = LLVM::GEPOp::create(
-      builder, location, getPtrType(context), global.getType(), globalPtr,
-      ArrayRef<Value>{zero.getResult(), zero.getResult()});
-  return dataPointer.getResult();
+static auto isFileMarkerName(StringRef name, std::string_view prefix) -> bool {
+  return name.starts_with(prefix);
 }
 
 static auto createI64StackArray(Location location,
@@ -555,6 +544,23 @@ static auto rejectTensorDescBoundaries(Operation* root) -> LogicalResult {
   return result;
 }
 
+static auto eraseDeadRuntimeMarkers(ModuleOp moduleOp) -> void {
+  std::vector<func::FuncOp> deadMarkers;
+  moduleOp.walk([&](func::FuncOp funcOp) {
+    auto name = funcOp.getSymName();
+    if (!isFileMarkerName(name, kFileReadMarkerPrefix) &&
+        !isFileMarkerName(name, kFileWriteMarkerPrefix) &&
+        !isFileMarkerName(name, kSafetensorReadMarkerPrefix))
+      return;
+
+    if (SymbolTable::symbolKnownUseEmpty(funcOp, moduleOp))
+      deadMarkers.push_back(funcOp);
+  });
+
+  for (auto funcOp : deadMarkers)
+    funcOp.erase();
+}
+
 static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type> {
   std::vector<Type> fieldTypes;
@@ -598,9 +604,6 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
     if (!convertPtrType(ptrType))
       return failure();
 
-  if (llvm::isa<mulberry::FileType>(type))
-    return failure();
-
   if (llvm::isa<mulberry::TensorDescType>(type))
     return failure();
 
@@ -609,17 +612,11 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
 
 class MulberryTypeConverter : public TypeConverter {
 public:
-    MulberryTypeConverter() {
-      addConversion([](Type type) { return type; });
-      addConversion(rejectUnloweredMulberryType);
+  MulberryTypeConverter() {
+    addConversion([](Type type) { return type; });
+    addConversion(rejectUnloweredMulberryType);
     addConversion([](mulberry::TensorDescType type) -> Type {
       return convertToTensorABILayout(type).descriptorType;
-    });
-    addConversion([](mulberry::StringType type) -> Type {
-      return convertToStringABILayout(type).descriptorType;
-    });
-    addConversion([](mulberry::FileType type) -> Type {
-      return getPtrType(type.getContext());
     });
     addConversion(convertRecordToBackendType);
     addConversion(convertPtrType);
@@ -810,72 +807,18 @@ public:
   }
 };
 
-class StringLiteralOpLowering
-    : public OpConversionPattern<mulberry::StringLiteralOp> {
+class FileReadCallLowering : public OpConversionPattern<func::CallOp> {
 public:
-  using OpConversionPattern<mulberry::StringLiteralOp>::OpConversionPattern;
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::StringLiteralOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto stringType = llvm::cast<mulberry::StringType>(
-        op.getResult().getType());
-    auto layout = convertToStringABILayout(stringType);
+    if (!isFileMarkerName(op.getCallee(), kFileReadMarkerPrefix))
+      return failure();
+    if (adaptor.getOperands().size() != 2)
+      return rewriter.notifyMatchFailure(op, "file read marker needs 2 args");
 
-    auto dataPointer = createStringDataPointer(
-        op.getLoc(), rewriter, op.getOperation(), op.getValue());
-    if (failed(dataPointer))
-      return rewriter.notifyMatchFailure(
-          op, "string literal needs a parent module");
-
-    auto length = LLVM::ConstantOp::create(
-        rewriter, op.getLoc(), getI64Type(op.getContext()),
-        rewriter.getI64IntegerAttr(op.getValue().size()));
-    auto desc = createStringABIDesc(op.getLoc(), rewriter, layout,
-                                    length.getResult(), *dataPointer);
-    rewriter.replaceOp(op, desc);
-    return success();
-  }
-};
-
-class FileOpenOpLowering : public OpConversionPattern<mulberry::FileOpenOp> {
-public:
-  using OpConversionPattern<mulberry::FileOpenOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::FileOpenOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto moduleOp = op->getParentOfType<ModuleOp>();
-    if (!moduleOp)
-      return rewriter.notifyMatchFailure(op, "file open needs a parent module");
-
-    auto ptrType = getPtrType(op.getContext());
-    auto fopenFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "fopen", {ptrType, ptrType}, ptrType);
-    if (failed(fopenFn))
-      return rewriter.notifyMatchFailure(
-          op, "file open needs an fopen declaration");
-
-    // String ABI field 1 is the NUL-terminated byte pointer prepared by string
-    // literal lowering, so it can be passed directly to C stdio calls.
-    auto path = extractStringDataPointer(op.getLoc(), rewriter,
-                                         adaptor.getPath());
-    auto mode = extractStringDataPointer(op.getLoc(), rewriter,
-                                         adaptor.getMode());
-    auto opened = LLVM::CallOp::create(rewriter, op.getLoc(), *fopenFn,
-                                       ValueRange{path, mode});
-    rewriter.replaceOp(op, opened.getResult());
-    return success();
-  }
-};
-
-class FileReadOpLowering : public OpConversionPattern<mulberry::FileReadOp> {
-public:
-  using OpConversionPattern<mulberry::FileReadOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::FileReadOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
     auto moduleOp = op->getParentOfType<ModuleOp>();
     if (!moduleOp)
       return rewriter.notifyMatchFailure(op, "file read needs a parent module");
@@ -890,32 +833,38 @@ public:
       return rewriter.notifyMatchFailure(
           op, "file read needs an fread declaration");
 
-    auto byteSize = createTensorByteSize(op.getLoc(), rewriter,
-                                         adaptor.getBuffer());
-    if (failed(byteSize))
+    auto file = adaptor.getOperands()[0];
+    auto buffer = adaptor.getOperands()[1];
+    auto rawByteView = createTensorByteView(op.getLoc(), rewriter, buffer);
+    if (failed(rawByteView))
       return rewriter.notifyMatchFailure(
-          op, "file read needs a memref-backed tensor");
+          op, "file read needs a tensor raw-byte view");
+    auto view = *rawByteView;
     auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
                                         rewriter.getI64IntegerAttr(1));
-    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
-                                        adaptor.getBuffer());
     // Use fread(ptr, 1, byteSize, file) so the return value is a byte count for
     // every supported Tensor element type, not a type-dependent element count.
+    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
     auto read = LLVM::CallOp::create(
         rewriter, op.getLoc(), *freadFn,
-        ValueRange{data, one.getResult(), *byteSize, adaptor.getFile()});
+        ValueRange{view.data, one.getResult(), view.byteSize, fileHandle});
     rewriter.replaceOp(op, read.getResult());
     return success();
   }
 };
 
-class FileWriteOpLowering : public OpConversionPattern<mulberry::FileWriteOp> {
+class FileWriteCallLowering : public OpConversionPattern<func::CallOp> {
 public:
-  using OpConversionPattern<mulberry::FileWriteOp>::OpConversionPattern;
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::FileWriteOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
+    if (!isFileMarkerName(op.getCallee(), kFileWriteMarkerPrefix))
+      return failure();
+    if (adaptor.getOperands().size() != 2)
+      return rewriter.notifyMatchFailure(op, "file write marker needs 2 args");
+
     auto moduleOp = op->getParentOfType<ModuleOp>();
     if (!moduleOp)
       return rewriter.notifyMatchFailure(
@@ -931,71 +880,49 @@ public:
       return rewriter.notifyMatchFailure(
           op, "file write needs an fwrite declaration");
 
-    auto byteSize = createTensorByteSize(op.getLoc(), rewriter,
-                                         adaptor.getBuffer());
-    if (failed(byteSize))
+    auto file = adaptor.getOperands()[0];
+    auto buffer = adaptor.getOperands()[1];
+    auto rawByteView = createTensorByteView(op.getLoc(), rewriter, buffer);
+    if (failed(rawByteView))
       return rewriter.notifyMatchFailure(
-          op, "file write needs a memref-backed tensor");
+          op, "file write needs a tensor raw-byte view");
+    auto view = *rawByteView;
     auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
                                         rewriter.getI64IntegerAttr(1));
-    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
-                                        adaptor.getBuffer());
     // Keep write() symmetric with read(): the result is the number of raw bytes
     // successfully written, independent of Tensor element type.
+    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
     auto written = LLVM::CallOp::create(
         rewriter, op.getLoc(), *fwriteFn,
-        ValueRange{data, one.getResult(), *byteSize, adaptor.getFile()});
+        ValueRange{view.data, one.getResult(), view.byteSize, fileHandle});
     rewriter.replaceOp(op, written.getResult());
     return success();
   }
 };
 
-class FileCloseOpLowering : public OpConversionPattern<mulberry::FileCloseOp> {
+class SafetensorReadCallLowering : public OpConversionPattern<func::CallOp> {
 public:
-  using OpConversionPattern<mulberry::FileCloseOp>::OpConversionPattern;
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::FileCloseOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto moduleOp = op->getParentOfType<ModuleOp>();
-    if (!moduleOp)
+    if (!isFileMarkerName(op.getCallee(), kSafetensorReadMarkerPrefix))
+      return failure();
+    if (adaptor.getOperands().size() != 2)
       return rewriter.notifyMatchFailure(
-          op, "file close needs a parent module");
+          op, "safetensor read marker needs 2 args");
 
-    auto i32Type = getI32Type(op.getContext());
-    auto i64Type = getI64Type(op.getContext());
-    auto fcloseFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "fclose", {getPtrType(op.getContext())},
-        i32Type);
-    if (failed(fcloseFn))
-      return rewriter.notifyMatchFailure(
-          op, "file close needs an fclose declaration");
-
-    auto closed = LLVM::CallOp::create(rewriter, op.getLoc(), *fcloseFn,
-                                       ValueRange{adaptor.getFile()});
-    auto result = arith::ExtSIOp::create(rewriter, op.getLoc(), i64Type,
-                                         closed.getResult());
-    rewriter.replaceOp(op, result.getResult());
-    return success();
-  }
-};
-
-class SafetensorReadOpLowering
-    : public OpConversionPattern<mulberry::SafetensorReadOp> {
-public:
-  using OpConversionPattern<
-      mulberry::SafetensorReadOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry::SafetensorReadOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
     auto moduleOp = op->getParentOfType<ModuleOp>();
     if (!moduleOp)
       return rewriter.notifyMatchFailure(
           op, "safetensor read needs a parent module");
 
-    auto tensorType = llvm::cast<mulberry::TensorType>(
-        op.getResult().getType());
+    auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
+        op.getResult(0).getType());
+    if (!tensorType)
+      return rewriter.notifyMatchFailure(
+          op, "safetensor read result must be a Mulberry tensor");
     if (!tensorType.getElementType().isF32())
       return rewriter.notifyMatchFailure(
           op, "safetensor read currently supports only f32 tensors");
@@ -1013,8 +940,10 @@ public:
     auto expectedShape = createExpectedShapeArray(op.getLoc(), rewriter,
                                                   shape);
     auto outShape = createI64StackArray(op.getLoc(), rewriter, shape.size());
-    auto name = extractStringDataPointer(op.getLoc(), rewriter,
-                                         adaptor.getName());
+    auto file = adaptor.getOperands()[0];
+    auto nameArg = adaptor.getOperands()[1];
+    auto name = loadStringDataPointer(op.getLoc(), rewriter, nameArg);
+    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
 
     auto shapeFn = LLVM::lookupOrCreateFn(
         rewriter, moduleOp, "mulberry_safetensor_shape_f32",
@@ -1028,7 +957,7 @@ public:
     // memref dimensions before reading the payload.
     LLVM::CallOp::create(
         rewriter, op.getLoc(), *shapeFn,
-        ValueRange{adaptor.getFile(), name, rank.getResult(), expectedShape,
+        ValueRange{fileHandle, name, rank.getResult(), expectedShape,
                    outShape});
 
     std::vector<Value> dynamicSizes;
@@ -1056,7 +985,7 @@ public:
 
     LLVM::CallOp::create(
         rewriter, op.getLoc(), *readFn,
-        ValueRange{adaptor.getFile(), name, rank.getResult(), expectedShape,
+        ValueRange{fileHandle, name, rank.getResult(), expectedShape,
                    data});
 
     rewriter.replaceOp(op, tensor.getResult());
@@ -1302,13 +1231,13 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<AllocaOpLowering, FileCloseOpLowering, FileOpenOpLowering,
-                 FileReadOpLowering, FileWriteOpLowering,
-                 HeapAllocOpLowering, LoadOpLowering, PtrIndexOpLowering,
+    patterns.add<FileReadCallLowering, FileWriteCallLowering,
+                 SafetensorReadCallLowering>(
+        typeConverter, &getContext(), /*benefit=*/2);
+    patterns.add<AllocaOpLowering, HeapAllocOpLowering,
+                 LoadOpLowering, PtrIndexOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
-                 SafetensorReadOpLowering, StoreOpLowering,
-                 StringLiteralOpLowering,
-                 TensorAllocOpLowering, TensorCastOpLowering,
+                 StoreOpLowering, TensorAllocOpLowering, TensorCastOpLowering,
                  TensorDimOpLowering,
                  TensorDescPackOpConversion, TensorDescToABIOpLowering,
                  TensorDescUnpackOpConversion, TensorLoadOpLowering,
@@ -1326,6 +1255,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPartialConversion(getOperation(), target, patternSet)))
       signalPassFailure();
+
+    eraseDeadRuntimeMarkers(llvm::cast<ModuleOp>(getOperation()));
   }
 };
 

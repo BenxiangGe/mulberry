@@ -1,5 +1,13 @@
 package std.io;
 
+import string.String;
+
+struct FileStorage {
+  handle: Ptr<UInt8>
+}
+
+comptime File = Ptr<FileStorage>;
+
 fn print(value: UInt64): UInt64 {
   builtinPrint(value)
 }

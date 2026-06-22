@@ -153,7 +153,9 @@ public:
   auto end() const -> decltype(_variables.end()) { return _variables.end(); }
 };
 
-// Type-level comptime alias function. e.g. `comptime List<T> = Ptr<...>;`
+// Type-level comptime alias. It can be generic, e.g.
+// `comptime List<T> = Ptr<...>;`, or zero-parameter, e.g.
+// `comptime String = Ptr<...>;`.
 class ComptimeTypeAliasDecl final : public Decl {
 public:
   ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,
@@ -169,6 +171,8 @@ public:
   auto name() const -> std::string_view { return _name; }
 
   auto parameterName() const -> std::string_view { return _parameterName; }
+
+  auto isGeneric() const -> bool { return !_parameterName.empty(); }
 
   auto bodyTypeNode() const -> const TypeNode * {
     return _bodyTypeNode.get();

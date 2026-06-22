@@ -23,8 +23,6 @@ enum class BuiltinTypeKind {
   UInt8,
   UInt64,
   Float32,
-  String,
-  File,
 };
 
 class Type {
@@ -136,7 +134,6 @@ auto isUInt8Type(const Type *type) -> bool;
 auto isUInt64Type(const Type *type) -> bool;
 auto isBoolType(const Type *type) -> bool;
 auto isFloat32Type(const Type *type) -> bool;
-auto isStringType(const Type *type) -> bool;
 auto isFileType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;

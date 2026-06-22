@@ -3,6 +3,8 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
+import string.String;
+
 fn id(path: String): String {
   path
 }
@@ -16,18 +18,19 @@ fn main(): UInt64 {
 # TOKENS: string_literal '"data/mnist.bin"'
 
 # AST: StringLiteralExpr
-# AST-SAME: type=String
+# AST-SAME: type=Ptr<std.string.StringStorage>
 
-# MLIR: func.func @id(%arg0: !mulberry.string) -> !mulberry.string
-# MLIR: mulberry.alloca !mulberry.string : !mulberry.ptr<!mulberry.string>
-# MLIR: mulberry.string.literal "data/mnist.bin" : !mulberry.string
+# MLIR: func.func @id(%arg0: !mulberry.ptr<!mulberry.record<std.string.StringStorage {length: i64, data: !mulberry.ptr<i8>}>>) -> !mulberry.ptr<!mulberry.record<std.string.StringStorage {length: i64, data: !mulberry.ptr<i8>}>> {
+# MLIR: mulberry.heap.alloc i8
+# MLIR: mulberry.ptr.index
+# MLIR: mulberry.heap.alloc !mulberry.record<std.string.StringStorage
+# MLIR: mulberry.record.get_field {{.*}}["length"]
+# MLIR: mulberry.record.get_field {{.*}}["data"]
 # MLIR: call @id
+# MLIR-NOT: mulberry.string
 # MLIR-NOT: cir.
 
-# LOWERED: llvm.mlir.global internal constant @__mulberry_string_0
-# LOWERED-LABEL: func.func @id(%arg0: !llvm.struct<(i64, ptr)>) -> !llvm.struct<(i64, ptr)>
-# LOWERED: llvm.insertvalue
-# LOWERED-SAME: [0]
-# LOWERED: llvm.insertvalue
-# LOWERED-SAME: [1]
+# LOWERED-LABEL: func.func @id(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED: llvm.call @mulberry_boehm_malloc
+# LOWERED: llvm.store
 # LOWERED-NOT: mulberry.

@@ -27,14 +27,6 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
-static auto isRawFileTensorType(Type type) -> bool {
-  auto tensorType = getTensorType(type);
-  auto elementType = tensorType ? tensorType.getElementType() : Type{};
-  return tensorType && !tensorType.getShape().empty() &&
-         (elementType.isInteger(8) || elementType.isInteger(64) ||
-          elementType.isF32());
-}
-
 static auto getTensorDescType(Type type)
     -> mlir::mulberry::TensorDescType {
   return llvm::dyn_cast<mlir::mulberry::TensorDescType>(type);
@@ -159,30 +151,6 @@ auto RecordExtractOp::verify() -> LogicalResult {
 
   if (getResult().getType() != fieldType)
     return emitOpError("result type must match field type");
-
-  return success();
-}
-
-auto FileReadOp::verify() -> LogicalResult {
-  if (!isRawFileTensorType(getBuffer().getType()))
-    return emitOpError("buffer must be a UInt8/UInt64/Float32 tensor");
-
-  return success();
-}
-
-auto FileWriteOp::verify() -> LogicalResult {
-  if (!isRawFileTensorType(getBuffer().getType()))
-    return emitOpError("buffer must be a UInt8/UInt64/Float32 tensor");
-
-  return success();
-}
-
-auto SafetensorReadOp::verify() -> LogicalResult {
-  auto tensorType = getTensorType(getResult().getType());
-  if (tensorType.getShape().empty())
-    return emitOpError("result must be a ranked tensor");
-  if (!tensorType.getElementType().isF32())
-    return emitOpError("only Float32 safetensors are supported");
 
   return success();
 }

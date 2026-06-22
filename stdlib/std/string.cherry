@@ -1,0 +1,8 @@
+package std.string;
+
+struct StringStorage {
+  length: UInt64,
+  data: Ptr<UInt8>
+}
+
+comptime String = Ptr<StringStorage>;

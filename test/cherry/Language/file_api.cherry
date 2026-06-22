@@ -23,34 +23,39 @@ fn main(): UInt64 {
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[?]
 # AST: CallExpr {{.*}}type=UInt64 callee=read
 # AST: CallExpr {{.*}}type=UInt64 callee=write
-# AST: CallExpr {{.*}}type=File callee=std.io.open
+# AST: CallExpr {{.*}}type=Ptr<std.io.FileStorage> callee=std.io.open
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[4]
 
 # MLIR-LABEL: func.func @std.io.open
-# MLIR: mulberry.file.open
-# MLIR-SAME: -> !mulberry.file
+# MLIR: call @mulberry_file_open
+# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std.io.FileStorage {handle: !mulberry.ptr<i8>}>>
 # MLIR-LABEL: func.func @std.io.close
-# MLIR: mulberry.file.close
+# MLIR: call @mulberry_file_close
 # MLIR-LABEL: func.func @transfer
-# MLIR: mulberry.file.read
-# MLIR: mulberry.file.write
+# MLIR: call @__cherry_file_read_
+# MLIR: call @__cherry_file_write_
 # MLIR: call @std.io.close
 # MLIR-LABEL: func.func @main
-# MLIR: mulberry.string.literal "data/mnist.bin" : !mulberry.string
-# MLIR: mulberry.string.literal "rb" : !mulberry.string
+# MLIR: mulberry.heap.alloc i8
+# MLIR: mulberry.ptr.index
+# MLIR: mulberry.heap.alloc !mulberry.record<std.string.StringStorage
+# MLIR: mulberry.record.get_field {{.*}}["length"]
+# MLIR: mulberry.record.get_field {{.*}}["data"]
 # MLIR: call @std.io.open
 # MLIR: mulberry.tensor.alloc() : !mulberry.tensor<4xi8>
-# MLIR: mulberry.file.write
+# MLIR: call @__cherry_file_write_
+# MLIR-NOT: mulberry.string
+# MLIR-NOT: mulberry.file
 # MLIR-NOT: cir.
 
-# LOWERED-DAG: llvm.func @fopen(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
 # LOWERED-DAG: llvm.func @fread(!llvm.ptr, i64, i64, !llvm.ptr) -> i64
 # LOWERED-DAG: llvm.func @fwrite(!llvm.ptr, i64, i64, !llvm.ptr) -> i64
-# LOWERED-DAG: llvm.func @fclose(!llvm.ptr) -> i32
+# LOWERED-DAG: func.func private @mulberry_file_close
+# LOWERED-DAG: func.func private @mulberry_file_open
 # LOWERED-LABEL: func.func @std.io.open
-# LOWERED: llvm.call @fopen
+# LOWERED: call @mulberry_file_open
 # LOWERED-LABEL: func.func @std.io.close
-# LOWERED: llvm.call @fclose
+# LOWERED: call @mulberry_file_close
 # LOWERED-LABEL: func.func @transfer
 # LOWERED: llvm.call @fread
 # LOWERED: llvm.call @fwrite
@@ -58,4 +63,6 @@ fn main(): UInt64 {
 # LOWERED-LABEL: func.func @main
 # LOWERED: call @std.io.open
 # LOWERED: llvm.call @fwrite
-# LOWERED-NOT: mulberry.
+# LOWERED-NOT: __cherry_file_read_
+# LOWERED-NOT: __cherry_file_write_
+# LOWERED-NOT: mulberry.file
