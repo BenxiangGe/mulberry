@@ -1,7 +1,7 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn first(weights: List<Tensor<Float32, 2>>): Tensor<Float32, 2> {
-  collections.get(weights, 0)
+  weights[0]
 }
 
 fn make(): List<Tensor<Float32, 2>> {
@@ -20,23 +20,23 @@ fn main(): UInt64 {
   var w2h: Tensor<Float32, 2> = tensor.pack(w2);
   var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
   const layer: Tensor<Float32, 2> = first(weights);
-  size(layer) + collections.size(make())
+  size(layer) + make().size()
 }
 
 # CHECK-LABEL: func.func @first(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__
 # CHECK-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
-# CHECK: call @std_collections_get__
+# CHECK: call @std_collections_ListStorage_get__
 # CHECK-LABEL: func.func @make()
 # CHECK-SAME: -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__
 # CHECK: mulberry.tensor.alloc
 # CHECK: mulberry.tensor.alloc
 # CHECK: mulberry.tensor.pack
 # CHECK: call @std_collections_withCapacity__
-# CHECK: call @std_collections_push__
+# CHECK: call @std_collections_ListStorage_push__
 # CHECK-LABEL: func.func @main()
 # CHECK: call @std_collections_withCapacity__
-# CHECK: call @std_collections_push__
+# CHECK: call @std_collections_ListStorage_push__
 # CHECK: call @first
 # CHECK: mulberry.tensor.view
 # CHECK: call @make
-# CHECK: call @std_collections_size__
+# CHECK: call @std_collections_ListStorage_size__

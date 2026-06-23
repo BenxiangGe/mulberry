@@ -8,19 +8,19 @@ fn main(): UInt64 {
 
   var weights: List<Tensor<Float32, 2>> =
       collections.withCapacity(1);
-  collections.push(weights, w1h);
+  weights.push(w1h);
   weights = collections.withCapacity(1);
-  collections.push(weights, w2h);
+  weights.push(w2h);
 
   var activation: Float32[?, ?] = w1;
   activation = w2;
 
-  collections.size(weights) + size(activation)
+  weights.size() + size(activation)
 }
 
 # CHECK-LABEL: func.func @main()
 # CHECK: mulberry.tensor.pack
 # CHECK: call @std_collections_withCapacity__
-# CHECK: call @std_collections_push__
-# CHECK: call @std_collections_size__
+# CHECK: call @std_collections_ListStorage_push__
+# CHECK: call @std_collections_ListStorage_size__
 # CHECK: mulberry.tensor.dim

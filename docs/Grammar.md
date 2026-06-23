@@ -32,6 +32,7 @@ lvalue → struct-access
 **GRAMMAR OF A RVALUE EXPRESSION**  
 rvalue → literal-expression  
 rvalue → function-call-expression  
+rvalue → method-call-expression
 rvalue → assign-expression  
 rvalue → if-expression    
 rvalue → while-expression      
@@ -48,6 +49,15 @@ function-call-argument-clause → `(` function-call-argument-list `)`
 function-call-argument-list → function-call-argument  
 function-call-argument-list → function-call-argument `,` function-call-argument-list  
 function-call-argument → expression  
+
+**GRAMMAR OF A METHOD CALL EXPRESSION**
+method-call-expression → expression `.` identifier function-call-argument-clause
+
+method call 不是 OOP dispatch。它只是 receiver-first 的函数调用糖，由 Sema 解析：
+
+```text
+receiver.method(args...) -> method(receiver, args...)
+```
 
 **GRAMMAR OF A VARIABLE EXPRESSION**  
 variable-expression → identifier  
@@ -120,7 +130,10 @@ list-dimension → `?`
 struct-declaration → `struct` type `{`  struct-members<sub>opt</sub> `}`  
 struct-members → struct-member `,`<sub>opt</sub>  
 struct-members → struct-member `,` struct-members  
-struct-member → identifier type-annotation  
+struct-member → field-declaration
+struct-member → method-declaration
+field-declaration → identifier type-annotation
+method-declaration → `pub`<sub>opt</sub> `fn` function-name function-signature function-body
 
 **GRAMMAR OF A VARIABLE DECLARATION**  
 var-declaration → `var` variable-expression type-annotation `=` rvalue  

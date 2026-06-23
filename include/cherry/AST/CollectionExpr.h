@@ -87,6 +87,13 @@ private:
 // Source `base[...]` is type-neutral. Sema classifies it by base type.
 class IndexExpr final : public Expr {
 public:
+  enum class IndexKind {
+    Unknown,
+    Ptr,
+    Tensor,
+    StdlibList,
+  };
+
   IndexExpr(llvm::SMLoc loc, std::unique_ptr<Expr> base,
             std::vector<std::unique_ptr<Expr>> indices)
       : Expr(Expr_Index, loc), _base(std::move(base)),
@@ -106,10 +113,34 @@ public:
 
   auto setLvalue(bool isLvalue) -> void { _isLvalue = isLvalue; }
 
+  auto indexKind() const -> IndexKind { return _indexKind; }
+
+  auto setPtrIndex() -> void { _indexKind = IndexKind::Ptr; }
+
+  auto setTensorIndex() -> void { _indexKind = IndexKind::Tensor; }
+
+  auto setStdlibListIndex(std::string_view getFunctionName,
+                          std::string_view setFunctionName) -> void {
+    _indexKind = IndexKind::StdlibList;
+    _getFunctionName = getFunctionName;
+    _setFunctionName = setFunctionName;
+  }
+
+  auto getFunctionName() const -> std::string_view {
+    return _getFunctionName;
+  }
+
+  auto setFunctionName() const -> std::string_view {
+    return _setFunctionName;
+  }
+
 private:
   std::unique_ptr<Expr> _base;
   std::vector<std::unique_ptr<Expr>> _indices;
   bool _isLvalue = false;
+  IndexKind _indexKind = IndexKind::Unknown;
+  std::string _getFunctionName;
+  std::string _setFunctionName;
 };
 
 } // end namespace cherry

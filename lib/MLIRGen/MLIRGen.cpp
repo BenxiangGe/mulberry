@@ -279,6 +279,7 @@ private:
       -> const StructField *;
   auto genIndexValue(const Expr *node) -> mlir::Value;
   auto genPtrIndex(const IndexExpr *expr, mlir::Value ptr) -> mlir::Value;
+  auto genStdlibListGet(const IndexExpr *expr) -> mlir::Value;
   auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
@@ -1563,6 +1564,16 @@ auto MLIRGenImpl::genPtrIndex(const IndexExpr *expr, mlir::Value ptr)
                                             index);
 }
 
+auto MLIRGenImpl::genStdlibListGet(const IndexExpr *expr) -> mlir::Value {
+  auto list = gen(expr->base().get());
+  auto index = castToType(gen(expr->indices().front().get()),
+                          _builder.getI64Type(), loc(expr));
+  auto call = mlir::func::CallOp::create(
+      _builder, loc(expr), expr->getFunctionName(),
+      mlir::TypeRange{getMLIRType(expr)}, mlir::ValueRange{list, index});
+  return call.getResult(0);
+}
+
 auto MLIRGenImpl::genTensorElementValue(const Expr *node,
                                         mlir::Type elementType) -> mlir::Value {
   if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node)) {
@@ -1714,6 +1725,9 @@ auto MLIRGenImpl::genTensorGet(const IndexExpr *expr,
 }
 
 mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
+  if (expr->indexKind() == IndexExpr::IndexKind::StdlibList)
+    return genStdlibListGet(expr);
+
   auto source = gen(expr->base().get());
   if (llvm::isa<mlir::mulberry::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(expr, source);
@@ -1725,6 +1739,18 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
 }
 
 void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
+  if (lhs->indexKind() == IndexExpr::IndexKind::StdlibList) {
+    auto list = gen(lhs->base().get());
+    auto index = castToType(gen(lhs->indices().front().get()),
+                            _builder.getI64Type(), loc(lhs));
+    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    mlir::func::CallOp::create(
+        _builder, loc(lhs), lhs->setFunctionName(),
+        mlir::TypeRange{_builder.getI64Type()},
+        mlir::ValueRange{list, index, rhsValue});
+    return;
+  }
+
   mlir::Value source = gen(lhs->base().get());
   if (llvm::isa<mlir::mulberry::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(lhs, source);

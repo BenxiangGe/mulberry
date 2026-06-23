@@ -72,6 +72,12 @@ public:
       : Expr{Expr_Call, location}, _name(name),
         _expressions(std::move(expressions)){};
 
+  CallExpr(llvm::SMLoc location, std::unique_ptr<Expr> receiver,
+           std::string_view name, VectorUniquePtr<Expr> expressions)
+      : Expr{Expr_Call, location}, _name(name),
+        _receiver(std::move(receiver)),
+        _expressions(std::move(expressions)){};
+
   static auto classof(const Expr *node) -> bool {
     return node->getKind() == Expr_Call;
   }
@@ -84,8 +90,26 @@ public:
     return _expressions;
   }
 
+  auto hasReceiver() const -> bool { return _receiver != nullptr; }
+
+  auto receiver() const -> const std::unique_ptr<Expr> & {
+    return _receiver;
+  }
+
+  auto setReceiver(std::unique_ptr<Expr> receiver,
+                   std::string_view methodName) -> void {
+    _receiver = std::move(receiver);
+    _name = methodName;
+  }
+
+  auto lowerMethodCall(std::string_view name) -> void {
+    _name = name;
+    _expressions.insert(_expressions.begin(), std::move(_receiver));
+  }
+
 private:
   std::string _name;
+  std::unique_ptr<Expr> _receiver;
   VectorUniquePtr<Expr> _expressions;
 
 public:

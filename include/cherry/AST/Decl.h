@@ -82,6 +82,10 @@ public:
     return _typeParameterName;
   }
 
+  auto setTypeParameterName(std::string_view typeParameterName) -> void {
+    _typeParameterName = typeParameterName;
+  }
+
   auto isGeneric() const -> bool { return !_typeParameterName.empty(); }
 
   auto parameters() const -> const VectorUniquePtr<VariableStat> & {
@@ -130,9 +134,10 @@ private:
 class StructDecl final : public Decl {
 public:
   explicit StructDecl(llvm::SMLoc location, std::unique_ptr<StructName> id,
-                      VectorUniquePtr<VariableStat> variables)
+                      VectorUniquePtr<VariableStat> variables,
+                      VectorUniquePtr<FunctionDecl> methods)
       : Decl{Decl_Struct, location}, _id(std::move(id)),
-        _variables(std::move(variables)){};
+        _variables(std::move(variables)), _methods(std::move(methods)){};
 
   static auto classof(const Decl *node) -> bool {
     return node->getKind() == Decl_Struct;
@@ -144,9 +149,14 @@ public:
     return _variables;
   }
 
+  auto methods() const -> const VectorUniquePtr<FunctionDecl> & {
+    return _methods;
+  }
+
 private:
   std::unique_ptr<StructName> _id;
   VectorUniquePtr<VariableStat> _variables;
+  VectorUniquePtr<FunctionDecl> _methods;
 
 public:
   auto begin() const -> decltype(_variables.begin()) {
@@ -198,10 +208,19 @@ public:
     return _bodyTypeNode.get();
   }
 
+  auto methods() const -> const VectorUniquePtr<FunctionDecl> & {
+    return _methods;
+  }
+
+  auto setMethods(VectorUniquePtr<FunctionDecl> methods) -> void {
+    _methods = std::move(methods);
+  }
+
 private:
   std::string _name;
   std::vector<ComptimeParam> _parameters;
   std::unique_ptr<TypeNode> _bodyTypeNode;
+  VectorUniquePtr<FunctionDecl> _methods;
 };
 
 } // end namespace cherry

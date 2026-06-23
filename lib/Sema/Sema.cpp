@@ -38,6 +38,14 @@ struct ComptimeArgument {
   uint64_t uint64Value = 0;
 };
 
+auto substituteExpr(const Expr *node, std::string_view parameterName,
+                    const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<Expr>;
+
+auto substituteBlockExpr(const BlockExpr *node, std::string_view parameterName,
+                         const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<BlockExpr>;
+
 auto toComptimeTypeValues(const std::vector<ComptimeArgument> &arguments)
     -> std::vector<ComptimeTypeValue> {
   std::vector<ComptimeTypeValue> values;
@@ -79,6 +87,31 @@ auto packageNameOf(std::string_view name) -> std::string {
   if (dot == std::string_view::npos)
     return {};
   return std::string(name.substr(0, dot));
+}
+
+auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
+    -> std::unique_ptr<Expr> {
+  auto dot = name.find('.');
+  if (dot == std::string_view::npos)
+    return std::make_unique<VariableExpr>(location, name);
+
+  std::unique_ptr<Expr> expr =
+      std::make_unique<VariableExpr>(location, name.substr(0, dot));
+  while (dot != std::string_view::npos) {
+    auto nextDot = name.find('.', dot + 1);
+    auto fieldName = name.substr(dot + 1, nextDot - dot - 1);
+    expr = std::make_unique<MemberExpr>(location, std::move(expr), fieldName);
+    dot = nextDot;
+  }
+  return expr;
+}
+
+auto methodFunctionName(std::string_view ownerName,
+                        std::string_view methodName) -> std::string {
+  std::string name(ownerName);
+  name += ".";
+  name += methodName;
+  return name;
 }
 
 auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
@@ -128,8 +161,28 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
         field->location(), std::move(variable),
         cloneTypeNode(field->typeNode()), nullptr));
   }
+  VectorUniquePtr<FunctionDecl> methods;
+  for (auto &method : structType->methods()) {
+    auto functionName = std::make_unique<FunctionName>(
+        method->proto()->id()->location(), method->proto()->id()->name());
+    VectorUniquePtr<VariableStat> parameters;
+    for (auto &parameter : method->proto()->parameters()) {
+      auto variable = std::make_unique<VariableExpr>(
+          parameter->variable()->location(), parameter->variable()->name());
+      parameters.push_back(std::make_unique<VariableStat>(
+          parameter->location(), std::move(variable),
+          cloneTypeNode(parameter->typeNode()), nullptr));
+    }
+    auto prototype = std::make_unique<Prototype>(
+        method->proto()->location(), std::move(functionName),
+        std::move(parameters), cloneTypeNode(method->proto()->returnTypeNode()),
+        method->proto()->typeParameterName());
+    methods.push_back(std::make_unique<FunctionDecl>(
+        method->location(), std::move(prototype),
+        substituteBlockExpr(method->body().get(), {}, nullptr)));
+  }
   return std::make_unique<StructTypeNode>(
-      structType->location(), std::move(fields));
+      structType->location(), std::move(fields), std::move(methods));
 }
 
 auto typeToTypeNode(const Type *type, llvm::SMLoc location)
@@ -240,8 +293,30 @@ auto substituteTypeNode(const TypeNode *node,
         substituteTypeNode(field->typeNode(), substitution),
         nullptr));
   }
+  VectorUniquePtr<FunctionDecl> methods;
+  for (auto &method : structType->methods()) {
+    auto functionName = std::make_unique<FunctionName>(
+        method->proto()->id()->location(), method->proto()->id()->name());
+    VectorUniquePtr<VariableStat> parameters;
+    for (auto &parameter : method->proto()->parameters()) {
+      auto variable = std::make_unique<VariableExpr>(
+          parameter->variable()->location(), parameter->variable()->name());
+      parameters.push_back(std::make_unique<VariableStat>(
+          parameter->location(), std::move(variable),
+          substituteTypeNode(parameter->typeNode(), substitution), nullptr));
+    }
+    auto prototype = std::make_unique<Prototype>(
+        method->proto()->location(), std::move(functionName),
+        std::move(parameters),
+        substituteTypeNode(method->proto()->returnTypeNode(), substitution),
+        method->proto()->typeParameterName());
+    methods.push_back(std::make_unique<FunctionDecl>(
+        method->location(), std::move(prototype),
+        substituteBlockExpr(method->body().get(), substitution.parameterName,
+                            substitution.argumentTypeNode)));
+  }
   return std::make_unique<StructTypeNode>(
-      structType->location(), std::move(fields));
+      structType->location(), std::move(fields), std::move(methods));
 }
 
 auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
@@ -295,10 +370,6 @@ auto hasTypeParameter(const TypeNode *node, std::string_view parameterName)
 
   return false;
 }
-
-auto substituteExpr(const Expr *node, std::string_view parameterName,
-                    const TypeNode *argumentTypeNode)
-    -> std::unique_ptr<Expr>;
 
 auto substituteBlockExpr(const BlockExpr *node, std::string_view parameterName,
                          const TypeNode *argumentTypeNode)
@@ -468,6 +539,13 @@ auto substituteExpr(const Expr *node, std::string_view parameterName,
     for (auto &argument : expr->expressions())
       expressions.push_back(
           substituteExpr(argument.get(), parameterName, argumentTypeNode));
+    if (expr->hasReceiver()) {
+      return std::make_unique<CallExpr>(
+          expr->location(),
+          substituteExpr(expr->receiver().get(), parameterName,
+                         argumentTypeNode),
+          expr->name(), std::move(expressions));
+    }
     return std::make_unique<CallExpr>(
         expr->location(), expr->name(), std::move(expressions));
   }
@@ -564,6 +642,8 @@ private:
   Symbols _symbols;
   std::map<std::string, const StructType *> _genericStructTypes;
   std::map<std::string, const FunctionSymbol *> _instantiatedFunctionSymbols;
+  std::map<std::string, std::string> _functionPackages;
+  std::map<std::string, std::string> _genericFunctionPackages;
   std::map<std::string, std::string> _instantiatedFunctionPackages;
   VectorUniquePtr<FunctionDecl> _instantiatedFunctions;
   const std::map<std::string, std::string> &_importAliases =
@@ -651,6 +731,15 @@ private:
       -> CherryResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
                        const Type *expectedType = nullptr) -> CherryResult;
+  auto semaMethodCall(CallExpr *node,
+                      const Type *expectedType = nullptr) -> CherryResult;
+  auto semaDottedMethodCall(CallExpr *node,
+                            const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto declareStructMethods(std::string_view ownerName,
+                            const VectorUniquePtr<FunctionDecl> &methods,
+                            std::string_view typeParameterName,
+                            std::string_view packageName) -> CherryResult;
 
   // Statements
   auto sema(Stat *node) -> CherryResult;
@@ -849,14 +938,23 @@ private:
 
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
-                       const Type *returnType)
+                       const Type *returnType,
+                       std::string_view packageName = {})
       -> CherryResult {
+    if (packageName.empty())
+      packageName = _currentPackageName;
+    _functionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareFunction(name, std::move(parameterTypes),
                                     returnType);
   }
 
   auto declareGenericFunction(std::string_view name,
-                              const FunctionDecl *decl) -> CherryResult {
+                              const FunctionDecl *decl,
+                              std::string_view packageName = {})
+      -> CherryResult {
+    if (packageName.empty())
+      packageName = _currentPackageName;
+    _genericFunctionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareGenericFunction(name, decl);
   }
 
@@ -929,9 +1027,12 @@ private:
 
     auto concreteFunction = instantiateFunctionDecl(
         genericFunction, concreteName, parameterName, argumentType);
-    _instantiatedFunctionPackages[concreteName] = packageNameOf(name);
+    _instantiatedFunctionPackages[concreteName] =
+        genericFunctionPackageName(name);
 
     VariableScope signatureScope(_symbols);
+    PackageScope packageScope(_currentPackageName,
+                              genericFunctionPackageName(name));
     if (semaFunctionSignature(concreteFunction->proto().get()))
       return failure();
     auto *signature = lookupFunction(concreteName);
@@ -946,6 +1047,19 @@ private:
   auto functionPackageName(std::string_view name) const -> std::string {
     auto package = _instantiatedFunctionPackages.find(std::string(name));
     if (package != _instantiatedFunctionPackages.end())
+      return package->second;
+    package = _functionPackages.find(std::string(name));
+    if (package != _functionPackages.end())
+      return package->second;
+    package = _genericFunctionPackages.find(std::string(name));
+    if (package != _genericFunctionPackages.end())
+      return package->second;
+    return packageNameOf(name);
+  }
+
+  auto genericFunctionPackageName(std::string_view name) const -> std::string {
+    auto package = _genericFunctionPackages.find(std::string(name));
+    if (package != _genericFunctionPackages.end())
       return package->second;
     return packageNameOf(name);
   }
@@ -1470,6 +1584,41 @@ auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
   return success();
 }
 
+auto SemaImpl::declareStructMethods(
+    std::string_view ownerName, const VectorUniquePtr<FunctionDecl> &methods,
+    std::string_view typeParameterName, std::string_view packageName)
+    -> CherryResult {
+  NameSet methodNames;
+  for (auto &method : methods) {
+    auto *prototype = method->proto().get();
+    auto methodName = prototype->id()->name();
+    if (!declareName(methodNames, methodName)) {
+      auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
+                                             methodName);
+      return emitError(prototype->id().get(), diagnostic);
+    }
+
+    auto fullName = methodFunctionName(ownerName, methodName);
+    prototype->id()->setName(fullName);
+    if (!prototype->isGeneric() && !typeParameterName.empty())
+      prototype->setTypeParameterName(typeParameterName);
+
+    if (prototype->isGeneric()) {
+      if (declareGenericFunction(fullName, method.get(), packageName)) {
+        auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
+                                               fullName);
+        return emitError(prototype->id().get(), diagnostic);
+      }
+      continue;
+    }
+
+    _functionPackages[fullName] = std::string(packageName);
+    if (sema(method.get()))
+      return failure();
+  }
+  return success();
+}
+
 auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   PackageScope packageScope(_currentPackageName,
                             packageNameOf(node->id()->name()));
@@ -1496,6 +1645,9 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   id->setType(structType);
   if (declareStructType(structType))
     return emitError(id, diag::redefinition_type);
+  if (declareStructMethods(id->name(), node->methods(), {},
+                           packageNameOf(id->name())))
+    return failure();
   return success();
 }
 
@@ -1512,6 +1664,9 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
       return failure();
     if (_symbols.declareType(node->name(), bodyType))
       return emitError(node, diag::redefinition_type);
+    if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode()))
+      return declareStructMethods(node->name(), structTypeNode->methods(), {},
+                                  packageName);
     return success();
   }
 
@@ -1521,6 +1676,15 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
                                      node->parameters().end()),
           node->bodyTypeNode()))
     return emitError(node, diag::redefinition_type);
+  if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode())) {
+    std::string typeParameterName;
+    if (node->parameters().size() == 1 &&
+        node->parameters().front().kind == ComptimeParam::Kind::Type)
+      typeParameterName = node->parameters().front().name;
+    if (declareStructMethods(node->name(), structTypeNode->methods(),
+                             typeParameterName, packageName))
+      return failure();
+  }
   return success();
 }
 
@@ -1581,6 +1745,9 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
   }
 
   auto *call = dyn_cast<CallExpr>(node);
+  if (call && call->hasReceiver())
+    return semaMethodCall(call, type);
+
   if (call && call->name() == builtins::zeros) {
     auto *tensorType = cherry::getTensorType(type);
     if (!tensorType)
@@ -1623,7 +1790,8 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   auto *genericFunction = symbol->decl;
   auto *genericProto = genericFunction->proto().get();
   auto name = genericProto->id()->name();
-  PackageScope packageScope(_currentPackageName, packageNameOf(name));
+  PackageScope packageScope(_currentPackageName,
+                            genericFunctionPackageName(name));
   auto &expressions = node->expressions();
   auto &parameters = genericProto->parameters();
   if (expressions.size() != parameters.size()) {
@@ -1658,7 +1826,8 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   if (cached == _instantiatedFunctionSymbols.end()) {
     auto concreteFunction = instantiateFunctionDecl(
         genericFunction, concreteName, parameterName, argumentType);
-    _instantiatedFunctionPackages[concreteName] = packageNameOf(name);
+    _instantiatedFunctionPackages[concreteName] =
+        genericFunctionPackageName(name);
 
     VariableScope signatureScope(_symbols);
     if (semaFunctionSignature(concreteFunction->proto().get()))
@@ -1715,6 +1884,9 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
 }
 
 auto SemaImpl::sema(CallExpr *node) -> CherryResult {
+  if (node->hasReceiver())
+    return semaMethodCall(node);
+
   node->setName(canonicalizeImportedName(node->name()));
   auto name = node->name();
 
@@ -1773,6 +1945,9 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
     if (auto *genericFunction = lookupGenericFunction(name))
       return semaGenericCall(node, genericFunction);
 
+    if (name.find('.') != std::string_view::npos)
+      return semaDottedMethodCall(node);
+
     auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
     return emitError(node, diagnostic);
   }
@@ -1803,6 +1978,60 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   if (signature->returnType)
     node->setType(signature->returnType);
   return success();
+}
+
+auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
+  if (!node->hasReceiver())
+    return semaDottedMethodCall(node, expectedType);
+
+  if (sema(node->receiver().get()))
+    return failure();
+
+  auto *receiverType = node->receiver()->type();
+  auto *ptrType = cherry::getPtrType(receiverType);
+  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
+                             : cherry::getStructType(receiverType);
+  if (!structType)
+    return emitError(node->receiver().get(), diag::mismatch_type);
+
+  std::vector<std::string> owners;
+  if (auto *origin = structType->origin())
+    owners.push_back(std::string(origin->aliasName()));
+  owners.push_back(std::string(structType->name()));
+
+  auto methodName = std::string(node->name());
+  for (auto &owner : owners) {
+    auto fullName = methodFunctionName(owner, methodName);
+    if (auto *genericFunction = lookupGenericFunction(fullName)) {
+      node->lowerMethodCall(fullName);
+      return semaGenericCall(node, genericFunction, expectedType);
+    }
+
+    if (lookupFunction(fullName)) {
+      node->lowerMethodCall(fullName);
+      return sema(node);
+    }
+  }
+
+  auto diagnostic = formatNameDiagnostic(diag::undefined_func, methodName);
+  return emitError(node, diagnostic);
+}
+
+auto SemaImpl::semaDottedMethodCall(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
+  auto name = std::string(node->name());
+  auto dot = name.rfind('.');
+  if (dot == std::string::npos) {
+    auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
+    return emitError(node, diagnostic);
+  }
+
+  auto receiverName = name.substr(0, dot);
+  auto methodName = name.substr(dot + 1);
+  node->setReceiver(createMemberAccessChain(node->location(), receiverName),
+                    methodName);
+  return semaMethodCall(node, expectedType);
 }
 
 auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
@@ -1855,9 +2084,18 @@ auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
   if (!field->type())
     return emitError(node, diag::mismatch_type);
 
+  auto *baseIndex = llvm::dyn_cast<IndexExpr>(node->base().get());
+  auto isStdlibListElement =
+      baseIndex &&
+      baseIndex->indexKind() == IndexExpr::IndexKind::StdlibList;
+
   node->setType(field->type());
   node->setFieldIndex(field->index());
-  node->setLvalue(ptrType || node->base()->isLvalue());
+  // `xs[i]` is assignable as a whole through ListStorage.set.  Its field access
+  // is only a read from the value returned by ListStorage.get until the
+  // language has element references.
+  node->setLvalue(!isStdlibListElement &&
+                  (ptrType || node->base()->isLvalue()));
   return success();
 }
 
@@ -2104,8 +2342,10 @@ auto SemaImpl::semaStdlibListLiteral(ArrayLiteralExpr *expr,
   std::string withCapacityFunctionName;
   std::string pushFunctionName;
   if (instantiateGenericFunction(expr, "std.collections.withCapacity",
-                                 elementType, withCapacityFunctionName) ||
-      instantiateGenericFunction(expr, "std.collections.push",
+                                 elementType, withCapacityFunctionName))
+    return failure();
+  if (!elements.empty() &&
+      instantiateGenericFunction(expr, "std.collections.ListStorage.push",
                                  elementType, pushFunctionName))
     return failure();
 
@@ -2210,6 +2450,29 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   if (sema(expr->base().get()))
     return failure();
 
+  if (auto *elementType = stdlibListElementType(expr->base()->type())) {
+    if (expr->indices().size() != 1)
+      return emitError(expr, diag::mismatch_type);
+    auto &index = expr->indices().front();
+    if (sema(index.get()))
+      return failure();
+    if (!isUInt64Type(index->type()))
+      return emitError(index.get(), diag::mismatch_type);
+
+    std::string getFunctionName;
+    std::string setFunctionName;
+    if (instantiateGenericFunction(expr, "std.collections.ListStorage.get",
+                                   elementType, getFunctionName) ||
+        instantiateGenericFunction(expr, "std.collections.ListStorage.set",
+                                   elementType, setFunctionName))
+      return failure();
+
+    expr->setType(elementType);
+    expr->setLvalue(true);
+    expr->setStdlibListIndex(getFunctionName, setFunctionName);
+    return success();
+  }
+
   auto *ptrType = cherry::getPtrType(expr->base()->type());
   if (ptrType) {
     if (expr->indices().size() != 1)
@@ -2222,6 +2485,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
 
     expr->setType(ptrType->pointeeType());
     expr->setLvalue(true);
+    expr->setPtrIndex();
     return success();
   }
 
@@ -2242,6 +2506,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
 
   expr->setType(tensorType->elementType());
   expr->setLvalue(true);
+  expr->setTensorIndex();
   return success();
 }
 

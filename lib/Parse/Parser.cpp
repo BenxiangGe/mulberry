@@ -306,25 +306,35 @@ auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> CherryResult {
 auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
   auto loc = tokenLoc();
   unique_ptr<Prototype> proto;
-  unique_ptr<BlockExpr> body;
+  unique_ptr<FunctionDecl> functionDecl;
   if (parsePrototype(proto) ||
-      parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(body))
+      parseFunctionDeclBody(loc, std::move(proto), functionDecl))
     return failure();
 
-  decl = make_unique<FunctionDecl>(loc, std::move(proto), std::move(body));
+  decl = std::move(functionDecl);
   return success();
 }
 
-auto Parser::parsePrototype(unique_ptr<Prototype> &proto) -> CherryResult {
+auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
+    -> CherryResult {
   auto location = tokenLoc();
   consume(Token::kw_fn);
 
   // Parse name
   unique_ptr<FunctionName> name;
   std::string typeParameterName;
-  if (parseFunctionName(name, diag::expected_id) ||
-      parseOptionalTypeParameter(typeParameterName) ||
+  if (qualifyName) {
+    if (parseFunctionName(name, diag::expected_id))
+      return failure();
+  } else {
+    auto nameLocation = tokenLoc();
+    auto methodName = spelling();
+    if (parseToken(Token::identifier, diag::expected_id))
+      return failure();
+    name = make_unique<FunctionName>(nameLocation, methodName);
+  }
+
+  if (parseOptionalTypeParameter(typeParameterName) ||
       parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
 
@@ -352,6 +362,33 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto) -> CherryResult {
   proto = make_unique<Prototype>(location, std::move(name),
                                  std::move(parameters), std::move(typeNode),
                                  typeParameterName);
+  return success();
+}
+
+auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
+                                   unique_ptr<Prototype> proto,
+                                   unique_ptr<FunctionDecl> &functionDecl)
+    -> CherryResult {
+  unique_ptr<BlockExpr> body;
+  if (parseToken(Token::l_brace, diag::expected_l_brace) ||
+      parseBlockExpr(body))
+    return failure();
+
+  functionDecl = make_unique<FunctionDecl>(
+      location, std::move(proto), std::move(body));
+  return success();
+}
+
+auto Parser::parseStructMethod(unique_ptr<FunctionDecl> &method)
+    -> CherryResult {
+  auto loc = tokenLoc();
+  consumeIf(Token::kw_pub);
+
+  unique_ptr<Prototype> proto;
+  if (parsePrototype(proto, /*qualifyName=*/false) ||
+      parseFunctionDeclBody(loc, std::move(proto), method))
+    return failure();
+
   return success();
 }
 
@@ -397,30 +434,42 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
     return failure();
 
   VectorUniquePtr<VariableStat> fields;
-  if (parseStructFields(fields))
+  VectorUniquePtr<FunctionDecl> methods;
+  if (parseStructMembers(fields, methods))
     return failure();
 
-  decl = make_unique<StructDecl>(loc, std::move(name), std::move(fields));
+  decl = make_unique<StructDecl>(
+      loc, std::move(name), std::move(fields), std::move(methods));
   return success();
 }
 
-auto Parser::parseStructFields(VectorUniquePtr<VariableStat> &fields)
+auto Parser::parseStructMembers(VectorUniquePtr<VariableStat> &fields,
+                                VectorUniquePtr<FunctionDecl> &methods)
     -> CherryResult {
-  return parseList(Token::comma, Token::r_brace,
-                   diag::expected_comma_or_r_brace, diag::expected_r_brace,
-                   fields,
-                   [this](unique_ptr<VariableStat> &elem) -> CherryResult {
-                     unique_ptr<VariableExpr> var;
-                     unique_ptr<TypeNode> typeNode;
-                     if (parseVariableExpr(var) ||
-                         parseToken(Token::colon, diag::expected_colon) ||
-                         parseType(typeNode))
-                       return failure();
-                     elem = make_unique<VariableStat>(
-                         var->location(), std::move(var), std::move(typeNode),
-                         nullptr);
-                     return success();
-                   });
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    if (tokenIs(Token::kw_pub) || tokenIs(Token::kw_fn)) {
+      unique_ptr<FunctionDecl> method;
+      if (parseStructMethod(method))
+        return failure();
+      methods.push_back(std::move(method));
+      consumeIf(Token::comma);
+      continue;
+    }
+
+    unique_ptr<VariableExpr> var;
+    unique_ptr<TypeNode> typeNode;
+    if (parseVariableExpr(var) ||
+        parseToken(Token::colon, diag::expected_colon) ||
+        parseType(typeNode))
+      return failure();
+    fields.push_back(make_unique<VariableStat>(
+        var->location(), std::move(var), std::move(typeNode), nullptr));
+
+    if (!tokenIs(Token::r_brace) &&
+        parseToken(Token::comma, diag::expected_comma_or_r_brace))
+      return failure();
+  }
+  return parseToken(Token::r_brace, diag::expected_r_brace);
 }
 
 auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
@@ -434,10 +483,12 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
     return failure();
 
   VectorUniquePtr<VariableStat> fields;
-  if (parseStructFields(fields))
+  VectorUniquePtr<FunctionDecl> methods;
+  if (parseStructMembers(fields, methods))
     return failure();
 
-  typeNode = make_unique<StructTypeNode>(location, std::move(fields));
+  typeNode = make_unique<StructTypeNode>(
+      location, std::move(fields), std::move(methods));
   return success();
 }
 
@@ -906,8 +957,19 @@ auto Parser::parseMemberAccess(std::unique_ptr<Expr> &expr)
   if (parseToken(Token::identifier, diag::expected_id))
     return failure();
 
-  expr =
-      std::make_unique<MemberExpr>(location, std::move(expr), fieldName);
+  if (tokenIs(Token::l_paren)) {
+    consume(Token::l_paren);
+    auto expressions = VectorUniquePtr<Expr>();
+    if (parseExpressions(expressions, Token::comma, Token::r_paren,
+                         diag::expected_comma_or_r_paren,
+                         diag::expected_r_paren))
+      return failure();
+    expr = std::make_unique<CallExpr>(
+        location, std::move(expr), fieldName, std::move(expressions));
+    return success();
+  }
+
+  expr = std::make_unique<MemberExpr>(location, std::move(expr), fieldName);
   return success();
 }
 

@@ -66,6 +66,55 @@ var value: Ptr<UInt64> = make();
 `make__UInt64`。这让 `new<T>()` 这类无参数 factory 可以保持源码简洁，不需要引入
 `make<UInt64>()` 这种显式 generic call 语法。
 
+## M1：method-in-struct
+
+Mulberry 后续只支持 Rust/Zig 风格的 method-in-struct，不做 OOP。method 本质上仍是
+普通函数，只是声明位置放在 struct 里，并且 dot call 会把 receiver 放到第一个实参：
+
+```cherry
+comptime BoxStorage<T> = struct {
+  value: T,
+
+  pub fn get(self: Ptr<BoxStorage<T>>): T {
+    self.value
+  }
+};
+
+comptime Box<T> = Ptr<BoxStorage<T>>;
+```
+
+使用处：
+
+```cherry
+var box: Box<UInt64> = heap.alloc<BoxStorage<UInt64>>();
+box.value = 42;
+box.get()
+```
+
+Sema 处理为普通 generic function instantiation：
+
+```text
+box.get()
+  -> std.<package>.BoxStorage.get__UInt64(box)
+```
+
+这个设计保持现有分层：
+
+- Parser 只需要能把 struct 里的 `fn` 解析成 method declaration。
+- Sema 根据 receiver type 做 method lookup，并把 dot call 改写成普通 call。
+- Generic method 和普通 generic function 一样单态化。
+- MLIRGen 只看到 concrete function 和普通 `func.call`。
+
+第一版的限制要刻意保持小：
+
+- `self` 必须显式写在参数列表里，且只是普通第一个参数。
+- 不区分 readonly / mutable receiver。
+- method 名字只在所属 struct 的 method scope 内查找；不同 struct 可以有同名
+  method。
+- 不支持继承、虚表、接口、trait bound、动态派发、extension method、method value。
+- factory 这类没有 receiver 的函数暂时保持自由函数，例如
+  `collections.withCapacity(...)`。
+
 ## 标准库入口
 
 `stdlib/std/types.cherry` 里先放最小的类型级 alias：

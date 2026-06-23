@@ -3,7 +3,7 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn use(xs: types.Vector<UInt64>, ys: types.Matrix<Float32>): UInt64 {
-  collections.size(xs) + size(ys)
+  xs.size() + size(ys)
 }
 
 fn main(): UInt64 {

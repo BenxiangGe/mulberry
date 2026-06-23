@@ -183,10 +183,10 @@ def writeCherrySource(
             f"  const y: UInt64 = {y};",
             "\n".join(
                 [
-                    "  for layer in 0 .. collections.size(weights) {",
+                    "  for layer in 0 .. weights.size() {",
                     "    activation = sigmoid(matadd(",
-                    "        matmul(collections.get(weights, layer), activation),",
-                    "        collections.get(biases, layer)));",
+                    "        matmul(weights[layer], activation),",
+                    "        biases[layer]));",
                     "    ()",
                     "  };",
                 ]
