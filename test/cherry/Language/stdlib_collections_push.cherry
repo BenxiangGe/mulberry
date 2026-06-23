@@ -21,9 +21,6 @@ fn main(): UInt64 {
 # MLIR-DAG: func.func @std_collections_push__UInt64
 # MLIR-DAG: mulberry.ptr.index
 # MLIR-DAG: arith.addi
-# MLIR-NOT: mulberry.list.create
-# MLIR-NOT: mulberry.list.get
-# MLIR-NOT: mulberry.list.size
 
 # JIT: 2
 # JIT-NEXT: 100

@@ -4,4 +4,6 @@ import collections.List;
 import io;
 import io.File;
 import string.String;
+import tensor;
+import tensor.Tensor;
 import types;

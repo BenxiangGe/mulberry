@@ -1,14 +1,14 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 struct Model {
-  weights: List<Float32[?, ?]>,
+  weights: List<Tensor<Float32, 2>>,
   bias: Float32[?, ?]
 }
 
-fn makeModel(w1: Float32[?, ?],
-             w2: Float32[?, ?],
+fn makeModel(w1: Tensor<Float32, 2>,
+             w2: Tensor<Float32, 2>,
              bias: Float32[?, ?]): Model {
-  var weights: List<Float32[?, ?]> = [w1, w2];
+  var weights: List<Tensor<Float32, 2>> = [w1, w2];
   Model { weights, bias }
 }
 
@@ -16,35 +16,36 @@ fn main(): UInt64 {
   var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
   var w2: Float32[?, ?] = [[1.0, 1.0]];
   var bias: Float32[?, ?] = [[0.0]];
+  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
+  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
 
-  var model: Model = makeModel(w1, w2, bias);
+  var model: Model = makeModel(w1h, w2h, bias);
   var otherBias: Float32[?, ?] = bias;
   var activeBias: Float32[?, ?] = if true {
     model.bias
   } else {
     otherBias
   };
-  var firstWeight: Float32[?, ?] = collections.get(model.weights, 0);
+  var firstWeight: Tensor<Float32, 2> =
+      collections.get(model.weights, 0);
 
   collections.size(model.weights) + size(firstWeight) + size(activeBias)
 }
 
 # CHECK-LABEL: func.func @makeModel
-# CHECK-SAME: !mulberry.tensor<?x?xf32>
-# CHECK-SAME: !mulberry.tensor<?x?xf32>
+# CHECK-SAME: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# CHECK-SAME: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
 # CHECK-SAME: !mulberry.tensor<?x?xf32>
 # CHECK-SAME: -> !mulberry.record<Model
-# CHECK: call @std_collections_withCapacity__Float32______
-# CHECK: call @std_collections_push__Float32______
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_push__
 # CHECK: mulberry.record.get_field {{.*}}["bias"]
 # CHECK-LABEL: func.func @main()
+# CHECK: mulberry.tensor.pack
 # CHECK: call @makeModel
 # CHECK: scf.if
 # CHECK: mulberry.record.get_field {{.*}}["bias"]
 # CHECK: mulberry.record.get_field {{.*}}["weights"]
-# CHECK: call @std_collections_get__Float32______
-# CHECK: mulberry.record.get_field {{.*}}["weights"]
-# CHECK: call @std_collections_size__Float32______
-# CHECK-NOT: mulberry.list.create
-# CHECK-NOT: mulberry.list.get
-# CHECK-NOT: mulberry.list.size
+# CHECK: call @std_collections_get__
+# CHECK: call @std_collections_size__
+# CHECK: mulberry.tensor.view

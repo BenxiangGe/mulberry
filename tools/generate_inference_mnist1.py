@@ -170,8 +170,13 @@ def writeCherrySource(
             emitVariable("b2", b2),
             "\n".join(
                 [
-                    "  var weights: Ptr<collections.List<Float32[?, ?]>> = [w1, w2];",
-                    "  var biases: Ptr<collections.List<Float32[?, ?]>> = [b1, b2];",
+                    "  var w1h: Tensor<Float32, 2> = tensor.pack(w1);",
+                    "  var b1h: Tensor<Float32, 2> = tensor.pack(b1);",
+                    "  var w2h: Tensor<Float32, 2> = tensor.pack(w2);",
+                    "  var b2h: Tensor<Float32, 2> = tensor.pack(b2);",
+                    "",
+                    "  var weights: List<Tensor<Float32, 2>> = [w1h, w2h];",
+                    "  var biases: List<Tensor<Float32, 2>> = [b1h, b2h];",
                 ]
             ),
             emitVariable("activation", x, typeAnnotation="Float32[?, ?]"),

@@ -102,9 +102,20 @@ private:
     if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
       return "Ptr<" + formatTypeNode(ptrType->pointeeTypeNode()) + ">";
 
-    if (auto *genericType = dyn_cast<GenericTypeNode>(node))
-      return std::string(genericType->name()) + "<" +
-             formatTypeNode(genericType->argumentTypeNode()) + ">";
+    if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+      std::string result = std::string(genericType->name()) + "<";
+      std::string separator;
+      for (auto &argument : genericType->arguments()) {
+        result += separator;
+        if (argument.kind() == ComptimeArg::Kind::UInt64)
+          result += std::to_string(argument.uint64Value());
+        else
+          result += formatTypeNode(argument.typeNode());
+        separator = ", ";
+      }
+      result += ">";
+      return result;
+    }
 
     if (auto *structType = dyn_cast<StructTypeNode>(node)) {
       std::string result = "struct {";
@@ -122,6 +133,46 @@ private:
 
     auto *namedType = cast<NamedTypeNode>(node);
     return std::string(namedType->name());
+  }
+
+  auto formatComptimeParams(const std::vector<ComptimeParam> &parameters)
+      -> std::string {
+    std::string result;
+    std::string separator;
+    for (auto &parameter : parameters) {
+      result += separator;
+      result += parameter.name;
+      if (parameter.kind == ComptimeParam::Kind::UInt64)
+        result += ": UInt64";
+      separator = ", ";
+    }
+    return result;
+  }
+
+  auto formatOrigin(const ComptimeAliasOrigin *origin) -> std::string {
+    if (!origin)
+      return {};
+
+    std::string result = std::string(origin->aliasName()) + "<";
+    std::string separator;
+    for (auto &argument : origin->arguments()) {
+      result += separator;
+      if (argument.kind() == ComptimeTypeValue::Kind::Type)
+        result += formatType(argument.type());
+      else
+        result += std::to_string(argument.uint64Value());
+      separator = ", ";
+    }
+    result += ">";
+    return result;
+  }
+
+  auto originOf(const Type *type) -> const ComptimeAliasOrigin * {
+    if (auto *ptrType = getPtrType(type))
+      type = ptrType->pointeeType();
+    if (auto *structType = getStructType(type))
+      return structType->origin();
+    return nullptr;
   }
 };
 
@@ -195,7 +246,7 @@ auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
   INDENT();
   errs() << "ComptimeTypeAliasDecl " << loc(node)
          << " (name=" << node->name()
-         << " parameter=" << node->parameterName()
+         << " parameter=" << formatComptimeParams(node->parameters())
          << " type=" << formatTypeNode(node->bodyTypeNode()) << ")\n";
 }
 
@@ -392,7 +443,10 @@ auto Dumper::dump(const VariableStat *node) -> void {
     errs() << "const ";
   errs() << "(id=" << id->name() << " " << loc(id)
          << ") (type=" << formatTypeNode(typeNode) << " "
-         << loc(typeNode) << ")\n";
+         << loc(typeNode) << ")";
+  if (auto origin = formatOrigin(originOf(node->type())); !origin.empty())
+    errs() << " origin=" << origin;
+  errs() << "\n";
   if (node->init())
     dump(node->init().get());
 }

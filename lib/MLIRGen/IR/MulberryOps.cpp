@@ -27,11 +27,6 @@ static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
   return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
 }
 
-static auto getTensorDescType(Type type)
-    -> mlir::mulberry::TensorDescType {
-  return llvm::dyn_cast<mlir::mulberry::TensorDescType>(type);
-}
-
 static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
   size_t count = 0;
   for (auto dim : shape)
@@ -49,38 +44,6 @@ static auto compatibleTensorShape(ArrayRef<int64_t> sourceShape,
     auto sourceDim = sourceShape[i];
     auto destDim = destShape[i];
     if (sourceDim >= 0 && destDim >= 0 && sourceDim != destDim)
-      return false;
-  }
-
-  return true;
-}
-
-static auto tensorShapeFitsDesc(ArrayRef<int64_t> tensorShape,
-                                ArrayRef<int64_t> descShape) -> bool {
-  if (tensorShape.size() != descShape.size())
-    return false;
-
-  for (size_t i = 0; i < tensorShape.size(); ++i) {
-    auto tensorDim = tensorShape[i];
-    auto descDim = descShape[i];
-    if (descDim >= 0 && tensorDim != descDim)
-      return false;
-  }
-
-  return true;
-}
-
-static auto descShapeFitsTensor(ArrayRef<int64_t> descShape,
-                                ArrayRef<int64_t> tensorShape) -> bool {
-  if (descShape.size() != tensorShape.size())
-    return false;
-
-  for (size_t i = 0; i < descShape.size(); ++i) {
-    auto descDim = descShape[i];
-    auto tensorDim = tensorShape[i];
-    // Unpack may widen static descriptor dims to dynamic tensor dims. Narrowing
-    // a dynamic descriptor dim to a static tensor dim would need a runtime check.
-    if (tensorDim >= 0 && descDim != tensorDim)
       return false;
   }
 
@@ -184,6 +147,53 @@ auto TensorCastOp::verify() -> LogicalResult {
   return success();
 }
 
+static auto verifyTensorStorageRecord(Operation* op, RecordType recordType,
+                                      mlir::mulberry::TensorType tensorType,
+                                      StringRef valueName) -> LogicalResult {
+  if (!recordType)
+    return op->emitOpError(valueName)
+           << " must be a pointer to a Mulberry record";
+
+  auto rankType = recordType.getFieldType("rank");
+  if (!rankType || !rankType.isInteger(64))
+    return op->emitOpError(valueName)
+           << " record needs an i64 `rank` field";
+
+  auto dataType = recordType.getFieldType("data");
+  if (getPtrPointeeType(dataType) != tensorType.getElementType())
+    return op->emitOpError(valueName)
+           << " record data pointee type must match tensor element type";
+
+  auto sizesPointeeType = getPtrPointeeType(recordType.getFieldType("sizes"));
+  if (!sizesPointeeType || !sizesPointeeType.isInteger(64))
+    return op->emitOpError(valueName)
+           << " record needs a Ptr<i64> `sizes` field";
+
+  auto stridesPointeeType =
+      getPtrPointeeType(recordType.getFieldType("strides"));
+  if (!stridesPointeeType || !stridesPointeeType.isInteger(64))
+    return op->emitOpError(valueName)
+           << " record needs a Ptr<i64> `strides` field";
+
+  return success();
+}
+
+auto TensorViewOp::verify() -> LogicalResult {
+  auto recordType = llvm::dyn_cast<RecordType>(
+      getPtrPointeeType(getHandle().getType()));
+  auto tensorType = getTensorType(getResult().getType());
+  return verifyTensorStorageRecord(getOperation(), recordType, tensorType,
+                                   "handle");
+}
+
+auto TensorPackOp::verify() -> LogicalResult {
+  auto recordType = llvm::dyn_cast<RecordType>(
+      getPtrPointeeType(getHandle().getType()));
+  auto tensorType = getTensorType(getTensor().getType());
+  return verifyTensorStorageRecord(getOperation(), recordType, tensorType,
+                                   "handle");
+}
+
 auto TensorLoadOp::verify() -> LogicalResult {
   auto tensorType = getTensorType(getTensor().getType());
   if (tensorType.getShape().size() != getIndices().size())
@@ -202,67 +212,6 @@ auto TensorStoreOp::verify() -> LogicalResult {
 
   if (tensorType.getElementType() != getValue().getType())
     return emitOpError("value type must match tensor element type");
-
-  return success();
-}
-
-auto TensorDescPackOp::verify() -> LogicalResult {
-  auto tensorType = getTensorType(getTensor().getType());
-  auto descType = getTensorDescType(getResult().getType());
-
-  if (tensorType.getElementType() != descType.getElementType())
-    return emitOpError(
-        "descriptor element type must match tensor element type");
-
-  if (!tensorShapeFitsDesc(tensorType.getShape(), descType.getShape()))
-    return emitOpError("descriptor shape must be compatible with tensor shape");
-
-  return success();
-}
-
-auto TensorDescUnpackOp::verify() -> LogicalResult {
-  auto descType = getTensorDescType(getDesc().getType());
-  auto tensorType = getTensorType(getResult().getType());
-
-  if (descType.getElementType() != tensorType.getElementType())
-    return emitOpError(
-        "tensor element type must match descriptor element type");
-
-  if (!descShapeFitsTensor(descType.getShape(), tensorType.getShape()))
-    return emitOpError("tensor shape must be compatible with descriptor shape");
-
-  return success();
-}
-
-static auto isTensorABIDataPtrType(Type type) -> bool {
-  return llvm::isa<LLVM::LLVMPointerType>(type);
-}
-
-static auto isTensorABIRecordType(Type type, unsigned rank) -> bool {
-  auto structType = llvm::dyn_cast<LLVM::LLVMStructType>(type);
-  if (!structType || structType.isOpaque())
-    return false;
-
-  auto fields = structType.getBody();
-  if (fields.size() != 3 || !isTensorABIDataPtrType(fields[0]))
-    return false;
-
-  auto sizesType = llvm::dyn_cast<LLVM::LLVMArrayType>(fields[1]);
-  auto stridesType = llvm::dyn_cast<LLVM::LLVMArrayType>(fields[2]);
-  if (!sizesType || !stridesType)
-    return false;
-
-  return sizesType.getNumElements() == rank &&
-         stridesType.getNumElements() == rank &&
-         sizesType.getElementType().isInteger(64) &&
-         stridesType.getElementType().isInteger(64);
-}
-
-auto TensorDescToABIOp::verify() -> LogicalResult {
-  auto descType = getTensorDescType(getDesc().getType());
-  if (!isTensorABIRecordType(getResult().getType(), descType.getShape().size()))
-    return emitOpError(
-        "result type must be a tensor ABI record `{data, sizes, strides}`");
 
   return success();
 }

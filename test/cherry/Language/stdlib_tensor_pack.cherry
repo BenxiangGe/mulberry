@@ -1,0 +1,29 @@
+# RUN: cherry-driver -typecheck %s
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var data: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var packedTensor: Tensor<Float32, 2> = tensor.pack(data);
+  var view: Float32[?, ?] = tensor.view(packedTensor);
+  io.print(size(view));
+  io.print(boolToUInt64(view[1, 1] gt 3.5));
+  0
+}
+
+# AST: VariableStat (id=packedTensor
+# AST-SAME: type=Tensor<Float32, 2>
+# AST-SAME: origin=std.tensor.TensorStorage<Float32, 2>
+# AST: CallExpr {{.*}}callee=std.tensor.pack
+
+# MLIR: mulberry.tensor.pack
+# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+
+# LOWERED-NOT: mulberry.tensor.pack
+# LOWERED-NOT: mulberry.tensor.view
+# LOWERED: memref.copy
+
+# JIT: 2
+# JIT-NEXT: 1

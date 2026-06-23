@@ -27,7 +27,6 @@ fn main(): UInt64 {
 # MLIR-SAME: !mulberry.tensor<?xi8> -> i8
 # MLIR-LABEL: func.func @minByte(%arg0: i8, %arg1: i8) -> i8
 # MLIR: arith.cmpi ult, {{.*}} : i8
-# MLIR-NOT: mulberry.list.create
 
 # LOWERED-LABEL: func.func @first(%arg0: memref<?xi8>) -> i8
 # LOWERED: memref.load

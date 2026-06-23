@@ -1,0 +1,24 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+fn main(): UInt64 {
+  const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
+  var w1Handle: Tensor<Float32, 2> = readTensor(file, "w1");
+  io.close(file);
+  var w1: Float32[?, ?] = tensor.view(w1Handle);
+  size(w1)
+}
+
+# MLIR: call @__cherry_safetensor_read_
+# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
+# MLIR: mulberry.tensor.pack
+# MLIR: mulberry.tensor.view
+
+# LOWERED-DAG: llvm.func @mulberry_safetensor_shape_f32
+# LOWERED-DAG: llvm.func @mulberry_safetensor_read_f32
+# LOWERED: llvm.call @mulberry_safetensor_shape_f32
+# LOWERED: llvm.call @mulberry_safetensor_read_f32
+# LOWERED: memref.copy
+# LOWERED-NOT: mulberry.tensor.pack
+# LOWERED-NOT: mulberry.tensor.view
+# LOWERED-NOT: __cherry_safetensor_read_

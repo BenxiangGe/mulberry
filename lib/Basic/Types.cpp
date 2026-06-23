@@ -13,6 +13,37 @@ Type::Type(TypeKind kind) : _kind(kind) {}
 
 auto Type::kind() const -> TypeKind { return _kind; }
 
+ComptimeTypeValue::ComptimeTypeValue(const Type *type)
+    : _kind(Kind::Type), _type(type) {}
+
+ComptimeTypeValue::ComptimeTypeValue(uint64_t uint64Value)
+    : _kind(Kind::UInt64), _uint64Value(uint64Value) {}
+
+auto ComptimeTypeValue::kind() const -> Kind {
+  return _kind;
+}
+
+auto ComptimeTypeValue::type() const -> const Type * {
+  return _type;
+}
+
+auto ComptimeTypeValue::uint64Value() const -> uint64_t {
+  return _uint64Value;
+}
+
+ComptimeAliasOrigin::ComptimeAliasOrigin(
+    std::string_view aliasName, std::vector<ComptimeTypeValue> arguments)
+    : _aliasName(aliasName), _arguments(std::move(arguments)) {}
+
+auto ComptimeAliasOrigin::aliasName() const -> std::string_view {
+  return _aliasName;
+}
+
+auto ComptimeAliasOrigin::arguments() const
+    -> const std::vector<ComptimeTypeValue> & {
+  return _arguments;
+}
+
 BuiltinType::BuiltinType(BuiltinTypeKind kind)
     : Type(TypeKind::Builtin), _builtinKind(kind) {}
 
@@ -61,6 +92,12 @@ StructType::StructType(std::string_view name,
     : Type(TypeKind::Struct),
       _name(name), _fields(std::move(fields)) {}
 
+StructType::StructType(std::string_view name,
+                       std::vector<StructField> fields,
+                       ComptimeAliasOrigin origin)
+    : Type(TypeKind::Struct), _name(name), _fields(std::move(fields)),
+      _origin(std::move(origin)) {}
+
 auto StructType::classof(const Type *type) -> bool {
   return type && type->kind() == TypeKind::Struct;
 }
@@ -79,6 +116,12 @@ auto StructType::field(std::string_view fieldName) const
     if (field.name() == fieldName)
       return &field;
   return nullptr;
+}
+
+auto StructType::origin() const -> const ComptimeAliasOrigin * {
+  if (!_origin)
+    return nullptr;
+  return &*_origin;
 }
 
 TensorType::TensorType(const Type *elementType, std::vector<int64_t> shape)
@@ -518,6 +561,16 @@ auto TypeContext::createStructType(std::string_view name,
   auto &structTypes = structTypeStorage();
   structTypes.push_back(std::make_unique<StructType>(
       name, std::move(fields)));
+  return structTypes.back().get();
+}
+
+auto TypeContext::createStructType(std::string_view name,
+                                   std::vector<StructField> fields,
+                                   ComptimeAliasOrigin origin) const
+    -> const StructType * {
+  auto &structTypes = structTypeStorage();
+  structTypes.push_back(std::make_unique<StructType>(
+      name, std::move(fields), std::move(origin)));
   return structTypes.back().get();
 }
 

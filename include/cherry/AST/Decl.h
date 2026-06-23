@@ -12,6 +12,8 @@
 #include "cherry/AST/Node.h"
 #include "cherry/AST/Type.h"
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace cherry {
 
@@ -162,7 +164,17 @@ public:
                         std::string_view parameterName,
                         std::unique_ptr<TypeNode> bodyTypeNode)
       : Decl{Decl_ComptimeTypeAlias, location}, _name(name),
-        _parameterName(parameterName), _bodyTypeNode(std::move(bodyTypeNode)) {}
+        _bodyTypeNode(std::move(bodyTypeNode)) {
+    if (!parameterName.empty())
+      _parameters.push_back(ComptimeParam(parameterName));
+  }
+
+  ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,
+                        std::vector<ComptimeParam> parameters,
+                        std::unique_ptr<TypeNode> bodyTypeNode)
+      : Decl{Decl_ComptimeTypeAlias, location}, _name(name),
+        _parameters(std::move(parameters)),
+        _bodyTypeNode(std::move(bodyTypeNode)) {}
 
   static auto classof(const Decl *node) -> bool {
     return node->getKind() == Decl_ComptimeTypeAlias;
@@ -170,9 +182,17 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
-  auto parameterName() const -> std::string_view { return _parameterName; }
+  auto parameterName() const -> std::string_view {
+    if (_parameters.empty())
+      return {};
+    return _parameters.front().name;
+  }
 
-  auto isGeneric() const -> bool { return !_parameterName.empty(); }
+  auto isGeneric() const -> bool { return !_parameters.empty(); }
+
+  auto parameters() const -> const std::vector<ComptimeParam> & {
+    return _parameters;
+  }
 
   auto bodyTypeNode() const -> const TypeNode * {
     return _bodyTypeNode.get();
@@ -180,7 +200,7 @@ public:
 
 private:
   std::string _name;
-  std::string _parameterName;
+  std::vector<ComptimeParam> _parameters;
   std::unique_ptr<TypeNode> _bodyTypeNode;
 };
 

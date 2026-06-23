@@ -1,0 +1,15 @@
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+comptime Storage<T, Rank: UInt64> = struct {
+  data: Ptr<T>
+};
+
+comptime Handle<T, Rank: UInt64> = Ptr<Storage<T, Rank>>;
+
+fn main(): UInt64 {
+  var handle: Handle<Float32, 2> = heap.alloc<Storage<Float32, 2>>();
+  0
+}
+
+# MLIR-LABEL: func.func @main()
+# MLIR: mulberry.heap.alloc !mulberry.record<Storage__Float32__2

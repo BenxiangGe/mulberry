@@ -101,40 +101,51 @@ comptime List<T> = Ptr<ListStorage<T>>;
 
 ```cherry
 comptime TensorStorage<T, Rank> = struct {
+  rank: UInt64,
   data: Ptr<T>,
   sizes: Ptr<UInt64>,
   strides: Ptr<UInt64>
 };
 
-comptime Tensor<T, Rank> = struct {
-  storage: Ptr<TensorStorage<T, Rank>>
-};
+comptime Tensor<T, Rank> = Ptr<TensorStorage<T, Rank>>;
 ```
 
 注意：旧的 `!mulberry.tensor_handle` / `tensor.handle_from_desc` 实验 IR 已删除。
-真正的 Tensor heap object handle 应该是上面这种 source-level record/Ptr 形态，不能
-复用旧 marker 偷换语义。
+真正的 Tensor heap object handle 已经采用上面这种 source-level record/Ptr
+形态，不能复用旧 marker 偷换语义。
 
-当前 P4.7 的设计结论是：暂时不实现 Tensor heap object handle。原因是现有
-`cherry_nn -> linalg` 正向路径依赖 Tensor lowering 成 MLIR `memref`，训练和推理
-JIT 都建立在这条路径上。现在如果强行把 `Float32[?, ?]` 改成 heap handle，会把
-Tensor 语义、memref view、函数边界 ABI 和 runtime ownership 一次性混在一起，风险
-很高。
+`TensorStorage` 是 heap object，不是 by-value descriptor。`rank` 是 runtime mirror；
+类型系统仍然负责静态 rank。`sizes` 和 `strides` 指向长度为 `Rank` 的连续数组；
+`data` 指向 dense row-major payload。第一版即使只支持 contiguous Tensor，也保留
+`strides` 字段，避免后面支持 slice/view 时重排对象 layout。
+
+当前 C8 的设计结论是：先实现 Tensor heap object handle 和显式 view bridge，但不把
+所有 source-level `Float32[?, ?]` 一次性改成 heap handle。原因是现有
+`cherry_nn -> linalg` 正向路径依赖 Tensor lowering 成 MLIR `memref`，训练和推理 JIT
+都建立在这条路径上。如果强行整体替换，会把 Tensor 语义、memref view、函数边界 ABI
+和 runtime ownership 一次性混在一起，风险很高。
 
 因此现阶段保留：
 
-- source-level Tensor 仍是可写 Tensor value，codegen 输出 `mulberry.tensor.*`。
+- source-level `Float32[?, ?]` 仍是可写 Tensor value，codegen 输出
+  `mulberry.tensor.*`。
+- source-level `std.tensor.Tensor<T, Rank>` 是普通 `Ptr<TensorStorage<T, Rank>>`
+  heap object handle。
+- `tensor.view(handle)` 是显式 unwrap 入口，会把 Tensor handle 转成当前旧 Tensor
+  value 路径使用的 memref view。
 - lowering 继续把 Tensor value 转成 `memref`，供 `cherry_nn` / `linalg` 使用。
-- `TensorDescType` 只允许作为 lowering 内部的 ABI/view helper。
-- `TensorDescType` 不允许跨函数边界，也不能被包装成“伪 heap handle”。
+- 公开 Tensor descriptor type/op 已删除；内部 Tensor ABI descriptor 只作为
+  LowerMulberry 的局部 C++ helper 存在。
+- descriptor helper 不允许变成函数边界 ABI，也不能被包装成“伪 heap handle”。
 
-未来真正迁移时，应该新增 source-level `TensorStorage` / `Tensor` layout，并让
-Tensor value 明确变成普通 `Ptr<TensorStorage<...>>` 或等价 handle。迁移应分阶段做：
+迁移仍然分阶段做：
 
-1. 先补齐 rank/shape metadata 的 source-level 表达。
-2. 再定义 Tensor heap object 的 layout 和 alias 语义。
-3. 再让 `cherry_nn` 接受 handle 或在 lowering 入口显式 unwrap 成 memref view。
-4. 最后删除仅为旧 memref boundary 服务的 descriptor helper。
+1. 已补齐 rank/shape metadata 的 source-level 表达。
+2. 已定义 Tensor heap object 的 layout 和 alias 语义。
+3. 已实现 handle -> memref view 的显式 unwrap lowering 入口：`tensor.view(handle)`。
+4. 已实现 memref allocation result -> Tensor handle 的显式 owning pack 入口：
+   `tensor.pack(value)`。
+5. 最后删除仅为旧 memref boundary 服务的 descriptor helper。
 
 String 的形态就是：
 
@@ -181,16 +192,17 @@ Ptr<List<UInt64>>
 { length: i64, data: ptr }
 ```
 
-动态 Tensor 同理：
+动态 Tensor 的最终对象模型也应该显式返回 handle：
 
 ```cherry
-fn makeTensor(): Float32[?, ?] {
+fn makeTensor(): Tensor<Float32, 2> {
   ...
 }
 ```
 
-底层返回 Tensor handle。caller 顺着 handle 找到 `TensorStorage`，再取出 data、sizes
-和 strides。
+caller 顺着 handle 找到 `TensorStorage`，再取出 data、sizes 和 strides。当前
+`Float32[?, ?]` 函数边界仍然保留为 memref-backed Tensor value 兼容路径；不要把它
+描述成 heap handle ABI。
 
 这样函数边界只需要传递普通 value / pointer / record，不需要专门的 descriptor escape
 机制。
@@ -290,8 +302,8 @@ C4.16  删除旧 list descriptor / escape_storage / boundary rewrite
 ```text
 P4.5   继续验证 nested List、record field List 和 Tensor element List 的正向路径
 P4.6   设计 List grow / capacity 策略，只在 training 需要时实现
-P4.7   已完成设计检查：暂不实现 Tensor heap object handle；禁止把 tensor descriptor
-       伪装成 handle
+P4.7   已完成设计检查：禁止把 tensor descriptor 伪装成 handle；真正的 handle
+       只能是 source-level `Ptr<TensorStorage<T, Rank>>`
 P4.8   如果要继续缩小 Mulberry dialect，逐项迁移 string/file/heap/record，而不是整块删除
 ```
 

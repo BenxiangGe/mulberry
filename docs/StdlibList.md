@@ -148,7 +148,8 @@ heap primitive。
 
 ```text
 List<UInt64>      -> concrete List storage/function set for UInt64
-List<Float32[?]>  -> concrete List storage/function set for that Tensor type
+List<Tensor<Float32, Rank>>
+                  -> concrete List storage/function set for that Tensor handle
 ```
 
 用户源码不应该出现很长的单态化名字。长名字只允许存在于编译器内部 symbol mangling

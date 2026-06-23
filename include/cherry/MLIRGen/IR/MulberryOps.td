@@ -20,10 +20,6 @@ def Mulberry_AnyTensorType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
     "Mulberry tensor type">;
 
-def Mulberry_AnyTensorDescType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::TensorDescType>($_self)">,
-    "Mulberry tensor descriptor type">;
-
 def Mulberry_AnyRecordType : Type<
     CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
     "Mulberry record type">;
@@ -147,6 +143,30 @@ def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
+  let summary = "View a stdlib Tensor handle as a Mulberry tensor";
+
+  let arguments = (ins Mulberry_AnyPtrType:$handle);
+  let results = (outs Mulberry_AnyTensorType:$result);
+
+  let assemblyFormat = "$handle attr-dict `:` type($handle) `->` "
+                       "type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
+  let summary = "Pack a Mulberry tensor into a stdlib Tensor handle";
+
+  let arguments = (ins Mulberry_AnyTensorType:$tensor);
+  let results = (outs Mulberry_AnyPtrType:$handle);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
+                       "type($handle)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_TensorLoadOp : Mulberry_Op<"tensor.load"> {
   let summary = "Load a Mulberry tensor element";
 
@@ -167,42 +187,6 @@ def Mulberry_TensorStoreOp : Mulberry_Op<"tensor.store"> {
 
   let assemblyFormat = "$value `,` $tensor `[` $indices `]` attr-dict `:` "
                        "type($value) `,` type($tensor)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorDescPackOp : Mulberry_Op<"tensor.desc_pack"> {
-  let summary = "Pack Mulberry tensor descriptor fields";
-
-  let arguments = (ins Mulberry_AnyTensorType:$tensor);
-  let results = (outs Mulberry_AnyTensorDescType:$result);
-
-  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
-                       "type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorDescUnpackOp : Mulberry_Op<"tensor.desc_unpack"> {
-  let summary = "Reconstruct a Mulberry tensor from descriptor fields";
-
-  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
-  let results = (outs Mulberry_AnyTensorType:$result);
-
-  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
-                       "type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorDescToABIOp : Mulberry_Op<"tensor.desc_to_abi"> {
-  let summary = "Materialize a Mulberry tensor descriptor backend ABI value";
-
-  let arguments = (ins Mulberry_AnyTensorDescType:$desc);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$desc attr-dict `:` type($desc) `->` "
-                       "type($result)";
 
   let hasVerifier = 1;
 }

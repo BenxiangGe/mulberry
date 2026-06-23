@@ -4,17 +4,17 @@ fn main(): UInt64 {
   const file: File = io.open("/tmp/cherry_mnist_safetensors_inference.safetensors",
                           "rb");
 
-  var w1: Float32[?, ?] = readTensor(file, "w1");
-  var b1: Float32[?, ?] = readTensor(file, "b1");
-  var w2: Float32[?, ?] = readTensor(file, "w2");
-  var b2: Float32[?, ?] = readTensor(file, "b2");
-  var x: Float32[?, ?] = readTensor(file, "x");
+  var w1: Tensor<Float32, 2> = readTensor(file, "w1");
+  var b1: Tensor<Float32, 2> = readTensor(file, "b1");
+  var w2: Tensor<Float32, 2> = readTensor(file, "w2");
+  var b2: Tensor<Float32, 2> = readTensor(file, "b2");
+  var x: Tensor<Float32, 2> = readTensor(file, "x");
 
   io.close(file);
 
-  var weights: List<Float32[?, ?]> = [w1, w2];
-  var biases: List<Float32[?, ?]> = [b1, b2];
-  var activation: Float32[?, ?] = x;
+  var weights: List<Tensor<Float32, 2>> = [w1, w2];
+  var biases: List<Tensor<Float32, 2>> = [b1, b2];
+  var activation: Tensor<Float32, 2> = x;
 
   for layer in 0 .. collections.size(weights) {
     activation = sigmoid(matadd(

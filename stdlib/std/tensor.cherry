@@ -1,0 +1,10 @@
+package std.tensor;
+
+comptime TensorStorage<T, Rank: UInt64> = struct {
+  rank: UInt64,
+  data: Ptr<T>,
+  sizes: Ptr<UInt64>,
+  strides: Ptr<UInt64>
+};
+
+comptime Tensor<T, Rank: UInt64> = Ptr<TensorStorage<T, Rank>>;

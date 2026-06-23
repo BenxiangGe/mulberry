@@ -188,6 +188,191 @@ LowerMulberry 支持；不要为了让某个 generic struct 例子 JIT 而把 lo
 后续不要再把 generic/list 语义塞回 dialect。缺少容器能力时，应继续补
 stdlib/comptime/source type system。
 
+## TensorStorage 所需的 comptime 参数已打开
+
+`List<T>` 只需要一个类型参数：
+
+```cherry
+comptime ListStorage<T> = struct {
+  length: UInt64,
+  capacity: UInt64,
+  data: Ptr<T>
+};
+```
+
+Tensor heap object 需要元素类型和静态 rank：
+
+```cherry
+comptime TensorStorage<T, Rank> = struct {
+  rank: UInt64,
+  data: Ptr<T>,
+  sizes: Ptr<UInt64>,
+  strides: Ptr<UInt64>
+};
+```
+
+这里 `T` 是类型参数，`Rank` 是编译期整数参数。`Rank` 虽然也会以 `rank` 字段形式保存在
+runtime object 里，但它首先是类型系统信息：lowering 需要用它决定 memref view 的 rank，
+也需要知道 `sizes` / `strides` 指向的 metadata 长度。
+
+C7 已经打开 type alias 多参数和 `UInt64` comptime integer 参数：
+
+```text
+C7.1  引入 ComptimeParam / ComptimeArg AST。
+C7.2  Parser 支持 alias 参数列表和 generic type 实参列表。
+C7.3  Sema 支持多类型参数 substitution。
+C7.4  Sema 支持 UInt64 comptime integer 参数和整数实参 mangle/cache key。
+C7.5  增加 TensorStorage / Tensor 正向 lit。
+C7.6  把 TensorStorage / Tensor 落到 stdlib source。
+```
+
+## C7 设计：多参数 comptime generic
+
+C7 的目标不是完整 Zig comptime，而是补齐 `TensorStorage<T, Rank>` 这种标准库对象
+需要的最小类型级能力。核心需求只有两个：
+
+- 一个 alias 可以有多个 comptime 参数。
+- 参数可以是类型，也可以是编译期整数。
+
+目标语法：
+
+```cherry
+comptime TensorStorage<T, Rank: UInt64> = struct {
+  rank: UInt64,
+  data: Ptr<T>,
+  sizes: Ptr<UInt64>,
+  strides: Ptr<UInt64>
+};
+
+comptime Tensor<T, Rank: UInt64> = Ptr<TensorStorage<T, Rank>>;
+```
+
+使用处：
+
+```cherry
+TensorStorage<Float32, 2>
+Tensor<Float32, 2>
+```
+
+这里保留 `List<T>` 现有写法：没有类型标注的参数默认是类型参数。带 `: UInt64` 的参数
+是编译期整数参数。这样旧代码不需要改，同时 `Rank` 的语义也足够明确。
+
+### AST 形态
+
+当前 AST 是单参数模型：
+
+```text
+ComptimeTypeAliasDecl(name, parameterName, bodyTypeNode)
+GenericTypeNode(name, argumentTypeNode)
+```
+
+C7 后应改为：
+
+```text
+ComptimeParam {
+  name
+  kind: Type | UInt64
+}
+
+ComptimeArg {
+  kind: Type | UInt64
+  typeNode?
+  uint64Value?
+}
+
+ComptimeTypeAliasDecl(name, params[], bodyTypeNode)
+GenericTypeNode(name, args[])
+```
+
+这个改动要保持兼容：`params.size() == 1 && params[0].kind == Type` 就是今天的
+`comptime List<T>`。
+
+### Parser 改造
+
+Parser 需要把 `<...>` 从“只解析一个 type”改成逗号分隔列表：
+
+```text
+< T >
+< T, U >
+< T, Rank: UInt64 >
+< Float32, 2 >
+```
+
+参数声明里只允许 identifier 或 `identifier: UInt64`。先不要支持任意类型标注，
+否则会过早引入 type-level value kind 系统。
+
+实参列表里第一阶段只允许：
+
+- 普通 type，例如 `Float32`、`Ptr<UInt8>`、`List<Float32>`。
+- 十进制整数 literal，例如 `2`。
+
+不要在 C7.1 支持表达式实参，例如 `Rank + 1`。这会把 compile-time expression evaluator
+提前拉进来，不符合当前目标。
+
+### Sema 改造
+
+Sema 需要把现在的单参数 substitution：
+
+```text
+substitute(T := ConcreteType, body)
+```
+
+改成 map-based substitution：
+
+```text
+substitute({
+  T := Type(Float32),
+  Rank := UInt64(2)
+}, body)
+```
+
+类型参数可以替换 `NamedTypeNode`。整数参数第一阶段只需要参与 alias 实例化 identity 和
+mangle；如果后续 type grammar 允许在 tensor shape 或 fixed array length 中引用
+`Rank`，再把整数 substitution 扩展到这些节点。
+
+generic struct cache key 也必须包含所有实参：
+
+```text
+std.tensor.TensorStorage__Float32__2
+std.tensor.Tensor__Float32__2
+```
+
+不能只按 layout cache。`TensorStorage<Float32, 1>` 和 `TensorStorage<Float32, 2>` 字段
+layout 可能完全一样，但它们代表不同 rank 的 Tensor handle，类型 identity 必须不同。
+
+### Generic function 暂不扩展
+
+当前 generic function inference 是单类型参数模型：
+
+```cherry
+fn push<T>(list: List<T>, value: T): UInt64
+```
+
+C7 第一阶段不要同时扩展 generic function 多参数推断。原因是函数推断需要从实参和
+expected return type 反推出多个参数，复杂度明显高于 type alias 实例化。TensorStorage
+落到 stdlib 只需要 type alias 多参数，不需要立刻支持：
+
+```cherry
+fn foo<T, Rank: UInt64>(tensor: Tensor<T, Rank>): UInt64
+```
+
+这类函数可以作为 C8 单独设计。C7 只保证 `Tensor<Float32, 2>` 这种类型能在 Sema 后变成
+具体 record/ptr 类型。
+
+### C7 实施顺序
+
+```text
+C7.1  引入 ComptimeParam / ComptimeArg AST，保持单参数旧测试通过。
+C7.2  Parser 支持 alias 参数列表和 generic type 实参列表。
+C7.3  Sema 把单参数 substitution 改为 map-based substitution，先支持多类型参数。
+C7.4  Sema 支持 UInt64 comptime integer 参数，mangle/cache key 包含 integer 实参。
+C7.5  增加正向 lit：Pair<T, U>、TensorStorage<T, Rank>、Tensor<T, Rank>。
+C7.6  只在上述通过后，把 `stdlib/std/tensor.cherry` 加进来。
+```
+
+这个顺序的重点是保持每一步都能解释清楚。不要为了马上得到 `Tensor<T, Rank>` 而把
+`Rank` 塞进 runtime field，或者在 lowering 里做额外特判。
+
 ## 后续阶段
 
 - `C1` 已完成：支持 `comptime Name<T> = Type;`
@@ -196,3 +381,5 @@ stdlib/comptime/source type system。
 - `C4` 已完成：标准库 `List<T>` 已迁到 `std.collections`。
 - `C5` 持续执行：保持现有 lowering/JIT 路径稳定，不再向 dialect 加新的泛型语义。
 - `C6` 已完成：已有 `Vector<T>` / `Matrix<T>` 和 stdlib List 相关测试。
+- `C7` 已完成：支持多参数 / integer 参数 comptime generic，`std.tensor.TensorStorage`
+  和 `std.tensor.Tensor` 已可作为 source-level heap object alias 使用。

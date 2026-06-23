@@ -8,6 +8,7 @@
 #ifndef CHERRY_SYMBOLS_H
 #define CHERRY_SYMBOLS_H
 
+#include "cherry/AST/Type.h"
 #include "cherry/Basic/CherryResult.h"
 #include "cherry/Basic/ScopeStack.h"
 #include "cherry/Basic/Types.h"
@@ -36,8 +37,14 @@ struct FunctionSymbol {
 
 struct ComptimeTypeAliasSymbol {
   std::string packageName;
-  std::string parameterName;
+  std::vector<ComptimeParam> parameters;
   const TypeNode *bodyTypeNode = nullptr;
+
+  auto parameterName() const -> std::string_view {
+    if (parameters.empty())
+      return {};
+    return parameters.front().name;
+  }
 };
 
 struct GenericFunctionSymbol {
@@ -95,10 +102,22 @@ public:
                                 std::string_view parameterName,
                                 const TypeNode *bodyTypeNode)
       -> CherryResult {
+    std::vector<ComptimeParam> parameters;
+    if (!parameterName.empty())
+      parameters.push_back(ComptimeParam(parameterName));
+    return declareComptimeTypeAlias(name, packageName, std::move(parameters),
+                                    bodyTypeNode);
+  }
+
+  auto declareComptimeTypeAlias(std::string_view name,
+                                std::string_view packageName,
+                                std::vector<ComptimeParam> parameters,
+                                const TypeNode *bodyTypeNode)
+      -> CherryResult {
     return declareSymbol(_comptimeTypeAliasesByName, name,
                          ComptimeTypeAliasSymbol{
-                             std::string(packageName),
-                             std::string(parameterName), bodyTypeNode});
+                             std::string(packageName), std::move(parameters),
+                             bodyTypeNode});
   }
 
   auto lookupComptimeTypeAlias(std::string_view name)

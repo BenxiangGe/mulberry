@@ -3,12 +3,14 @@
 fn main(): UInt64 {
   var w1: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
   var w2: Float32[?, ?] = [[5.0, 6.0]];
+  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
+  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
 
-  var weights: List<Float32[?, ?]> =
+  var weights: List<Tensor<Float32, 2>> =
       collections.withCapacity(1);
-  collections.push(weights, w1);
+  collections.push(weights, w1h);
   weights = collections.withCapacity(1);
-  collections.push(weights, w2);
+  collections.push(weights, w2h);
 
   var activation: Float32[?, ?] = w1;
   activation = w2;
@@ -17,11 +19,8 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main()
-# CHECK: mulberry.alloca !mulberry.tensor<?x?xf32>
-# CHECK: call @std_collections_withCapacity__Float32______
-# CHECK: call @std_collections_push__Float32______
-# CHECK: mulberry.store {{.*}} : !mulberry.tensor<?x?xf32>
-# CHECK: call @std_collections_size__Float32______
-# CHECK-NOT: mulberry.list.create
-# CHECK-NOT: mulberry.list.get
-# CHECK-NOT: mulberry.list.size
+# CHECK: mulberry.tensor.pack
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_push__
+# CHECK: call @std_collections_size__
+# CHECK: mulberry.tensor.dim

@@ -11,6 +11,7 @@
 #include "cherry/Basic/Builtins.h"
 #include "cherry/Sema/DiagnosticsSema.h"
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -23,6 +24,31 @@ using llvm::cast;
 using llvm::dyn_cast;
 
 using NameSet = std::set<std::string, std::less<>>;
+
+struct TypeSubstitution {
+  std::string parameterName;
+  const TypeNode *argumentTypeNode = nullptr;
+  std::optional<uint64_t> uint64Value;
+};
+
+struct ComptimeArgument {
+  ComptimeArg::Kind kind = ComptimeArg::Kind::Type;
+  const Type *type = nullptr;
+  std::unique_ptr<TypeNode> typeNode;
+  uint64_t uint64Value = 0;
+};
+
+auto toComptimeTypeValues(const std::vector<ComptimeArgument> &arguments)
+    -> std::vector<ComptimeTypeValue> {
+  std::vector<ComptimeTypeValue> values;
+  for (auto &argument : arguments) {
+    if (argument.kind == ComptimeArg::Kind::Type)
+      values.push_back(ComptimeTypeValue(argument.type));
+    else
+      values.push_back(ComptimeTypeValue(argument.uint64Value));
+  }
+  return values;
+}
 
 auto replacePlaceholder(std::string message, std::string_view placeholder,
                         std::string_view value) -> std::string {
@@ -80,9 +106,17 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   }
 
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    std::vector<ComptimeArg> arguments;
+    for (auto &argument : genericType->arguments()) {
+      if (argument.kind() == ComptimeArg::Kind::UInt64) {
+        arguments.push_back(
+            ComptimeArg(argument.location(), argument.uint64Value()));
+        continue;
+      }
+      arguments.push_back(ComptimeArg(cloneTypeNode(argument.typeNode())));
+    }
     return std::make_unique<GenericTypeNode>(
-        genericType->location(), genericType->name(),
-        cloneTypeNode(genericType->argumentTypeNode()));
+        genericType->location(), genericType->name(), std::move(arguments));
   }
 
   auto *structType = cast<StructTypeNode>(node);
@@ -103,8 +137,26 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
   if (auto *builtinType = getBuiltinType(type))
     return std::make_unique<NamedTypeNode>(location, builtinType->name());
 
-  if (auto *structType = getStructType(type))
+  if (auto *structType = getStructType(type)) {
+    if (auto *origin = structType->origin()) {
+      // Keep generic alias identity when a resolved type is substituted into
+      // another alias; the internal mangled struct name is not a source type.
+      std::vector<ComptimeArg> arguments;
+      for (auto &argument : origin->arguments()) {
+        if (argument.kind() == ComptimeTypeValue::Kind::UInt64) {
+          arguments.push_back(
+              ComptimeArg(location, argument.uint64Value()));
+          continue;
+        }
+        arguments.push_back(ComptimeArg(typeToTypeNode(
+            argument.type(), location)));
+      }
+      return std::make_unique<GenericTypeNode>(
+          location, origin->aliasName(), std::move(arguments));
+    }
+
     return std::make_unique<NamedTypeNode>(location, structType->name());
+  }
 
   if (auto *tensorType = getTensorType(type)) {
     return std::make_unique<TensorTypeNode>(
@@ -122,44 +174,60 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
       typeToTypeNode(ptrType->pointeeType(), location), location);
 }
 
-auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
-                        const TypeNode *argumentTypeNode)
+auto substituteTypeNode(const TypeNode *node,
+                        const TypeSubstitution &substitution)
     -> std::unique_ptr<TypeNode> {
-  if (parameterName.empty())
+  if (substitution.parameterName.empty())
     return cloneTypeNode(node);
 
   if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
-    if (namedType->name() == parameterName)
-      return cloneTypeNode(argumentTypeNode);
+    if (namedType->name() == substitution.parameterName &&
+        substitution.argumentTypeNode)
+      return cloneTypeNode(substitution.argumentTypeNode);
     return cloneTypeNode(namedType);
   }
 
   if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
     return std::make_unique<TensorTypeNode>(
-        substituteTypeNode(tensorType->elementTypeNode(), parameterName,
-                           argumentTypeNode),
+        substituteTypeNode(tensorType->elementTypeNode(), substitution),
         tensorType->shape(), tensorType->location());
   }
 
   if (auto *listType = dyn_cast<ListTypeNode>(node)) {
     return std::make_unique<ListTypeNode>(
-        substituteTypeNode(listType->elementTypeNode(), parameterName,
-                           argumentTypeNode),
+        substituteTypeNode(listType->elementTypeNode(), substitution),
         listType->location());
   }
 
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node)) {
     return std::make_unique<PtrTypeNode>(
-        substituteTypeNode(ptrType->pointeeTypeNode(), parameterName,
-                           argumentTypeNode),
+        substituteTypeNode(ptrType->pointeeTypeNode(), substitution),
         ptrType->location());
   }
 
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    std::vector<ComptimeArg> arguments;
+    for (auto &argument : genericType->arguments()) {
+      if (argument.kind() == ComptimeArg::Kind::UInt64) {
+        arguments.push_back(
+            ComptimeArg(argument.location(), argument.uint64Value()));
+        continue;
+      }
+
+      if (auto *namedType = dyn_cast<NamedTypeNode>(argument.typeNode())) {
+        if (namedType->name() == substitution.parameterName &&
+            substitution.uint64Value) {
+          arguments.push_back(
+              ComptimeArg(namedType->location(), *substitution.uint64Value));
+          continue;
+        }
+      }
+
+      arguments.push_back(
+          ComptimeArg(substituteTypeNode(argument.typeNode(), substitution)));
+    }
     return std::make_unique<GenericTypeNode>(
-        genericType->location(), genericType->name(),
-        substituteTypeNode(genericType->argumentTypeNode(), parameterName,
-                           argumentTypeNode));
+        genericType->location(), genericType->name(), std::move(arguments));
   }
 
   auto *structType = cast<StructTypeNode>(node);
@@ -169,11 +237,28 @@ auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
         field->variable()->location(), field->variable()->name());
     fields.push_back(std::make_unique<VariableStat>(
         field->location(), std::move(variable),
-        substituteTypeNode(field->typeNode(), parameterName, argumentTypeNode),
+        substituteTypeNode(field->typeNode(), substitution),
         nullptr));
   }
   return std::make_unique<StructTypeNode>(
       structType->location(), std::move(fields));
+}
+
+auto substituteTypeNode(const TypeNode *node, std::string_view parameterName,
+                        const TypeNode *argumentTypeNode)
+    -> std::unique_ptr<TypeNode> {
+  return substituteTypeNode(
+      node, TypeSubstitution{std::string(parameterName), argumentTypeNode,
+                             std::nullopt});
+}
+
+auto substituteTypeNode(const TypeNode *node,
+                        const std::vector<TypeSubstitution> &substitutions)
+    -> std::unique_ptr<TypeNode> {
+  auto result = cloneTypeNode(node);
+  for (auto &substitution : substitutions)
+    result = substituteTypeNode(result.get(), substitution);
+  return result;
 }
 
 auto hasTypeParameter(const TypeNode *node, std::string_view parameterName)
@@ -193,8 +278,14 @@ auto hasTypeParameter(const TypeNode *node, std::string_view parameterName)
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
     return hasTypeParameter(ptrType->pointeeTypeNode(), parameterName);
 
-  if (auto *genericType = dyn_cast<GenericTypeNode>(node))
-    return hasTypeParameter(genericType->argumentTypeNode(), parameterName);
+  if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    for (auto &argument : genericType->arguments()) {
+      if (argument.kind() == ComptimeArg::Kind::Type &&
+          hasTypeParameter(argument.typeNode(), parameterName))
+        return true;
+    }
+    return false;
+  }
 
   if (auto *structType = dyn_cast<StructTypeNode>(node)) {
     for (auto &field : structType->fields())
@@ -530,17 +621,27 @@ private:
   auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
   auto semaZeros(CallExpr *node, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
-  auto semaMatmul(CallExpr *node) -> CherryResult;
-  auto semaTensorBinary(CallExpr *node) -> CherryResult;
-  auto semaMatscale(CallExpr *node) -> CherryResult;
-  auto semaTranspose(CallExpr *node) -> CherryResult;
-  auto semaElementwiseNN(CallExpr *node) -> CherryResult;
+  auto semaMatmul(CallExpr *node, const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto semaTensorBinary(CallExpr *node, const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto semaMatscale(CallExpr *node, const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto semaTranspose(CallExpr *node, const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto semaElementwiseNN(CallExpr *node, const Type *expectedType = nullptr)
+      -> CherryResult;
+  auto semaNNTensorResult(CallExpr *node, const Type *expectedType)
+      -> CherryResult;
   auto semaArgmax(CallExpr *node) -> CherryResult;
   auto semaPrint(CallExpr *node) -> CherryResult;
   auto semaSize(CallExpr *node) -> CherryResult;
   auto semaFileOpen(CallExpr *node) -> CherryResult;
   auto semaFileRead(CallExpr *node) -> CherryResult;
-  auto semaReadTensor(CallExpr *node, const TensorType *type) -> CherryResult;
+  auto semaReadTensor(CallExpr *node, const TensorType *payloadType,
+                      const Type *resultType = nullptr) -> CherryResult;
+  auto semaTensorPack(CallExpr *node) -> CherryResult;
+  auto semaTensorView(CallExpr *node) -> CherryResult;
   auto semaFileWrite(CallExpr *node) -> CherryResult;
   auto semaFileClose(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
@@ -785,10 +886,16 @@ private:
   }
 
   auto genericStructName(std::string_view aliasName,
-                         const Type *argumentType) const -> std::string {
+                         const std::vector<ComptimeArgument> &arguments) const
+      -> std::string {
     std::string name = mangleTypeName(std::string(aliasName));
-    name += "__";
-    name += mangleTypeName(formatType(argumentType));
+    for (auto &argument : arguments) {
+      name += "__";
+      if (argument.kind == ComptimeArg::Kind::Type)
+        name += mangleTypeName(formatType(argument.type));
+      else
+        name += std::to_string(argument.uint64Value);
+    }
     return name;
   }
 
@@ -891,6 +998,9 @@ private:
       auto *alias = lookupComptimeTypeAlias(genericPattern->name());
       if (!alias)
         return false;
+      if (genericPattern->arguments().size() != 1 ||
+          alias->parameters.size() != 1)
+        return false;
 
       // A generic alias first expands in its definition package, then that
       // body is matched structurally against the actual concrete type. This is
@@ -907,7 +1017,7 @@ private:
             argumentType, genericPattern->argumentTypeNode()->location());
       }
       auto aliasBody = substituteTypeNode(
-          alias->bodyTypeNode, alias->parameterName, argumentTypeNode.get());
+          alias->bodyTypeNode, alias->parameterName(), argumentTypeNode.get());
       PackageScope packageScope(_currentPackageName, alias->packageName);
       return matchGenericType(aliasBody.get(), actualType, parameterName,
                               argumentType);
@@ -977,8 +1087,8 @@ private:
     return _typeContext.createPtrType(pointeeType);
   }
 
-  auto resolveType(const StructTypeNode *typeNode, std::string_view name)
-      -> const StructType * {
+  auto resolveStructFields(const StructTypeNode *typeNode)
+      -> std::optional<std::vector<StructField>> {
     std::vector<StructField> fields;
     NameSet fieldNames;
     unsigned fieldIndex = 0;
@@ -986,17 +1096,33 @@ private:
       auto variable = fieldDecl->variable().get();
       auto *fieldType = checkType(fieldDecl->typeNode(), UnitPolicy::Reject);
       if (!fieldType)
-        return nullptr;
+        return std::nullopt;
       fieldDecl->setType(fieldType);
       auto fieldName = variable->name();
       if (!declareName(fieldNames, fieldName)) {
         emitError(variable, diag::redefinition_var);
-        return nullptr;
+        return std::nullopt;
       }
       fields.push_back(StructField{fieldName, fieldType, fieldIndex++});
     }
+    return fields;
+  }
 
-    return _typeContext.createStructType(name, std::move(fields));
+  auto resolveType(const StructTypeNode *typeNode, std::string_view name)
+      -> const StructType * {
+    auto fields = resolveStructFields(typeNode);
+    if (!fields)
+      return nullptr;
+    return _typeContext.createStructType(name, std::move(*fields));
+  }
+
+  auto resolveType(const StructTypeNode *typeNode, std::string_view name,
+                   ComptimeAliasOrigin origin) -> const StructType * {
+    auto fields = resolveStructFields(typeNode);
+    if (!fields)
+      return nullptr;
+    return _typeContext.createStructType(name, std::move(*fields),
+                                         std::move(origin));
   }
 
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
@@ -1008,28 +1134,68 @@ private:
       emitError(typeNode, diag::undefined_type);
       return nullptr;
     }
-
-    auto *argumentType = resolveType(typeNode->argumentTypeNode());
-    if (!argumentType)
+    if (typeNode->arguments().size() != alias->parameters.size()) {
+      emitError(typeNode, diag::mismatch_type);
       return nullptr;
+    }
 
-    // The type argument belongs to the use site, while the alias body belongs
-    // to the definition package. Resolve the argument first, then substitute a
-    // concrete TypeNode before switching package scope for the alias body.
-    auto argumentTypeNode =
-        typeToTypeNode(argumentType, typeNode->argumentTypeNode()->location());
+    std::vector<ComptimeArgument> arguments;
+    std::vector<TypeSubstitution> substitutions;
+    for (size_t i = 0; i < typeNode->arguments().size(); ++i) {
+      auto &argument = typeNode->arguments()[i];
+      auto &parameter = alias->parameters[i];
+      if (argument.kind() == ComptimeArg::Kind::Type &&
+          parameter.kind == ComptimeParam::Kind::Type) {
+        auto *argumentType = resolveType(argument.typeNode());
+        if (!argumentType)
+          return nullptr;
+
+        auto argumentTypeNode =
+            typeToTypeNode(argumentType, argument.typeNode()->location());
+        substitutions.push_back(
+            TypeSubstitution{parameter.name, argumentTypeNode.get(),
+                             std::nullopt});
+        ComptimeArgument resolvedArgument;
+        resolvedArgument.kind = argument.kind();
+        resolvedArgument.type = argumentType;
+        resolvedArgument.typeNode = std::move(argumentTypeNode);
+        arguments.push_back(std::move(resolvedArgument));
+        continue;
+      }
+
+      if (argument.kind() == ComptimeArg::Kind::UInt64 &&
+          parameter.kind == ComptimeParam::Kind::UInt64) {
+        substitutions.push_back(
+            TypeSubstitution{parameter.name, nullptr,
+                             argument.uint64Value()});
+        ComptimeArgument resolvedArgument;
+        resolvedArgument.kind = argument.kind();
+        resolvedArgument.uint64Value = argument.uint64Value();
+        arguments.push_back(std::move(resolvedArgument));
+        continue;
+      }
+
+      emitError(typeNode, diag::mismatch_type);
+      return nullptr;
+    }
+
+    // Generic arguments belong to the use site, while the alias body belongs to
+    // the definition package. Resolve arguments first, then switch package
+    // scope for the substituted alias body.
     auto instantiatedTypeNode =
-        substituteTypeNode(alias->bodyTypeNode, alias->parameterName,
-                           argumentTypeNode.get());
+        substituteTypeNode(alias->bodyTypeNode, substitutions);
     PackageScope packageScope(_currentPackageName, alias->packageName);
     if (auto *structTypeNode =
             dyn_cast<StructTypeNode>(instantiatedTypeNode.get())) {
-      auto structName = genericStructName(aliasName, argumentType);
+      auto structName = genericStructName(aliasName, arguments);
       auto cached = _genericStructTypes.find(structName);
       if (cached != _genericStructTypes.end())
         return cached->second;
 
-      auto *structType = resolveType(structTypeNode, structName);
+      auto origin = ComptimeAliasOrigin(
+          aliasName, toComptimeTypeValues(arguments));
+      auto *structType = resolveType(structTypeNode, structName,
+                                     std::move(origin));
       if (!structType)
         return nullptr;
       _genericStructTypes[structName] = structType;
@@ -1088,6 +1254,13 @@ private:
     return type && isFloat32Type(type->elementType());
   }
 
+  static auto isNNTensorResultBuiltin(std::string_view name) -> bool {
+    return name == nn::matmul || name == nn::matadd || name == nn::matsub ||
+           name == nn::hadamard || name == nn::matscale ||
+           name == nn::transpose || name == nn::exp ||
+           name == nn::sigmoid || name == nn::sigmoidPrime;
+  }
+
   static auto stdlibListElementType(const Type *type) -> const Type * {
     auto *ptrType = cherry::getPtrType(type);
     if (!ptrType)
@@ -1111,6 +1284,76 @@ private:
     if (!dataPtrType)
       return nullptr;
     return dataPtrType->pointeeType();
+  }
+
+  auto tensorHandleType(const TensorType *type, llvm::SMLoc location)
+      -> const Type * {
+    std::vector<ComptimeArg> arguments;
+    arguments.push_back(ComptimeArg(typeToTypeNode(type->elementType(),
+                                                   location)));
+    arguments.push_back(ComptimeArg(
+        location, static_cast<uint64_t>(type->shape().size())));
+
+    auto typeNode = std::make_unique<GenericTypeNode>(
+        location, "std.tensor.Tensor", std::move(arguments));
+    return resolveType(typeNode.get());
+  }
+
+  auto tensorViewType(const Type *type) -> const TensorType * {
+    auto *ptrType = cherry::getPtrType(type);
+    if (!ptrType)
+      return nullptr;
+
+    auto *structType = cherry::getStructType(ptrType->pointeeType());
+    if (!structType)
+      return nullptr;
+
+    auto *origin = structType->origin();
+    if (!origin || origin->aliasName() != "std.tensor.TensorStorage")
+      return nullptr;
+
+    auto &arguments = origin->arguments();
+    if (arguments.size() != 2)
+      return nullptr;
+    if (arguments[0].kind() != ComptimeTypeValue::Kind::Type ||
+        arguments[1].kind() != ComptimeTypeValue::Kind::UInt64)
+      return nullptr;
+
+    // After alias expansion, TensorStorage is just a concrete struct. The
+    // origin keeps the source-level T/Rank, so tensor.view never parses the
+    // mangled concrete struct name.
+    std::vector<int64_t> shape(arguments[1].uint64Value(), -1);
+    return _typeContext.createTensorType(arguments[0].type(),
+                                         std::move(shape));
+  }
+
+  auto tensorOperandType(const Type *type) -> const TensorType * {
+    if (auto *tensorType = cherry::getTensorType(type))
+      return tensorType;
+    return tensorViewType(type);
+  }
+
+  auto setNNTensorResultType(CallExpr *node, const TensorType *resultType,
+                             const Type *expectedType) -> CherryResult {
+    if (!expectedType) {
+      node->setType(resultType);
+      return success();
+    }
+
+    if (auto *expectedTensorType = cherry::getTensorType(expectedType)) {
+      if (!sameType(expectedTensorType, resultType))
+        return emitError(node, diag::mismatch_type);
+      node->setType(expectedType);
+      return success();
+    }
+
+    auto *expectedHandlePayloadType = tensorViewType(expectedType);
+    if (!expectedHandlePayloadType ||
+        !sameType(expectedHandlePayloadType, resultType))
+      return emitError(node, diag::mismatch_type);
+
+    node->setType(expectedType);
+    return success();
   }
 
 };
@@ -1272,9 +1515,11 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
     return success();
   }
 
-  if (_symbols.declareComptimeTypeAlias(node->name(), packageName,
-                                        node->parameterName(),
-                                        node->bodyTypeNode()))
+  if (_symbols.declareComptimeTypeAlias(
+          node->name(), packageName,
+          std::vector<ComptimeParam>(node->parameters().begin(),
+                                     node->parameters().end()),
+          node->bodyTypeNode()))
     return emitError(node, diag::redefinition_type);
   return success();
 }
@@ -1343,10 +1588,21 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
     return semaZeros(call, tensorType);
   }
   if (call && call->name() == builtins::readTensor) {
-    auto *tensorType = cherry::getTensorType(type);
-    if (!tensorType)
+    if (auto *tensorType = cherry::getTensorType(type))
+      return semaReadTensor(call, tensorType);
+
+    auto *payloadType = tensorViewType(type);
+    if (!payloadType)
       return emitError(call, diag::mismatch_type);
-    return semaReadTensor(call, tensorType);
+    return semaReadTensor(call, payloadType, type);
+  }
+  if (call) {
+    auto name = canonicalizeImportedName(call->name());
+    if (isNNTensorResultBuiltin(name) &&
+        (cherry::getTensorType(type) || tensorViewType(type))) {
+      call->setName(name);
+      return semaNNTensorResult(call, type);
+    }
   }
 
   if (call) {
@@ -1498,6 +1754,12 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   }
   if (name == builtins::readTensor) {
     return emitError(node, diag::mismatch_type);
+  }
+  if (name == builtins::tensorPack) {
+    return semaTensorPack(node);
+  }
+  if (name == builtins::tensorView) {
+    return semaTensorView(node);
   }
   if (name == builtins::write) {
     return semaFileWrite(node);
@@ -1983,7 +2245,25 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaNNTensorResult(CallExpr *node,
+                                  const Type *expectedType) -> CherryResult {
+  auto name = node->name();
+  if (name == nn::matmul)
+    return semaMatmul(node, expectedType);
+  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard)
+    return semaTensorBinary(node, expectedType);
+  if (name == nn::matscale)
+    return semaMatscale(node, expectedType);
+  if (name == nn::transpose)
+    return semaTranspose(node, expectedType);
+  if (name == nn::exp || name == nn::sigmoid || name == nn::sigmoidPrime)
+    return semaElementwiseNN(node, expectedType);
+
+  llvm_unreachable("unexpected cherry_nn tensor result op");
+}
+
+auto SemaImpl::semaMatmul(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 2)
     return emitError(node, diag::wrong_num_arg);
@@ -1992,8 +2272,8 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  auto *lhsType = cherry::getTensorType(expressions[0]->type());
-  auto *rhsType = cherry::getTensorType(expressions[1]->type());
+  auto *lhsType = tensorOperandType(expressions[0]->type());
+  auto *rhsType = tensorOperandType(expressions[1]->type());
   if (!lhsType || !rhsType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
@@ -2012,12 +2292,11 @@ auto SemaImpl::semaMatmul(CallExpr *node) -> CherryResult {
       _typeContext.createTensorType(
           _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
           std::vector<int64_t>{lhsShape[0], rhsShape[1]});
-  node->setType(resultType);
-
-  return success();
+  return setNNTensorResultType(node, resultType, expectedType);
 }
 
-auto SemaImpl::semaTensorBinary(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaTensorBinary(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 2)
     return emitError(node, diag::wrong_num_arg);
@@ -2026,8 +2305,8 @@ auto SemaImpl::semaTensorBinary(CallExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  auto *lhsType = cherry::getTensorType(expressions[0]->type());
-  auto *rhsType = cherry::getTensorType(expressions[1]->type());
+  auto *lhsType = tensorOperandType(expressions[0]->type());
+  auto *rhsType = tensorOperandType(expressions[1]->type());
   if (!lhsType || !rhsType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
@@ -2049,12 +2328,11 @@ auto SemaImpl::semaTensorBinary(CallExpr *node) -> CherryResult {
   auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       std::move(resultShape));
-  node->setType(resultType);
-
-  return success();
+  return setNNTensorResultType(node, resultType, expectedType);
 }
 
-auto SemaImpl::semaMatscale(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaMatscale(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 2)
     return emitError(node, diag::wrong_num_arg);
@@ -2063,7 +2341,7 @@ auto SemaImpl::semaMatscale(CallExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  auto *inputType = cherry::getTensorType(expressions[0]->type());
+  auto *inputType = tensorOperandType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(inputType) || !isFloat32Type(expressions[1]->type()))
@@ -2074,12 +2352,11 @@ auto SemaImpl::semaMatscale(CallExpr *node) -> CherryResult {
   auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       inputType->shape());
-  node->setType(resultType);
-
-  return success();
+  return setNNTensorResultType(node, resultType, expectedType);
 }
 
-auto SemaImpl::semaTranspose(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaTranspose(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 1)
     return emitError(node, diag::wrong_num_arg);
@@ -2087,7 +2364,7 @@ auto SemaImpl::semaTranspose(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getTensorType(expressions[0]->type());
+  auto *inputType = tensorOperandType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(inputType))
@@ -2100,12 +2377,11 @@ auto SemaImpl::semaTranspose(CallExpr *node) -> CherryResult {
       _typeContext.createTensorType(
           _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
           std::vector<int64_t>{inputShape[1], inputShape[0]});
-  node->setType(resultType);
-
-  return success();
+  return setNNTensorResultType(node, resultType, expectedType);
 }
 
-auto SemaImpl::semaElementwiseNN(CallExpr *node) -> CherryResult {
+auto SemaImpl::semaElementwiseNN(CallExpr *node, const Type *expectedType)
+    -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 1)
     return emitError(node, diag::wrong_num_arg);
@@ -2113,7 +2389,7 @@ auto SemaImpl::semaElementwiseNN(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getTensorType(expressions[0]->type());
+  auto *inputType = tensorOperandType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(inputType))
@@ -2124,9 +2400,7 @@ auto SemaImpl::semaElementwiseNN(CallExpr *node) -> CherryResult {
   auto *resultType = _typeContext.createTensorType(
       _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
       inputType->shape());
-  node->setType(resultType);
-
-  return success();
+  return setNNTensorResultType(node, resultType, expectedType);
 }
 
 auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
@@ -2137,7 +2411,7 @@ auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *inputType = cherry::getTensorType(expressions[0]->type());
+  auto *inputType = tensorOperandType(expressions[0]->type());
   if (!inputType)
     return emitError(node, diag::mismatch_type);
   if (!isFloat32TensorType(inputType))
@@ -2176,7 +2450,7 @@ auto SemaImpl::semaSize(CallExpr *node) -> CherryResult {
   if (sema(expressions[0].get()))
     return failure();
 
-  auto *tensorType = cherry::getTensorType(expressions[0]->type());
+  auto *tensorType = tensorOperandType(expressions[0]->type());
   if (!tensorType)
     return emitError(expressions[0].get(), diag::mismatch_type);
 
@@ -2235,15 +2509,16 @@ auto SemaImpl::semaFileRead(CallExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::semaReadTensor(CallExpr *node, const TensorType *type)
+auto SemaImpl::semaReadTensor(CallExpr *node, const TensorType *payloadType,
+                              const Type *resultType)
     -> CherryResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 2)
     return emitError(node, diag::wrong_num_arg);
 
-  if (!isFloat32Type(type->elementType()))
+  if (!isFloat32Type(payloadType->elementType()))
     return emitError(node, diag::mismatch_type);
-  if (type->shape().empty())
+  if (payloadType->shape().empty())
     return emitError(node, diag::mismatch_type);
 
   if (sema(expressions[0].get()))
@@ -2256,7 +2531,43 @@ auto SemaImpl::semaReadTensor(CallExpr *node, const TensorType *type)
   if (!sameType(expressions[1]->type(), lookupType("String")))
     return emitError(expressions[1].get(), diag::mismatch_type);
 
-  node->setType(type);
+  node->setType(resultType ? resultType : payloadType);
+  return success();
+}
+
+auto SemaImpl::semaTensorPack(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+
+  auto *tensorType = cherry::getTensorType(expressions[0]->type());
+  if (!tensorType)
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  auto *handleType = tensorHandleType(tensorType, node->location());
+  if (!handleType)
+    return failure();
+
+  node->setType(handleType);
+  return success();
+}
+
+auto SemaImpl::semaTensorView(CallExpr *node) -> CherryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1)
+    return emitError(node, diag::wrong_num_arg);
+
+  if (sema(expressions[0].get()))
+    return failure();
+
+  auto *tensorType = tensorViewType(expressions[0]->type());
+  if (!tensorType)
+    return emitError(expressions[0].get(), diag::mismatch_type);
+
+  node->setType(tensorType);
   return success();
 }
 

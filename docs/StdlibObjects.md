@@ -162,18 +162,104 @@ wrapper function，`read/write` 通过 temporary `func.call` marker 进入 Lower
 目标形态：
 
 ```cherry
-comptime TensorStorage<T> = struct {
+comptime TensorStorage<T, Rank> = struct {
   rank: UInt64,
   data: Ptr<T>,
   sizes: Ptr<UInt64>,
   strides: Ptr<UInt64>
 };
+
+comptime Tensor<T, Rank> = Ptr<TensorStorage<T, Rank>>;
 ```
 
-当前先不把 source-level `Float32[?, ?]` 改成 heap handle。原因是现有
-`cherry_nn -> linalg` 路径依赖 Tensor lowering 成 `memref`。真正迁移时，应先定义
-`TensorStorage` 的 source-level layout，再让 lowering 入口把 handle 显式 unwrap 成
-memref view。
+`rank` 是静态 rank 的 runtime mirror，主要服务 runtime/debug/FFI；类型系统仍然负责
+保证 rank。`sizes` 和 `strides` 都指向长度为 `Rank` 的连续 `UInt64` 数组。`data`
+指向连续 row-major payload。第一版只支持 dense contiguous Tensor，因此 `strides`
+可以由 `sizes` 计算出来，但仍保留字段，避免后面要支持 slice/view 时重排 ABI。
+
+当前 `stdlib/std/tensor.cherry` 已经可以直接表达这个形态：
+
+```cherry
+comptime TensorStorage<T, Rank: UInt64> = struct {
+  rank: UInt64,
+  data: Ptr<T>,
+  sizes: Ptr<UInt64>,
+  strides: Ptr<UInt64>
+};
+
+comptime Tensor<T, Rank: UInt64> = Ptr<TensorStorage<T, Rank>>;
+```
+
+`Rank` 不是普通 runtime field，而是类型系统信息。Sema 实例化
+`TensorStorage<T, Rank>` 时会把 alias origin 保存到 concrete struct type 上，后续
+`tensor.view(handle)` 依靠这个 origin 取回 source-level 的 `T` 和 `Rank`，而不是解析
+`std_tensor_TensorStorage__Float32__2` 这种 mangled concrete name。
+
+这个 layout 和 MLIR memref descriptor 很接近，但它是 source-level heap object：
+
+```text
+Tensor<T, Rank>
+  -> Ptr<TensorStorage<T, Rank>>
+  -> { rank, data, sizes, strides }
+```
+
+也就是说，函数参数、返回值、List element 和 struct field 里保存的都应该是普通
+Tensor handle，而不是 `{data, sizes, strides}` by-value descriptor。这样 Tensor 和
+List/String/File 的对象模型保持一致：赋值、传参、返回都复制 pointer。
+
+LowerMulberry 当前有一个显式 unwrap 入口：
+
+```text
+Ptr<TensorStorage<T, Rank>>
+  -> read data/sizes/strides
+  -> create memref view
+  -> feed cherry_nn / linalg / raw-byte runtime boundary
+```
+
+反方向也要明确：
+
+```text
+memref allocation result
+  -> allocate TensorStorage
+  -> store data/sizes/strides
+  -> return Ptr<TensorStorage<T, Rank>>
+```
+
+当前先不把 source-level `Float32[?, ?]` 整体替换成 heap handle。原因是现有
+`cherry_nn -> linalg` 路径依赖 Tensor lowering 成 `memref`。迁移时使用显式入口：
+
+```cherry
+var handle: Tensor<Float32, 2> = heap.alloc<tensor.TensorStorage<Float32, 2>>();
+var view: Float32[?, ?] = tensor.view(handle);
+```
+
+`tensor.view` 是显式 unwrap 入口：Sema 把 `Ptr<TensorStorage<T, Rank>>` 看作旧
+`T[?, ...]` TensorType，rank 来自 `Rank`；MLIRGen 生成 `mulberry.tensor.view`；
+LowerMulberry 从 `TensorStorage.data/sizes/strides` 重建 memref view，供现有
+`cherry_nn` / `linalg` / tensor load-store 路径继续使用。它不拷贝 payload，也不拥有
+payload 生命周期。
+
+`tensor.pack(value)` 是反向入口：把当前 Tensor value 包装成
+`Ptr<TensorStorage<T, Rank>>`。LowerMulberry 会分配 Boehm heap 上的 storage、
+sizes/strides 和 payload，并把原 tensor payload copy 到 heap buffer，保证返回的
+handle 可以逃逸。
+
+`readTensor(file, name)` 支持两种 expected type：
+
+```cherry
+var x: Float32[?, ?] = readTensor(file, "x");
+var xHandle: Tensor<Float32, 2> = readTensor(file, "x");
+```
+
+第一种保持现有 memref Tensor value 路径；第二种先读取 payload Tensor value，再通过
+`tensor.pack` 打包成 heap Tensor handle。
+
+P5.6/C8 的非目标：
+
+- 不把旧 descriptor surface 改名后伪装成 `TensorStorage`。
+- 不让隐藏 descriptor bridge 跨函数边界。
+- 不在 MLIRGen 里生成 memref descriptor 或 LLVM descriptor。
+- 不破坏当前 `readTensor`、for-loop inference、training safetensors JIT 正向路径。
 
 ## P5 迁移顺序
 
@@ -184,8 +270,22 @@ P5.3  已完成第一阶段 FileStorage lowering：File lower 成 Ptr<FileStorag
 P5.4  设计 TensorStorage；只写 layout 和 unwrap 策略，不立刻替换 memref 正向路径。
 P5.5  已完成 string/file/safetensors stdlib runtime boundary 迁移：不再有
       `mulberry.string.*`、`mulberry.file.*` 或 `mulberry.safetensor.read` op。
-P5.6  在 TensorStorage 准备好后，设计 tensor handle 到 memref view 的 lowering 入口。
-P5.7  逐项删除不再需要的 `tensor_desc` 边界。
+P5.6  TensorStorage / Tensor 已作为 `std.tensor` 里的 comptime alias 落地；当前只表示
+      source-level Ptr<T> / heap object layout，不替换现有 memref Tensor 正向路径。
+P5.6.2 `tensor.view(handle)` 已完成 Sema、MLIRGen 和 LowerMulberry 正向路径，能从
+       alias origin 恢复旧 TensorType，并从 `TensorStorage` 重建 memref view。
+P5.7  已完成：删除公开 Tensor descriptor type/op/lowering/test；保留
+      LowerMulberry 内部 Tensor ABI descriptor helper。
+P5.8  已完成：`tensor.pack(value)` 提供
+      `memref allocation -> Ptr<TensorStorage<T, Rank>>` 的显式 owning pack 入口。
+P5.9  已完成：`readTensor(file, name)` 在 expected type 为
+      `Tensor<Float32, Rank>` 时返回 heap Tensor handle；expected type 为
+      `Float32[?, ...]` 时仍返回 Tensor value。
+C8.1.19 已完成边界审计：`mulberry.tensor.*` 当前不能整块删除。旧
+      `tensor.alloc/dim/cast/load/store` 仍是 `Float32[...] -> memref/linalg` 正向路径；
+      新 `tensor.view/pack` 是 `Ptr<TensorStorage<T, Rank>>` 和 memref-backed Tensor
+      value 之间的显式边界。后续要先统一 source-level Tensor object model，再删除
+      旧 value-path op。
 ```
 
 这个顺序是故意保守的。当前推理、training 和 safetensors JIT 已经能跑，不能为了清理
@@ -194,7 +294,7 @@ dialect 把正向路径打碎。
 ## 非目标
 
 - 不在 P5.1 直接删除 `mulberry.tensor.*`。
-- 不把 `tensor_desc` 伪装成 Tensor heap handle。
+- 不把旧 descriptor surface 伪装成 Tensor heap handle。
 - 不为 String/File/Tensor 分别设计独立 bridge pass。
 - 不引入 allocator trait、异常、borrow checker 或复杂 ownership。
 

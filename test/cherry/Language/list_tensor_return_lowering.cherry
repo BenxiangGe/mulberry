@@ -1,8 +1,9 @@
 # RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s
 
-fn make(): List<Float32[?, ?]> {
+fn make(): List<Tensor<Float32, 2>> {
   var w: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
-  var weights: List<Float32[?, ?]> = [w];
+  var wh: Tensor<Float32, 2> = tensor.pack(w);
+  var weights: List<Tensor<Float32, 2>> = [wh];
   weights
 }
 
@@ -15,17 +16,21 @@ fn main(): UInt64 {
 # CHECK-LABEL: func.func @make
 # CHECK-SAME: -> !llvm.ptr
 # CHECK: llvm.alloca
+# CHECK: llvm.alloca
+# CHECK: llvm.alloca
 # CHECK-SAME: !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
 # CHECK: memref.alloc(%{{.*}}, %{{.*}}) : memref<?x?xf32>
 # CHECK: memref.extract_aligned_pointer_as_index
 # CHECK: llvm.inttoptr
-# CHECK: call @std_collections_withCapacity__Float32______
-# CHECK: call @std_collections_push__Float32______
+# CHECK: memref.copy
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_push__
 # CHECK: return %{{.*}} : !llvm.ptr
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @make() : () -> !llvm.ptr
-# CHECK: call @std_collections_get__Float32______
+# CHECK: call @std_collections_get__
+# CHECK: memref.reinterpret_cast
 # CHECK: linalg.generic
 # CHECK: arith.mulf
 # CHECK: arith.addf

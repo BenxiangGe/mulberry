@@ -11,16 +11,24 @@ fn main(): UInt64 {
   var x1: Float32[?, ?] = [[0.2], [0.4]];
   var y0: Float32[?, ?] = [[1.0]];
   var y1: Float32[?, ?] = [[0.0]];
-  var xs: List<Float32[?, ?]> = [x0, x1];
-  var ys: List<Float32[?, ?]> = [y0, y1];
+  var x0h: Tensor<Float32, 2> = tensor.pack(x0);
+  var x1h: Tensor<Float32, 2> = tensor.pack(x1);
+  var y0h: Tensor<Float32, 2> = tensor.pack(y0);
+  var y1h: Tensor<Float32, 2> = tensor.pack(y1);
+  var xs: List<Tensor<Float32, 2>> = [x0h, x1h];
+  var ys: List<Tensor<Float32, 2>> = [y0h, y1h];
   const eta: Float32 = 0.5;
 
   for epoch in 0 .. 3 {
     for sample in 0 .. collections.size(xs) {
-      const x: Float32[?, ?] = collections.get(xs, sample);
-      const y: Float32[?, ?] = collections.get(ys, sample);
-      var weights: List<Float32[?, ?]> = [w1, w2];
-      var biases: List<Float32[?, ?]> = [b1, b2];
+      const x: Tensor<Float32, 2> = collections.get(xs, sample);
+      const y: Tensor<Float32, 2> = collections.get(ys, sample);
+      var w1h: Tensor<Float32, 2> = tensor.pack(w1);
+      var w2h: Tensor<Float32, 2> = tensor.pack(w2);
+      var b1h: Tensor<Float32, 2> = tensor.pack(b1);
+      var b2h: Tensor<Float32, 2> = tensor.pack(b2);
+      var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
+      var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
 
       var z1: Float32[?, ?] = matadd(
           matmul(collections.get(weights, 0), x),
@@ -58,9 +66,11 @@ fn main(): UInt64 {
 
 # MLIR: scf.for unsigned
 # MLIR: scf.for unsigned
-# MLIR: call @std_collections_withCapacity__Float32______
-# MLIR: call @std_collections_push__Float32______
-# MLIR: call @std_collections_get__Float32______
+# MLIR: mulberry.tensor.pack
+# MLIR: call @std_collections_withCapacity__
+# MLIR: call @std_collections_push__
+# MLIR: call @std_collections_get__
+# MLIR: mulberry.tensor.view
 # MLIR: cherry_nn.matmul
 # MLIR: cherry_nn.matadd
 # MLIR: cherry_nn.sigmoid

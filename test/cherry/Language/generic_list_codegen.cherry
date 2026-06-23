@@ -29,9 +29,6 @@ fn main(): UInt64 {
 # CHECK: call @first
 # CHECK: call @make
 # CHECK: call @std_collections_size__UInt64
-# CHECK-NOT: mulberry.list.create
-# CHECK-NOT: mulberry.list.get
-# CHECK-NOT: mulberry.list.size
 
 # LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # LOWER-LABEL: func.func @first
