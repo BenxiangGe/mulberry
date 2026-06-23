@@ -103,13 +103,11 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
     return parsePtrType(typeNode, location);
 
   if (tokenIs(Token::less)) {
-    consume(Token::less);
-    unique_ptr<TypeNode> argumentTypeNode;
-    if (parseType(argumentTypeNode) ||
-        parseToken(Token::greater, diag::expected_greater))
+    std::vector<ComptimeArg> arguments;
+    if (parseGenericTypeArgs(arguments))
       return failure();
     typeNode = make_unique<GenericTypeNode>(
-        location, name, std::move(argumentTypeNode));
+        location, name, std::move(arguments));
     return success();
   }
 
@@ -125,6 +123,65 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
 
   typeNode = std::move(elementTypeNode);
   return success();
+}
+
+auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
+    -> CherryResult {
+  consume(Token::less);
+  if (tokenIs(Token::greater))
+    return emitError(diag::expected_type);
+
+  while (!tokenIs(Token::greater) && !tokenIs(Token::eof)) {
+    if (tokenIs(Token::decimal)) {
+      auto location = tokenLoc();
+      if (auto value = token().getUInt64IntegerValue()) {
+        consume(Token::decimal);
+        arguments.push_back(ComptimeArg(location, *value));
+      } else {
+        return emitError(diag::integer_literal_overflows);
+      }
+    } else {
+      unique_ptr<TypeNode> argumentTypeNode;
+      if (parseType(argumentTypeNode))
+        return failure();
+      arguments.push_back(ComptimeArg(std::move(argumentTypeNode)));
+    }
+
+    if (tokenIs(Token::greater))
+      break;
+
+    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+      return failure();
+  }
+  return parseToken(Token::greater, diag::expected_greater);
+}
+
+auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
+    -> CherryResult {
+  consume(Token::less);
+  if (tokenIs(Token::greater))
+    return emitError(diag::expected_id);
+
+  while (!tokenIs(Token::greater) && !tokenIs(Token::eof)) {
+    auto parameterName = spelling();
+    if (parseToken(Token::identifier, diag::expected_id))
+      return failure();
+    auto parameterKind = ComptimeParam::Kind::Type;
+    if (consumeIf(Token::colon)) {
+      if (!tokenIs(Token::identifier) || spelling() != "UInt64")
+        return emitError(diag::expected_type);
+      consume(Token::identifier);
+      parameterKind = ComptimeParam::Kind::UInt64;
+    }
+    parameters.push_back(ComptimeParam(parameterName.str(), parameterKind));
+
+    if (tokenIs(Token::greater))
+      break;
+
+    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+      return failure();
+  }
+  return parseToken(Token::greater, diag::expected_greater);
 }
 
 auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
@@ -394,11 +451,9 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
     return failure();
   name = qualifyPackageName(name);
 
-  std::string parameterName;
-  if (consumeIf(Token::less)) {
-    parameterName = spelling();
-    if (parseToken(Token::identifier, diag::expected_id) ||
-        parseToken(Token::greater, diag::expected_greater) ||
+  std::vector<ComptimeParam> parameters;
+  if (tokenIs(Token::less)) {
+    if (parseComptimeParams(parameters) ||
         parseToken(Token::assign, diag::expected_assign))
       return failure();
   } else if (parseToken(Token::assign, diag::expected_assign)) {
@@ -411,7 +466,7 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
     return failure();
 
   decl = make_unique<ComptimeTypeAliasDecl>(
-      location, name, parameterName, std::move(bodyTypeNode));
+      location, name, std::move(parameters), std::move(bodyTypeNode));
   return success();
 }
 
@@ -786,14 +841,12 @@ auto Parser::parseStructLiteral(llvm::SMLoc location,
 auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
                                        std::string_view name,
                                        unique_ptr<Expr> &expr) -> CherryResult {
-  consume(Token::less);
-  unique_ptr<TypeNode> argumentTypeNode;
-  if (parseType(argumentTypeNode) ||
-      parseToken(Token::greater, diag::expected_greater))
+  std::vector<ComptimeArg> arguments;
+  if (parseGenericTypeArgs(arguments))
     return failure();
 
   auto typeNode = make_unique<GenericTypeNode>(
-      location, name, std::move(argumentTypeNode));
+      location, name, std::move(arguments));
   if (!tokenIs(Token::l_brace))
     return emitError(diag::expected_l_brace);
   return parseStructLiteral(location, std::move(typeNode), expr);

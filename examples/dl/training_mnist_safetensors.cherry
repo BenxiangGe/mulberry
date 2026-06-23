@@ -1,62 +1,62 @@
 fn main(): UInt64 {
   const file: File = io.open("data/mnist-784-30-10-training.safetensors", "rb");
 
-  var w1: Float32[?, ?] = readTensor(file, "w1");
-  var b1: Float32[?, ?] = readTensor(file, "b1");
-  var w2: Float32[?, ?] = readTensor(file, "w2");
-  var b2: Float32[?, ?] = readTensor(file, "b2");
-  var x0: Float32[?, ?] = readTensor(file, "train_x_0");
-  var y0: Float32[?, ?] = readTensor(file, "train_y_0");
-  var x1: Float32[?, ?] = readTensor(file, "train_x_1");
-  var y1: Float32[?, ?] = readTensor(file, "train_y_1");
-  var x2: Float32[?, ?] = readTensor(file, "train_x_2");
-  var y2: Float32[?, ?] = readTensor(file, "train_y_2");
-  var x3: Float32[?, ?] = readTensor(file, "train_x_3");
-  var y3: Float32[?, ?] = readTensor(file, "train_y_3");
-  var x4: Float32[?, ?] = readTensor(file, "train_x_4");
-  var y4: Float32[?, ?] = readTensor(file, "train_y_4");
-  var x5: Float32[?, ?] = readTensor(file, "train_x_5");
-  var y5: Float32[?, ?] = readTensor(file, "train_y_5");
-  var x6: Float32[?, ?] = readTensor(file, "train_x_6");
-  var y6: Float32[?, ?] = readTensor(file, "train_y_6");
-  var x7: Float32[?, ?] = readTensor(file, "train_x_7");
-  var y7: Float32[?, ?] = readTensor(file, "train_y_7");
-  var x8: Float32[?, ?] = readTensor(file, "train_x_8");
-  var y8: Float32[?, ?] = readTensor(file, "train_y_8");
-  var x9: Float32[?, ?] = readTensor(file, "train_x_9");
-  var y9: Float32[?, ?] = readTensor(file, "train_y_9");
+  var w1: Tensor<Float32, 2> = readTensor(file, "w1");
+  var b1: Tensor<Float32, 2> = readTensor(file, "b1");
+  var w2: Tensor<Float32, 2> = readTensor(file, "w2");
+  var b2: Tensor<Float32, 2> = readTensor(file, "b2");
+  var x0: Tensor<Float32, 2> = readTensor(file, "train_x_0");
+  var y0: Tensor<Float32, 2> = readTensor(file, "train_y_0");
+  var x1: Tensor<Float32, 2> = readTensor(file, "train_x_1");
+  var y1: Tensor<Float32, 2> = readTensor(file, "train_y_1");
+  var x2: Tensor<Float32, 2> = readTensor(file, "train_x_2");
+  var y2: Tensor<Float32, 2> = readTensor(file, "train_y_2");
+  var x3: Tensor<Float32, 2> = readTensor(file, "train_x_3");
+  var y3: Tensor<Float32, 2> = readTensor(file, "train_y_3");
+  var x4: Tensor<Float32, 2> = readTensor(file, "train_x_4");
+  var y4: Tensor<Float32, 2> = readTensor(file, "train_y_4");
+  var x5: Tensor<Float32, 2> = readTensor(file, "train_x_5");
+  var y5: Tensor<Float32, 2> = readTensor(file, "train_y_5");
+  var x6: Tensor<Float32, 2> = readTensor(file, "train_x_6");
+  var y6: Tensor<Float32, 2> = readTensor(file, "train_y_6");
+  var x7: Tensor<Float32, 2> = readTensor(file, "train_x_7");
+  var y7: Tensor<Float32, 2> = readTensor(file, "train_y_7");
+  var x8: Tensor<Float32, 2> = readTensor(file, "train_x_8");
+  var y8: Tensor<Float32, 2> = readTensor(file, "train_y_8");
+  var x9: Tensor<Float32, 2> = readTensor(file, "train_x_9");
+  var y9: Tensor<Float32, 2> = readTensor(file, "train_y_9");
 
   io.close(file);
 
-  var xs: List<Float32[?, ?]> =
+  var xs: List<Tensor<Float32, 2>> =
       [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9];
-  var ys: List<Float32[?, ?]> =
+  var ys: List<Tensor<Float32, 2>> =
       [y0, y1, y2, y3, y4, y5, y6, y7, y8, y9];
   const eta: Float32 = 0.1;
 
   for epoch in 0 .. 30 {
     for sample in 0 .. collections.size(xs) {
-      const x: Float32[?, ?] = collections.get(xs, sample);
-      const y: Float32[?, ?] = collections.get(ys, sample);
-      var weights: List<Float32[?, ?]> = [w1, w2];
-      var biases: List<Float32[?, ?]> = [b1, b2];
+      const x: Tensor<Float32, 2> = collections.get(xs, sample);
+      const y: Tensor<Float32, 2> = collections.get(ys, sample);
+      var weights: List<Tensor<Float32, 2>> = [w1, w2];
+      var biases: List<Tensor<Float32, 2>> = [b1, b2];
 
-      var z1: Float32[?, ?] = matadd(
+      var z1: Tensor<Float32, 2> = matadd(
           matmul(collections.get(weights, 0), x),
           collections.get(biases, 0));
-      var a1: Float32[?, ?] = sigmoid(z1);
-      var z2: Float32[?, ?] = matadd(
+      var a1: Tensor<Float32, 2> = sigmoid(z1);
+      var z2: Tensor<Float32, 2> = matadd(
           matmul(collections.get(weights, 1), a1),
           collections.get(biases, 1));
-      var a2: Float32[?, ?] = sigmoid(z2);
+      var a2: Tensor<Float32, 2> = sigmoid(z2);
 
-      var delta2: Float32[?, ?] = matsub(a2, y);
-      var nablaW2: Float32[?, ?] = matmul(delta2, transpose(a1));
+      var delta2: Tensor<Float32, 2> = matsub(a2, y);
+      var nablaW2: Tensor<Float32, 2> = matmul(delta2, transpose(a1));
 
-      var delta1: Float32[?, ?] =
+      var delta1: Tensor<Float32, 2> =
         hadamard(matmul(transpose(collections.get(weights, 1)), delta2),
                  sigmoidPrime(z1));
-      var nablaW1: Float32[?, ?] = matmul(delta1, transpose(x));
+      var nablaW1: Tensor<Float32, 2> = matmul(delta1, transpose(x));
 
       w1 = matsub(collections.get(weights, 0), matscale(nablaW1, eta));
       w2 = matsub(collections.get(weights, 1), matscale(nablaW2, eta));
@@ -68,19 +68,19 @@ fn main(): UInt64 {
   };
 
   const w1Output: File = io.open("/tmp/cherry_mnist_trained_w1.f32", "wb");
-  write(w1Output, w1);
+  write(w1Output, tensor.view(w1));
   io.close(w1Output);
 
   const b1Output: File = io.open("/tmp/cherry_mnist_trained_b1.f32", "wb");
-  write(b1Output, b1);
+  write(b1Output, tensor.view(b1));
   io.close(b1Output);
 
   const w2Output: File = io.open("/tmp/cherry_mnist_trained_w2.f32", "wb");
-  write(w2Output, w2);
+  write(w2Output, tensor.view(w2));
   io.close(w2Output);
 
   const b2Output: File = io.open("/tmp/cherry_mnist_trained_b2.f32", "wb");
-  write(b2Output, b2);
+  write(b2Output, tensor.view(b2));
   io.close(b2Output);
 
   var savedW1: Float32[30, 784] = zeros();
@@ -104,16 +104,21 @@ fn main(): UInt64 {
   read(b2Input, savedB2);
   io.close(b2Input);
 
-  var finalWeights: List<Float32[?, ?]> =
-      [savedW1, savedW2];
-  var finalBiases: List<Float32[?, ?]> =
-      [savedB1, savedB2];
+  var savedW1Handle: Tensor<Float32, 2> = tensor.pack(savedW1);
+  var savedB1Handle: Tensor<Float32, 2> = tensor.pack(savedB1);
+  var savedW2Handle: Tensor<Float32, 2> = tensor.pack(savedW2);
+  var savedB2Handle: Tensor<Float32, 2> = tensor.pack(savedB2);
+
+  var finalWeights: List<Tensor<Float32, 2>> =
+      [savedW1Handle, savedW2Handle];
+  var finalBiases: List<Tensor<Float32, 2>> =
+      [savedB1Handle, savedB2Handle];
 
   const inferenceFile: File = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var x: Float32[?, ?] = readTensor(inferenceFile, "x");
+  var x: Tensor<Float32, 2> = readTensor(inferenceFile, "x");
   io.close(inferenceFile);
 
-  var activation: Float32[?, ?] = x;
+  var activation: Tensor<Float32, 2> = x;
   for layer in 0 .. collections.size(finalWeights) {
     activation = sigmoid(matadd(
         matmul(collections.get(finalWeights, layer), activation),

@@ -29,7 +29,10 @@ fn main(): UInt64 {
 # CHECK-LABEL: func.func @viaVariable()
 # CHECK: %[[ONE:.*]] = arith.constant 1 : index
 # CHECK: %[[PAIR:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
-# CHECK: %[[X:.*]] = mulberry.record.get_field %[[PAIR]]["x"]
+# CHECK: mulberry.store %[[PAIR]]
+# CHECK: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
+# CHECK: %[[X:.*]] = mulberry.record.get_field %[[CURRENT]]["x"]
 # CHECK: mulberry.store
-# CHECK: %[[X2:.*]] = mulberry.record.get_field %[[PAIR]]["x"]
+# CHECK: %[[CURRENT2:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
+# CHECK: %[[X2:.*]] = mulberry.record.get_field %[[CURRENT2]]["x"]
 # CHECK: mulberry.load %[[X2]]

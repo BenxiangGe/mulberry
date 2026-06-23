@@ -9,6 +9,7 @@
 #define CHERRY_TYPE_H
 
 #include "cherry/AST/Node.h"
+#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,6 +19,19 @@
 namespace cherry {
 
 class VariableStat;
+
+struct ComptimeParam {
+  enum class Kind {
+    Type,
+    UInt64,
+  };
+
+  explicit ComptimeParam(std::string_view name, Kind kind = Kind::Type)
+      : name(name), kind(kind) {}
+
+  std::string name;
+  Kind kind = Kind::Type;
+};
 
 class TypeNode : public Node {
 public:
@@ -90,7 +104,7 @@ private:
   std::vector<int64_t> _shape;
 };
 
-// Generic list type node. e.g. `List<Float32[?, ?]>`
+// Generic list type node. e.g. `List<UInt64>` or `List<Tensor<Float32, 2>>`.
 class ListTypeNode final : public TypeNode {
 public:
   ListTypeNode(std::unique_ptr<TypeNode> elementType,
@@ -130,13 +144,49 @@ private:
   std::unique_ptr<TypeNode> _pointeeType;
 };
 
+class ComptimeArg final {
+public:
+  enum class Kind {
+    Type,
+    UInt64,
+  };
+
+  explicit ComptimeArg(std::unique_ptr<TypeNode> typeNode)
+      : _kind(Kind::Type), _typeNode(std::move(typeNode)) {}
+
+  ComptimeArg(llvm::SMLoc location, uint64_t uint64Value)
+      : _kind(Kind::UInt64), _location(location), _uint64Value(uint64Value) {}
+
+  auto kind() const -> Kind { return _kind; }
+
+  auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
+
+  auto uint64Value() const -> uint64_t { return _uint64Value; }
+
+  auto location() const -> llvm::SMLoc {
+    return _typeNode ? _typeNode->location() : _location;
+  }
+
+private:
+  Kind _kind;
+  llvm::SMLoc _location;
+  std::unique_ptr<TypeNode> _typeNode;
+  uint64_t _uint64Value = 0;
+};
+
 // Generic type application node. e.g. `Vector<UInt64>` or `Matrix<Float32>`.
 class GenericTypeNode final : public TypeNode {
 public:
   GenericTypeNode(llvm::SMLoc location, std::string_view name,
                   std::unique_ptr<TypeNode> argumentType)
+      : TypeNode(location, TypeNode::Kind::Generic), _name(name) {
+    _arguments.push_back(ComptimeArg(std::move(argumentType)));
+  }
+
+  GenericTypeNode(llvm::SMLoc location, std::string_view name,
+                  std::vector<ComptimeArg> arguments)
       : TypeNode(location, TypeNode::Kind::Generic), _name(name),
-        _argumentType(std::move(argumentType)) {}
+        _arguments(std::move(arguments)) {}
 
   static auto classof(const TypeNode *node) -> bool {
     return node->kind() == TypeNode::Kind::Generic;
@@ -145,12 +195,18 @@ public:
   auto name() const -> std::string_view { return _name; }
 
   auto argumentTypeNode() const -> const TypeNode * {
-    return _argumentType.get();
+    assert(_arguments.size() == 1);
+    assert(_arguments.front().kind() == ComptimeArg::Kind::Type);
+    return _arguments.front().typeNode();
+  }
+
+  auto arguments() const -> const std::vector<ComptimeArg> & {
+    return _arguments;
   }
 
 private:
   std::string _name;
-  std::unique_ptr<TypeNode> _argumentType;
+  std::vector<ComptimeArg> _arguments;
 };
 
 class StructTypeNode final : public TypeNode {

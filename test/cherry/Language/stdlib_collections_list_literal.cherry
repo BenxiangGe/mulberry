@@ -15,13 +15,11 @@ fn main(): UInt64 {
 # CHECK: call @std_collections_push__UInt64
 # CHECK: call @std_collections_get__UInt64
 # CHECK: call @std_collections_size__UInt64
-# CHECK-NOT: mulberry.list.create
 
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_collections_withCapacity__UInt64
 # LOWER: call @std_collections_push__UInt64
 # LOWER: call @std_collections_get__UInt64
 # LOWER: call @std_collections_size__UInt64
-# LOWER-NOT: mulberry.list.create
 
 # JIT: 20

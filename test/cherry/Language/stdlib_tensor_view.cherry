@@ -1,0 +1,47 @@
+# RUN: cherry-driver -typecheck %s
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var data: Ptr<Float32> = heap.alloc<Float32>(4);
+  data[0] = 1.0;
+  data[1] = 2.0;
+  data[2] = 3.0;
+  data[3] = 4.0;
+
+  var sizes: Ptr<UInt64> = heap.alloc<UInt64>(2);
+  sizes[0] = 2;
+  sizes[1] = 2;
+
+  var strides: Ptr<UInt64> = heap.alloc<UInt64>(2);
+  strides[0] = 2;
+  strides[1] = 1;
+
+  var handle: Tensor<Float32, 2> =
+      heap.alloc<tensor.TensorStorage<Float32, 2>>();
+  handle.rank = 2;
+  handle.data = data;
+  handle.sizes = sizes;
+  handle.strides = strides;
+
+  var view: Float32[?, ?] = tensor.view(handle);
+  io.print(size(view));
+  io.print(boolToUInt64(view[1, 1] gt 3.5));
+  0
+}
+
+# AST: VariableStat (id=view
+# AST-SAME: type=Float32[?, ?]
+# AST: CallExpr {{.*}}type=Float32[?, ?] callee=std.tensor.view
+
+# MLIR: mulberry.tensor.view
+# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
+
+# LOWERED: memref.reinterpret_cast
+# LOWERED-SAME: to offset: [%{{.*}}], sizes: [%{{.*}}, %{{.*}}], strides: [%{{.*}}, %{{.*}}]
+# LOWERED-NOT: mulberry.tensor.view
+
+# JIT: 2
+# JIT-NEXT: 1

@@ -36,6 +36,39 @@ private:
   TypeKind _kind;
 };
 
+class ComptimeTypeValue {
+public:
+  enum class Kind {
+    Type,
+    UInt64,
+  };
+
+  explicit ComptimeTypeValue(const Type *type);
+  explicit ComptimeTypeValue(uint64_t uint64Value);
+
+  auto kind() const -> Kind;
+  auto type() const -> const Type *;
+  auto uint64Value() const -> uint64_t;
+
+private:
+  Kind _kind;
+  const Type *_type = nullptr;
+  uint64_t _uint64Value = 0;
+};
+
+class ComptimeAliasOrigin {
+public:
+  ComptimeAliasOrigin(std::string_view aliasName,
+                      std::vector<ComptimeTypeValue> arguments);
+
+  auto aliasName() const -> std::string_view;
+  auto arguments() const -> const std::vector<ComptimeTypeValue> &;
+
+private:
+  std::string _aliasName;
+  std::vector<ComptimeTypeValue> _arguments;
+};
+
 class BuiltinType final : public Type {
 public:
   explicit BuiltinType(BuiltinTypeKind kind);
@@ -69,6 +102,8 @@ private:
 class StructType final : public Type {
 public:
   StructType(std::string_view name, std::vector<StructField> fields);
+  StructType(std::string_view name, std::vector<StructField> fields,
+             ComptimeAliasOrigin origin);
 
   static auto classof(const Type *type) -> bool;
 
@@ -78,9 +113,12 @@ public:
 
   auto field(std::string_view fieldName) const -> const StructField *;
 
+  auto origin() const -> const ComptimeAliasOrigin *;
+
 private:
   std::string _name;
   std::vector<StructField> _fields;
+  std::optional<ComptimeAliasOrigin> _origin;
 };
 
 class TensorType final : public Type {
@@ -153,6 +191,11 @@ public:
 
   auto createStructType(std::string_view name,
                         std::vector<StructField> fields) const
+      -> const StructType *;
+
+  auto createStructType(std::string_view name,
+                        std::vector<StructField> fields,
+                        ComptimeAliasOrigin origin) const
       -> const StructType *;
 
   auto createTensorType(const Type *elementType,

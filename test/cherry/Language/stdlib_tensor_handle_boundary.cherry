@@ -1,0 +1,42 @@
+# RUN: cherry-driver -typecheck %s
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: cherry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn idTensor(value: Tensor<Float32, 2>): Tensor<Float32, 2> {
+  value
+}
+
+fn checkTensor(value: Tensor<Float32, 2>): UInt64 {
+  var view: Float32[?, ?] = tensor.view(value);
+  boolToUInt64(view[1, 1] gt 3.5)
+}
+
+fn main(): UInt64 {
+  var data: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var handle: Tensor<Float32, 2> = tensor.pack(data);
+  var returned: Tensor<Float32, 2> = idTensor(handle);
+  io.print(checkTensor(returned));
+  0
+}
+
+# MLIR-LABEL: func.func @idTensor
+# MLIR-SAME: %arg0: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR: return %arg0
+
+# MLIR-LABEL: func.func @checkTensor
+# MLIR-SAME: %arg0: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR: mulberry.tensor.view
+# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
+
+# LOWERED-LABEL: func.func @idTensor
+# LOWERED-SAME: %arg0: !llvm.ptr
+# LOWERED-SAME: -> !llvm.ptr
+# LOWERED: return %arg0 : !llvm.ptr
+# LOWERED-LABEL: func.func @checkTensor
+# LOWERED-SAME: %arg0: !llvm.ptr
+# LOWERED: memref.reinterpret_cast
+# LOWERED-NOT: mulberry.tensor.view
+
+# JIT: 1

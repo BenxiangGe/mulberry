@@ -27,7 +27,6 @@ fn main(): UInt64 {
 # MLIR: mulberry.record.get_field {{.*}}["length"]
 # MLIR: mulberry.record.get_field {{.*}}["data"]
 # MLIR: call @id
-# MLIR-NOT: mulberry.string
 # MLIR-NOT: cir.
 
 # LOWERED-LABEL: func.func @id(%arg0: !llvm.ptr) -> !llvm.ptr

@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace cherry {
 
@@ -108,6 +109,10 @@ private:
   auto qualifyPackageName(std::string_view name) const -> std::string;
 
   auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> CherryResult;
+  auto parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
+      -> CherryResult;
+  auto parseComptimeParams(std::vector<ComptimeParam> &parameters)
+      -> CherryResult;
   auto parseListType(std::unique_ptr<TypeNode> &typeNode,
                      llvm::SMLoc location) -> CherryResult;
   auto parsePtrType(std::unique_ptr<TypeNode> &typeNode,

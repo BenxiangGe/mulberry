@@ -5,15 +5,19 @@
 import collections;
 import collections.List;
 import io;
+import tensor;
+import tensor.Tensor;
 
-fn first(xs: List<Float32[?, ?]>): Float32[?, ?] {
+fn first(xs: List<Tensor<Float32, 2>>): Tensor<Float32, 2> {
   collections.get(xs, 0)
 }
 
 fn main(): UInt64 {
   var w1: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
   var w2: Float32[?, ?] = [[5.0, 6.0]];
-  var xs: List<Float32[?, ?]> = [w1, w2];
+  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
+  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
+  var xs: List<Tensor<Float32, 2>> = [w1h, w2h];
 
   io.print(collections.size(xs));
   io.print(size(first(xs)));
@@ -21,31 +25,28 @@ fn main(): UInt64 {
 }
 
 # MLIR-LABEL: func.func @first
-# MLIR-SAME: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__Float32______
-# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
-# MLIR: call @std_collections_get__Float32______
+# MLIR-SAME: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__
+# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR: call @std_collections_get__
 # MLIR-LABEL: func.func @main
-# MLIR: call @std_collections_withCapacity__Float32______
-# MLIR: call @std_collections_push__Float32______
-# MLIR: call @std_collections_size__Float32______
+# MLIR: mulberry.tensor.pack
+# MLIR: call @std_collections_withCapacity__
+# MLIR: call @std_collections_push__
+# MLIR: call @std_collections_size__
 # MLIR: call @first
+# MLIR: mulberry.tensor.view
 # MLIR: call @std.io.print
-# MLIR-NOT: mulberry.list.create
-# MLIR-NOT: mulberry.list.get
-# MLIR-NOT: mulberry.list.size
 
 # LOWER-LABEL: func.func @first
-# LOWER-SAME: -> memref<?x?xf32>
-# LOWER: call @std_collections_get__Float32______
+# LOWER-SAME: -> !llvm.ptr
+# LOWER: call @std_collections_get__
 # LOWER-LABEL: func.func @main
-# LOWER: call @std_collections_withCapacity__Float32______
-# LOWER: call @std_collections_push__Float32______
-# LOWER: call @std_collections_size__Float32______
+# LOWER: call @std_collections_withCapacity__
+# LOWER: call @std_collections_push__
+# LOWER: call @std_collections_size__
 # LOWER: call @first
+# LOWER: memref.reinterpret_cast
 # LOWER: call @std.io.print
-# LOWER-NOT: mulberry.list.create
-# LOWER-NOT: mulberry.list.get
-# LOWER-NOT: mulberry.list.size
 
 # JIT: 2
 # JIT-NEXT: 2

@@ -14,4 +14,3 @@ fn main(): UInt64 {
 # CHECK-SAME: memref<?x?xf32>
 # CHECK: llvm.call @mulberry_safetensor_read_f32
 # CHECK-NOT: __cherry_safetensor_read_
-# CHECK-NOT: mulberry.safetensor

@@ -60,23 +60,6 @@ def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
   let hasCustomAssemblyFormat = 1;
 }
 
-def Mulberry_TensorDescType : Mulberry_Type<"TensorDesc", "tensor_desc"> {
-  let summary = "Mulberry tensor descriptor type";
-  let description = [{
-    Lowering-internal descriptor for a Mulberry tensor ABI/view value. This is
-    not a source-level Tensor heap object handle and must not cross function
-    boundaries. The rank is static; dynamic dimensions are carried as
-    descriptor fields.
-  }];
-
-  let parameters = (ins
-    ArrayRefParameter<"int64_t">:$shape,
-    "mlir::Type":$elementType
-  );
-
-  let hasCustomAssemblyFormat = 1;
-}
-
 def Mulberry_PtrType : Mulberry_Type<"Ptr", "ptr"> {
   let summary = "Mulberry pointer type";
   let description = [{

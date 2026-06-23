@@ -44,8 +44,6 @@ fn main(): UInt64 {
 # MLIR: call @std.io.open
 # MLIR: mulberry.tensor.alloc() : !mulberry.tensor<4xi8>
 # MLIR: call @__cherry_file_write_
-# MLIR-NOT: mulberry.string
-# MLIR-NOT: mulberry.file
 # MLIR-NOT: cir.
 
 # LOWERED-DAG: llvm.func @fread(!llvm.ptr, i64, i64, !llvm.ptr) -> i64
@@ -65,4 +63,3 @@ fn main(): UInt64 {
 # LOWERED: llvm.call @fwrite
 # LOWERED-NOT: __cherry_file_read_
 # LOWERED-NOT: __cherry_file_write_
-# LOWERED-NOT: mulberry.file

@@ -6,10 +6,14 @@ fn main(): UInt64 {
   var w2: Float32[?, ?] = [[1.0, 1.0]];
   var b1: Float32[?, ?] = [[0.0], [0.0]];
   var b2: Float32[?, ?] = [[0.0]];
+  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
+  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
+  var b1h: Tensor<Float32, 2> = tensor.pack(b1);
+  var b2h: Tensor<Float32, 2> = tensor.pack(b2);
   const x: Float32[2, 1] = [[0.2], [0.8]];
 
-  var weights: List<Float32[?, ?]> = [w1, w2];
-  var biases: List<Float32[?, ?]> = [b1, b2];
+  var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
+  var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
   var activation: Float32[?, ?] = [[0.2], [0.8]];
 
   for layer in 0 .. collections.size(weights) {
@@ -23,20 +27,21 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main()
-# CHECK: call @std_collections_withCapacity__Float32______
-# CHECK: call @std_collections_push__Float32______
+# CHECK: mulberry.tensor.pack
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_push__
 # CHECK: scf.for unsigned
-# CHECK: call @std_collections_get__Float32______
+# CHECK: call @std_collections_get__
 # CHECK: cherry_nn.matmul
 # CHECK: cherry_nn.matadd
 # CHECK: cherry_nn.sigmoid
 # CHECK: cherry_nn.argmax
 
 # LOWER-LABEL: func.func @main
-# LOWER: call @std_collections_withCapacity__Float32______
-# LOWER: call @std_collections_push__Float32______
+# LOWER: call @std_collections_withCapacity__
+# LOWER: call @std_collections_push__
 # LOWER: scf.for unsigned
-# LOWER: call @std_collections_get__Float32______
+# LOWER: call @std_collections_get__
 # LOWER: linalg.generic
 # LOWER: arith.mulf
 # LOWER: arith.addf

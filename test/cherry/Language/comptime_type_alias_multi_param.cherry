@@ -1,0 +1,25 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+comptime Pair<T, U> = struct {
+  first: T,
+  second: U
+};
+
+fn main(): UInt64 {
+  var pair: Ptr<Pair<UInt64, Float32>> =
+      heap.alloc<Pair<UInt64, Float32>>();
+  pair.first = 42;
+  pair.second = 1.5;
+  io.print(pair.first);
+  0
+}
+
+# AST: ComptimeTypeAliasDecl {{.*}}name=Pair parameter=T, U type=struct {first: T, second: U}
+# AST: VariableStat (id=pair
+# AST-SAME: type=Ptr<Pair<UInt64, Float32>>
+
+# MLIR-LABEL: func.func @main()
+# MLIR: mulberry.heap.alloc !mulberry.record<Pair__UInt64__Float32
+# MLIR: mulberry.record.get_field {{.*}}["first"]
+# MLIR: mulberry.record.get_field {{.*}}["second"]
