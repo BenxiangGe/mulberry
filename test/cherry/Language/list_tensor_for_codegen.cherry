@@ -16,10 +16,10 @@ fn main(): UInt64 {
   var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
   var activation: Float32[?, ?] = [[0.2], [0.8]];
 
-  for layer in 0 .. collections.size(weights) {
+  for layer in 0 .. weights.size() {
     activation = sigmoid(matadd(
-        matmul(collections.get(weights, layer), activation),
-        collections.get(biases, layer)));
+        matmul(weights[layer], activation),
+        biases[layer]));
     ()
   };
 
@@ -29,9 +29,9 @@ fn main(): UInt64 {
 # CHECK-LABEL: func.func @main()
 # CHECK: mulberry.tensor.pack
 # CHECK: call @std_collections_withCapacity__
-# CHECK: call @std_collections_push__
+# CHECK: call @std_collections_ListStorage_push__
 # CHECK: scf.for unsigned
-# CHECK: call @std_collections_get__
+# CHECK: call @std_collections_ListStorage_get__
 # CHECK: cherry_nn.matmul
 # CHECK: cherry_nn.matadd
 # CHECK: cherry_nn.sigmoid
@@ -39,9 +39,9 @@ fn main(): UInt64 {
 
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_collections_withCapacity__
-# LOWER: call @std_collections_push__
+# LOWER: call @std_collections_ListStorage_push__
 # LOWER: scf.for unsigned
-# LOWER: call @std_collections_get__
+# LOWER: call @std_collections_ListStorage_get__
 # LOWER: linalg.generic
 # LOWER: arith.mulf
 # LOWER: arith.addf

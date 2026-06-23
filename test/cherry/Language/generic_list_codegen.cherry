@@ -2,7 +2,7 @@
 # RUN: cherry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn first(xs: List<UInt64>): UInt64 {
-  collections.get(xs, 0)
+  xs[0]
 }
 
 fn make(): List<UInt64> {
@@ -13,33 +13,33 @@ fn make(): List<UInt64> {
 fn main(): UInt64 {
   var numbers: List<UInt64> = [4, 5, 6];
   io.print(first(numbers));
-  collections.size(make())
+  make().size()
 }
 
 # CHECK-LABEL: func.func @first(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
 # CHECK-SAME: -> i64
-# CHECK: call @std_collections_get__UInt64
+# CHECK: call @std_collections_ListStorage_get__UInt64
 # CHECK-LABEL: func.func @make()
 # CHECK-SAME: -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
 # CHECK: call @std_collections_withCapacity__UInt64
-# CHECK: call @std_collections_push__UInt64
+# CHECK: call @std_collections_ListStorage_push__UInt64
 # CHECK-LABEL: func.func @main()
 # CHECK: call @std_collections_withCapacity__UInt64
-# CHECK: call @std_collections_push__UInt64
+# CHECK: call @std_collections_ListStorage_push__UInt64
 # CHECK: call @first
 # CHECK: call @make
-# CHECK: call @std_collections_size__UInt64
+# CHECK: call @std_collections_ListStorage_size__UInt64
 
 # LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # LOWER-LABEL: func.func @first
 # LOWER-SAME: !llvm.ptr
-# LOWER: call @std_collections_get__UInt64
+# LOWER: call @std_collections_ListStorage_get__UInt64
 # LOWER-LABEL: func.func @make
 # LOWER-SAME: -> !llvm.ptr
 # LOWER: call @std_collections_withCapacity__UInt64
-# LOWER: call @std_collections_push__UInt64
+# LOWER: call @std_collections_ListStorage_push__UInt64
 # LOWER-LABEL: func.func @main
 # LOWER: call @first
 # LOWER: call @make
-# LOWER: call @std_collections_size__UInt64
+# LOWER: call @std_collections_ListStorage_size__UInt64
 # LOWER-NOT: llvm.call @free

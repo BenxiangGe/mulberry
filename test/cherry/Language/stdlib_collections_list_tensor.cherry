@@ -12,27 +12,27 @@ fn main(): UInt64 {
 
   var x: Float32[?, ?] = [[0.2], [0.8]];
   var y: Float32[?, ?] =
-      matmul(collections.get(weights, 0), x);
+      matmul(weights[0], x);
   io.print(argmax(y));
   0
 }
 
 # AST: VariableStat (id=weights
 # AST-NEXT: ArrayLiteralExpr {{.*}} type=Ptr<std_collections_ListStorage__
-# AST-DAG: CallExpr {{.*}}callee=std_collections_get__
+# AST-DAG: IndexExpr {{.*}}kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
 # MLIR: mulberry.tensor.pack
 # MLIR: call @std_collections_withCapacity__
-# MLIR: call @std_collections_push__
-# MLIR: call @std_collections_get__
-# MLIR-DAG: func.func @std_collections_push__
+# MLIR: call @std_collections_ListStorage_push__
+# MLIR: call @std_collections_ListStorage_get__
+# MLIR-DAG: func.func @std_collections_ListStorage_push__
 # MLIR-DAG: mulberry.ptr.index
 
 # LOWER-LABEL: func.func @main()
 # LOWER: call @std_collections_withCapacity__
-# LOWER: call @std_collections_push__
-# LOWER: call @std_collections_get__
+# LOWER: call @std_collections_ListStorage_push__
+# LOWER: call @std_collections_ListStorage_get__
 # LOWER-DAG: llvm.getelementptr
 # LOWER-DAG: memref.reinterpret_cast
 # LOWER-DAG: linalg.generic

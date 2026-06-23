@@ -9,7 +9,7 @@ fn make(): List<Tensor<Float32, 2>> {
 
 fn main(): UInt64 {
   const x: Float32[2, 1] = [[0.2], [0.8]];
-  argmax(matmul(collections.get(make(), 0), x))
+  argmax(matmul(make()[0], x))
 }
 
 # CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
@@ -24,12 +24,12 @@ fn main(): UInt64 {
 # CHECK: llvm.inttoptr
 # CHECK: memref.copy
 # CHECK: call @std_collections_withCapacity__
-# CHECK: call @std_collections_push__
+# CHECK: call @std_collections_ListStorage_push__
 # CHECK: return %{{.*}} : !llvm.ptr
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @make() : () -> !llvm.ptr
-# CHECK: call @std_collections_get__
+# CHECK: call @std_collections_ListStorage_get__
 # CHECK: memref.reinterpret_cast
 # CHECK: linalg.generic
 # CHECK: arith.mulf

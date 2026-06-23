@@ -18,6 +18,7 @@
 
 namespace cherry {
 
+class FunctionDecl;
 class VariableStat;
 
 struct ComptimeParam {
@@ -216,6 +217,11 @@ public:
       : TypeNode(location, TypeNode::Kind::Struct),
         _fields(std::move(fields)) {}
 
+  StructTypeNode(llvm::SMLoc location, VectorUniquePtr<VariableStat> fields,
+                 VectorUniquePtr<FunctionDecl> methods)
+      : TypeNode(location, TypeNode::Kind::Struct),
+        _fields(std::move(fields)), _methods(std::move(methods)) {}
+
   static auto classof(const TypeNode *node) -> bool {
     return node->kind() == TypeNode::Kind::Struct;
   }
@@ -224,8 +230,13 @@ public:
     return _fields;
   }
 
+  auto methods() const -> const VectorUniquePtr<FunctionDecl> & {
+    return _methods;
+  }
+
 private:
   VectorUniquePtr<VariableStat> _fields;
+  VectorUniquePtr<FunctionDecl> _methods;
 };
 
 } // end namespace cherry

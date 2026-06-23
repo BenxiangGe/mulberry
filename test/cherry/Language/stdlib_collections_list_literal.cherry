@@ -4,22 +4,22 @@
 
 fn main(): UInt64 {
   var xs: List<UInt64> = [10, 20, 30];
-  io.print(collections.get(xs, 1));
-  collections.size(xs)
+  io.print(xs[1]);
+  xs.size()
 }
 
 # CHECK-LABEL: func.func @main()
 # CHECK: call @std_collections_withCapacity__UInt64
-# CHECK: call @std_collections_push__UInt64
-# CHECK: call @std_collections_push__UInt64
-# CHECK: call @std_collections_push__UInt64
-# CHECK: call @std_collections_get__UInt64
-# CHECK: call @std_collections_size__UInt64
+# CHECK: call @std_collections_ListStorage_push__UInt64
+# CHECK: call @std_collections_ListStorage_push__UInt64
+# CHECK: call @std_collections_ListStorage_push__UInt64
+# CHECK: call @std_collections_ListStorage_get__UInt64
+# CHECK: call @std_collections_ListStorage_size__UInt64
 
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_collections_withCapacity__UInt64
-# LOWER: call @std_collections_push__UInt64
-# LOWER: call @std_collections_get__UInt64
-# LOWER: call @std_collections_size__UInt64
+# LOWER: call @std_collections_ListStorage_push__UInt64
+# LOWER: call @std_collections_ListStorage_get__UInt64
+# LOWER: call @std_collections_ListStorage_size__UInt64
 
 # JIT: 20

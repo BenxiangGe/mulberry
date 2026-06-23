@@ -20,12 +20,12 @@ fn main(): UInt64 {
   var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
 
   var z1: Tensor<Float32, 2> = matadd(
-      matmul(collections.get(weights, 0), x),
-      collections.get(biases, 0));
+      matmul(weights[0], x),
+      biases[0]);
   var a1: Tensor<Float32, 2> = sigmoid(z1);
   var z2: Tensor<Float32, 2> = matadd(
-      matmul(collections.get(weights, 1), a1),
-      collections.get(biases, 1));
+      matmul(weights[1], a1),
+      biases[1]);
   var a2: Tensor<Float32, 2> = sigmoid(z2);
 
   var delta2: Tensor<Float32, 2> =
@@ -34,19 +34,19 @@ fn main(): UInt64 {
   var nablaW2: Tensor<Float32, 2> = matmul(delta2, transpose(a1));
 
   var delta1: Tensor<Float32, 2> =
-    hadamard(matmul(transpose(collections.get(weights, 1)), delta2),
+    hadamard(matmul(transpose(weights[1]), delta2),
              sigmoidPrime(z1));
   var nablaB1: Tensor<Float32, 2> = delta1;
   var nablaW1: Tensor<Float32, 2> = matmul(delta1, transpose(x));
 
   var nextW1: Tensor<Float32, 2> =
-      matsub(collections.get(weights, 0), matscale(nablaW1, eta));
+      matsub(weights[0], matscale(nablaW1, eta));
   var nextW2: Tensor<Float32, 2> =
-      matsub(collections.get(weights, 1), matscale(nablaW2, eta));
+      matsub(weights[1], matscale(nablaW2, eta));
   var nextB1: Tensor<Float32, 2> =
-      matsub(collections.get(biases, 0), matscale(nablaB1, eta));
+      matsub(biases[0], matscale(nablaB1, eta));
   var nextB2: Tensor<Float32, 2> =
-      matsub(collections.get(biases, 1), matscale(nablaB2, eta));
+      matsub(biases[1], matscale(nablaB2, eta));
 
   io.print(size(nextW1));
   io.print(size(nextW2));
@@ -57,8 +57,8 @@ fn main(): UInt64 {
 
 # MLIR: mulberry.tensor.pack
 # MLIR: call @std_collections_withCapacity__
-# MLIR: call @std_collections_push__
-# MLIR: call @std_collections_get__
+# MLIR: call @std_collections_ListStorage_push__
+# MLIR: call @std_collections_ListStorage_get__
 # MLIR: mulberry.tensor.view
 # MLIR: cherry_nn.matmul
 # MLIR: cherry_nn.matadd

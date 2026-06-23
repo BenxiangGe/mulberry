@@ -21,6 +21,20 @@ using llvm::cast;
 using llvm::dyn_cast;
 using llvm::errs;
 
+auto indexKindName(IndexExpr::IndexKind kind) -> std::string_view {
+  switch (kind) {
+  case IndexExpr::IndexKind::Unknown:
+    return "unknown";
+  case IndexExpr::IndexKind::Ptr:
+    return "ptr";
+  case IndexExpr::IndexKind::Tensor:
+    return "tensor";
+  case IndexExpr::IndexKind::StdlibList:
+    return "stdlibList";
+  }
+  return "unknown";
+}
+
 class Dumper {
 public:
   Dumper(const llvm::SourceMgr &sourceManager)
@@ -125,6 +139,12 @@ private:
         result += field->variable()->name();
         result += ": ";
         result += formatTypeNode(field->typeNode());
+        separator = ", ";
+      }
+      for (auto &method : structType->methods()) {
+        result += separator;
+        result += "fn ";
+        result += method->proto()->id()->name();
         separator = ", ";
       }
       result += "}";
@@ -240,6 +260,8 @@ auto Dumper::dump(const StructDecl *node) -> void {
          << " (name=" << id->name() << " " << loc(id) << ")\n";
   for (auto &var : node->variables())
     dump(var.get());
+  for (auto &method : node->methods())
+    dump(method.get());
 }
 
 auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
@@ -281,6 +303,8 @@ auto Dumper::dump(const CallExpr *node) -> void {
   errs() << "CallExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " callee=" << node->name() << "\n";
+  if (node->hasReceiver())
+    dump(node->receiver().get());
   for (auto &expr : *node)
     dump(expr.get());
 }
@@ -385,7 +409,8 @@ auto Dumper::dump(const ArrayLiteralExpr *node) -> void {
 auto Dumper::dump(const IndexExpr *node) -> void {
   INDENT();
   errs() << "IndexExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
+         << " type=" << formatType(node->type())
+         << " kind=" << indexKindName(node->indexKind()) << "\n";
   dump(node->base().get());
   for (auto &index : node->indices())
     dump(index.get());

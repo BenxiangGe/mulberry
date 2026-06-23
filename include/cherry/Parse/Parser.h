@@ -127,13 +127,21 @@ private:
 
   auto parseFunctionDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
-  auto parsePrototype(std::unique_ptr<Prototype> &proto) -> CherryResult;
+  auto parsePrototype(std::unique_ptr<Prototype> &proto,
+                      bool qualifyName = true) -> CherryResult;
+  auto parseFunctionDeclBody(llvm::SMLoc location,
+                             std::unique_ptr<Prototype> proto,
+                             std::unique_ptr<FunctionDecl> &functionDecl)
+      -> CherryResult;
+  auto parseStructMethod(std::unique_ptr<FunctionDecl> &method)
+      -> CherryResult;
 
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> CherryResult;
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> CherryResult;
   auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
-  auto parseStructFields(VectorUniquePtr<VariableStat> &fields)
+  auto parseStructMembers(VectorUniquePtr<VariableStat> &fields,
+                          VectorUniquePtr<FunctionDecl> &methods)
       -> CherryResult;
   auto parseComptimeAliasBody(std::unique_ptr<TypeNode> &typeNode)
       -> CherryResult;

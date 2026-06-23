@@ -9,7 +9,7 @@ import tensor;
 import tensor.Tensor;
 
 fn first(xs: List<Tensor<Float32, 2>>): Tensor<Float32, 2> {
-  collections.get(xs, 0)
+  xs[0]
 }
 
 fn main(): UInt64 {
@@ -19,7 +19,7 @@ fn main(): UInt64 {
   var w2h: Tensor<Float32, 2> = tensor.pack(w2);
   var xs: List<Tensor<Float32, 2>> = [w1h, w2h];
 
-  io.print(collections.size(xs));
+  io.print(xs.size());
   io.print(size(first(xs)));
   0
 }
@@ -27,23 +27,23 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @first
 # MLIR-SAME: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__
 # MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
-# MLIR: call @std_collections_get__
+# MLIR: call @std_collections_ListStorage_get__
 # MLIR-LABEL: func.func @main
 # MLIR: mulberry.tensor.pack
 # MLIR: call @std_collections_withCapacity__
-# MLIR: call @std_collections_push__
-# MLIR: call @std_collections_size__
+# MLIR: call @std_collections_ListStorage_push__
+# MLIR: call @std_collections_ListStorage_size__
 # MLIR: call @first
 # MLIR: mulberry.tensor.view
 # MLIR: call @std.io.print
 
 # LOWER-LABEL: func.func @first
 # LOWER-SAME: -> !llvm.ptr
-# LOWER: call @std_collections_get__
+# LOWER: call @std_collections_ListStorage_get__
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_collections_withCapacity__
-# LOWER: call @std_collections_push__
-# LOWER: call @std_collections_size__
+# LOWER: call @std_collections_ListStorage_push__
+# LOWER: call @std_collections_ListStorage_size__
 # LOWER: call @first
 # LOWER: memref.reinterpret_cast
 # LOWER: call @std.io.print
