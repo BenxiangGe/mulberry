@@ -1,0 +1,19 @@
+# RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+package std.runtime;
+
+extern fn mulberry_runtime_ping(value: UInt64): UInt64;
+
+fn main(): UInt64 {
+  mulberry_runtime_ping(7)
+}
+
+# AST: FunctionDecl {{.*}} extern
+# AST: Prototype {{.*}}name=mulberry_runtime_ping{{.*}}type=UInt64
+# AST: Prototype {{.*}}name=std.runtime.main{{.*}}type=UInt64
+# AST: CallExpr {{.*}}type=UInt64 callee=mulberry_runtime_ping
+
+# MLIR-LABEL: func.func private @mulberry_runtime_ping
+# MLIR-LABEL: func.func @std.runtime.main
+# MLIR: call @mulberry_runtime_ping

@@ -35,6 +35,47 @@ auto indexKindName(IndexExpr::IndexKind kind) -> std::string_view {
   return "unknown";
 }
 
+auto intrinsicKindName(CallExpr::IntrinsicKind kind) -> std::string_view {
+  switch (kind) {
+  case CallExpr::IntrinsicKind::None:
+    return "none";
+  case CallExpr::IntrinsicKind::Print:
+    return "print";
+  case CallExpr::IntrinsicKind::BoolToUInt64:
+    return "boolToUInt64";
+  case CallExpr::IntrinsicKind::Matmul:
+    return "matmul";
+  case CallExpr::IntrinsicKind::Matadd:
+    return "matadd";
+  case CallExpr::IntrinsicKind::Matsub:
+    return "matsub";
+  case CallExpr::IntrinsicKind::Hadamard:
+    return "hadamard";
+  case CallExpr::IntrinsicKind::Matscale:
+    return "matscale";
+  case CallExpr::IntrinsicKind::Transpose:
+    return "transpose";
+  case CallExpr::IntrinsicKind::Exp:
+    return "exp";
+  case CallExpr::IntrinsicKind::Sigmoid:
+    return "sigmoid";
+  case CallExpr::IntrinsicKind::SigmoidPrime:
+    return "sigmoidPrime";
+  case CallExpr::IntrinsicKind::Argmax:
+    return "argmax";
+  case CallExpr::IntrinsicKind::Zeros:
+    return "zeros";
+  case CallExpr::IntrinsicKind::TensorPack:
+    return "tensorPack";
+  case CallExpr::IntrinsicKind::TensorView:
+    return "tensorView";
+  case CallExpr::IntrinsicKind::PtrAsUInt8:
+    return "ptrAsUInt8";
+  }
+
+  return "unknown";
+}
+
 class Dumper {
 public:
   Dumper(const llvm::SourceMgr &sourceManager)
@@ -238,7 +279,7 @@ auto Dumper::dump(const Prototype *node) -> void {
   INDENT();
   errs() << "Prototype " << loc(node) << " (name=" << id->name();
   if (node->isGeneric())
-    errs() << " parameter=" << node->typeParameterName();
+    errs() << " parameter=" << formatComptimeParams(node->comptimeParameters());
   errs() << " "
          << loc(id) << " (type=" << formatTypeNode(typeNode) << " "
          << loc(typeNode) << ")\n";
@@ -248,8 +289,13 @@ auto Dumper::dump(const Prototype *node) -> void {
 
 auto Dumper::dump(const FunctionDecl *node) -> void {
   INDENT();
-  errs() << "FunctionDecl " << loc(node) << "\n";
+  errs() << "FunctionDecl " << loc(node);
+  if (node->isExtern())
+    errs() << " extern";
+  errs() << "\n";
   dump(node->proto().get());
+  if (node->isExtern())
+    return;
   dump(node->body().get(), "Body:");
 }
 
@@ -302,7 +348,10 @@ auto Dumper::dump(const CallExpr *node) -> void {
   INDENT();
   errs() << "CallExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " callee=" << node->name() << "\n";
+         << " callee=" << node->name();
+  if (node->intrinsicKind() != CallExpr::IntrinsicKind::None)
+    errs() << " intrinsic=" << intrinsicKindName(node->intrinsicKind());
+  errs() << "\n";
   if (node->hasReceiver())
     dump(node->receiver().get());
   for (auto &expr : *node)

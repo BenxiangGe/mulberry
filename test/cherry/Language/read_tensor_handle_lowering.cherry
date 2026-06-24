@@ -3,22 +3,15 @@
 
 fn main(): UInt64 {
   const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var w1Handle: Tensor<Float32, 2> = readTensor(file, "w1");
+  var w1Tensor: Tensor<Float32> = io.readTensor(file, "w1");
   io.close(file);
-  var w1: Float32[?, ?] = tensor.view(w1Handle);
-  size(w1)
+  var w1: Float32[?, ?] = tensor.view(w1Tensor);
+  w1Tensor.numel()
 }
 
-# MLIR: call @__cherry_safetensor_read_
-# MLIR-SAME: -> !mulberry.tensor<?x?xf32>
-# MLIR: mulberry.tensor.pack
+# MLIR: call @std.io.readTensor
 # MLIR: mulberry.tensor.view
 
-# LOWERED-DAG: llvm.func @mulberry_safetensor_shape_f32
-# LOWERED-DAG: llvm.func @mulberry_safetensor_read_f32
-# LOWERED: llvm.call @mulberry_safetensor_shape_f32
-# LOWERED: llvm.call @mulberry_safetensor_read_f32
-# LOWERED: memref.copy
-# LOWERED-NOT: mulberry.tensor.pack
+# LOWERED-DAG: func.func private @mulberry_safetensor_read_tensor_f32
+# LOWERED: call @mulberry_safetensor_read_tensor_f32
 # LOWERED-NOT: mulberry.tensor.view
-# LOWERED-NOT: __cherry_safetensor_read_

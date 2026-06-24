@@ -1,24 +1,24 @@
 package std.collections;
 
-comptime ListStorage<T> = struct {
+comptime List<T> = struct {
   length: UInt64,
   capacity: UInt64,
   data: Ptr<T>,
 
-  pub fn size(self: Ptr<ListStorage<T>>): UInt64 {
+  pub fn size(self: Ptr<List<T>>): UInt64 {
     self.length
   }
 
-  pub fn get(self: Ptr<ListStorage<T>>, index: UInt64): T {
+  pub fn get(self: Ptr<List<T>>, index: UInt64): T {
     self.data[index]
   }
 
-  pub fn set(self: Ptr<ListStorage<T>>, index: UInt64, value: T): UInt64 {
+  pub fn set(self: Ptr<List<T>>, index: UInt64, value: T): UInt64 {
     self.data[index] = value;
     0
   }
 
-  pub fn grow(self: Ptr<ListStorage<T>>, newCapacity: UInt64): UInt64 {
+  pub fn grow(self: Ptr<List<T>>, newCapacity: UInt64): UInt64 {
     var newData: Ptr<T> = heap.alloc<T>(newCapacity);
     var index: UInt64 = 0;
     while index lt self.length {
@@ -31,7 +31,7 @@ comptime ListStorage<T> = struct {
     0
   }
 
-  pub fn push(self: Ptr<ListStorage<T>>, value: T): UInt64 {
+  pub fn push(self: Ptr<List<T>>, value: T): UInt64 {
     if self.length ge self.capacity {
       var newCapacity: UInt64 = if self.capacity eq 0 {
         1
@@ -48,12 +48,6 @@ comptime ListStorage<T> = struct {
   }
 };
 
-comptime List<T> = Ptr<ListStorage<T>>;
-
 fn withCapacity<T>(capacity: UInt64): List<T> {
-  var list: List<T> = heap.alloc<ListStorage<T>>();
-  list.length = 0;
-  list.capacity = capacity;
-  list.data = heap.alloc<T>(capacity);
-  list
+  List<T> { 0, capacity, heap.alloc<T>(capacity) }
 }

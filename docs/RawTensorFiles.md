@@ -101,6 +101,6 @@ label.txt
 
 这个示例先用 `zeros()` 创建 Tensor value，然后用 `read(file, tensor)` 把 raw
 bytes 读入对应 Tensor。推理部分把 Tensor value 通过 `tensor.pack()` 包装成
-`Tensor<Float32, 2>` handle，再用 `List<Tensor<Float32, 2>>` 保存 layer 权重和
+`Tensor<Float32>` handle，再用 `List<Tensor<Float32>>` 保存 layer 权重和
 bias。喂给 `cherry_nn` op 前，通过 `tensor.view()` 显式取回当前 memref-backed
 Tensor value。

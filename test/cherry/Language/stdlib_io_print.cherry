@@ -8,7 +8,7 @@ fn main(): UInt64 {
 }
 
 # AST: Prototype {{.*}}name=std.io.print
-# AST: CallExpr {{.*}}type=UInt64 callee=builtinPrint
+# AST: CallExpr {{.*}}type=UInt64 callee=builtinPrint intrinsic=print
 # AST: CallExpr {{.*}}type=UInt64 callee=std.io.print
 
 # MLIR: llvm.func @printNewline()

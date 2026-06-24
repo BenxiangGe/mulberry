@@ -107,9 +107,9 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
   if (auto *tensorType = cherry::getTensorType(type))
     return convert(*tensorType);
 
-  // Source-level List<T> should be a stdlib/comptime alias to
-  // Ptr<ListStorage<T>> before MLIRGen. The old !mulberry.list IR path has been
-  // removed, so a remaining semantic ListType is not lowerable here.
+  // Source-level List<T> should be a stdlib/comptime struct before MLIRGen.
+  // The old !mulberry.list IR path has been removed, so a remaining semantic
+  // ListType is not lowerable here.
   if (cherry::getListType(type))
     return {};
 

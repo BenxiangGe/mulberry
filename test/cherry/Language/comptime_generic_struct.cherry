@@ -1,13 +1,13 @@
 # RUN: cherry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
-comptime ListStorage<T> = struct {
+comptime Buffer<T> = struct {
   length: UInt64,
   capacity: UInt64,
   data: Ptr<T>
 };
 
-fn fill(storage: Ptr<ListStorage<UInt64>>, data: Ptr<UInt64>): UInt64 {
+fn fill(storage: Ptr<Buffer<UInt64>>, data: Ptr<UInt64>): UInt64 {
   storage.length = 2;
   storage.capacity = 4;
   storage.data = data;
@@ -18,17 +18,17 @@ fn fill(storage: Ptr<ListStorage<UInt64>>, data: Ptr<UInt64>): UInt64 {
 
 fn main(): UInt64 {
   var data: Ptr<UInt64> = heap.alloc<UInt64>(2);
-  var storage: Ptr<ListStorage<UInt64>> = heap.alloc<ListStorage<UInt64>>();
+  var storage: Ptr<Buffer<UInt64>> = heap.alloc<Buffer<UInt64>>();
   io.print(fill(storage, data));
   0
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=ListStorage parameter=T type=struct {length: UInt64, capacity: UInt64, data: Ptr<T>}
+# AST: ComptimeTypeAliasDecl {{.*}}name=Buffer parameter=T type=struct {length: UInt64, capacity: UInt64, data: Ptr<T>}
 # AST: VariableStat (id=storage
-# AST-SAME: type=Ptr<ListStorage<UInt64>>
+# AST-SAME: type=Ptr<Buffer<UInt64>>
 
 # MLIR-LABEL: func.func @fill(
-# MLIR-SAME: !mulberry.ptr<!mulberry.record<ListStorage__UInt64
+# MLIR-SAME: !mulberry.ptr<!mulberry.record<Buffer__UInt64
 # MLIR-SAME: !mulberry.ptr<i64>
 # MLIR: mulberry.record.get_field {{.*}}["length"]
 # MLIR: mulberry.record.get_field {{.*}}["capacity"]
@@ -37,4 +37,4 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @main()
 # MLIR: mulberry.heap.alloc i64
-# MLIR: mulberry.heap.alloc !mulberry.record<ListStorage__UInt64
+# MLIR: mulberry.heap.alloc !mulberry.record<Buffer__UInt64

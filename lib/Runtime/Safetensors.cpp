@@ -22,6 +22,17 @@ struct TensorInfo {
   int64_t end = 0;
 };
 
+struct String {
+  uint64_t length;
+  uint8_t* data;
+};
+
+struct ListUInt64 {
+  uint64_t length;
+  uint64_t capacity;
+  uint64_t* data;
+};
+
 [[noreturn]] void fail(const char* message) {
   std::fprintf(stderr, "safetensors error: %s\n", message);
   std::abort();
@@ -209,8 +220,8 @@ std::string readHeader(FILE* file, uint64_t& headerLength) {
   return header;
 }
 
-TensorInfo findTensor(FILE* file, const char* name) {
-  expect(name != nullptr, "tensor name is null");
+TensorInfo findTensor(FILE* file, String name) {
+  expect(name.data != nullptr, "tensor name is null");
   uint64_t headerLength = 0;
   auto header = readHeader(file, headerLength);
 
@@ -220,7 +231,8 @@ TensorInfo findTensor(FILE* file, const char* name) {
   while (pos < header.size() && header[pos] != '}') {
     auto key = parseString(header, pos);
     expectChar(header, pos, ':');
-    if (key == name) {
+    if (key.size() == name.length &&
+        std::memcmp(key.data(), name.data, name.length) == 0) {
       auto info = parseTensorObject(header, pos);
       info.headerLength = headerLength;
       return info;
@@ -258,8 +270,16 @@ int64_t byteSize(const TensorInfo& info) {
 
 } // namespace
 
+struct TensorFloat32 {
+  uint8_t* data;
+  uint64_t rank;
+  uint64_t numel;
+  ListUInt64 sizes;
+  ListUInt64 strides;
+};
+
 extern "C" void mulberry_safetensor_shape_f32(
-    FILE* file, const char* name, int64_t rank, const int64_t* expectedShape,
+    FILE* file, String name, int64_t rank, const int64_t* expectedShape,
     int64_t* outShape) {
   auto info = findTensor(file, name);
   checkShape(info, rank, expectedShape);
@@ -268,7 +288,7 @@ extern "C" void mulberry_safetensor_shape_f32(
 }
 
 extern "C" void mulberry_safetensor_read_f32(
-    FILE* file, const char* name, int64_t rank, const int64_t* expectedShape,
+    FILE* file, String name, int64_t rank, const int64_t* expectedShape,
     void* data) {
   expect(data != nullptr, "tensor data pointer is null");
   auto info = findTensor(file, name);
@@ -282,4 +302,61 @@ extern "C" void mulberry_safetensor_read_f32(
   expect(info.end - info.begin == bytes, "tensor byte size mismatch");
   expect(std::fread(data, 1, bytes, file) == static_cast<size_t>(bytes),
          "failed to read tensor payload");
+}
+
+extern "C" TensorFloat32 mulberry_safetensor_read_tensor_f32(FILE* file,
+                                                             String name) {
+  auto info = findTensor(file, name);
+  expect(!info.shape.empty(), "tensor rank must be non-zero");
+
+  auto payloadOffset = static_cast<long>(8 + info.headerLength + info.begin);
+  expect(std::fseek(file, payloadOffset, SEEK_SET) == 0,
+         "failed to seek tensor payload");
+
+  auto numel = static_cast<uint64_t>(1);
+  for (auto dim : info.shape) {
+    expect(dim >= 0, "negative runtime tensor dimension");
+    numel *= static_cast<uint64_t>(dim);
+  }
+  auto bytes = numel * static_cast<uint64_t>(sizeof(float));
+  expect(info.end - info.begin == static_cast<int64_t>(bytes),
+         "tensor byte size mismatch");
+
+  auto* data = static_cast<uint8_t*>(std::malloc(bytes));
+  expect(data != nullptr, "failed to allocate tensor payload");
+  expect(std::fread(data, 1, bytes, file) == static_cast<size_t>(bytes),
+         "failed to read tensor payload");
+
+  auto* sizes = static_cast<uint64_t*>(
+      std::malloc(info.shape.size() * sizeof(uint64_t)));
+  expect(sizes != nullptr, "failed to allocate tensor sizes");
+  auto* strides = static_cast<uint64_t*>(
+      std::malloc(info.shape.size() * sizeof(uint64_t)));
+  expect(strides != nullptr, "failed to allocate tensor strides");
+
+  uint64_t stride = 1;
+  for (size_t i = info.shape.size(); i > 0; --i) {
+    auto index = i - 1;
+    sizes[index] = static_cast<uint64_t>(info.shape[index]);
+    strides[index] = stride;
+    stride *= sizes[index];
+  }
+
+  auto length = static_cast<uint64_t>(info.shape.size());
+  return TensorFloat32{
+      data,
+      length,
+      numel,
+      ListUInt64{length, length, sizes},
+      ListUInt64{length, length, strides},
+  };
+}
+
+// MLIR C-interface lowering passes aggregate returns through an explicit
+// result pointer. Keep the runtime wrapper in that ABI so JIT symbol
+// resolution matches the lowered call sites.
+extern "C" void _mlir_ciface_mulberry_safetensor_read_tensor_f32(
+    TensorFloat32* out, FILE* file, String name) {
+  expect(out != nullptr, "tensor result slot is null");
+  *out = mulberry_safetensor_read_tensor_f32(file, name);
 }

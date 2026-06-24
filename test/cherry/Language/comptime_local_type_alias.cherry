@@ -12,6 +12,6 @@ fn main(): UInt64 {
   first(xs)
 }
 
-# CHECK: func.func @first(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# CHECK: func.func @first(%arg0: !mulberry.record<std_collections_List__UInt64
 # CHECK-SAME: -> i64
-# CHECK: call @std_collections_ListStorage_get__UInt64
+# CHECK: call @std_collections_List_get__UInt64

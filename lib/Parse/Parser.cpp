@@ -239,18 +239,6 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
   return success();
 }
 
-auto Parser::parseOptionalTypeParameter(std::string &typeParameterName)
-    -> CherryResult {
-  if (!consumeIf(Token::less))
-    return success();
-
-  typeParameterName = std::string(spelling());
-  if (parseToken(Token::identifier, diag::expected_id) ||
-      parseToken(Token::greater, diag::expected_greater))
-    return failure();
-  return success();
-}
-
 auto Parser::parseStructName(unique_ptr<StructName> &structName,
                              const char *const message) -> CherryResult {
   auto location = tokenLoc();
@@ -279,6 +267,8 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
   switch (tokenKind()) {
   case Token::kw_import:
     return parseImportDecl(decl);
+  case Token::kw_extern:
+    return parseExternFunctionDecl(decl);
   case Token::kw_fn:
     return parseFunctionDecl(decl);
   case Token::kw_struct:
@@ -315,6 +305,20 @@ auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
   return success();
 }
 
+auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_extern);
+
+  unique_ptr<Prototype> proto;
+  if (parsePrototype(proto, /*qualifyName=*/false) ||
+      parseToken(Token::semi, diag::expected_semi))
+    return failure();
+
+  decl = make_unique<FunctionDecl>(loc, std::move(proto), nullptr,
+                                   /*isExtern=*/true);
+  return success();
+}
+
 auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
     -> CherryResult {
   auto location = tokenLoc();
@@ -322,7 +326,7 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
 
   // Parse name
   unique_ptr<FunctionName> name;
-  std::string typeParameterName;
+  std::vector<ComptimeParam> comptimeParameters;
   if (qualifyName) {
     if (parseFunctionName(name, diag::expected_id))
       return failure();
@@ -334,8 +338,9 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
     name = make_unique<FunctionName>(nameLocation, methodName);
   }
 
-  if (parseOptionalTypeParameter(typeParameterName) ||
-      parseToken(Token::l_paren, diag::expected_l_paren))
+  if (tokenIs(Token::less) && parseComptimeParams(comptimeParameters))
+    return failure();
+  if (parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
 
   // Parse List
@@ -361,7 +366,7 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
   // Make Proto
   proto = make_unique<Prototype>(location, std::move(name),
                                  std::move(parameters), std::move(typeNode),
-                                 typeParameterName);
+                                 std::move(comptimeParameters));
   return success();
 }
 

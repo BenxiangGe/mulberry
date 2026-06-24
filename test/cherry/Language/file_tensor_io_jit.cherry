@@ -3,17 +3,19 @@
 fn main(): UInt64 {
   var outputValues: Float32[4] = [1.0, 7.0, 3.0, 4.0];
   const output: File = io.open("/tmp/cherry_file_tensor_io_jit.bin", "wb");
-  const writeCount: UInt64 = write(output, outputValues);
+  const writeCount: UInt64 = io.write(output, tensor.pack(outputValues));
   io.close(output);
 
   var inputValues: Float32[4] = [0.0, 0.0, 0.0, 0.0];
+  var inputTensor: Tensor<Float32> = tensor.pack(inputValues);
   const input: File = io.open("/tmp/cherry_file_tensor_io_jit.bin", "rb");
-  const readCount: UInt64 = read(input, inputValues);
+  const readCount: UInt64 = io.read(input, inputTensor);
   io.close(input);
+  var inputView: Float32[?] = tensor.view(inputTensor);
 
   io.print(writeCount);
   io.print(readCount);
-  io.print(argmax(inputValues));
+  io.print(argmax(inputView));
   0
 }
 

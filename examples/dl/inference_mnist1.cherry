@@ -96,13 +96,13 @@ fn main(): UInt64 {
     [-3.38535833]
   ];
 
-  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
-  var b1h: Tensor<Float32, 2> = tensor.pack(b1);
-  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
-  var b2h: Tensor<Float32, 2> = tensor.pack(b2);
+  var w1h: Tensor<Float32> = tensor.pack(w1);
+  var b1h: Tensor<Float32> = tensor.pack(b1);
+  var w2h: Tensor<Float32> = tensor.pack(w2);
+  var b2h: Tensor<Float32> = tensor.pack(b2);
 
-  var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
-  var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
+  var weights: List<Tensor<Float32>> = [w1h, w2h];
+  var biases: List<Tensor<Float32>> = [b1h, b2h];
 
   var activation: Float32[?, ?] = [
     [0.0],

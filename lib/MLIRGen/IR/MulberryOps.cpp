@@ -147,51 +147,66 @@ auto TensorCastOp::verify() -> LogicalResult {
   return success();
 }
 
-static auto verifyTensorStorageRecord(Operation* op, RecordType recordType,
-                                      mlir::mulberry::TensorType tensorType,
-                                      StringRef valueName) -> LogicalResult {
+static auto verifyTensorMetadataList(Operation* op, Type type,
+                                     StringRef fieldName) -> LogicalResult {
+  auto listType = llvm::dyn_cast<RecordType>(type);
+  if (!listType)
+    return op->emitOpError(" record needs a List<i64> `")
+           << fieldName << "` field";
+
+  auto lengthType = listType.getFieldType("length");
+  auto capacityType = listType.getFieldType("capacity");
+  auto dataType = listType.getFieldType("data");
+  if (!lengthType || !lengthType.isInteger(64) ||
+      !capacityType || !capacityType.isInteger(64) ||
+      getPtrPointeeType(dataType) != IntegerType::get(op->getContext(), 64))
+    return op->emitOpError(" record needs a List<i64> `")
+           << fieldName << "` field";
+
+  return success();
+}
+
+static auto verifyTensorRecord(Operation* op, RecordType recordType,
+                               mlir::mulberry::TensorType tensorType,
+                               StringRef valueName) -> LogicalResult {
   if (!recordType)
     return op->emitOpError(valueName)
-           << " must be a pointer to a Mulberry record";
-
-  auto rankType = recordType.getFieldType("rank");
-  if (!rankType || !rankType.isInteger(64))
-    return op->emitOpError(valueName)
-           << " record needs an i64 `rank` field";
+           << " must be a Mulberry record";
 
   auto dataType = recordType.getFieldType("data");
   if (getPtrPointeeType(dataType) != tensorType.getElementType())
     return op->emitOpError(valueName)
            << " record data pointee type must match tensor element type";
 
-  auto sizesPointeeType = getPtrPointeeType(recordType.getFieldType("sizes"));
-  if (!sizesPointeeType || !sizesPointeeType.isInteger(64))
+  auto rankType = recordType.getFieldType("rank");
+  if (!rankType || !rankType.isInteger(64))
     return op->emitOpError(valueName)
-           << " record needs a Ptr<i64> `sizes` field";
+           << " record needs an i64 `rank` field";
 
-  auto stridesPointeeType =
-      getPtrPointeeType(recordType.getFieldType("strides"));
-  if (!stridesPointeeType || !stridesPointeeType.isInteger(64))
+  auto numelType = recordType.getFieldType("numel");
+  if (!numelType || !numelType.isInteger(64))
     return op->emitOpError(valueName)
-           << " record needs a Ptr<i64> `strides` field";
+           << " record needs an i64 `numel` field";
+
+  if (failed(verifyTensorMetadataList(op, recordType.getFieldType("sizes"),
+                                      "sizes")) ||
+      failed(verifyTensorMetadataList(op, recordType.getFieldType("strides"),
+                                      "strides")))
+    return failure();
 
   return success();
 }
 
 auto TensorViewOp::verify() -> LogicalResult {
-  auto recordType = llvm::dyn_cast<RecordType>(
-      getPtrPointeeType(getHandle().getType()));
+  auto recordType = llvm::dyn_cast<RecordType>(getTensor().getType());
   auto tensorType = getTensorType(getResult().getType());
-  return verifyTensorStorageRecord(getOperation(), recordType, tensorType,
-                                   "handle");
+  return verifyTensorRecord(getOperation(), recordType, tensorType, "tensor");
 }
 
 auto TensorPackOp::verify() -> LogicalResult {
-  auto recordType = llvm::dyn_cast<RecordType>(
-      getPtrPointeeType(getHandle().getType()));
+  auto recordType = llvm::dyn_cast<RecordType>(getResult().getType());
   auto tensorType = getTensorType(getTensor().getType());
-  return verifyTensorStorageRecord(getOperation(), recordType, tensorType,
-                                   "handle");
+  return verifyTensorRecord(getOperation(), recordType, tensorType, "result");
 }
 
 auto TensorLoadOp::verify() -> LogicalResult {

@@ -20,7 +20,7 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 - `const` tensor 绑定检查。
 - Struct literal 语法：`A { ... }`。
 - Struct member read/write 使用独立 AST node，不再伪装成普通 call/binary expr。
-- Tensor literal、tensor access，以及 `size(xs)` builtin。
+- Tensor literal、tensor access，以及 `Tensor<T>.numel()` method。
 - 普通语言结构 codegen 到 `func`、`arith`、`scf` 和高层 `mulberry` dialect。
 - `cherry_nn` 深度学习 dialect，并支持 lowering 到 Linalg/Math/Arith/MemRef。
 - `--dump=lowered-mlir` 可以把 Mulberry Tensor 和 `cherry_nn` ops lower 到
@@ -58,7 +58,7 @@ fn main(): UInt64 {
   var p: Point = Point { 10, 20 };
   var xs: UInt64[3] = [1, 2, 3];
 
-  p.x = size(xs);
+  p.x = 3;
   p.x
 }
 ```
@@ -151,7 +151,7 @@ python3 tools/export_mnist_raw_tensors.py
 [Raw Tensor Files](docs/RawTensorFiles.md)。
 
 raw `.f32` 是 bootstrap/debug 格式。日常 MNIST 推理优先使用 safetensors：它用
-单个文件保存多个 tensor，并通过 expected-type `readTensor(file, name)` 读取。
+单个文件保存多个 tensor，并通过 expected-type `io.readTensor(file, name)` 读取。
 详细约定见 [Safetensors](docs/Safetensors.md)。
 
 导出 safetensors 单文件：
@@ -174,7 +174,7 @@ python3 tools/export_mnist_training_safetensors.py
 
 当前 training 导出是 bootstrap 布局：每个样本独立保存为
 `train_x_0`、`train_y_0`、...、`train_x_9`、`train_y_9` 这样的 named tensor。这样后续
-training script 可以继续使用已经跑通的 `readTensor(file, name)`，不需要先引入
+training script 可以继续使用已经跑通的 `io.readTensor(file, name)`，不需要先引入
 dataset iterator 或 tensor slice。
 
 导出后可以运行一个最小真实数据 training smoke：

@@ -58,6 +58,15 @@ def Mulberry_PtrIndexOp : Mulberry_Op<"ptr.index"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_PtrCastOp : Mulberry_Op<"ptr.cast"> {
+  let summary = "Reinterpret a Mulberry pointer type";
+
+  let arguments = (ins Mulberry_AnyPtrType:$ptr);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$ptr attr-dict `:` type($ptr) `to` type($result)";
+}
+
 def Mulberry_LoadOp : Mulberry_Op<"load"> {
   let summary = "Load a Mulberry value";
 
@@ -144,25 +153,25 @@ def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
 }
 
 def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
-  let summary = "View a stdlib Tensor handle as a Mulberry tensor";
+  let summary = "View a stdlib Tensor value as a Mulberry tensor";
 
-  let arguments = (ins Mulberry_AnyPtrType:$handle);
+  let arguments = (ins Mulberry_AnyRecordType:$tensor);
   let results = (outs Mulberry_AnyTensorType:$result);
 
-  let assemblyFormat = "$handle attr-dict `:` type($handle) `->` "
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
                        "type($result)";
 
   let hasVerifier = 1;
 }
 
 def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
-  let summary = "Pack a Mulberry tensor into a stdlib Tensor handle";
+  let summary = "Pack a Mulberry tensor into a stdlib Tensor value";
 
   let arguments = (ins Mulberry_AnyTensorType:$tensor);
-  let results = (outs Mulberry_AnyPtrType:$handle);
+  let results = (outs Mulberry_AnyRecordType:$result);
 
   let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
-                       "type($handle)";
+                       "type($result)";
 
   let hasVerifier = 1;
 }

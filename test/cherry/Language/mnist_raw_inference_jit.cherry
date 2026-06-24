@@ -6,25 +6,30 @@ fn main(): UInt64 {
   var w2: Float32[10, 30] = zeros();
   var b2: Float32[10, 1] = zeros();
   var x: Float32[784, 1] = zeros();
+  var w1h: Tensor<Float32> = tensor.pack(w1);
+  var b1h: Tensor<Float32> = tensor.pack(b1);
+  var w2h: Tensor<Float32> = tensor.pack(w2);
+  var b2h: Tensor<Float32> = tensor.pack(b2);
+  var xh: Tensor<Float32> = tensor.pack(x);
 
   const w1File: File = io.open("/tmp/cherry_mnist_raw_inference/w1.f32", "rb");
-  const w1Count: UInt64 = read(w1File, w1);
+  const w1Count: UInt64 = io.read(w1File, w1h);
   io.close(w1File);
 
   const b1File: File = io.open("/tmp/cherry_mnist_raw_inference/b1.f32", "rb");
-  const b1Count: UInt64 = read(b1File, b1);
+  const b1Count: UInt64 = io.read(b1File, b1h);
   io.close(b1File);
 
   const w2File: File = io.open("/tmp/cherry_mnist_raw_inference/w2.f32", "rb");
-  const w2Count: UInt64 = read(w2File, w2);
+  const w2Count: UInt64 = io.read(w2File, w2h);
   io.close(w2File);
 
   const b2File: File = io.open("/tmp/cherry_mnist_raw_inference/b2.f32", "rb");
-  const b2Count: UInt64 = read(b2File, b2);
+  const b2Count: UInt64 = io.read(b2File, b2h);
   io.close(b2File);
 
   const xFile: File = io.open("/tmp/cherry_mnist_raw_inference/x.f32", "rb");
-  const xCount: UInt64 = read(xFile, x);
+  const xCount: UInt64 = io.read(xFile, xh);
   io.close(xFile);
 
   io.print(w1Count);
@@ -33,15 +38,9 @@ fn main(): UInt64 {
   io.print(b2Count);
   io.print(xCount);
 
-  var w1h: Tensor<Float32, 2> = tensor.pack(w1);
-  var b1h: Tensor<Float32, 2> = tensor.pack(b1);
-  var w2h: Tensor<Float32, 2> = tensor.pack(w2);
-  var b2h: Tensor<Float32, 2> = tensor.pack(b2);
-  var xh: Tensor<Float32, 2> = tensor.pack(x);
-
-  var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
-  var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
-  var activation: Tensor<Float32, 2> = xh;
+  var weights: List<Tensor<Float32>> = [w1h, w2h];
+  var biases: List<Tensor<Float32>> = [b1h, b2h];
+  var activation: Tensor<Float32> = xh;
 
   for layer in 0 .. weights.size() {
     activation = sigmoid(matadd(

@@ -52,44 +52,16 @@ static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
-static constexpr std::string_view kFileReadMarkerPrefix =
-    "__cherry_file_read_";
-static constexpr std::string_view kFileWriteMarkerPrefix =
-    "__cherry_file_write_";
-static constexpr std::string_view kSafetensorReadMarkerPrefix =
-    "__cherry_safetensor_read_";
-
-using StringStorageType = LLVM::LLVMStructType;
-using FileStorageType = LLVM::LLVMStructType;
-
 static constexpr int32_t kStringDataField = 1;
 static constexpr int32_t kFileHandleField = 0;
 
-// Lowered StringStorage heap layout:
+// These field indices mirror the stdlib value wrappers after lowering:
 //
-//   { length: i64, data: ptr }
+//   std.string.String = { length: i64, data: ptr }
+//   std.io.File      = { handle: ptr }
 //
-// `length` is the source string byte count and excludes the trailing NUL.
-// `data` points to a NUL-terminated heap byte buffer so C runtime calls can
-// use it directly.
-static auto getStringStorageType(MLIRContext* context) -> StringStorageType {
-  std::vector<Type> fields;
-  fields.push_back(getI64Type(context)); // byte length, excluding trailing NUL
-  fields.push_back(getPtrType(context)); // data pointer
-  return LLVM::LLVMStructType::getLiteral(context, fields);
-}
-
-// Lowered FileStorage heap layout:
-//
-//   { handle: ptr }
-//
-// `handle` is an opaque C runtime FILE* stored as an LLVM pointer. Source-level
-// File is just Ptr<FileStorage>; only the file runtime boundary looks inside.
-static auto getFileStorageType(MLIRContext* context) -> FileStorageType {
-  std::vector<Type> fields;
-  fields.push_back(getPtrType(context)); // opaque FILE* handle
-  return LLVM::LLVMStructType::getLiteral(context, fields);
-}
+// Runtime calls need raw C pointers, so the bridge patterns extract only the
+// data/handle fields instead of passing the source-level wrappers through.
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type>;
@@ -245,27 +217,6 @@ static auto createTensorByteSize(Location location,
   return byteSize.getResult();
 }
 
-// Shared raw-byte view for tensor-backed runtime edges:
-//   data: raw aligned pointer
-//   byteSize: total payload byte count
-// This is lowering-only ABI glue, not a source-level value type.
-struct TensorByteView {
-  Value data;
-  Value byteSize;
-};
-
-static auto createTensorByteView(Location location,
-                                 ConversionPatternRewriter& rewriter,
-                                 Value tensor)
-    -> FailureOr<TensorByteView> {
-  auto byteSize = createTensorByteSize(location, rewriter, tensor);
-  if (failed(byteSize))
-    return failure();
-
-  auto data = createMemRefDataPointer(location, rewriter, tensor);
-  return TensorByteView{data, *byteSize};
-}
-
 static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op,
                             Value sizeInBytes) -> FailureOr<Value> {
   auto moduleOp = op->getParentOfType<ModuleOp>();
@@ -283,30 +234,18 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
   return mallocCall.getResult();
 }
 
-static auto loadStringDataPointer(Location location, OpBuilder& builder,
-                                  Value stringStorage) -> Value {
+static auto extractStringDataPointer(Location location, OpBuilder& builder,
+                                     Value string) -> Value {
   auto context = builder.getContext();
-  auto storageType = getStringStorageType(context);
-  auto dataPtr = LLVM::GEPOp::create(
-      builder, location, getPtrType(context), storageType, stringStorage,
-      ArrayRef<LLVM::GEPArg>{0, kStringDataField});
-  return LLVM::LoadOp::create(builder, location, getPtrType(context),
-                              dataPtr.getResult()).getResult();
+  return LLVM::ExtractValueOp::create(builder, location, getPtrType(context),
+                                      string, kStringDataField);
 }
 
-static auto loadFileHandlePointer(Location location, OpBuilder& builder,
-                                  Value fileStorage) -> Value {
+static auto extractFileHandlePointer(Location location, OpBuilder& builder,
+                                     Value file) -> Value {
   auto context = builder.getContext();
-  auto storageType = getFileStorageType(context);
-  auto handlePtr = LLVM::GEPOp::create(
-      builder, location, getPtrType(context), storageType, fileStorage,
-      ArrayRef<LLVM::GEPArg>{0, kFileHandleField});
-  return LLVM::LoadOp::create(builder, location, getPtrType(context),
-                              handlePtr.getResult()).getResult();
-}
-
-static auto isFileMarkerName(StringRef name, std::string_view prefix) -> bool {
-  return name.starts_with(prefix);
+  return LLVM::ExtractValueOp::create(builder, location, getPtrType(context),
+                                      file, kFileHandleField);
 }
 
 static auto createI64StackArray(Location location,
@@ -359,14 +298,10 @@ static auto loadRuntimeShapeDim(Location location,
                               slot.getResult()).getResult();
 }
 
-static auto loadRecordField(Location location,
-                            ConversionPatternRewriter& rewriter,
-                            Value recordPtr, mulberry::RecordType recordType,
-                            StringRef field) -> FailureOr<Value> {
-  auto recordBackendType = convertRecordToBackendType(recordType);
-  if (!recordBackendType)
-    return failure();
-
+static auto extractRecordField(Location location,
+                               ConversionPatternRewriter& rewriter,
+                               Value record, mulberry::RecordType recordType,
+                               StringRef field) -> FailureOr<Value> {
   auto sourceFieldType = recordType.getFieldType(field);
   if (!sourceFieldType)
     return failure();
@@ -375,12 +310,10 @@ static auto loadRecordField(Location location,
   if (!fieldType)
     return failure();
 
-  auto fieldIndex = static_cast<int32_t>(recordType.getFieldIndex(field));
-  auto fieldPtr = LLVM::GEPOp::create(
-      rewriter, location, getPtrType(recordType.getContext()),
-      *recordBackendType, recordPtr, ArrayRef<LLVM::GEPArg>{0, fieldIndex});
-  return LLVM::LoadOp::create(rewriter, location, *fieldType,
-                              fieldPtr.getResult()).getResult();
+  auto fieldIndex = static_cast<int64_t>(recordType.getFieldIndex(field));
+  return LLVM::ExtractValueOp::create(rewriter, location, *fieldType,
+                                      record, ArrayRef<int64_t>{fieldIndex})
+      .getResult();
 }
 
 static auto loadI64PointerElement(Location location,
@@ -413,31 +346,6 @@ static auto storePointerElement(Location location,
   LLVM::StoreOp::create(rewriter, location, value, slot.getResult());
 }
 
-static auto storeRecordField(Location location,
-                             ConversionPatternRewriter& rewriter,
-                             Value recordPtr,
-                             mulberry::RecordType recordType,
-                             StringRef field, Value value) -> LogicalResult {
-  auto recordBackendType = convertRecordToBackendType(recordType);
-  if (!recordBackendType)
-    return failure();
-
-  auto sourceFieldType = recordType.getFieldType(field);
-  if (!sourceFieldType)
-    return failure();
-
-  auto fieldType = convertToBackendType(sourceFieldType);
-  if (!fieldType)
-    return failure();
-
-  auto fieldIndex = static_cast<int32_t>(recordType.getFieldIndex(field));
-  auto fieldPtr = LLVM::GEPOp::create(
-      rewriter, location, getPtrType(recordType.getContext()),
-      *recordBackendType, recordPtr, ArrayRef<LLVM::GEPArg>{0, fieldIndex});
-  LLVM::StoreOp::create(rewriter, location, value, fieldPtr.getResult());
-  return success();
-}
-
 static auto createHeapArray(Location location,
                             ConversionPatternRewriter& rewriter,
                             Operation* op, Type elementType,
@@ -446,6 +354,41 @@ static auto createHeapArray(Location location,
   auto sizeInBytes = arith::MulIOp::create(rewriter, location, elementBytes,
                                            count);
   return callBoehmMalloc(location, rewriter, op, sizeInBytes.getResult());
+}
+
+static auto createListRecordValue(Location location,
+                                  ConversionPatternRewriter& rewriter,
+                                  mulberry::RecordType listType,
+                                  Value length, Value data)
+    -> FailureOr<Value> {
+  auto listBackendType = convertRecordToBackendType(listType);
+  if (!listBackendType)
+    return failure();
+
+  auto list = LLVM::UndefOp::create(rewriter, location, *listBackendType);
+  Value current = list.getResult();
+  auto lengthIndex = static_cast<int64_t>(listType.getFieldIndex("length"));
+  auto capacityIndex =
+      static_cast<int64_t>(listType.getFieldIndex("capacity"));
+  auto dataIndex = static_cast<int64_t>(listType.getFieldIndex("data"));
+  current = LLVM::InsertValueOp::create(
+      rewriter, location, current, length, ArrayRef<int64_t>{lengthIndex});
+  current = LLVM::InsertValueOp::create(
+      rewriter, location, current, length, ArrayRef<int64_t>{capacityIndex});
+  current = LLVM::InsertValueOp::create(
+      rewriter, location, current, data, ArrayRef<int64_t>{dataIndex});
+  return current;
+}
+
+static auto extractListDataPointer(Location location,
+                                   ConversionPatternRewriter& rewriter,
+                                   Value list,
+                                   mulberry::RecordType listType)
+    -> FailureOr<Value> {
+  auto data = extractRecordField(location, rewriter, list, listType, "data");
+  if (failed(data))
+    return failure();
+  return *data;
 }
 
 static auto createTensorABIDesc(
@@ -492,15 +435,30 @@ static auto createTensorABIDesc(
 
 static auto createTensorABIDescFromStorage(
     Location location, ConversionPatternRewriter& rewriter,
-    const TensorABILayout& layout, Value storage,
+    const TensorABILayout& layout, Value tensorRecord,
     mulberry::RecordType storageType, mulberry::TensorType tensorType)
     -> FailureOr<Value> {
-  auto data = loadRecordField(location, rewriter, storage, storageType, "data");
+  auto data =
+      extractRecordField(location, rewriter, tensorRecord, storageType, "data");
   auto sizes =
-      loadRecordField(location, rewriter, storage, storageType, "sizes");
+      extractRecordField(location, rewriter, tensorRecord, storageType, "sizes");
   auto strides =
-      loadRecordField(location, rewriter, storage, storageType, "strides");
+      extractRecordField(location, rewriter, tensorRecord, storageType,
+                         "strides");
   if (failed(data) || failed(sizes) || failed(strides))
+    return failure();
+
+  auto sizesType =
+      llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("sizes"));
+  auto stridesType =
+      llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("strides"));
+  if (!sizesType || !stridesType)
+    return failure();
+  auto sizesData =
+      extractListDataPointer(location, rewriter, *sizes, sizesType);
+  auto stridesData =
+      extractListDataPointer(location, rewriter, *strides, stridesType);
+  if (failed(sizesData) || failed(stridesData))
     return failure();
 
   auto desc = LLVM::UndefOp::create(rewriter, location,
@@ -510,8 +468,8 @@ static auto createTensorABIDescFromStorage(
       ArrayRef<int64_t>{0}).getResult();
 
   for (size_t dim = 0; dim < tensorType.getShape().size(); ++dim) {
-    auto size = loadI64PointerElement(location, rewriter, *sizes, dim);
-    auto stride = loadI64PointerElement(location, rewriter, *strides, dim);
+    auto size = loadI64PointerElement(location, rewriter, *sizesData, dim);
+    auto stride = loadI64PointerElement(location, rewriter, *stridesData, dim);
     current = LLVM::InsertValueOp::create(
         rewriter, location, current, size,
         ArrayRef<int64_t>{1, static_cast<int64_t>(dim)}).getResult();
@@ -606,23 +564,6 @@ static auto createTensorFromABIDesc(
   auto result = memref::MemorySpaceCastOp::create(
       rewriter, location, resultMemRefType, dataTensor.getResult());
   return result.getResult();
-}
-
-static auto eraseDeadRuntimeMarkers(ModuleOp moduleOp) -> void {
-  std::vector<func::FuncOp> deadMarkers;
-  moduleOp.walk([&](func::FuncOp funcOp) {
-    auto name = funcOp.getSymName();
-    if (!isFileMarkerName(name, kFileReadMarkerPrefix) &&
-        !isFileMarkerName(name, kFileWriteMarkerPrefix) &&
-        !isFileMarkerName(name, kSafetensorReadMarkerPrefix))
-      return;
-
-    if (SymbolTable::symbolKnownUseEmpty(funcOp, moduleOp))
-      deadMarkers.push_back(funcOp);
-  });
-
-  for (auto funcOp : deadMarkers)
-    funcOp.erase();
 }
 
 static auto convertRecordToBackendType(mulberry::RecordType type)
@@ -779,6 +720,18 @@ public:
   }
 };
 
+class PtrCastOpLowering : public OpConversionPattern<mulberry::PtrCastOp> {
+public:
+  using OpConversionPattern<mulberry::PtrCastOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry::PtrCastOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    rewriter.replaceOp(op, adaptor.getPtr());
+    return success();
+  }
+};
+
 class LoadOpLowering : public OpConversionPattern<mulberry::LoadOp> {
 public:
   using OpConversionPattern<mulberry::LoadOp>::OpConversionPattern;
@@ -859,192 +812,6 @@ public:
     LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
                           adaptor.getPtr());
     rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-class FileReadCallLowering : public OpConversionPattern<func::CallOp> {
-public:
-  using OpConversionPattern<func::CallOp>::OpConversionPattern;
-
-  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (!isFileMarkerName(op.getCallee(), kFileReadMarkerPrefix))
-      return failure();
-    if (adaptor.getOperands().size() != 2)
-      return rewriter.notifyMatchFailure(op, "file read marker needs 2 args");
-
-    auto moduleOp = op->getParentOfType<ModuleOp>();
-    if (!moduleOp)
-      return rewriter.notifyMatchFailure(op, "file read needs a parent module");
-
-    auto context = op.getContext();
-    auto ptrType = getPtrType(context);
-    auto i64Type = getI64Type(context);
-    auto freadFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "fread",
-        {ptrType, i64Type, i64Type, ptrType}, i64Type);
-    if (failed(freadFn))
-      return rewriter.notifyMatchFailure(
-          op, "file read needs an fread declaration");
-
-    auto file = adaptor.getOperands()[0];
-    auto buffer = adaptor.getOperands()[1];
-    auto rawByteView = createTensorByteView(op.getLoc(), rewriter, buffer);
-    if (failed(rawByteView))
-      return rewriter.notifyMatchFailure(
-          op, "file read needs a tensor raw-byte view");
-    auto view = *rawByteView;
-    auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
-                                        rewriter.getI64IntegerAttr(1));
-    // Use fread(ptr, 1, byteSize, file) so the return value is a byte count for
-    // every supported Tensor element type, not a type-dependent element count.
-    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
-    auto read = LLVM::CallOp::create(
-        rewriter, op.getLoc(), *freadFn,
-        ValueRange{view.data, one.getResult(), view.byteSize, fileHandle});
-    rewriter.replaceOp(op, read.getResult());
-    return success();
-  }
-};
-
-class FileWriteCallLowering : public OpConversionPattern<func::CallOp> {
-public:
-  using OpConversionPattern<func::CallOp>::OpConversionPattern;
-
-  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (!isFileMarkerName(op.getCallee(), kFileWriteMarkerPrefix))
-      return failure();
-    if (adaptor.getOperands().size() != 2)
-      return rewriter.notifyMatchFailure(op, "file write marker needs 2 args");
-
-    auto moduleOp = op->getParentOfType<ModuleOp>();
-    if (!moduleOp)
-      return rewriter.notifyMatchFailure(
-          op, "file write needs a parent module");
-
-    auto context = op.getContext();
-    auto ptrType = getPtrType(context);
-    auto i64Type = getI64Type(context);
-    auto fwriteFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "fwrite",
-        {ptrType, i64Type, i64Type, ptrType}, i64Type);
-    if (failed(fwriteFn))
-      return rewriter.notifyMatchFailure(
-          op, "file write needs an fwrite declaration");
-
-    auto file = adaptor.getOperands()[0];
-    auto buffer = adaptor.getOperands()[1];
-    auto rawByteView = createTensorByteView(op.getLoc(), rewriter, buffer);
-    if (failed(rawByteView))
-      return rewriter.notifyMatchFailure(
-          op, "file write needs a tensor raw-byte view");
-    auto view = *rawByteView;
-    auto one = LLVM::ConstantOp::create(rewriter, op.getLoc(), i64Type,
-                                        rewriter.getI64IntegerAttr(1));
-    // Keep write() symmetric with read(): the result is the number of raw bytes
-    // successfully written, independent of Tensor element type.
-    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
-    auto written = LLVM::CallOp::create(
-        rewriter, op.getLoc(), *fwriteFn,
-        ValueRange{view.data, one.getResult(), view.byteSize, fileHandle});
-    rewriter.replaceOp(op, written.getResult());
-    return success();
-  }
-};
-
-class SafetensorReadCallLowering : public OpConversionPattern<func::CallOp> {
-public:
-  using OpConversionPattern<func::CallOp>::OpConversionPattern;
-
-  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    if (!isFileMarkerName(op.getCallee(), kSafetensorReadMarkerPrefix))
-      return failure();
-    if (adaptor.getOperands().size() != 2)
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read marker needs 2 args");
-
-    auto moduleOp = op->getParentOfType<ModuleOp>();
-    if (!moduleOp)
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read needs a parent module");
-
-    auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
-        op.getResult(0).getType());
-    if (!tensorType)
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read result must be a Mulberry tensor");
-    if (!tensorType.getElementType().isF32())
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read currently supports only f32 tensors");
-
-    auto resultType = convertTensorToMemRefType(tensorType);
-
-    auto context = op.getContext();
-    auto ptrType = getPtrType(context);
-    auto i64Type = getI64Type(context);
-    auto voidType = LLVM::LLVMVoidType::get(context);
-    auto shape = tensorType.getShape();
-    auto rank = LLVM::ConstantOp::create(
-        rewriter, op.getLoc(), i64Type,
-        rewriter.getI64IntegerAttr(static_cast<int64_t>(shape.size())));
-    auto expectedShape = createExpectedShapeArray(op.getLoc(), rewriter,
-                                                  shape);
-    auto outShape = createI64StackArray(op.getLoc(), rewriter, shape.size());
-    auto file = adaptor.getOperands()[0];
-    auto nameArg = adaptor.getOperands()[1];
-    auto name = loadStringDataPointer(op.getLoc(), rewriter, nameArg);
-    auto fileHandle = loadFileHandlePointer(op.getLoc(), rewriter, file);
-
-    auto shapeFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "mulberry_safetensor_shape_f32",
-        {ptrType, ptrType, i64Type, ptrType, ptrType}, voidType);
-    if (failed(shapeFn))
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read needs a shape runtime declaration");
-
-    // Runtime owns safetensors parsing. Lowering only passes expected shape
-    // metadata, then uses the returned concrete shape to allocate dynamic
-    // memref dimensions before reading the payload.
-    LLVM::CallOp::create(
-        rewriter, op.getLoc(), *shapeFn,
-        ValueRange{fileHandle, name, rank.getResult(), expectedShape,
-                   outShape});
-
-    std::vector<Value> dynamicSizes;
-    for (size_t dim = 0; dim < shape.size(); ++dim) {
-      if (shape[dim] >= 0)
-        continue;
-      auto sizeI64 = loadRuntimeShapeDim(op.getLoc(), rewriter, outShape, dim);
-      dynamicSizes.push_back(arith::IndexCastOp::create(
-                                 rewriter, op.getLoc(),
-                                 rewriter.getIndexType(), sizeI64)
-                                 .getResult());
-    }
-
-    auto tensor = memref::AllocOp::create(rewriter, op.getLoc(), resultType,
-                                          dynamicSizes);
-    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
-                                        tensor.getResult());
-
-    auto readFn = LLVM::lookupOrCreateFn(
-        rewriter, moduleOp, "mulberry_safetensor_read_f32",
-        {ptrType, ptrType, i64Type, ptrType, ptrType}, voidType);
-    if (failed(readFn))
-      return rewriter.notifyMatchFailure(
-          op, "safetensor read needs a payload runtime declaration");
-
-    LLVM::CallOp::create(
-        rewriter, op.getLoc(), *readFn,
-        ValueRange{fileHandle, name, rank.getResult(), expectedShape,
-                   data});
-
-    rewriter.replaceOp(op, tensor.getResult());
     return success();
   }
 };
@@ -1173,23 +940,21 @@ public:
   auto matchAndRewrite(mulberry::TensorViewOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto handleType = llvm::cast<mulberry::PtrType>(
-        op.getHandle().getType());
     auto storageType = llvm::dyn_cast<mulberry::RecordType>(
-        handleType.getPointeeType());
+        op.getTensor().getType());
     if (!storageType)
       return rewriter.notifyMatchFailure(
-          op, "tensor view needs a record handle");
+          op, "tensor view needs a Tensor record");
 
     auto tensorType = llvm::cast<mulberry::TensorType>(
         op.getResult().getType());
     auto layout = convertToTensorABILayout(tensorType);
     auto desc = createTensorABIDescFromStorage(
-        op.getLoc(), rewriter, layout, adaptor.getHandle(), storageType,
+        op.getLoc(), rewriter, layout, adaptor.getTensor(), storageType,
         tensorType);
     if (failed(desc))
       return rewriter.notifyMatchFailure(
-          op, "tensor view needs TensorStorage-compatible fields");
+          op, "tensor view needs Tensor-compatible fields");
 
     auto tensor = createTensorFromABIDesc(op.getLoc(), rewriter, *desc,
                                           tensorType);
@@ -1206,18 +971,16 @@ public:
   auto matchAndRewrite(mulberry::TensorPackOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto handleType = llvm::cast<mulberry::PtrType>(
-        op.getHandle().getType());
     auto storageType = llvm::dyn_cast<mulberry::RecordType>(
-        handleType.getPointeeType());
+        op.getResult().getType());
     if (!storageType)
       return rewriter.notifyMatchFailure(
-          op, "tensor pack needs a record handle result");
+          op, "tensor pack needs a Tensor record result");
 
     auto storageBackendType = convertRecordToBackendType(storageType);
     if (!storageBackendType)
       return rewriter.notifyMatchFailure(
-          op, "tensor pack needs a lowerable TensorStorage record");
+          op, "tensor pack needs a lowerable Tensor record");
 
     auto tensorType = llvm::cast<mulberry::TensorType>(
         op.getTensor().getType());
@@ -1233,13 +996,6 @@ public:
         rewriter, op.getLoc(), i64Type,
         rewriter.getI64IntegerAttr(static_cast<int64_t>(rank)));
 
-    auto storageBytes = createSizeOf(op.getLoc(), rewriter,
-                                     *storageBackendType);
-    auto storage = callBoehmMalloc(op.getLoc(), rewriter, op,
-                                   storageBytes);
-    if (failed(storage))
-      return failure();
-
     auto sizes = createHeapArray(op.getLoc(), rewriter, op, i64Type,
                                  rankValue.getResult());
     auto strides = createHeapArray(op.getLoc(), rewriter, op, i64Type,
@@ -1251,6 +1007,14 @@ public:
                                    *payloadBytes);
     if (failed(payload))
       return failure();
+
+    auto sizesType =
+        llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("sizes"));
+    auto stridesType = llvm::dyn_cast<mulberry::RecordType>(
+        storageType.getFieldType("strides"));
+    if (!sizesType || !stridesType)
+      return rewriter.notifyMatchFailure(
+          op, "tensor pack needs List<i64> sizes and strides fields");
 
     auto layout = convertToTensorABILayout(tensorType);
     auto sourceDesc = createTensorABIDesc(op.getLoc(), rewriter, layout,
@@ -1269,9 +1033,9 @@ public:
                           stride.getResult());
     }
 
-    // Pack creates an owning Tensor handle. Copy the payload into a Boehm heap
-    // buffer, then store that heap pointer in TensorStorage.data; otherwise a
-    // returned handle could point at a short-lived memref allocation.
+    // Pack creates an owning Tensor header. Copy the payload into a Boehm heap
+    // buffer, then store that heap pointer in Tensor.data; otherwise a returned
+    // header could point at a short-lived memref allocation.
     auto heapDesc = LLVM::InsertValueOp::create(
         rewriter, op.getLoc(), sourceDesc, *payload,
         ArrayRef<int64_t>{0});
@@ -1279,18 +1043,45 @@ public:
         op.getLoc(), rewriter, heapDesc.getResult(), tensorType);
     memref::CopyOp::create(rewriter, op.getLoc(), tensor, heapTensor);
 
-    if (failed(storeRecordField(op.getLoc(), rewriter, *storage, storageType,
-                                "rank", rankValue.getResult())) ||
-        failed(storeRecordField(op.getLoc(), rewriter, *storage, storageType,
-                                "data", *payload)) ||
-        failed(storeRecordField(op.getLoc(), rewriter, *storage, storageType,
-                                "sizes", *sizes)) ||
-        failed(storeRecordField(op.getLoc(), rewriter, *storage, storageType,
-                                "strides", *strides)))
-      return rewriter.notifyMatchFailure(
-          op, "tensor pack needs TensorStorage-compatible fields");
+    auto sizesList = createListRecordValue(
+        op.getLoc(), rewriter, sizesType, rankValue.getResult(), *sizes);
+    auto stridesList = createListRecordValue(
+        op.getLoc(), rewriter, stridesType, rankValue.getResult(), *strides);
+    if (failed(sizesList) || failed(stridesList))
+      return failure();
 
-    rewriter.replaceOp(op, *storage);
+    auto tensorRecord = LLVM::UndefOp::create(rewriter, op.getLoc(),
+                                              *storageBackendType);
+    Value current = tensorRecord.getResult();
+    auto dataIndex = static_cast<int64_t>(storageType.getFieldIndex("data"));
+    auto rankIndex = static_cast<int64_t>(storageType.getFieldIndex("rank"));
+    auto numelIndex = static_cast<int64_t>(storageType.getFieldIndex("numel"));
+    auto sizesIndex = static_cast<int64_t>(storageType.getFieldIndex("sizes"));
+    auto stridesIndex =
+        static_cast<int64_t>(storageType.getFieldIndex("strides"));
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, *payload, ArrayRef<int64_t>{dataIndex});
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, rankValue.getResult(),
+        ArrayRef<int64_t>{rankIndex});
+    auto elementCount = arith::DivUIOp::create(
+        rewriter, op.getLoc(), *payloadBytes,
+        createSizeOf(op.getLoc(), rewriter, tensorType.getElementType()));
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, elementCount.getResult(),
+        ArrayRef<int64_t>{numelIndex});
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, *sizesList,
+        ArrayRef<int64_t>{sizesIndex});
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, *stridesList,
+        ArrayRef<int64_t>{stridesIndex});
+
+    if (!current)
+      return rewriter.notifyMatchFailure(
+          op, "tensor pack needs Tensor-compatible fields");
+
+    rewriter.replaceOp(op, current);
     return success();
   }
 };
@@ -1350,11 +1141,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<FileReadCallLowering, FileWriteCallLowering,
-                 SafetensorReadCallLowering>(
-        typeConverter, &getContext(), /*benefit=*/2);
     patterns.add<AllocaOpLowering, HeapAllocOpLowering,
-                 LoadOpLowering, PtrIndexOpLowering,
+                 LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
                  StoreOpLowering, TensorAllocOpLowering, TensorCastOpLowering,
                  TensorDimOpLowering, TensorPackOpLowering,
@@ -1374,7 +1162,6 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     if (failed(applyPartialConversion(getOperation(), target, patternSet)))
       signalPassFailure();
 
-    eraseDeadRuntimeMarkers(llvm::cast<ModuleOp>(getOperation()));
   }
 };
 

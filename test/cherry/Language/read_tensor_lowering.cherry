@@ -2,15 +2,11 @@
 
 fn main(): UInt64 {
   const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var w1: Float32[?, ?] = readTensor(file, "w1");
+  var w1Tensor: Tensor<Float32> = io.readTensor(file, "w1");
   io.close(file);
-  size(w1)
+  var w1: Float32[?, ?] = tensor.view(w1Tensor);
+  w1Tensor.numel()
 }
 
-# CHECK-DAG: llvm.func @mulberry_safetensor_shape_f32
-# CHECK-DAG: llvm.func @mulberry_safetensor_read_f32
-# CHECK: llvm.call @mulberry_safetensor_shape_f32
-# CHECK: memref.alloc
-# CHECK-SAME: memref<?x?xf32>
-# CHECK: llvm.call @mulberry_safetensor_read_f32
-# CHECK-NOT: __cherry_safetensor_read_
+# CHECK-DAG: func.func private @mulberry_safetensor_read_tensor_f32
+# CHECK: call @mulberry_safetensor_read_tensor_f32

@@ -13,16 +13,16 @@ fn main(): UInt64 {
 
 # AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.List parameter=T
 # AST: VariableStat {{.*}}id=xs{{.*}}type=List<UInt64>
-# AST: ArrayLiteralExpr {{.*}}type=Ptr<std_collections_ListStorage__UInt64>
-# AST-DAG: CallExpr {{.*}}callee=std_collections_ListStorage_push__UInt64
+# AST: ArrayLiteralExpr {{.*}}type=std_collections_List__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_List_push__UInt64
 # AST-DAG: IndexExpr {{.*}}type=UInt64 kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_withCapacity__UInt64
 # MLIR-DAG: func.func @std_collections_withCapacity__UInt64
-# MLIR-DAG: func.func @std_collections_ListStorage_grow__UInt64
+# MLIR-DAG: func.func @std_collections_List_grow__UInt64
 # MLIR-DAG: scf.while
-# MLIR-DAG: call @std_collections_ListStorage_push__UInt64
+# MLIR-DAG: call @std_collections_List_push__UInt64
 
 # JIT: 2
 # JIT-NEXT: 100

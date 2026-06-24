@@ -2,7 +2,7 @@
 # RUN: cherry-driver -dump=parse %s 2>&1 | FileCheck %s --check-prefix=PARSE
 
 fn main(): UInt64 {
-  for i in 0 .. size(xs) {
+  for i in 0 .. 3 {
     io.print(i);
     ()
   };
@@ -19,6 +19,6 @@ fn main(): UInt64 {
 # PARSE-SAME: variable=i
 # PARSE: DecimalExpr
 # PARSE-SAME: value=0
-# PARSE: CallExpr
-# PARSE-SAME: callee=size
+# PARSE: DecimalExpr
+# PARSE-SAME: value=3
 # PARSE: bodyBlock:

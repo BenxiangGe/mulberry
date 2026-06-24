@@ -105,7 +105,7 @@ private:
   std::vector<int64_t> _shape;
 };
 
-// Generic list type node. e.g. `List<UInt64>` or `List<Tensor<Float32, 2>>`.
+// Generic list type node. e.g. `List<UInt64>` or `List<Tensor<Float32>>`.
 class ListTypeNode final : public TypeNode {
 public:
   ListTypeNode(std::unique_ptr<TypeNode> elementType,

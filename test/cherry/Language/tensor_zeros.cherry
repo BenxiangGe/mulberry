@@ -9,7 +9,7 @@ fn main(): UInt64 {
   0
 }
 
-# AST: CallExpr {{.*}}type=Float32[4] callee=zeros
+# AST: CallExpr {{.*}}type=Float32[4] callee=zeros intrinsic=zeros
 # AST: IndexExpr {{.*}}type=Float32 kind=tensor
 
 # MLIR: mulberry.tensor.alloc() : !mulberry.tensor<4xf32>

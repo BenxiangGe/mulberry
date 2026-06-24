@@ -5,7 +5,7 @@ fn idScalar(p: Ptr<UInt64>): Ptr<UInt64> {
   p
 }
 
-fn idTensor(p: Tensor<Float32, 2>): Tensor<Float32, 2> {
+fn idTensor(p: Tensor<Float32>): Tensor<Float32> {
   p
 }
 
@@ -29,8 +29,8 @@ fn main(): UInt64 {
 
 # AST: Prototype {{.*}}name=idScalar{{.*}}type=Ptr<UInt64>
 # AST: VariableStat {{.*}}id=p{{.*}}type=Ptr<UInt64>
-# AST: Prototype {{.*}}name=idTensor{{.*}}type=Tensor<Float32, 2>
-# AST: VariableStat {{.*}}id=p{{.*}}type=Tensor<Float32, 2>
+# AST: Prototype {{.*}}name=idTensor{{.*}}type=Tensor<Float32>
+# AST: VariableStat {{.*}}id=p{{.*}}type=Tensor<Float32>
 # AST: Prototype {{.*}}name=idRecord{{.*}}type=Ptr<Pair>
 # AST: VariableStat {{.*}}id=p{{.*}}type=Ptr<Pair>
 # AST: Prototype {{.*}}name=idList{{.*}}type=List<UInt64>
@@ -38,12 +38,12 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @idScalar(%arg0: !mulberry.ptr<i64>) -> !mulberry.ptr<i64>
 # MLIR: return %arg0 : !mulberry.ptr<i64>
-# MLIR-LABEL: func.func @idTensor(%arg0: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
-# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
-# MLIR: return %arg0 : !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR-LABEL: func.func @idTensor(%arg0: !mulberry.record<std_tensor_Tensor__Float32
+# MLIR-SAME: -> !mulberry.record<std_tensor_Tensor__Float32
+# MLIR: return %{{.*}} : !mulberry.record<std_tensor_Tensor__Float32
 # MLIR-LABEL: func.func @idRecord(%arg0: !mulberry.ptr<!mulberry.record<Pair
 # MLIR-SAME: -> !mulberry.ptr<!mulberry.record<Pair
 # MLIR: return %arg0 : !mulberry.ptr<!mulberry.record<Pair
-# MLIR-LABEL: func.func @idList(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
-# MLIR-SAME: -> !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
-# MLIR: return %arg0 : !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR-LABEL: func.func @idList(%arg0: !mulberry.record<std_collections_List__UInt64
+# MLIR-SAME: -> !mulberry.record<std_collections_List__UInt64
+# MLIR: return %{{.*}} : !mulberry.record<std_collections_List__UInt64
