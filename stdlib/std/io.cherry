@@ -1,21 +1,41 @@
 package std.io;
 
+import ptr;
 import string.String;
+import tensor.Tensor;
 
-struct FileStorage {
+struct File {
   handle: Ptr<UInt8>
 }
 
-comptime File = Ptr<FileStorage>;
+extern fn mulberry_file_open(path: String, mode: String): Ptr<UInt8>;
+extern fn mulberry_file_close(handle: Ptr<UInt8>): UInt64;
+extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
+extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
+extern fn mulberry_safetensor_read_tensor_f32(file: Ptr<UInt8>, name: String): Tensor<Float32>;
 
 fn print(value: UInt64): UInt64 {
   builtinPrint(value)
 }
 
 fn open(path: String, mode: String): File {
-  builtinOpen(path, mode)
+  File { mulberry_file_open(path, mode) }
 }
 
 fn close(file: File): UInt64 {
-  builtinClose(file)
+  mulberry_file_close(file.handle)
+}
+
+fn read<T>(file: File, buffer: Tensor<T>): UInt64 {
+  mulberry_file_read(file.handle, ptr.asUInt8(buffer.data),
+                     buffer.numel * sizeof(T))
+}
+
+fn write<T>(file: File, buffer: Tensor<T>): UInt64 {
+  mulberry_file_write(file.handle, ptr.asUInt8(buffer.data),
+                      buffer.numel * sizeof(T))
+}
+
+fn readTensor(file: File, name: String): Tensor<Float32> {
+  mulberry_safetensor_read_tensor_f32(file.handle, name)
 }

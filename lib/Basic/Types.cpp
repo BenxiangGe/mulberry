@@ -431,12 +431,8 @@ auto isFloat32Type(const Type *type) -> bool {
 }
 
 auto isFileType(const Type *type) -> bool {
-  auto *ptrType = getPtrType(type);
-  if (!ptrType)
-    return false;
-
-  auto *structType = getStructType(ptrType->pointeeType());
-  if (!structType || structType->name() != "std.io.FileStorage")
+  auto *structType = getStructType(type);
+  if (!structType || structType->name() != "std.io.File")
     return false;
 
   auto &fields = structType->fields();

@@ -4,7 +4,7 @@
 fn main(): UInt64 {
   var xs: UInt64[3] = [1, 2, 3];
 
-  for i in 0 .. size(xs) {
+  for i in 0 .. 3 {
     io.print(i);
     ()
   };

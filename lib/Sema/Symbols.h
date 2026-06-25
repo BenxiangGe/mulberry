@@ -39,12 +39,6 @@ struct ComptimeTypeAliasSymbol {
   std::string packageName;
   std::vector<ComptimeParam> parameters;
   const TypeNode *bodyTypeNode = nullptr;
-
-  auto parameterName() const -> std::string_view {
-    if (parameters.empty())
-      return {};
-    return parameters.front().name;
-  }
 };
 
 struct GenericFunctionSymbol {
@@ -95,18 +89,6 @@ public:
     if (type == _typesByName.end())
       return nullptr;
     return type->second;
-  }
-
-  auto declareComptimeTypeAlias(std::string_view name,
-                                std::string_view packageName,
-                                std::string_view parameterName,
-                                const TypeNode *bodyTypeNode)
-      -> CherryResult {
-    std::vector<ComptimeParam> parameters;
-    if (!parameterName.empty())
-      parameters.push_back(ComptimeParam(parameterName));
-    return declareComptimeTypeAlias(name, packageName, std::move(parameters),
-                                    bodyTypeNode);
   }
 
   auto declareComptimeTypeAlias(std::string_view name,

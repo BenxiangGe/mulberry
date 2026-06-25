@@ -15,6 +15,7 @@ fn main(): UInt64 {
   byteSize + scalarAlign + pairSize + pairAlign
 }
 
+# AST: Prototype {{.*}}name=main
 # AST: TypeLayoutExpr
 # AST-SAME: type=UInt64 query=sizeof target=UInt8 value=1
 # AST: TypeLayoutExpr

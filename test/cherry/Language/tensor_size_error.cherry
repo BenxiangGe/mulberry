@@ -1,7 +1,7 @@
-# RUN: not cherry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: cherry-driver -typecheck %s
 
 fn main(): UInt64 {
-  size(1)
+  var xs: UInt64[3] = [1, 2, 3];
+  var xsTensor: Tensor<UInt64> = tensor.pack(xs);
+  xsTensor.numel()
 }
-
-# CHECK: error: type mismatch

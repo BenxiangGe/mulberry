@@ -4,10 +4,10 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 struct Layer {
-  weight: Tensor<Float32, 2>
+  weight: Tensor<Float32>
 }
 
-fn makeLayer(weight: Tensor<Float32, 2>): Layer {
+fn makeLayer(weight: Tensor<Float32>): Layer {
   Layer { weight }
 }
 
@@ -18,17 +18,17 @@ fn useLayer(layer: Layer): UInt64 {
 
 fn main(): UInt64 {
   var data: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
-  var handle: Tensor<Float32, 2> = tensor.pack(data);
-  var layer: Layer = makeLayer(handle);
+  var tensor2d: Tensor<Float32> = tensor.pack(data);
+  var layer: Layer = makeLayer(tensor2d);
   io.print(useLayer(layer));
   0
 }
 
 # MLIR-LABEL: func.func @makeLayer
-# MLIR-SAME: %arg0: !mulberry.ptr<!mulberry.record<std_tensor_TensorStorage__Float32__2
+# MLIR-SAME: %arg0: !mulberry.record<std_tensor_Tensor__Float32
 # MLIR-SAME: -> !mulberry.record<Layer
 # MLIR: mulberry.record.get_field
-# MLIR: mulberry.store %arg0
+# MLIR: mulberry.store
 
 # MLIR-LABEL: func.func @useLayer
 # MLIR-SAME: %arg0: !mulberry.record<Layer
@@ -39,15 +39,14 @@ fn main(): UInt64 {
 # MLIR-SAME: -> !mulberry.tensor<?x?xf32>
 
 # LOWERED-LABEL: func.func @makeLayer
-# LOWERED-SAME: %arg0: !llvm.ptr
-# LOWERED-SAME: -> !llvm.struct<(ptr)>
+# LOWERED-SAME: %arg0: !llvm.struct
+# LOWERED-SAME: -> !llvm.struct
 # LOWERED: llvm.store %arg0
 
 # LOWERED-LABEL: func.func @useLayer
-# LOWERED-SAME: %arg0: !llvm.struct<(ptr)>
+# LOWERED-SAME: %arg0: !llvm.struct
 # LOWERED: llvm.store %arg0
 # LOWERED: llvm.getelementptr
-# LOWERED-SAME: !llvm.struct<(ptr)>
 # LOWERED: llvm.load
 # LOWERED: memref.reinterpret_cast
 # LOWERED-NOT: mulberry.tensor.view

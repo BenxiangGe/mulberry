@@ -1,10 +1,31 @@
 package std.tensor;
 
-comptime TensorStorage<T, Rank: UInt64> = struct {
-  rank: UInt64,
-  data: Ptr<T>,
-  sizes: Ptr<UInt64>,
-  strides: Ptr<UInt64>
-};
+import collections.List;
 
-comptime Tensor<T, Rank: UInt64> = Ptr<TensorStorage<T, Rank>>;
+comptime Tensor<T> = struct {
+  data: Ptr<T>,
+  rank: UInt64,
+  numel: UInt64,
+  sizes: List<UInt64>,
+  strides: List<UInt64>,
+
+  pub fn ndim(self: Ptr<Tensor<T>>): UInt64 {
+    self.rank
+  }
+
+  pub fn numel(self: Ptr<Tensor<T>>): UInt64 {
+    self.numel
+  }
+
+  pub fn shape(self: Ptr<Tensor<T>>): List<UInt64> {
+    self.sizes
+  }
+
+  pub fn dim(self: Ptr<Tensor<T>>, index: UInt64): UInt64 {
+    self.sizes[index]
+  }
+
+  pub fn stride(self: Ptr<Tensor<T>>, index: UInt64): UInt64 {
+    self.strides[index]
+  }
+};

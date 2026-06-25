@@ -3,11 +3,11 @@
 
 fn main(): UInt64 {
   const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var w1: Float32[?, ?] = readTensor(file, "w1");
-  var b1: Float32[30, ?] = readTensor(file, "b1");
+  var w1: Tensor<Float32> = io.readTensor(file, "w1");
+  var b1: Tensor<Float32> = io.readTensor(file, "b1");
   io.close(file);
-  size(w1) + size(b1)
+  0
 }
 
-# CHECK: CallExpr {{.*}}type=Float32[?, ?] callee=readTensor
-# CHECK: CallExpr {{.*}}type=Float32[30, ?] callee=readTensor
+# CHECK: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std.io.readTensor
+# CHECK: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std.io.readTensor

@@ -3,30 +3,21 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var data: Ptr<Float32> = heap.alloc<Float32>(4);
-  var sizes: Ptr<UInt64> = heap.alloc<UInt64>(2);
-  var strides: Ptr<UInt64> = heap.alloc<UInt64>(2);
-  var tensor2d: Tensor<Float32, 2> =
-      heap.alloc<tensor.TensorStorage<Float32, 2>>();
-  tensor2d.rank = 2;
-  tensor2d.data = data;
-  tensor2d.sizes = sizes;
-  tensor2d.strides = strides;
-  io.print(tensor2d.rank);
-  tensor2d.rank
+  var data: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var tensor2d: Tensor<Float32> = tensor.pack(data);
+  io.print(tensor2d.shape().size());
+  tensor2d.numel()
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.tensor.TensorStorage parameter=T, Rank: UInt64 type=struct {rank: UInt64, data: Ptr<T>, sizes: Ptr<UInt64>, strides: Ptr<UInt64>}
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.tensor.Tensor parameter=T, Rank: UInt64 type=Ptr<TensorStorage<T, Rank>>
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.tensor.Tensor parameter=T type=struct {data: Ptr<T>, rank: UInt64, numel: UInt64, sizes: List<UInt64>, strides: List<UInt64>
 # AST: VariableStat (id=tensor2d
-# AST-SAME: type=Tensor<Float32, 2>
-# AST-SAME: origin=std.tensor.TensorStorage<Float32, 2>
+# AST-SAME: type=Tensor<Float32>
+# AST-SAME: origin=std.tensor.Tensor<Float32>
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc !mulberry.record<std_tensor_TensorStorage__Float32__2
-# MLIR-DAG: mulberry.record.get_field {{.*}}["rank"]
-# MLIR-DAG: mulberry.record.get_field {{.*}}["data"]
-# MLIR-DAG: mulberry.record.get_field {{.*}}["sizes"]
-# MLIR-DAG: mulberry.record.get_field {{.*}}["strides"]
+# MLIR: mulberry.tensor.pack
+# MLIR: call @std_tensor_Tensor_shape__Float32
+# MLIR: call @std_collections_List_size__UInt64
+# MLIR: call @std_tensor_Tensor_numel__Float32
 
 # JIT: 2

@@ -7,7 +7,6 @@
 
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/AST/AST.h"
-#include "cherry/Basic/Builtins.h"
 #include "cherry/Basic/CherryResult.h"
 #include "cherry/Basic/Logging.h"
 #include "cherry/Basic/ScopeStack.h"
@@ -48,13 +47,6 @@ using llvm::success;
 
 template <typename T>
 using NameMap = std::map<std::string, T, std::less<>>;
-
-constexpr std::string_view kRuntimeFileOpen = "mulberry_file_open";
-constexpr std::string_view kRuntimeFileClose = "mulberry_file_close";
-constexpr std::string_view kFileReadMarkerPrefix = "__cherry_file_read_";
-constexpr std::string_view kFileWriteMarkerPrefix = "__cherry_file_write_";
-constexpr std::string_view kSafetensorReadMarkerPrefix =
-    "__cherry_safetensor_read_";
 
 struct VariableBinding {
   // Mutable variables are address-bound so assignment inside scf regions
@@ -114,7 +106,6 @@ private:
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   MLIRTypeConverter _typeConverter{_builder};
-  size_t _runtimeMarkerId = 0;
 
   // Declarations
   auto gen(const Decl *node) -> mlir::Operation *;
@@ -136,15 +127,12 @@ private:
   auto genTranspose(const CallExpr *node) -> mlir::Value;
   auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
   auto genArgmax(const CallExpr *node) -> mlir::Value;
-  auto genSize(const CallExpr *node) -> mlir::Value;
   auto genZeros(const CallExpr *node) -> mlir::Value;
-  auto genOpen(const CallExpr *node) -> mlir::Value;
-  auto genRead(const CallExpr *node) -> mlir::Value;
-  auto genReadTensor(const CallExpr *node) -> mlir::Value;
   auto genTensorPack(const CallExpr *node) -> mlir::Value;
   auto genTensorView(const CallExpr *node) -> mlir::Value;
-  auto genWrite(const CallExpr *node) -> mlir::Value;
-  auto genClose(const CallExpr *node) -> mlir::Value;
+  auto genPtrAsUInt8(const CallExpr *node) -> mlir::Value;
+  auto genIntrinsicCall(const CallExpr *node) -> mlir::Value;
+  auto genNormalCall(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
@@ -280,6 +268,10 @@ private:
   auto genIndexValue(const Expr *node) -> mlir::Value;
   auto genPtrIndex(const IndexExpr *expr, mlir::Value ptr) -> mlir::Value;
   auto genStdlibListGet(const IndexExpr *expr) -> mlir::Value;
+  auto genAddressableValue(const Expr *expr, mlir::Type valueType)
+      -> mlir::Value;
+  auto genArgumentValue(const Expr *expr, mlir::Type parameterType)
+      -> mlir::Value;
   auto genTensorElementValue(const Expr *node, mlir::Type elementType)
       -> mlir::Value;
   auto genTensorGet(const IndexExpr *expr, mlir::Value tensor) -> mlir::Value;
@@ -289,13 +281,11 @@ private:
                     llvm::ArrayRef<mlir::Type> inputs,
                     llvm::ArrayRef<mlir::Type> results,
                     mlir::Location location) -> mlir::func::FuncOp;
-  auto createRuntimeMarkerFn(std::string_view prefix,
-                             llvm::ArrayRef<mlir::Type> inputs,
-                             llvm::ArrayRef<mlir::Type> results,
-                             mlir::Location location) -> mlir::func::FuncOp;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
   auto getTensorPayloadType(const Type *type) const
+      -> mlir::mulberry::TensorType;
+  auto getTensorPayloadType(const CallExpr *node) const
       -> mlir::mulberry::TensorType;
   auto getMemRefType(const Type *type) const -> mlir::MemRefType;
   auto getMemRefType(const Expr *expr) const -> mlir::MemRefType;
@@ -364,10 +354,26 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
   mlir::func::FuncOp::build(_builder, state, funcName, funcType);
   auto func = llvm::cast<mlir::func::FuncOp>(mlir::Operation::create(state));
 
+  setFunction(funcName, func);
+
+  DBG("funcName: {0}", funcName);
+
+  return func;
+}
+
+auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
+  resetVariableScopes();
+  auto func = gen(node->proto().get());
+  if (node->isExtern()) {
+    mlir::SymbolTable::setSymbolVisibility(
+        func, mlir::SymbolTable::Visibility::Private);
+    return func;
+  }
+
   auto &entryBlock = *func.addEntryBlock();
   _builder.setInsertionPointToStart(&entryBlock);
-  for (const auto &varValue :
-       llvm::zip(node->parameters(), entryBlock.getArguments())) {
+  for (const auto &varValue : llvm::zip(node->proto()->parameters(),
+                                        entryBlock.getArguments())) {
     auto &var = std::get<0>(varValue);
     auto varName = var->variable()->name();
     auto value = std::get<1>(varValue);
@@ -385,17 +391,6 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
     setVariableAddress(varName, alloca);
     createStore(value, alloca, loc(node));
   }
-
-  setFunction(funcName, func);
-
-  DBG("funcName: {0}", funcName);
-
-  return func;
-}
-
-auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
-  resetVariableScopes();
-  auto func = gen(node->proto().get());
 
   auto value = gen(node->body().get());
 
@@ -569,47 +564,15 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
+  DBG("gen(CallExpr). functionName: {0}", node->name());
+  if (node->intrinsicKind() != CallExpr::IntrinsicKind::None)
+    return genIntrinsicCall(node);
+
+  return genNormalCall(node);
+}
+
+auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
   auto name = node->name();
-  DBG("gen(CallExpr). functionName: {0}", name);
-
-  if (name == builtins::builtinPrint || name == builtins::print)
-    return genPrint(node);
-  if (name == nn::matmul)
-    return genMatmul(node);
-  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard)
-    return genTensorBinaryNN(node);
-  if (name == nn::matscale)
-    return genMatscale(node);
-  if (name == nn::transpose)
-    return genTranspose(node);
-  if (name == nn::exp || name == nn::sigmoid || name == nn::sigmoidPrime)
-    return genElementwiseNN(node);
-  if (name == nn::argmax)
-    return genArgmax(node);
-  if (name == builtins::size)
-    return genSize(node);
-  if (name == builtins::zeros)
-    return genZeros(node);
-  if (name == builtins::builtinOpen || name == builtins::open)
-    return genOpen(node);
-  if (name == builtins::read)
-    return genRead(node);
-  if (name == builtins::readTensor)
-    return genReadTensor(node);
-  if (name == builtins::tensorPack)
-    return genTensorPack(node);
-  if (name == builtins::tensorView)
-    return genTensorView(node);
-  if (name == builtins::write)
-    return genWrite(node);
-  if (name == builtins::builtinClose || name == builtins::close)
-    return genClose(node);
-  if (name == builtins::boolToUInt64) {
-    auto value = gen(node->expressions().front().get());
-    return mlir::arith::ExtUIOp::create(_builder, loc(node),
-                                        _builder.getI64Type(), value);
-  }
-
   auto calleeOpIter = findFunction(node->name());
   auto hasCallee = calleeOpIter != _functionsByName.end();
   auto calleeType = hasCallee ? calleeOpIter->second.getFunctionType()
@@ -618,10 +581,17 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   llvm::SmallVector<mlir::Value, 4> operands;
   for (const auto &indexedExpr : llvm::enumerate(*node)) {
     auto *expr = indexedExpr.value().get();
-    auto value = gen(expr);
-    if (hasCallee)
-      value = castToType(value, calleeType.getInput(indexedExpr.index()),
-                         loc(expr));
+    mlir::Value value;
+    if (hasCallee) {
+      value = genArgumentValue(expr, calleeType.getInput(indexedExpr.index()));
+    } else if (node->isLoweredMethodCall() && indexedExpr.index() == 0) {
+      auto exprType = getMLIRType(expr);
+      value = llvm::isa<mlir::mulberry::PtrType>(exprType)
+                  ? gen(expr)
+                  : genAddressableValue(expr, exprType);
+    } else {
+      value = gen(expr);
+    }
     DBG("gen(CallExpr). value: {0}", value);
     operands.push_back(value);
   }
@@ -635,6 +605,46 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
                                            resultTypes, operands);
 
   return isUnitCall ? nullptr : callOp.getResult(0);
+}
+
+auto MLIRGenImpl::genIntrinsicCall(const CallExpr *node) -> mlir::Value {
+  switch (node->intrinsicKind()) {
+  case CallExpr::IntrinsicKind::None:
+    llvm_unreachable("normal call reached intrinsic lowering");
+  case CallExpr::IntrinsicKind::Print:
+    return genPrint(node);
+  case CallExpr::IntrinsicKind::Matmul:
+    return genMatmul(node);
+  case CallExpr::IntrinsicKind::Matadd:
+  case CallExpr::IntrinsicKind::Matsub:
+  case CallExpr::IntrinsicKind::Hadamard:
+    return genTensorBinaryNN(node);
+  case CallExpr::IntrinsicKind::Matscale:
+    return genMatscale(node);
+  case CallExpr::IntrinsicKind::Transpose:
+    return genTranspose(node);
+  case CallExpr::IntrinsicKind::Exp:
+  case CallExpr::IntrinsicKind::Sigmoid:
+  case CallExpr::IntrinsicKind::SigmoidPrime:
+    return genElementwiseNN(node);
+  case CallExpr::IntrinsicKind::Argmax:
+    return genArgmax(node);
+  case CallExpr::IntrinsicKind::Zeros:
+    return genZeros(node);
+  case CallExpr::IntrinsicKind::TensorPack:
+    return genTensorPack(node);
+  case CallExpr::IntrinsicKind::TensorView:
+    return genTensorView(node);
+  case CallExpr::IntrinsicKind::PtrAsUInt8:
+    return genPtrAsUInt8(node);
+  case CallExpr::IntrinsicKind::BoolToUInt64: {
+    auto value = gen(node->expressions().front().get());
+    return mlir::arith::ExtUIOp::create(_builder, loc(node),
+                                        _builder.getI64Type(), value);
+  }
+  }
+
+  llvm_unreachable("unknown intrinsic call");
 }
 
 auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
@@ -685,7 +695,7 @@ auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = genTensorOperand(expressions[0].get());
   auto rhs = genTensorOperand(expressions[1].get());
-  auto outType = getTensorPayloadType(node->type());
+  auto outType = getTensorPayloadType(node);
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{lhs, 0}, {rhs, 1}}, loc(node)),
       loc(node));
@@ -697,32 +707,30 @@ auto MLIRGenImpl::genTensorBinaryNN(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto lhs = genTensorOperand(expressions[0].get());
   auto rhs = genTensorOperand(expressions[1].get());
-  auto outType = getTensorPayloadType(node->type());
+  auto outType = getTensorPayloadType(node);
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{lhs, 0}, {lhs, 1}}, loc(node)),
       loc(node));
-  if (node->name() == nn::matadd) {
+  switch (node->intrinsicKind()) {
+  case CallExpr::IntrinsicKind::Matadd:
     mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
     return packNNTensorResult(node, out);
-  }
-  if (node->name() == nn::matsub) {
+  case CallExpr::IntrinsicKind::Matsub:
     mlir::cherry_nn::MatsubOp::create(_builder, loc(node), lhs, rhs, out);
     return packNNTensorResult(node, out);
-  }
-  if (node->name() == nn::hadamard) {
+  case CallExpr::IntrinsicKind::Hadamard:
     mlir::cherry_nn::HadamardOp::create(_builder, loc(node), lhs, rhs, out);
     return packNNTensorResult(node, out);
+  default:
+    llvm_unreachable("unexpected binary cherry_nn op");
   }
-
-  llvm_unreachable("unexpected binary cherry_nn op");
-  return packNNTensorResult(node, out);
 }
 
 auto MLIRGenImpl::genMatscale(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = genTensorOperand(expressions[0].get());
   auto scale = gen(expressions[1].get());
-  auto outType = getTensorPayloadType(node->type());
+  auto outType = getTensorPayloadType(node);
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
                                   loc(node)),
@@ -734,7 +742,7 @@ auto MLIRGenImpl::genMatscale(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = genTensorOperand(expressions[0].get());
-  auto outType = getTensorPayloadType(node->type());
+  auto outType = getTensorPayloadType(node);
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{input, 1}, {input, 0}},
                                   loc(node)),
@@ -746,27 +754,25 @@ auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
   auto &expressions = node->expressions();
   auto input = genTensorOperand(expressions[0].get());
-  auto outType = getTensorPayloadType(node->type());
+  auto outType = getTensorPayloadType(node);
   auto out = createTensorAlloc(
       outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
                                   loc(node)),
       loc(node));
 
-  if (node->name() == nn::exp) {
+  switch (node->intrinsicKind()) {
+  case CallExpr::IntrinsicKind::Exp:
     mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
     return packNNTensorResult(node, out);
-  }
-  if (node->name() == nn::sigmoid) {
+  case CallExpr::IntrinsicKind::Sigmoid:
     mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
     return packNNTensorResult(node, out);
-  }
-  if (node->name() == nn::sigmoidPrime) {
+  case CallExpr::IntrinsicKind::SigmoidPrime:
     mlir::cherry_nn::SigmoidPrimeOp::create(_builder, loc(node), input, out);
     return packNNTensorResult(node, out);
+  default:
+    llvm_unreachable("unexpected elementwise cherry_nn op");
   }
-
-  llvm_unreachable("unexpected elementwise cherry_nn op");
-  return packNNTensorResult(node, out);
 }
 
 auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
@@ -775,26 +781,6 @@ auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
   auto op = mlir::cherry_nn::ArgmaxOp::create(_builder, loc(node),
                                               _builder.getI64Type(), input);
   return op.getResult();
-}
-
-auto MLIRGenImpl::genSize(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto tensorType = getTensorPayloadType(expressions.front()->type());
-  if (!tensorType) {
-    ERR("size() argument has no Cherry tensor type");
-    return nullptr;
-  }
-
-  auto size = tensorType.getShape().front();
-  if (size < 0) {
-    auto tensor = genTensorOperand(expressions.front().get());
-    auto dynamicSize = createTensorDim(tensor, 0, loc(node));
-    return mlir::arith::IndexCastOp::create(_builder, loc(node),
-                                            _builder.getI64Type(), dynamicSize);
-  }
-
-  DBG("size() static tensor size: {0}", size);
-  return mlir::arith::ConstantIntOp::create(_builder, loc(node), size, 64);
 }
 
 auto MLIRGenImpl::genZeros(const CallExpr *node) -> mlir::Value {
@@ -806,97 +792,27 @@ auto MLIRGenImpl::genZeros(const CallExpr *node) -> mlir::Value {
   return tensor;
 }
 
-auto MLIRGenImpl::genOpen(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto path = gen(expressions[0].get());
-  auto mode = gen(expressions[1].get());
-  auto resultType = getMLIRType(node);
-  auto runtimeFn = getRuntimeFn(kRuntimeFileOpen,
-                                {path.getType(), mode.getType()},
-                                {resultType}, loc(node));
-  return mlir::func::CallOp::create(
-      _builder, loc(node), runtimeFn.getSymName(),
-      mlir::TypeRange{resultType}, mlir::ValueRange{path, mode})
-      .getResult(0);
-}
-
-auto MLIRGenImpl::genRead(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto file = gen(expressions[0].get());
-  auto buffer = gen(expressions[1].get());
-  auto resultType = _builder.getI64Type();
-  auto markerFn = createRuntimeMarkerFn(kFileReadMarkerPrefix,
-                                        {file.getType(), buffer.getType()},
-                                        {resultType}, loc(node));
-  return mlir::func::CallOp::create(
-      _builder, loc(node), markerFn.getSymName(),
-      mlir::TypeRange{resultType}, mlir::ValueRange{file, buffer})
-      .getResult(0);
-}
-
-auto MLIRGenImpl::genReadTensor(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto file = gen(expressions[0].get());
-  auto name = gen(expressions[1].get());
-  auto resultType = getMLIRType(node);
-  auto readResultType = resultType;
-  if (llvm::isa<mlir::mulberry::PtrType>(resultType))
-    readResultType = getTensorPayloadType(node->type());
-
-  auto markerFn = createRuntimeMarkerFn(kSafetensorReadMarkerPrefix,
-                                        {file.getType(), name.getType()},
-                                        {readResultType}, loc(node));
-  auto read = mlir::func::CallOp::create(
-      _builder, loc(node), markerFn.getSymName(),
-      mlir::TypeRange{readResultType}, mlir::ValueRange{file, name})
-      .getResult(0);
-  if (readResultType == resultType)
-    return read;
-
-  return mlir::mulberry::TensorPackOp::create(
-      _builder, loc(node), llvm::cast<mlir::mulberry::PtrType>(resultType),
-      read);
-}
-
 auto MLIRGenImpl::genTensorPack(const CallExpr *node) -> mlir::Value {
   auto tensor = gen(node->expressions().front().get());
-  auto resultType = llvm::cast<mlir::mulberry::PtrType>(
+  auto resultType = llvm::cast<mlir::mulberry::RecordType>(
       getMLIRType(node));
   return mlir::mulberry::TensorPackOp::create(_builder, loc(node),
                                               resultType, tensor);
 }
 
 auto MLIRGenImpl::genTensorView(const CallExpr *node) -> mlir::Value {
-  auto handle = gen(node->expressions().front().get());
+  auto tensorRecord = gen(node->expressions().front().get());
   auto resultType = llvm::cast<mlir::mulberry::TensorType>(
       getMLIRType(node));
   return mlir::mulberry::TensorViewOp::create(_builder, loc(node),
-                                              resultType, handle);
+                                              resultType, tensorRecord);
 }
 
-auto MLIRGenImpl::genWrite(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto file = gen(expressions[0].get());
-  auto buffer = gen(expressions[1].get());
-  auto resultType = _builder.getI64Type();
-  auto markerFn = createRuntimeMarkerFn(kFileWriteMarkerPrefix,
-                                        {file.getType(), buffer.getType()},
-                                        {resultType}, loc(node));
-  return mlir::func::CallOp::create(
-      _builder, loc(node), markerFn.getSymName(),
-      mlir::TypeRange{resultType}, mlir::ValueRange{file, buffer})
-      .getResult(0);
-}
-
-auto MLIRGenImpl::genClose(const CallExpr *node) -> mlir::Value {
-  auto file = gen(node->expressions().front().get());
-  auto resultType = _builder.getI64Type();
-  auto runtimeFn = getRuntimeFn(kRuntimeFileClose, {file.getType()},
-                                {resultType}, loc(node));
-  return mlir::func::CallOp::create(
-      _builder, loc(node), runtimeFn.getSymName(),
-      mlir::TypeRange{resultType}, mlir::ValueRange{file})
-      .getResult(0);
+auto MLIRGenImpl::genPtrAsUInt8(const CallExpr *node) -> mlir::Value {
+  auto ptr = gen(node->expressions().front().get());
+  auto resultType = llvm::cast<mlir::mulberry::PtrType>(getMLIRType(node));
+  return mlir::mulberry::PtrCastOp::create(_builder, loc(node), resultType,
+                                           ptr);
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
@@ -949,14 +865,12 @@ auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   auto location = loc(node);
-  auto stringPtrType =
-      llvm::cast<mlir::mulberry::PtrType>(getMLIRType(node));
   auto storageType = llvm::cast<mlir::mulberry::RecordType>(
-      stringPtrType.getPointeeType());
+      getMLIRType(node));
 
   // Materialize the literal bytes as a normal heap buffer, then wrap that
-  // buffer in the stdlib StringStorage heap object. This keeps String as a
-  // plain Ptr<StringStorage> and avoids a dedicated string dialect path.
+  // buffer in the stdlib String value. String is a plain record wrapper around
+  // `{length, data}`, so there is no second heap object around the byte buffer.
   auto bytes = node->value();
   auto byteCount = mlir::arith::ConstantIndexOp::create(
       _builder, location, bytes.size() + 1);
@@ -985,11 +899,7 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   auto nulValue = mlir::arith::ConstantIntOp::create(_builder, location, 0, 8);
   createStore(nulValue, nulPtr, location);
 
-  auto storage = mlir::mulberry::HeapAllocOp::create(
-                     _builder, location, stringPtrType, storageType,
-                     mlir::arith::ConstantIndexOp::create(_builder, location,
-                                                          1))
-                     .getResult();
+  auto storage = createAlloca(storageType, location);
   auto lengthPtr = mlir::mulberry::RecordGetFieldOp::create(
       _builder, location, getPtrType(_builder.getI64Type()),
       storage, "length");
@@ -1002,7 +912,7 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
       getPtrType(getPtrType(_builder.getI8Type())), storage, "data");
   createStore(dataBuffer, dataPtr, location);
 
-  return storage;
+  return createLoad(storage, storageType, location);
 }
 
 auto MLIRGenImpl::gen(const TypeLayoutExpr *node) -> mlir::Value {
@@ -1362,9 +1272,9 @@ auto MLIRGenImpl::genTensorOperand(const Expr *expr) -> mlir::Value {
   if (llvm::isa<mlir::mulberry::TensorType>(value.getType()))
     return castToType(value, tensorType, loc(expr));
 
-  // Tensor<T, Rank> is a stdlib heap handle. cherry_nn still consumes the
-  // current memref-backed tensor value, so builtin lowering unwraps handles at
-  // this narrow boundary instead of requiring user code to spell tensor.view().
+  // Tensor<T> is a high-level ndarray header. cherry_nn still consumes the
+  // current ranked memref-backed tensor value, so builtin lowering unwraps
+  // Tensor<T> at this narrow boundary.
   return mlir::mulberry::TensorViewOp::create(_builder, loc(expr),
                                              tensorType, value);
 }
@@ -1372,8 +1282,8 @@ auto MLIRGenImpl::genTensorOperand(const Expr *expr) -> mlir::Value {
 auto MLIRGenImpl::packNNTensorResult(const CallExpr *node,
                                      mlir::Value tensor) -> mlir::Value {
   auto resultType = getMLIRType(node);
-  if (auto ptrType = llvm::dyn_cast<mlir::mulberry::PtrType>(resultType))
-    return mlir::mulberry::TensorPackOp::create(_builder, loc(node), ptrType,
+  if (auto recordType = llvm::dyn_cast<mlir::mulberry::RecordType>(resultType))
+    return mlir::mulberry::TensorPackOp::create(_builder, loc(node), recordType,
                                                 tensor);
   return castToType(tensor, resultType, loc(node));
 }
@@ -1433,28 +1343,31 @@ auto MLIRGenImpl::getTensorPayloadType(const Type *type) const
     return llvm::dyn_cast<mlir::mulberry::TensorType>(
         _typeConverter.convert(tensorType));
 
-  auto *ptrType = cherry::getPtrType(type);
-  if (!ptrType)
-    return {};
-
-  auto *structType = cherry::getStructType(ptrType->pointeeType());
+  auto *structType = cherry::getStructType(type);
   if (!structType)
     return {};
 
   auto *origin = structType->origin();
-  if (!origin || origin->aliasName() != "std.tensor.TensorStorage")
+  if (!origin || origin->aliasName() != "std.tensor.Tensor")
     return {};
 
   auto &arguments = origin->arguments();
-  if (arguments.size() != 2 ||
-      arguments[0].kind() != ComptimeTypeValue::Kind::Type ||
-      arguments[1].kind() != ComptimeTypeValue::Kind::UInt64)
+  if (arguments.size() != 1 ||
+      arguments[0].kind() != ComptimeTypeValue::Kind::Type)
     return {};
 
-  std::vector<int64_t> shape(arguments[1].uint64Value(), -1);
+  std::vector<int64_t> shape(2, -1);
   TensorType tensorType(arguments[0].type(), std::move(shape));
   return llvm::dyn_cast<mlir::mulberry::TensorType>(
       _typeConverter.convert(&tensorType));
+}
+
+auto MLIRGenImpl::getTensorPayloadType(const CallExpr *node) const
+    -> mlir::mulberry::TensorType {
+  if (auto *tensorType = node->tensorPayloadType())
+    return llvm::dyn_cast<mlir::mulberry::TensorType>(
+        _typeConverter.convert(tensorType));
+  return getTensorPayloadType(node->type());
 }
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
@@ -1478,29 +1391,6 @@ auto MLIRGenImpl::getRuntimeFn(std::string_view name,
   auto fnName = std::string(name);
   if (auto existing = module.lookupSymbol<mlir::func::FuncOp>(fnName))
     return existing;
-
-  auto insertionPoint = _builder.saveInsertionPoint();
-  _builder.setInsertionPointToStart(module.getBody());
-
-  auto funcType = _builder.getFunctionType(inputs, results);
-  auto func = mlir::func::FuncOp::create(location, fnName, funcType);
-  mlir::SymbolTable::setSymbolVisibility(
-      func, mlir::SymbolTable::Visibility::Private);
-  _builder.insert(func);
-
-  _builder.restoreInsertionPoint(insertionPoint);
-  return func;
-}
-
-auto MLIRGenImpl::createRuntimeMarkerFn(std::string_view prefix,
-                                        llvm::ArrayRef<mlir::Type> inputs,
-                                        llvm::ArrayRef<mlir::Type> results,
-                                        mlir::Location location)
-    -> mlir::func::FuncOp {
-  std::string fnName;
-  do {
-    fnName = std::string(prefix) + std::to_string(_runtimeMarkerId++);
-  } while (module.lookupSymbol<mlir::func::FuncOp>(fnName));
 
   auto insertionPoint = _builder.saveInsertionPoint();
   _builder.setInsertionPointToStart(module.getBody());
@@ -1565,13 +1455,48 @@ auto MLIRGenImpl::genPtrIndex(const IndexExpr *expr, mlir::Value ptr)
 }
 
 auto MLIRGenImpl::genStdlibListGet(const IndexExpr *expr) -> mlir::Value {
-  auto list = gen(expr->base().get());
+  auto list = genAddressableValue(expr->base().get(),
+                                  getMLIRType(expr->base().get()));
   auto index = castToType(gen(expr->indices().front().get()),
                           _builder.getI64Type(), loc(expr));
   auto call = mlir::func::CallOp::create(
       _builder, loc(expr), expr->getFunctionName(),
       mlir::TypeRange{getMLIRType(expr)}, mlir::ValueRange{list, index});
   return call.getResult(0);
+}
+
+auto MLIRGenImpl::genAddressableValue(const Expr *expr,
+                                      mlir::Type valueType) -> mlir::Value {
+  if (auto *variable = llvm::dyn_cast<VariableExpr>(expr)) {
+    auto *binding = getVariableBinding(variable->name());
+    if (binding && binding->isAddress())
+      return binding->mlirValue;
+  } else if (expr->isLvalue()) {
+    return genLValue(expr);
+  }
+
+  auto ptr = createAlloca(valueType, loc(expr));
+  createStore(castToType(gen(expr), valueType, loc(expr)), ptr, loc(expr));
+  return ptr;
+}
+
+auto MLIRGenImpl::genArgumentValue(const Expr *expr,
+                                   mlir::Type parameterType) -> mlir::Value {
+  auto exprType = getMLIRType(expr);
+  if (exprType == parameterType)
+    return gen(expr);
+
+  if (auto ptrType = llvm::dyn_cast<mlir::mulberry::PtrType>(parameterType)) {
+    auto pointeeType = ptrType.getPointeeType();
+    if (exprType == pointeeType) {
+      // Methods such as List<T>.push take Ptr<List<T>> receivers.  Passing the
+      // lvalue address keeps receiver mutation visible to the caller while
+      // normal struct values still use shallow C-style copies elsewhere.
+      return genAddressableValue(expr, pointeeType);
+    }
+  }
+
+  return castToType(gen(expr), parameterType, loc(expr));
 }
 
 auto MLIRGenImpl::genTensorElementValue(const Expr *node,
@@ -1644,6 +1569,8 @@ auto MLIRGenImpl::genStdlibListLiteral(const ArrayLiteralExpr *expr)
   auto list = mlir::func::CallOp::create(
       _builder, location, expr->withCapacityFunctionName(),
       mlir::TypeRange{listType}, mlir::ValueRange{capacity});
+  auto listPtr = createAlloca(listType, location);
+  createStore(list.getResult(0), listPtr, location);
 
   for (auto &element : expr->getElements()) {
     auto value = castToType(gen(element.get()), elementType,
@@ -1651,10 +1578,10 @@ auto MLIRGenImpl::genStdlibListLiteral(const ArrayLiteralExpr *expr)
     mlir::func::CallOp::create(
         _builder, loc(element.get()), expr->pushFunctionName(),
         mlir::TypeRange{_builder.getI64Type()},
-        mlir::ValueRange{list.getResult(0), value});
+        mlir::ValueRange{listPtr, value});
   }
 
-  return list.getResult(0);
+  return createLoad(listPtr, listType, location);
 }
 
 void MLIRGenImpl::storeTensorElements(
@@ -1740,7 +1667,8 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
 
 void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
   if (lhs->indexKind() == IndexExpr::IndexKind::StdlibList) {
-    auto list = gen(lhs->base().get());
+    auto list = genAddressableValue(lhs->base().get(),
+                                    getMLIRType(lhs->base().get()));
     auto index = castToType(gen(lhs->indices().front().get()),
                             _builder.getI64Type(), loc(lhs));
     auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));

@@ -18,18 +18,17 @@ fn main(): UInt64 {
 # TOKENS: string_literal '"data/mnist.bin"'
 
 # AST: StringLiteralExpr
-# AST-SAME: type=Ptr<std.string.StringStorage>
+# AST-SAME: type=std.string.String
 
-# MLIR: func.func @id(%arg0: !mulberry.ptr<!mulberry.record<std.string.StringStorage {length: i64, data: !mulberry.ptr<i8>}>>) -> !mulberry.ptr<!mulberry.record<std.string.StringStorage {length: i64, data: !mulberry.ptr<i8>}>> {
+# MLIR: func.func @id(%arg0: !mulberry.record<std.string.String {length: i64, data: !mulberry.ptr<i8>}>) -> !mulberry.record<std.string.String {length: i64, data: !mulberry.ptr<i8>}> {
 # MLIR: mulberry.heap.alloc i8
 # MLIR: mulberry.ptr.index
-# MLIR: mulberry.heap.alloc !mulberry.record<std.string.StringStorage
 # MLIR: mulberry.record.get_field {{.*}}["length"]
 # MLIR: mulberry.record.get_field {{.*}}["data"]
 # MLIR: call @id
 # MLIR-NOT: cir.
 
-# LOWERED-LABEL: func.func @id(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED-LABEL: func.func @id(%arg0: !llvm.struct<(i64, ptr)>) -> !llvm.struct<(i64, ptr)>
 # LOWERED: llvm.call @mulberry_boehm_malloc
 # LOWERED: llvm.store
 # LOWERED-NOT: mulberry.

@@ -16,8 +16,12 @@ auto isDigit(char c) -> bool {
   return std::isdigit(static_cast<unsigned char>(c));
 }
 
-auto isAlpha(char c) -> bool {
-  return std::isalpha(static_cast<unsigned char>(c));
+auto isIdentifierStart(char c) -> bool {
+  return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
+}
+
+auto isIdentifierContinue(char c) -> bool {
+  return isIdentifierStart(c) || isDigit(c);
 }
 } // namespace
 
@@ -38,7 +42,7 @@ auto Lexer::lexToken() -> Token {
     const char *tokStart = _curPtr;
     switch (*_curPtr++) {
     default:
-      if (isAlpha(_curPtr[-1]))
+      if (isIdentifierStart(_curPtr[-1]))
         return lexIdentifierOrKeyword(tokStart);
 
       return formToken(Token::error, tokStart);
@@ -120,8 +124,8 @@ auto Lexer::lexToken() -> Token {
 }
 
 auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
-  // Match [0-9a-zA-Z]*
-  while (isAlpha(*_curPtr) || isDigit(*_curPtr))
+  // Match [A-Za-z_][A-Za-z0-9_]*
+  while (isIdentifierContinue(*_curPtr))
     ++_curPtr;
 
   llvm::StringRef spelling(tokStart, _curPtr - tokStart);

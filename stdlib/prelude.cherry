@@ -3,6 +3,7 @@ import collections;
 import collections.List;
 import io;
 import io.File;
+import ptr;
 import string.String;
 import tensor;
 import tensor.Tensor;

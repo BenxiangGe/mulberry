@@ -3,19 +3,21 @@
 fn main(): UInt64 {
   var outputBytes: UInt8[4] = [10, 20, 30, 40];
   const output: File = io.open("/tmp/cherry_file_api_jit.bin", "wb");
-  write(output, outputBytes);
+  io.write(output, tensor.pack(outputBytes));
   io.close(output);
 
   var inputBytes: UInt8[4] = [0, 0, 0, 0];
+  var inputTensor: Tensor<UInt8> = tensor.pack(inputBytes);
   const input: File = io.open("/tmp/cherry_file_api_jit.bin", "rb");
-  const count: UInt64 = read(input, inputBytes);
+  const count: UInt64 = io.read(input, inputTensor);
   io.close(input);
+  var inputView: UInt8[?] = tensor.view(inputTensor);
 
   io.print(count);
-  print(inputBytes[0]);
-  print(inputBytes[1]);
-  print(inputBytes[2]);
-  print(inputBytes[3]);
+  print(inputView[0]);
+  print(inputView[1]);
+  print(inputView[2]);
+  print(inputView[3]);
   0
 }
 

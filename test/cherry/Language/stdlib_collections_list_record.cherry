@@ -16,20 +16,20 @@ fn main(): UInt64 {
 }
 
 # AST: VariableStat (id=xs
-# AST-NEXT: ArrayLiteralExpr {{.*}} type=Ptr<std_collections_ListStorage__Pair>
+# AST-NEXT: ArrayLiteralExpr {{.*}} type=std_collections_List__Pair
 # AST-DAG: IndexExpr {{.*}}type=Pair kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_withCapacity__Pair
-# MLIR: call @std_collections_ListStorage_push__Pair
-# MLIR-DAG: func.func @std_collections_ListStorage_push__Pair
+# MLIR: call @std_collections_List_push__Pair
+# MLIR-DAG: func.func @std_collections_List_push__Pair
 # MLIR-DAG: mulberry.ptr.index
 # MLIR-DAG: mulberry.record.extract
 
 # LOWER-LABEL: func.func @main()
 # LOWER: call @std_collections_withCapacity__Pair
-# LOWER: call @std_collections_ListStorage_push__Pair
-# LOWER: call @std_collections_ListStorage_get__Pair
+# LOWER: call @std_collections_List_push__Pair
+# LOWER: call @std_collections_List_get__Pair
 # LOWER-DAG: llvm.getelementptr
 # LOWER-DAG: llvm.extractvalue
 

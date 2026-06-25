@@ -1,0 +1,5 @@
+package std.ptr;
+
+fn __module(): UInt64 {
+  0
+}

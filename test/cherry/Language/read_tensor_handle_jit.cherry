@@ -3,11 +3,10 @@
 fn main(): UInt64 {
   const file: File = io.open("/tmp/cherry_mnist_read_tensor_handle.safetensors",
                              "rb");
-  var xHandle: Tensor<Float32, 2> = readTensor(file, "x");
+  var xTensor: Tensor<Float32> = io.readTensor(file, "x");
   io.close(file);
 
-  var x: Float32[?, ?] = tensor.view(xHandle);
-  io.print(size(x));
+  io.print(xTensor.numel());
   0
 }
 

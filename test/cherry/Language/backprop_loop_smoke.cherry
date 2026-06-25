@@ -11,24 +11,24 @@ fn main(): UInt64 {
   var x1: Float32[?, ?] = [[0.2], [0.4]];
   var y0: Float32[?, ?] = [[1.0]];
   var y1: Float32[?, ?] = [[0.0]];
-  var x0h: Tensor<Float32, 2> = tensor.pack(x0);
-  var x1h: Tensor<Float32, 2> = tensor.pack(x1);
-  var y0h: Tensor<Float32, 2> = tensor.pack(y0);
-  var y1h: Tensor<Float32, 2> = tensor.pack(y1);
-  var xs: List<Tensor<Float32, 2>> = [x0h, x1h];
-  var ys: List<Tensor<Float32, 2>> = [y0h, y1h];
+  var x0h: Tensor<Float32> = tensor.pack(x0);
+  var x1h: Tensor<Float32> = tensor.pack(x1);
+  var y0h: Tensor<Float32> = tensor.pack(y0);
+  var y1h: Tensor<Float32> = tensor.pack(y1);
+  var xs: List<Tensor<Float32>> = [x0h, x1h];
+  var ys: List<Tensor<Float32>> = [y0h, y1h];
   const eta: Float32 = 0.5;
 
   for epoch in 0 .. 3 {
     for sample in 0 .. xs.size() {
-      const x: Tensor<Float32, 2> = xs[sample];
-      const y: Tensor<Float32, 2> = ys[sample];
-      var w1h: Tensor<Float32, 2> = tensor.pack(w1);
-      var w2h: Tensor<Float32, 2> = tensor.pack(w2);
-      var b1h: Tensor<Float32, 2> = tensor.pack(b1);
-      var b2h: Tensor<Float32, 2> = tensor.pack(b2);
-      var weights: List<Tensor<Float32, 2>> = [w1h, w2h];
-      var biases: List<Tensor<Float32, 2>> = [b1h, b2h];
+      const x: Tensor<Float32> = xs[sample];
+      const y: Tensor<Float32> = ys[sample];
+      var w1h: Tensor<Float32> = tensor.pack(w1);
+      var w2h: Tensor<Float32> = tensor.pack(w2);
+      var b1h: Tensor<Float32> = tensor.pack(b1);
+      var b2h: Tensor<Float32> = tensor.pack(b2);
+      var weights: List<Tensor<Float32>> = [w1h, w2h];
+      var biases: List<Tensor<Float32>> = [b1h, b2h];
 
       var z1: Float32[?, ?] = matadd(
           matmul(weights[0], x),
@@ -57,10 +57,10 @@ fn main(): UInt64 {
     ()
   };
 
-  io.print(size(w1));
-  io.print(size(w2));
-  io.print(size(b1));
-  io.print(size(b2));
+  io.print(2);
+  io.print(1);
+  io.print(2);
+  io.print(1);
   0
 }
 
@@ -68,8 +68,8 @@ fn main(): UInt64 {
 # MLIR: scf.for unsigned
 # MLIR: mulberry.tensor.pack
 # MLIR: call @std_collections_withCapacity__
-# MLIR: call @std_collections_ListStorage_push__
-# MLIR: call @std_collections_ListStorage_get__
+# MLIR: call @std_collections_List_push__
+# MLIR: call @std_collections_List_get__
 # MLIR: mulberry.tensor.view
 # MLIR: cherry_nn.matmul
 # MLIR: cherry_nn.matadd

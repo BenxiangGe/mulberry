@@ -3,7 +3,7 @@
 # RUN: cherry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn use(xs: types.Vector<UInt64>, ys: types.Matrix<Float32>): UInt64 {
-  xs.size() + size(ys)
+  xs.size()
 }
 
 fn main(): UInt64 {
@@ -20,5 +20,5 @@ fn main(): UInt64 {
 # AST-SAME: type=types.Vector<UInt64>
 # AST: VariableStat (id=ys
 # AST-SAME: type=types.Matrix<Float32>
-# MLIR: func.func @use(%arg0: !mulberry.ptr<!mulberry.record<std_collections_ListStorage__UInt64
+# MLIR: func.func @use(%arg0: !mulberry.record<std_collections_List__UInt64
 # MLIR-SAME: %arg1: !mulberry.tensor<?x?xf32>) -> i64

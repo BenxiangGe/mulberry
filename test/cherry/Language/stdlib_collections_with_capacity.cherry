@@ -18,7 +18,6 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_withCapacity__UInt64
 # MLIR-DAG: func.func @std_collections_withCapacity__UInt64
-# MLIR-DAG: mulberry.heap.alloc !mulberry.record<std_collections_ListStorage__UInt64
 # MLIR-DAG: mulberry.heap.alloc i64
 
 # JIT: 2

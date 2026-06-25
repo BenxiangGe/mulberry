@@ -12,13 +12,13 @@ fn main(): UInt64 {
 }
 
 # AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__UInt64
-# AST-DAG: CallExpr {{.*}}callee=std_collections_ListStorage_push__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_List_push__UInt64
 # AST-DAG: IndexExpr {{.*}}type=UInt64 kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
 # MLIR: call @std_collections_withCapacity__UInt64
-# MLIR: call @std_collections_ListStorage_push__UInt64
-# MLIR-DAG: func.func @std_collections_ListStorage_push__UInt64
+# MLIR: call @std_collections_List_push__UInt64
+# MLIR-DAG: func.func @std_collections_List_push__UInt64
 # MLIR-DAG: mulberry.ptr.index
 # MLIR-DAG: arith.addi
 

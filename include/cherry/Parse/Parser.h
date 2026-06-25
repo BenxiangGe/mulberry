@@ -100,8 +100,6 @@ private:
 
   auto parseFunctionName(std::unique_ptr<FunctionName> &functionName,
                          const char *const message) -> CherryResult;
-  auto parseOptionalTypeParameter(std::string &typeParameterName)
-      -> CherryResult;
 
   auto parseStructName(std::unique_ptr<StructName> &structName,
                        const char *const message) -> CherryResult;
@@ -126,6 +124,8 @@ private:
   auto parseImportDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
   auto parseFunctionDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
+
+  auto parseExternFunctionDecl(std::unique_ptr<Decl> &decl) -> CherryResult;
 
   auto parsePrototype(std::unique_ptr<Prototype> &proto,
                       bool qualifyName = true) -> CherryResult;

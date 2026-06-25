@@ -70,23 +70,23 @@ public:
   explicit Prototype(llvm::SMLoc location, std::unique_ptr<FunctionName> id,
                      VectorUniquePtr<VariableStat> parameters,
                      std::unique_ptr<TypeNode> returnTypeNode,
-                     std::string_view typeParameterName = {})
+                     std::vector<ComptimeParam> comptimeParameters = {})
       : Node{location},
         _id(std::move(id)), _parameters{std::move(parameters)},
         _returnTypeNode{std::move(returnTypeNode)},
-        _typeParameterName(typeParameterName) {};
+        _comptimeParameters(std::move(comptimeParameters)) {};
 
   auto id() const -> const std::unique_ptr<FunctionName> & { return _id; }
 
-  auto typeParameterName() const -> std::string_view {
-    return _typeParameterName;
+  auto comptimeParameters() const -> const std::vector<ComptimeParam> & {
+    return _comptimeParameters;
   }
 
-  auto setTypeParameterName(std::string_view typeParameterName) -> void {
-    _typeParameterName = typeParameterName;
+  auto setComptimeParameters(std::vector<ComptimeParam> parameters) -> void {
+    _comptimeParameters = std::move(parameters);
   }
 
-  auto isGeneric() const -> bool { return !_typeParameterName.empty(); }
+  auto isGeneric() const -> bool { return !_comptimeParameters.empty(); }
 
   auto parameters() const -> const VectorUniquePtr<VariableStat> & {
     return _parameters;
@@ -104,16 +104,16 @@ private:
   std::unique_ptr<FunctionName> _id;
   VectorUniquePtr<VariableStat> _parameters;
   std::unique_ptr<TypeNode> _returnTypeNode;
-  std::string _typeParameterName;
+  std::vector<ComptimeParam> _comptimeParameters;
   const Type *_type = nullptr;
 };
 
 class FunctionDecl final : public Decl {
 public:
   explicit FunctionDecl(llvm::SMLoc location, std::unique_ptr<Prototype> proto,
-                        std::unique_ptr<BlockExpr> body)
+                        std::unique_ptr<BlockExpr> body, bool isExtern = false)
       : Decl{Decl_Function, location}, _proto(std::move(proto)),
-        _body(std::move(body)){};
+        _body(std::move(body)), _isExtern(isExtern){};
 
   static auto classof(const Decl *node) -> bool {
     return node->getKind() == Decl_Function;
@@ -123,9 +123,12 @@ public:
 
   auto body() const -> const std::unique_ptr<BlockExpr> & { return _body; }
 
+  auto isExtern() const -> bool { return _isExtern; }
+
 private:
   std::unique_ptr<Prototype> _proto;
   std::unique_ptr<BlockExpr> _body;
+  bool _isExtern = false;
 };
 
 // _____________________________________________________________________________
@@ -166,19 +169,10 @@ public:
 };
 
 // Type-level comptime alias. It can be generic, e.g.
-// `comptime List<T> = Ptr<...>;`, or zero-parameter, e.g.
-// `comptime String = Ptr<...>;`.
+// `comptime List<T> = struct {...};`, or zero-parameter, e.g.
+// `comptime String = SomeStruct;`.
 class ComptimeTypeAliasDecl final : public Decl {
 public:
-  ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,
-                        std::string_view parameterName,
-                        std::unique_ptr<TypeNode> bodyTypeNode)
-      : Decl{Decl_ComptimeTypeAlias, location}, _name(name),
-        _bodyTypeNode(std::move(bodyTypeNode)) {
-    if (!parameterName.empty())
-      _parameters.push_back(ComptimeParam(parameterName));
-  }
-
   ComptimeTypeAliasDecl(llvm::SMLoc location, std::string_view name,
                         std::vector<ComptimeParam> parameters,
                         std::unique_ptr<TypeNode> bodyTypeNode)
@@ -191,12 +185,6 @@ public:
   }
 
   auto name() const -> std::string_view { return _name; }
-
-  auto parameterName() const -> std::string_view {
-    if (_parameters.empty())
-      return {};
-    return _parameters.front().name;
-  }
 
   auto isGeneric() const -> bool { return !_parameters.empty(); }
 
