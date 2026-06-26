@@ -170,29 +170,30 @@ def writeCherrySource(
             emitVariable("b2", b2),
             "\n".join(
                 [
-                    "  var w1h: Tensor<Float32, 2> = tensor.pack(w1);",
-                    "  var b1h: Tensor<Float32, 2> = tensor.pack(b1);",
-                    "  var w2h: Tensor<Float32, 2> = tensor.pack(w2);",
-                    "  var b2h: Tensor<Float32, 2> = tensor.pack(b2);",
+                    "  var w1h: Tensor<Float32> = tensor.pack(w1);",
+                    "  var b1h: Tensor<Float32> = tensor.pack(b1);",
+                    "  var w2h: Tensor<Float32> = tensor.pack(w2);",
+                    "  var b2h: Tensor<Float32> = tensor.pack(b2);",
                     "",
-                    "  var weights: List<Tensor<Float32, 2>> = [w1h, w2h];",
-                    "  var biases: List<Tensor<Float32, 2>> = [b1h, b2h];",
+                    "  var weights: List<Tensor<Float32>> = [w1h, w2h];",
+                    "  var biases: List<Tensor<Float32>> = [b1h, b2h];",
                 ]
             ),
-            emitVariable("activation", x, typeAnnotation="Float32[?, ?]"),
+            emitVariable("activationValue", x, typeAnnotation="Float32[?, ?]"),
+            "  var activation: Tensor<Float32> = tensor.pack(activationValue);",
             f"  const y: UInt64 = {y};",
             "\n".join(
                 [
                     "  for layer in 0 .. weights.size() {",
-                    "    activation = sigmoid(matadd(",
-                    "        matmul(weights[layer], activation),",
+                    "    activation = nn.sigmoid(nn.matadd(",
+                    "        nn.matmul(weights[layer], activation),",
                     "        biases[layer]));",
                     "    ()",
                     "  };",
                 ]
             ),
-            "  var pred: UInt64 = argmax(activation);",
-            "  print(pred);",
+            "  var pred: UInt64 = nn.argmax(activation);",
+            "  io.print(pred);",
             "  0",
         ]
     )
@@ -204,6 +205,10 @@ def writeCherrySource(
                 f"# network-json: {formatPathForComment(networkJson)}",
                 f"# mnist-data: {formatPathForComment(mnistData)}",
                 f"# sample-index: {sampleIndex}",
+                "# Requires the external mulberry.nn package.",
+                "# Generated as regression material while NN is detached from core.",
+                "",
+                "import mulberry.nn;",
                 "",
                 "fn main(): UInt64 {",
                 body,

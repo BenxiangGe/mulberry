@@ -8,8 +8,9 @@ fn make(): List<Tensor<Float32>> {
 }
 
 fn main(): UInt64 {
-  const x: Float32[2, 1] = [[0.2], [0.8]];
-  argmax(matmul(make()[0], x))
+  const weights: List<Tensor<Float32>> = make();
+  const first: Tensor<Float32> = weights[0];
+  first.numel()
 }
 
 # CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
@@ -30,10 +31,6 @@ fn main(): UInt64 {
 # CHECK-LABEL: func.func @main
 # CHECK: call @make() : () -> !llvm.struct<(i64, i64, ptr)>
 # CHECK: call @std_collections_List_get__
-# CHECK: memref.reinterpret_cast
-# CHECK: linalg.generic
-# CHECK: arith.mulf
-# CHECK: arith.addf
-# CHECK: linalg.generic
+# CHECK: call @std_tensor_Tensor_numel__Float32
 # CHECK: return
-# CHECK-NOT: cherry_nn.
+# CHECK-NOT: mulberry_nn.

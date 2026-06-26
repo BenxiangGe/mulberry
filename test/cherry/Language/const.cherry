@@ -5,9 +5,9 @@
 fn main(): UInt64 {
   const answer: UInt64 = 42;
   const weights: Float32[2, 2] = [[1.0, 2.0], [3.0, 4.0]];
-  var pred: UInt64 = argmax(weights);
+  const tensorValue: Tensor<Float32> = tensor.pack(weights);
 
-  answer + pred
+  answer + tensorValue.numel()
 }
 
 # TOKENS: kw_const 'const'
@@ -19,7 +19,6 @@ fn main(): UInt64 {
 # AST-SAME: id=weights
 
 # MLIR: arith.constant 42 : i64
-# MLIR: cherry_nn.argmax
-# MLIR-SAME: !mulberry.tensor<2x2xf32> -> i64
+# MLIR: mulberry.tensor.pack
+# MLIR: call @std_tensor_Tensor_numel__Float32
 # MLIR-NOT: cir.
-# MLIR-NOT: memref.

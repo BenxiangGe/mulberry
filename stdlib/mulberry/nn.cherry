@@ -1,0 +1,16 @@
+package mulberry.nn;
+
+import tensor.Tensor;
+
+# mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
+# ordinary function calls; the NN package plugin rewrites and lowers them.
+extern fn mulberry.nn.matmul(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matadd(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matsub(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.hadamard(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matscale(value: Tensor<Float32>, scale: Float32): Tensor<Float32>;
+extern fn mulberry.nn.transpose(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;

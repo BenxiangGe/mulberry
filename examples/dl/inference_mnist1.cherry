@@ -2,6 +2,10 @@
 # network-json: data/mnist-784-30-10.json
 # mnist-data: data/mnist.pkl.gz
 # sample-index: 0
+# Requires the external mulberry.nn package.
+# Generated as regression material while NN is detached from core.
+
+import mulberry.nn;
 
 fn main(): UInt64 {
   var w1: Float32[30, 784] = [
@@ -104,7 +108,7 @@ fn main(): UInt64 {
   var weights: List<Tensor<Float32>> = [w1h, w2h];
   var biases: List<Tensor<Float32>> = [b1h, b2h];
 
-  var activation: Float32[?, ?] = [
+  var activationValue: Float32[?, ?] = [
     [0.0],
     [0.0],
     [0.0],
@@ -891,18 +895,19 @@ fn main(): UInt64 {
     [0.0]
   ];
 
+  var activation: Tensor<Float32> = tensor.pack(activationValue);
   const y: UInt64 = 7;
 
   for layer in 0 .. weights.size() {
-    activation = sigmoid(matadd(
-        matmul(weights[layer], activation),
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(weights[layer], activation),
         biases[layer]));
     ()
   };
 
-  var pred: UInt64 = argmax(activation);
+  var pred: UInt64 = nn.argmax(activation);
 
-  print(pred);
+  io.print(pred);
 
   0
 }

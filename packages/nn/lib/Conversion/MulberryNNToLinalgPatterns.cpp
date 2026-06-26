@@ -1,12 +1,12 @@
-//===--- CherryNNToLinalgPatterns.cpp -------------------------------------===//
+//===--- MulberryNNToLinalgPatterns.cpp -----------------------------------===//
 //
 // This source file is part of the Cherry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "CherryNNToLinalgPatterns.h"
-#include "cherry/MLIRGen/IR/CherryNNOps.h"
+#include "MulberryNN/MulberryNNToLinalgPatterns.h"
+#include "MulberryNN/MulberryNNOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -14,14 +14,14 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/APFloat.h"
 
-namespace mlir::cherry {
+namespace mlir::mulberry_nn {
 namespace {
 
-class MatmulConversion : public OpConversionPattern<cherry_nn::MatmulOp> {
+class MatmulConversion : public OpConversionPattern<mulberry_nn::MatmulOp> {
 public:
-  using OpConversionPattern<cherry_nn::MatmulOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::MatmulOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::MatmulOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::MatmulOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto loc = op.getLoc();
@@ -63,11 +63,11 @@ public:
   }
 };
 
-class MataddConversion : public OpConversionPattern<cherry_nn::MataddOp> {
+class MataddConversion : public OpConversionPattern<mulberry_nn::MataddOp> {
 public:
-  using OpConversionPattern<cherry_nn::MataddOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::MataddOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::MataddOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::MataddOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::AddOp::create(rewriter, op.getLoc(), TypeRange{},
@@ -78,11 +78,11 @@ public:
   }
 };
 
-class MatsubConversion : public OpConversionPattern<cherry_nn::MatsubOp> {
+class MatsubConversion : public OpConversionPattern<mulberry_nn::MatsubOp> {
 public:
-  using OpConversionPattern<cherry_nn::MatsubOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::MatsubOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::MatsubOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::MatsubOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::SubOp::create(rewriter, op.getLoc(), TypeRange{},
@@ -94,11 +94,11 @@ public:
 };
 
 class HadamardConversion
-    : public OpConversionPattern<cherry_nn::HadamardOp> {
+    : public OpConversionPattern<mulberry_nn::HadamardOp> {
 public:
-  using OpConversionPattern<cherry_nn::HadamardOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::HadamardOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::HadamardOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::HadamardOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::MulOp::create(rewriter, op.getLoc(), TypeRange{},
@@ -110,11 +110,11 @@ public:
 };
 
 class MatscaleConversion
-    : public OpConversionPattern<cherry_nn::MatscaleOp> {
+    : public OpConversionPattern<mulberry_nn::MatscaleOp> {
 public:
-  using OpConversionPattern<cherry_nn::MatscaleOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::MatscaleOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::MatscaleOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::MatscaleOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     // linalg.map only maps shaped operands; the scalar scale is captured as a
@@ -133,11 +133,11 @@ public:
 };
 
 class TransposeConversion
-    : public OpConversionPattern<cherry_nn::TransposeOp> {
+    : public OpConversionPattern<mulberry_nn::TransposeOp> {
 public:
-  using OpConversionPattern<cherry_nn::TransposeOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::TransposeOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::TransposeOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::TransposeOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::TransposeOp::create(rewriter, op.getLoc(), adaptor.getInput(),
@@ -148,11 +148,11 @@ public:
   }
 };
 
-class ExpConversion : public OpConversionPattern<cherry_nn::ExpOp> {
+class ExpConversion : public OpConversionPattern<mulberry_nn::ExpOp> {
 public:
-  using OpConversionPattern<cherry_nn::ExpOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::ExpOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::ExpOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::ExpOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::MapOp::create(
@@ -168,11 +168,11 @@ public:
   }
 };
 
-class SigmoidConversion : public OpConversionPattern<cherry_nn::SigmoidOp> {
+class SigmoidConversion : public OpConversionPattern<mulberry_nn::SigmoidOp> {
 public:
-  using OpConversionPattern<cherry_nn::SigmoidOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::SigmoidOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::SigmoidOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::SigmoidOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::MapOp::create(
@@ -201,11 +201,11 @@ public:
 };
 
 class SigmoidPrimeConversion
-    : public OpConversionPattern<cherry_nn::SigmoidPrimeOp> {
+    : public OpConversionPattern<mulberry_nn::SigmoidPrimeOp> {
 public:
-  using OpConversionPattern<cherry_nn::SigmoidPrimeOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::SigmoidPrimeOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::SigmoidPrimeOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::SigmoidPrimeOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     linalg::MapOp::create(
@@ -240,11 +240,11 @@ public:
   }
 };
 
-class ArgmaxConversion : public OpConversionPattern<cherry_nn::ArgmaxOp> {
+class ArgmaxConversion : public OpConversionPattern<mulberry_nn::ArgmaxOp> {
 public:
-  using OpConversionPattern<cherry_nn::ArgmaxOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_nn::ArgmaxOp>::OpConversionPattern;
 
-  auto matchAndRewrite(cherry_nn::ArgmaxOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_nn::ArgmaxOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto loc = op.getLoc();
@@ -342,7 +342,7 @@ public:
 
 } // namespace
 
-auto populateCherryNNToLinalgPatterns(const TypeConverter& typeConverter,
+auto populateMulberryNNToLinalgPatterns(const TypeConverter& typeConverter,
                                       RewritePatternSet& patterns) -> void {
   patterns.add<MatmulConversion, MataddConversion, MatsubConversion,
                HadamardConversion, MatscaleConversion, TransposeConversion,
@@ -351,4 +351,4 @@ auto populateCherryNNToLinalgPatterns(const TypeConverter& typeConverter,
       typeConverter, patterns.getContext());
 }
 
-} // namespace mlir::cherry
+} // namespace mlir::mulberry_nn

@@ -1,7 +1,9 @@
-#ifndef CHERRY_NN_OOPS_H
-#define CHERRY_NN_OOPS_H
+//===--- MulberryNNOps.h - Mulberry NN ops ---------------------*- C++ -*-===//
 
-#include "cherry/MLIRGen/IR/CherryNNDialect.h"
+#ifndef MULBERRY_NN_OPS_H
+#define MULBERRY_NN_OPS_H
+
+#include "MulberryNN/MulberryNNDialect.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
@@ -10,6 +12,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
-#include "cherry/MLIRGen/IR/CherryNNOps.h.inc"
+#include "MulberryNN/MulberryNNOps.h.inc"
 
-#endif // CHERRY_NN_OOPS_H
+#endif // MULBERRY_NN_OPS_H
+

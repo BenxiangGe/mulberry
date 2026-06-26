@@ -9,11 +9,10 @@ fn main(): UInt64 {
   var w1h: Tensor<Float32> = tensor.pack(w1);
   var w2h: Tensor<Float32> = tensor.pack(w2);
   var weights: List<Tensor<Float32>> = [w1h, w2h];
+  const first: Tensor<Float32> = weights[0];
 
-  var x: Float32[?, ?] = [[0.2], [0.8]];
-  var y: Float32[?, ?] =
-      matmul(weights[0], x);
-  io.print(argmax(y));
+  io.print(weights.size());
+  io.print(first.numel());
   0
 }
 
@@ -34,7 +33,7 @@ fn main(): UInt64 {
 # LOWER: call @std_collections_List_push__
 # LOWER: call @std_collections_List_get__
 # LOWER-DAG: llvm.getelementptr
-# LOWER-DAG: memref.reinterpret_cast
-# LOWER-DAG: linalg.generic
+# LOWER-DAG: call @std_tensor_Tensor_numel__Float32
 
-# JIT: 1
+# JIT: 2
+# JIT-NEXT: 4

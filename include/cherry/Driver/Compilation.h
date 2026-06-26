@@ -16,10 +16,12 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 
 namespace mlir {
 template <typename OpTy> class OwningOpRef;
 class ModuleOp;
+class PassManager;
 } // end namespace mlir
 
 namespace llvm {
@@ -57,6 +59,8 @@ private:
   std::string _inputFilename;
   std::map<std::string, std::string> _importAliases;
   std::set<std::string> _loadedModules;
+  std::set<std::string> _usedBundledPackages;
+  std::set<std::string> _loadedBundledPackages;
 
   auto parse(std::unique_ptr<Module> &module) -> CherryResult;
   auto parseFile(const std::string &filename, llvm::SMLoc includeLocation,
@@ -65,6 +69,14 @@ private:
   auto loadImports(Module &module) -> CherryResult;
   auto resolveStdlibPath(std::string_view relativePath) -> std::string;
   auto resolveImportPath(std::string_view moduleName) -> std::string;
+  auto loadBundledPackage(std::string_view moduleName) -> CherryResult;
+  auto loadUsedBundledPackages() -> CherryResult;
+  auto addBundledPackagePreCorePipelines(mlir::PassManager &pm)
+      -> CherryResult;
+  auto addBundledPackagePostCorePipelines(mlir::PassManager &pm)
+      -> CherryResult;
+  auto addPassPipeline(mlir::PassManager &pm, llvm::StringRef pipeline)
+      -> CherryResult;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
       -> CherryResult;
 };

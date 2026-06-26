@@ -6,8 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "CherryNNToLinalgPatterns.h"
-#include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
@@ -52,17 +50,6 @@ static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
-static constexpr int32_t kStringDataField = 1;
-static constexpr int32_t kFileHandleField = 0;
-
-// These field indices mirror the stdlib value wrappers after lowering:
-//
-//   std.string.String = { length: i64, data: ptr }
-//   std.io.File      = { handle: ptr }
-//
-// Runtime calls need raw C pointers, so the bridge patterns extract only the
-// data/handle fields instead of passing the source-level wrappers through.
-
 static auto convertRecordToBackendType(mulberry::RecordType type)
     -> std::optional<Type>;
 static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type>;
@@ -90,8 +77,9 @@ static auto convertTensorToDataMemRefType(mulberry::TensorType type)
 }
 
 // This pass is a transitional storage lowering, not the final
-// Mulberry-to-LLVM ABI lowering. Tensor values become memrefs so cherry_nn can
-// lower to linalg, while scalar/record stack storage still uses LLVM dialect.
+// Mulberry-to-LLVM ABI lowering. Tensor values become memrefs while
+// scalar/record stack storage still uses LLVM dialect. Domain packages such as
+// mulberry.nn are intentionally not lowered here; they live outside core.
 static auto convertToBackendType(Type type) -> std::optional<Type> {
   if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
     return convertRecordToBackendType(recordType);
@@ -232,70 +220,6 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
   auto mallocCall = LLVM::CallOp::create(
       builder, location, *mallocFn, ValueRange{sizeInBytes});
   return mallocCall.getResult();
-}
-
-static auto extractStringDataPointer(Location location, OpBuilder& builder,
-                                     Value string) -> Value {
-  auto context = builder.getContext();
-  return LLVM::ExtractValueOp::create(builder, location, getPtrType(context),
-                                      string, kStringDataField);
-}
-
-static auto extractFileHandlePointer(Location location, OpBuilder& builder,
-                                     Value file) -> Value {
-  auto context = builder.getContext();
-  return LLVM::ExtractValueOp::create(builder, location, getPtrType(context),
-                                      file, kFileHandleField);
-}
-
-static auto createI64StackArray(Location location,
-                                ConversionPatternRewriter& rewriter,
-                                size_t length) -> Value {
-  auto context = rewriter.getContext();
-  auto count = LLVM::ConstantOp::create(
-      rewriter, location, getI64Type(context),
-      rewriter.getI64IntegerAttr(length));
-  return LLVM::AllocaOp::create(
-      rewriter, location, getPtrType(context), getI64Type(context),
-      count.getResult(), /*alignment=*/0).getResult();
-}
-
-static auto createExpectedShapeArray(Location location,
-                                     ConversionPatternRewriter& rewriter,
-                                     ArrayRef<int64_t> shape) -> Value {
-  auto context = rewriter.getContext();
-  auto i64Type = getI64Type(context);
-  auto shapeArray = createI64StackArray(location, rewriter, shape.size());
-
-  for (size_t dim = 0; dim < shape.size(); ++dim) {
-    auto index = LLVM::ConstantOp::create(
-        rewriter, location, i64Type,
-        rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)));
-    auto slot = LLVM::GEPOp::create(
-        rewriter, location, getPtrType(context), i64Type, shapeArray,
-        ArrayRef<Value>{index.getResult()});
-    auto value = LLVM::ConstantOp::create(
-        rewriter, location, i64Type, rewriter.getI64IntegerAttr(shape[dim]));
-    LLVM::StoreOp::create(rewriter, location, value.getResult(),
-                          slot.getResult());
-  }
-
-  return shapeArray;
-}
-
-static auto loadRuntimeShapeDim(Location location,
-                                ConversionPatternRewriter& rewriter,
-                                Value shapeArray, size_t dim) -> Value {
-  auto context = rewriter.getContext();
-  auto i64Type = getI64Type(context);
-  auto index = LLVM::ConstantOp::create(
-      rewriter, location, i64Type,
-      rewriter.getI64IntegerAttr(static_cast<int64_t>(dim)));
-  auto slot = LLVM::GEPOp::create(
-      rewriter, location, getPtrType(context), i64Type, shapeArray,
-      ArrayRef<Value>{index.getResult()});
-  return LLVM::LoadOp::create(rewriter, location, i64Type,
-                              slot.getResult()).getResult();
 }
 
 static auto extractRecordField(Location location,
@@ -1129,7 +1053,6 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                            math::MathDialect, memref::MemRefDialect,
                            scf::SCFDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
-    target.addIllegalDialect<cherry_nn::CherryNNDialect>();
     target.addIllegalDialect<mulberry::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
@@ -1149,7 +1072,6 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                  TensorViewOpLowering,
                  TensorLoadOpLowering, TensorStoreOpLowering>(
         typeConverter, &getContext());
-    populateCherryNNToLinalgPatterns(typeConverter, patterns);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateCallOpTypeConversionPattern(patterns, typeConverter);

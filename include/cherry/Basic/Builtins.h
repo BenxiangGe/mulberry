@@ -8,6 +8,7 @@
 #ifndef CHERRY_BUILTINS_H
 #define CHERRY_BUILTINS_H
 
+#include <string>
 #include <string_view>
 
 namespace cherry {
@@ -28,19 +29,6 @@ const std::string_view write = "std.io.write";
 const std::string_view ptrAsUInt8 = "std.ptr.asUInt8";
 
 } // end namespace builtins
-
-namespace nn {
-const std::string_view matmul = "matmul";
-const std::string_view matadd = "matadd";
-const std::string_view matsub = "matsub";
-const std::string_view hadamard = "hadamard";
-const std::string_view matscale = "matscale";
-const std::string_view transpose = "transpose";
-const std::string_view exp = "exp";
-const std::string_view sigmoid = "sigmoid";
-const std::string_view sigmoidPrime = "sigmoidPrime";
-const std::string_view argmax = "argmax";
-} // end namespace nn
 
 } // end namespace cherry
 
