@@ -91,31 +91,6 @@ auto formatNameSizeDiagnostic(const char *diagnostic, std::string_view name,
   return replacePlaceholder(message, "%d", std::to_string(size));
 }
 
-auto nnIntrinsicKind(std::string_view name)
-    -> std::optional<CallExpr::IntrinsicKind> {
-  if (name == nn::matmul)
-    return CallExpr::IntrinsicKind::Matmul;
-  if (name == nn::matadd)
-    return CallExpr::IntrinsicKind::Matadd;
-  if (name == nn::matsub)
-    return CallExpr::IntrinsicKind::Matsub;
-  if (name == nn::hadamard)
-    return CallExpr::IntrinsicKind::Hadamard;
-  if (name == nn::matscale)
-    return CallExpr::IntrinsicKind::Matscale;
-  if (name == nn::transpose)
-    return CallExpr::IntrinsicKind::Transpose;
-  if (name == nn::exp)
-    return CallExpr::IntrinsicKind::Exp;
-  if (name == nn::sigmoid)
-    return CallExpr::IntrinsicKind::Sigmoid;
-  if (name == nn::sigmoidPrime)
-    return CallExpr::IntrinsicKind::SigmoidPrime;
-  if (name == nn::argmax)
-    return CallExpr::IntrinsicKind::Argmax;
-  return std::nullopt;
-}
-
 auto declareName(NameSet &names, std::string_view name) -> bool {
   return names.insert(std::string(name)).second;
 }
@@ -706,19 +681,6 @@ private:
   auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
   auto semaZeros(CallExpr *node, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
-  auto semaMatmul(CallExpr *node, const Type *expectedType = nullptr)
-      -> CherryResult;
-  auto semaTensorBinary(CallExpr *node, const Type *expectedType = nullptr)
-      -> CherryResult;
-  auto semaMatscale(CallExpr *node, const Type *expectedType = nullptr)
-      -> CherryResult;
-  auto semaTranspose(CallExpr *node, const Type *expectedType = nullptr)
-      -> CherryResult;
-  auto semaElementwiseNN(CallExpr *node, const Type *expectedType = nullptr)
-      -> CherryResult;
-  auto semaNNTensorResult(CallExpr *node, const Type *expectedType)
-      -> CherryResult;
-  auto semaArgmax(CallExpr *node) -> CherryResult;
   auto semaPrint(CallExpr *node) -> CherryResult;
   auto semaTensorPack(CallExpr *node) -> CherryResult;
   auto semaTensorView(CallExpr *node,
@@ -1526,17 +1488,6 @@ private:
     expr->setType(_typeContext.getBuiltinType(kind));
   }
 
-  static auto isFloat32TensorType(const TensorType *type) -> bool {
-    return type && isFloat32Type(type->elementType());
-  }
-
-  static auto isNNTensorResultBuiltin(std::string_view name) -> bool {
-    return name == nn::matmul || name == nn::matadd || name == nn::matsub ||
-           name == nn::hadamard || name == nn::matscale ||
-           name == nn::transpose || name == nn::exp ||
-           name == nn::sigmoid || name == nn::sigmoidPrime;
-  }
-
   static auto stdlibListElementType(const Type *type) -> const Type * {
     auto *structType = cherry::getStructType(type);
     if (!structType)
@@ -1589,65 +1540,15 @@ private:
     return arguments[0].type();
   }
 
-  auto tensorDynamicViewType(const Type *type, size_t rank)
+  auto tensorViewType(const Type *type, const Type *expectedType)
       -> const TensorType * {
     auto *elementType = tensorElementType(type);
-    if (!elementType)
+    auto *expectedTensorType = cherry::getTensorType(expectedType);
+    if (!elementType || !expectedTensorType)
       return nullptr;
-
-    std::vector<int64_t> shape(rank, -1);
-    return _typeContext.createTensorType(elementType, std::move(shape));
-  }
-
-  auto tensorViewType(const Type *type, const Type *expectedType = nullptr)
-      -> const TensorType * {
-    auto *elementType = tensorElementType(type);
-    if (!elementType)
+    if (!sameType(expectedTensorType->elementType(), elementType))
       return nullptr;
-
-    if (auto *expectedTensorType = cherry::getTensorType(expectedType)) {
-      if (!sameType(expectedTensorType->elementType(), elementType))
-        return nullptr;
-      return expectedTensorType;
-    }
-
-    return nullptr;
-  }
-
-  auto tensorOperandType(const Type *type) -> const TensorType * {
-    if (auto *tensorType = cherry::getTensorType(type))
-      return tensorType;
-    return tensorDynamicViewType(type, 2);
-  }
-
-  auto setNNTensorResultType(CallExpr *node, const TensorType *resultType,
-                             const Type *expectedType) -> CherryResult {
-    node->setTensorPayloadType(resultType);
-    if (!expectedType) {
-      auto *recordType = tensorRecordType(resultType, node->location());
-      if (!recordType)
-        return failure();
-      node->setType(recordType);
-      return success();
-    }
-
-    if (auto *expectedTensorType = cherry::getTensorType(expectedType)) {
-      if (!sameType(expectedTensorType, resultType))
-        return emitError(node, diag::mismatch_type);
-      node->setType(expectedType);
-      return success();
-    }
-
-    auto *expectedRecordPayloadType = tensorViewType(expectedType, resultType);
-    if (!expectedRecordPayloadType)
-      expectedRecordPayloadType = tensorElementType(expectedType) ? resultType
-                                                                  : nullptr;
-    if (!expectedRecordPayloadType ||
-        !sameType(expectedRecordPayloadType, resultType))
-      return emitError(node, diag::mismatch_type);
-
-    node->setType(expectedType);
-    return success();
+    return expectedTensorType;
   }
 
 };
@@ -1946,15 +1847,6 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
   }
   if (call) {
     auto name = canonicalizeImportedName(call->name());
-    if (isNNTensorResultBuiltin(name) &&
-        (cherry::getTensorType(type) || tensorViewType(type))) {
-      call->setName(name);
-      return semaNNTensorResult(call, type);
-    }
-  }
-
-  if (call) {
-    auto name = canonicalizeImportedName(call->name());
     if (auto *genericFunction = lookupGenericFunction(name)) {
       call->setName(name);
       return semaGenericCall(call, genericFunction, type);
@@ -2080,25 +1972,6 @@ auto SemaImpl::semaCompilerPrimitiveCall(CallExpr *node)
   auto name = node->name();
   if (name == builtins::builtinPrint || name == builtins::print) {
     return semaPrint(node);
-  }
-  if (name == nn::matmul) {
-    return semaMatmul(node);
-  }
-  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard) {
-    return semaTensorBinary(node);
-  }
-  if (name == nn::matscale) {
-    return semaMatscale(node);
-  }
-  if (name == nn::transpose) {
-    return semaTranspose(node);
-  }
-  if (name == nn::exp || name == nn::sigmoid ||
-      name == nn::sigmoidPrime) {
-    return semaElementwiseNN(node);
-  }
-  if (name == nn::argmax) {
-    return semaArgmax(node);
   }
   if (name == builtins::zeros) {
     return emitError(node, diag::mismatch_type);
@@ -2701,196 +2574,6 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   expr->setType(tensorType->elementType());
   expr->setLvalue(true);
   expr->setTensorIndex();
-  return success();
-}
-
-auto SemaImpl::semaNNTensorResult(CallExpr *node,
-                                  const Type *expectedType) -> CherryResult {
-  auto name = node->name();
-  if (name == nn::matmul)
-    return semaMatmul(node, expectedType);
-  if (name == nn::matadd || name == nn::matsub || name == nn::hadamard)
-    return semaTensorBinary(node, expectedType);
-  if (name == nn::matscale)
-    return semaMatscale(node, expectedType);
-  if (name == nn::transpose)
-    return semaTranspose(node, expectedType);
-  if (name == nn::exp || name == nn::sigmoid || name == nn::sigmoidPrime)
-    return semaElementwiseNN(node, expectedType);
-
-  llvm_unreachable("unexpected cherry_nn tensor result op");
-}
-
-auto SemaImpl::semaMatmul(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Matmul);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 2)
-    return emitError(node, diag::wrong_num_arg);
-
-  for (auto &expr : expressions)
-    if (sema(expr.get()))
-      return failure();
-
-  auto *lhsType = tensorOperandType(expressions[0]->type());
-  auto *rhsType = tensorOperandType(expressions[1]->type());
-  if (!lhsType || !rhsType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
-    return emitError(node, diag::mismatch_type);
-  auto &lhsShape = lhsType->shape();
-  auto &rhsShape = rhsType->shape();
-  if (lhsShape.size() != 2 || rhsShape.size() != 2)
-    return emitError(node, diag::mismatch_type);
-
-  auto lhsCols = lhsShape[1];
-  auto rhsRows = rhsShape[0];
-  if (lhsCols >= 0 && rhsRows >= 0 && lhsCols != rhsRows)
-    return emitError(node, diag::mismatch_type);
-
-  auto *resultType =
-      _typeContext.createTensorType(
-          _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
-          std::vector<int64_t>{lhsShape[0], rhsShape[1]});
-  return setNNTensorResultType(node, resultType, expectedType);
-}
-
-auto SemaImpl::semaTensorBinary(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
-  if (auto intrinsicKind = nnIntrinsicKind(node->name()))
-    node->setIntrinsicKind(*intrinsicKind);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 2)
-    return emitError(node, diag::wrong_num_arg);
-
-  for (auto &expr : expressions)
-    if (sema(expr.get()))
-      return failure();
-
-  auto *lhsType = tensorOperandType(expressions[0]->type());
-  auto *rhsType = tensorOperandType(expressions[1]->type());
-  if (!lhsType || !rhsType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(lhsType) || !isFloat32TensorType(rhsType))
-    return emitError(node, diag::mismatch_type);
-  auto &lhsShape = lhsType->shape();
-  auto &rhsShape = rhsType->shape();
-  if (lhsShape.size() != 2 || rhsShape.size() != 2)
-    return emitError(node, diag::mismatch_type);
-
-  std::vector<int64_t> resultShape;
-  for (size_t i = 0; i < lhsShape.size(); ++i) {
-    auto lhsDim = lhsShape[i];
-    auto rhsDim = rhsShape[i];
-    if (lhsDim >= 0 && rhsDim >= 0 && lhsDim != rhsDim)
-      return emitError(node, diag::mismatch_type);
-    resultShape.push_back(lhsDim >= 0 ? lhsDim : rhsDim);
-  }
-
-  auto *resultType = _typeContext.createTensorType(
-      _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
-      std::move(resultShape));
-  return setNNTensorResultType(node, resultType, expectedType);
-}
-
-auto SemaImpl::semaMatscale(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Matscale);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 2)
-    return emitError(node, diag::wrong_num_arg);
-
-  for (auto &expr : expressions)
-    if (sema(expr.get()))
-      return failure();
-
-  auto *inputType = tensorOperandType(expressions[0]->type());
-  if (!inputType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(inputType) || !isFloat32Type(expressions[1]->type()))
-    return emitError(node, diag::mismatch_type);
-  if (inputType->shape().size() != 2)
-    return emitError(node, diag::mismatch_type);
-
-  auto *resultType = _typeContext.createTensorType(
-      _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
-      inputType->shape());
-  return setNNTensorResultType(node, resultType, expectedType);
-}
-
-auto SemaImpl::semaTranspose(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Transpose);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
-    return failure();
-
-  auto *inputType = tensorOperandType(expressions[0]->type());
-  if (!inputType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(inputType))
-    return emitError(node, diag::mismatch_type);
-  auto &inputShape = inputType->shape();
-  if (inputShape.size() != 2)
-    return emitError(node, diag::mismatch_type);
-
-  auto *resultType =
-      _typeContext.createTensorType(
-          _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
-          std::vector<int64_t>{inputShape[1], inputShape[0]});
-  return setNNTensorResultType(node, resultType, expectedType);
-}
-
-auto SemaImpl::semaElementwiseNN(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
-  if (auto intrinsicKind = nnIntrinsicKind(node->name()))
-    node->setIntrinsicKind(*intrinsicKind);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
-    return failure();
-
-  auto *inputType = tensorOperandType(expressions[0]->type());
-  if (!inputType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(inputType))
-    return emitError(node, diag::mismatch_type);
-  if (inputType->shape().size() != 2)
-    return emitError(node, diag::mismatch_type);
-
-  auto *resultType = _typeContext.createTensorType(
-      _typeContext.getBuiltinType(BuiltinTypeKind::Float32),
-      inputType->shape());
-  return setNNTensorResultType(node, resultType, expectedType);
-}
-
-auto SemaImpl::semaArgmax(CallExpr *node) -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Argmax);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
-    return failure();
-
-  auto *inputType = tensorOperandType(expressions[0]->type());
-  if (!inputType)
-    return emitError(node, diag::mismatch_type);
-  if (!isFloat32TensorType(inputType))
-    return emitError(node, diag::mismatch_type);
-  auto &inputShape = inputType->shape();
-  if (inputShape.size() != 1 && inputShape.size() != 2)
-    return emitError(node, diag::mismatch_type);
-  // Argmax scans the runtime tensor extent. Rank matters here, but individual
-  // dimensions may be dynamic.
-
-  setBuiltinType(node, BuiltinTypeKind::UInt64);
-
   return success();
 }
 

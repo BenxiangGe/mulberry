@@ -7,7 +7,6 @@
 
 #include "cherry/Driver/Compilation.h"
 #include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/CherryNNDialect.h"
 #include "cherry/MLIRGen/IR/MulberryDialect.h"
 #include "cherry/MLIRGen/MLIRGen.h"
 #include "cherry/Parse/Lexer.h"
@@ -29,9 +28,12 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+#include "mlir/Tools/Plugins/DialectPlugin.h"
+#include "mlir/Tools/Plugins/PassPlugin.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -43,7 +45,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace cherry;
@@ -66,6 +70,14 @@ auto getCherryRuntimeLibPath() -> std::string {
 #endif
 }
 
+auto getBundledPackageRegistry() -> std::string {
+#ifdef CHERRY_BUNDLED_PACKAGE_REGISTRY
+  return CHERRY_BUNDLED_PACKAGE_REGISTRY;
+#else
+  return {};
+#endif
+}
+
 auto getDefaultStdlibPath() -> std::string {
 #ifdef CHERRY_STDLIB_DIR
   return CHERRY_STDLIB_DIR;
@@ -81,17 +93,92 @@ auto importAlias(std::string_view moduleName) -> std::string {
   return std::string(moduleName.substr(dot + 1));
 }
 
-auto isStdlibPackage(std::string_view packageName) -> bool {
-  return packageName == "std" || packageName.rfind("std.", 0) == 0;
+auto isBundledPackage(std::string_view packageName) -> bool {
+  return packageName == "std" || packageName.rfind("std.", 0) == 0 ||
+         packageName == "mulberry" ||
+         packageName.rfind("mulberry.", 0) == 0;
 }
 
-auto normalizeStdlibImportName(std::string_view importName) -> std::string {
-  if (importName == "std" || importName.rfind("std.", 0) == 0)
+auto normalizeBundledImportName(std::string_view importName) -> std::string {
+  if (isBundledPackage(importName))
     return std::string(importName);
 
   std::string normalizedName = "std.";
   normalizedName += importName;
   return normalizedName;
+}
+
+struct BundledPackageSpec {
+  std::string moduleName;
+  std::string libraryPath;
+  std::string preCorePipeline;
+  std::string postCorePipeline;
+  bool runSymbolDCEAfterPostCore = false;
+};
+
+auto splitRegistryFields(std::string_view line) -> std::vector<std::string> {
+  std::vector<std::string> fields;
+  size_t start = 0;
+  while (start <= line.size()) {
+    auto separator = line.find('|', start);
+    if (separator == std::string_view::npos) {
+      fields.push_back(std::string(line.substr(start)));
+      break;
+    }
+    fields.push_back(std::string(line.substr(start, separator - start)));
+    start = separator + 1;
+  }
+  return fields;
+}
+
+auto parseBundledPackageSpec(std::string_view line)
+    -> std::optional<BundledPackageSpec> {
+  auto fields = splitRegistryFields(line);
+  if (fields.size() != 5)
+    return std::nullopt;
+
+  return BundledPackageSpec{
+      std::move(fields[0]),
+      std::move(fields[1]),
+      std::move(fields[2]),
+      std::move(fields[3]),
+      fields[4] == "1",
+  };
+}
+
+auto parseBundledPackageRegistry(std::string_view registry)
+    -> std::vector<BundledPackageSpec> {
+  std::vector<BundledPackageSpec> specs;
+  size_t start = 0;
+  while (start <= registry.size()) {
+    auto newline = registry.find('\n', start);
+    auto line = newline == std::string_view::npos
+                    ? registry.substr(start)
+                    : registry.substr(start, newline - start);
+    if (!line.empty()) {
+      if (auto spec = parseBundledPackageSpec(line))
+        specs.push_back(std::move(*spec));
+    }
+    if (newline == std::string_view::npos)
+      break;
+    start = newline + 1;
+  }
+  return specs;
+}
+
+auto bundledPackageSpecs() -> const std::vector<BundledPackageSpec> & {
+  static const auto specs =
+      parseBundledPackageRegistry(getBundledPackageRegistry());
+  return specs;
+}
+
+auto findBundledPackageSpec(std::string_view moduleName)
+    -> const BundledPackageSpec* {
+  for (auto& spec : bundledPackageSpecs()) {
+    if (spec.moduleName == moduleName)
+      return &spec;
+  }
+  return nullptr;
 }
 
 auto splitQualifiedName(std::string_view name)
@@ -135,6 +222,16 @@ auto createTargetMachine()
   return builder->createTargetMachine();
 }
 
+auto initializeMulberryRuntime(mlir::ExecutionEngine &engine)
+    -> llvm::Error {
+  auto runtimeInit = engine.lookup("mulberry_runtime_init");
+  if (!runtimeInit)
+    return runtimeInit.takeError();
+
+  reinterpret_cast<void (*)()>(*runtimeInit)();
+  return llvm::Error::success();
+}
+
 } // namespace
 
 static auto makeContext() -> mlir::MLIRContext {
@@ -151,8 +248,6 @@ Compilation::Compilation() : _mlirContext{makeContext()} {}
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
-  compilation->_mlirContext
-      .getOrLoadDialect<mlir::cherry_nn::CherryNNDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::mulberry::MulberryDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
@@ -172,11 +267,12 @@ auto Compilation::make(llvm::StringRef filename,
 auto Compilation::parse(std::unique_ptr<Module> &module) -> CherryResult {
   _importAliases.clear();
   _loadedModules.clear();
+  _usedBundledPackages.clear();
 
   if (parseFile(_inputFilename, llvm::SMLoc(), module))
     return failure();
 
-  if (!isStdlibPackage(module->packageName()) && loadPrelude(*module))
+  if (!isBundledPackage(module->packageName()) && loadPrelude(*module))
     return failure();
 
   return loadImports(*module);
@@ -214,7 +310,7 @@ auto Compilation::resolveStdlibPath(std::string_view relativePath)
 
 auto Compilation::resolveImportPath(std::string_view moduleName)
     -> std::string {
-  auto normalizedName = normalizeStdlibImportName(moduleName);
+  auto normalizedName = normalizeBundledImportName(moduleName);
   std::string relativePath(normalizedName);
   std::replace(relativePath.begin(), relativePath.end(), '.', '/');
   auto path = resolveStdlibPath(relativePath + ".cherry");
@@ -243,7 +339,7 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
   for (auto &decl : module.takeDeclarations()) {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
       auto importName =
-          normalizeStdlibImportName(importDecl->moduleName());
+          normalizeBundledImportName(importDecl->moduleName());
       auto segments = splitQualifiedName(importName);
       std::string moduleName;
       std::string importPath;
@@ -264,7 +360,7 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
       }
 
       if (moduleName.empty()) {
-        llvm::errs() << "error: unable to resolve stdlib import: '"
+        llvm::errs() << "error: unable to resolve bundled import: '"
                      << importDecl->moduleName() << "'\n";
         return failure();
       }
@@ -272,6 +368,8 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
       _importAliases[importAlias(moduleName)] = moduleName;
       if (!importedName.empty())
         _importAliases[importedName] = moduleName + "." + importedName;
+      if (findBundledPackageSpec(moduleName))
+        _usedBundledPackages.insert(moduleName);
 
       if (_loadedModules.insert(moduleName).second) {
         std::unique_ptr<Module> importedModule;
@@ -293,6 +391,91 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
   return success();
 }
 
+auto Compilation::loadBundledPackage(std::string_view moduleName)
+    -> CherryResult {
+  auto spec = findBundledPackageSpec(moduleName);
+  if (!spec)
+    return success();
+
+  std::string packageName(moduleName);
+  if (_loadedBundledPackages.count(packageName))
+    return success();
+
+  auto packagePath = spec->libraryPath;
+  if (packagePath.empty()) {
+    llvm::errs() << "error: bundled package path is not configured for '"
+                 << packageName << "'\n";
+    return failure();
+  }
+
+  auto dialectPlugin = mlir::DialectPlugin::load(packagePath);
+  if (!dialectPlugin) {
+    llvm::errs() << "error: failed to load bundled dialect package '"
+                 << packageName << "': "
+                 << llvm::toString(dialectPlugin.takeError()) << "\n";
+    return failure();
+  }
+
+  mlir::DialectRegistry registry;
+  dialectPlugin->registerDialectRegistryCallbacks(registry);
+  _mlirContext.appendDialectRegistry(registry);
+
+  auto passPlugin = mlir::PassPlugin::load(packagePath);
+  if (!passPlugin) {
+    llvm::errs() << "error: failed to load bundled pass package '"
+                 << packageName << "': "
+                 << llvm::toString(passPlugin.takeError()) << "\n";
+    return failure();
+  }
+
+  passPlugin->registerPassRegistryCallbacks();
+  _loadedBundledPackages.insert(packageName);
+  return success();
+}
+
+auto Compilation::loadUsedBundledPackages() -> CherryResult {
+  for (auto &moduleName : _usedBundledPackages) {
+    if (loadBundledPackage(moduleName))
+      return failure();
+  }
+  return success();
+}
+
+auto Compilation::addBundledPackagePreCorePipelines(mlir::PassManager &pm)
+    -> CherryResult {
+  for (auto &moduleName : _usedBundledPackages) {
+    auto spec = findBundledPackageSpec(moduleName);
+    if (!spec || spec->preCorePipeline.empty())
+      continue;
+
+    if (addPassPipeline(pm, spec->preCorePipeline))
+      return failure();
+  }
+  return success();
+}
+
+auto Compilation::addBundledPackagePostCorePipelines(mlir::PassManager &pm)
+    -> CherryResult {
+  for (auto &moduleName : _usedBundledPackages) {
+    auto spec = findBundledPackageSpec(moduleName);
+    if (!spec || spec->postCorePipeline.empty())
+      continue;
+
+    if (addPassPipeline(pm, spec->postCorePipeline))
+      return failure();
+    if (spec->runSymbolDCEAfterPostCore)
+      pm.addPass(mlir::createSymbolDCEPass());
+  }
+  return success();
+}
+
+auto Compilation::addPassPipeline(mlir::PassManager &pm,
+                                  llvm::StringRef pipeline) -> CherryResult {
+  if (mlir::failed(mlir::parsePassPipeline(pipeline, pm, llvm::errs())))
+    return failure();
+  return success();
+}
+
 auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
                           Lowering lowering) -> CherryResult {
   std::unique_ptr<Module> moduleAST;
@@ -308,8 +491,19 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (_enableOpt)
     optPM.addPass(mlir::createCanonicalizerPass());
 
+  if (lowering >= Lowering::Mulberry && loadUsedBundledPackages())
+    return failure();
+
+  if (lowering >= Lowering::Mulberry &&
+      addBundledPackagePreCorePipelines(pm))
+    return failure();
+
   if (lowering >= Lowering::Mulberry)
     pm.addPass(mlir::cherry::createLowerMulberry());
+
+  if (lowering >= Lowering::Mulberry &&
+      addBundledPackagePostCorePipelines(pm))
+    return failure();
 
   if (lowering >= Lowering::LLVM) {
     pm.addNestedPass<mlir::func::FuncOp>(
@@ -378,6 +572,11 @@ auto Compilation::jit() -> int {
   }
 
   (*engine)->initialize();
+  if (auto error = initializeMulberryRuntime(**engine)) {
+    llvm::errs() << "error: failed to initialize Mulberry runtime: "
+                 << llvm::toString(std::move(error)) << "\n";
+    return EXIT_FAILURE;
+  }
 
   uint64_t result = 0;
   auto error =

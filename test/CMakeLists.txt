@@ -24,7 +24,7 @@ set(CHERRY_TEST_DEPENDS
         cherry-translate
         cherry-driver
         cherryRuntime
-        CherryPlugin
+        MulberryNNPackage
 )
 
 if(MLIR_ENABLE_BINDINGS_PYTHON)

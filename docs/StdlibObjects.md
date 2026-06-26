@@ -110,17 +110,17 @@ String literal
   -> LowerMulberry: generic heap/ptr/record/store lowering
 ```
 
-`io.open(path, mode)` 和 `io.readTensor(file, name)` 的 String 参数也走这条链。lowering
-里的 file 和 safetensors runtime boundary 都调用 `extractStringDataPointer()`，从
-by-value `String` record 里取出 `data`。
+`io.open(path, mode)` 和 `io.readTensor(file, name)` 的 String 参数也走这条链。
+lowering 不再为 String 保留专用 bridge helper；`String` 和 `File` 现在作为普通
+record/ptr 值通过通用 lowering 到 runtime boundary。
 
 当前已经完成的实现：
 
 1. `stdlib/std/string.cherry` 定义了 `struct String { length, data }`。
 2. `MLIRGen` 直接为 string literal 创建 heap byte buffer，再构造 by-value `String`
    record，并写入 `length` 和 `data` 字段。
-3. lowering 通过 `extractStringDataPointer()` 从 by-value `String` 里取 `data`，
-   供 `fopen` 和 safetensors runtime helper 使用。
+3. lowering 通过通用 record/ptr 路径把 `String` 的 `data` 和 `File` 的 `handle`
+   传给 runtime helper。
 4. 旧 `mulberry.string.literal` op 已删除；String 不再有专用 dialect 路径。
 
 ### File
@@ -207,7 +207,7 @@ LowerMulberry 当前有一个显式 unwrap 入口：
 Tensor<T>
   -> read data/sizes/strides.data
   -> create memref view
-  -> feed cherry_nn / linalg / raw-byte runtime boundary
+  -> feed external NN package / linalg / raw-byte runtime boundary
 ```
 
 反方向也要明确：
@@ -219,8 +219,8 @@ memref allocation result
   -> return Tensor<T>
 ```
 
-当前先不把 source-level `Float32[?, ?]` 整体替换成 heap handle。原因是现有
-`cherry_nn -> linalg` 路径依赖 Tensor lowering 成 `memref`。迁移时使用显式入口：
+当前先不把 source-level `Float32[?, ?]` 整体替换成 heap handle。原因是现有 Tensor
+value lowering 仍以 `memref` 为核心。迁移时使用显式入口：
 
 ```cherry
 var tensor2d: Tensor<Float32> = tensor.pack(data);
@@ -229,9 +229,8 @@ var view: Float32[?, ?] = tensor.view(tensor2d);
 
 `tensor.view` 是显式 unwrap 入口：Sema 根据 expected ranked TensorType 决定 memref
 rank；MLIRGen 生成 `mulberry.tensor.view`；LowerMulberry 从
-`Tensor.data/sizes/strides` 重建 memref view，供现有
-`cherry_nn` / `linalg` / tensor load-store 路径继续使用。它不拷贝 payload，也不拥有
-payload 生命周期。
+`Tensor.data/sizes/strides` 重建 memref view，供外部 NN package、`linalg` 和 tensor
+load-store 路径继续使用。它不拷贝 payload，也不拥有 payload 生命周期。
 
 `tensor.pack(value)` 是反向入口：把当前 Tensor value 包装成
 `Tensor<T>` header。LowerMulberry 会分配 Boehm heap 上的 payload、sizes 和 strides
@@ -254,7 +253,8 @@ P5.6/C8 的非目标：
 - 不把旧 descriptor surface 改名后伪装成 `Tensor<T>`。
 - 不让隐藏 descriptor bridge 跨函数边界。
 - 不在 MLIRGen 里生成 memref descriptor 或 LLVM descriptor。
-- 不破坏当前 `io.readTensor`、for-loop inference、training safetensors JIT 正向路径。
+- 不破坏当前 `io.readTensor`、core Tensor object 和 bundled `mulberry.nn`
+  runtime 正向路径；真正独立的 shared library / FFI package 后续再拆。
 
 ## P5 迁移顺序
 
@@ -276,14 +276,14 @@ P5.8  已完成：`tensor.pack(value)` 提供
 P5.9  已完成：`io.readTensor(file, name)` 统一返回 `Tensor<Float32>` header；
       需要 shaped view 时显式使用 `tensor.view(...)`。
 C8.1.19 已完成边界审计：`mulberry.tensor.*` 当前不能整块删除。旧
-      `tensor.alloc/dim/cast/load/store` 仍是 `Float32[...] -> memref/linalg` 正向路径；
+      `tensor.alloc/dim/cast/load/store` 仍是 `Float32[...] -> memref` 正向路径；
       新 `tensor.view/pack` 是 `Tensor<T>` header 和 memref-backed Tensor
       value 之间的显式边界。后续要先统一 source-level Tensor object model，再删除
       旧 value-path op。
 ```
 
-这个顺序是故意保守的。当前推理、training 和 safetensors JIT 已经能跑，不能为了清理
-dialect 把正向路径打碎。
+这个顺序是故意保守的。当前 core Tensor、file IO 和 safetensors object path 是后续
+外部 NN package 的地基，不能为了清理 dialect 把它们打碎。
 
 ## 非目标
 

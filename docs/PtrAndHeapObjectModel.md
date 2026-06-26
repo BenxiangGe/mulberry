@@ -121,10 +121,9 @@ marker 偷换语义。
 `strides` 字段，避免后面支持 slice/view 时重排对象 layout。
 
 当前 C8 的设计结论是：先实现 Tensor header 和显式 view bridge，但不把所有
-source-level `Float32[?, ?]` 一次性改成 Tensor header。原因是现有
-`cherry_nn -> linalg` 正向路径依赖 Tensor lowering 成 MLIR `memref`，训练和推理 JIT
-都建立在这条路径上。如果强行整体替换，会把 Tensor 语义、memref view、函数边界 ABI
-和 runtime ownership 一次性混在一起，风险很高。
+source-level `Float32[?, ?]` 一次性改成 Tensor header。原因是现有 Tensor value
+lowering 仍以 MLIR `memref` 为核心；如果强行整体替换，会把 Tensor 语义、memref
+view、函数边界 ABI 和 runtime ownership 一次性混在一起，风险很高。
 
 因此现阶段保留：
 
@@ -133,7 +132,8 @@ source-level `Float32[?, ?]` 一次性改成 Tensor header。原因是现有
 - source-level `std.tensor.Tensor<T>` 是普通 record header。
 - `tensor.view(value)` 是显式 unwrap 入口，会把 Tensor header 转成当前旧 Tensor
   value 路径使用的 memref view。
-- lowering 继续把 Tensor value 转成 `memref`，供 `cherry_nn` / `linalg` 使用。
+- lowering 继续把 Tensor value 转成 `memref`，供 tensor load/store、`linalg` interop
+  和后续外部 NN package 使用。
 - 公开 Tensor descriptor type/op 已删除；内部 Tensor ABI descriptor 只作为
   LowerMulberry 的局部 C++ helper 存在。
 - descriptor helper 不允许变成函数边界 ABI，也不能被包装成“伪 Tensor header”。

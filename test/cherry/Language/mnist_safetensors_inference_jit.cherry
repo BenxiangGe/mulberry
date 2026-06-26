@@ -1,8 +1,10 @@
-# RUN: %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_mnist_safetensors_inference.safetensors > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_mnist_safetensors_inference_jit.safetensors > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s
+
+import mulberry.nn;
 
 fn main(): UInt64 {
-  const file: File = io.open("/tmp/cherry_mnist_safetensors_inference.safetensors",
-                          "rb");
+  const file: File =
+      io.open("/tmp/cherry_mnist_safetensors_inference_jit.safetensors", "rb");
 
   var w1: Tensor<Float32> = io.readTensor(file, "w1");
   var b1: Tensor<Float32> = io.readTensor(file, "b1");
@@ -17,14 +19,14 @@ fn main(): UInt64 {
   var activation: Tensor<Float32> = x;
 
   for layer in 0 .. weights.size() {
-    activation = sigmoid(matadd(
-        matmul(weights[layer], activation),
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(weights[layer], activation),
         biases[layer]));
     ()
   };
 
-  io.print(argmax(activation));
+  io.print(nn.argmax(activation));
   0
 }
 
-# JIT: 7
+# CHECK: 7

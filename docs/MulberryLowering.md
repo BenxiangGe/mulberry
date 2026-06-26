@@ -17,8 +17,8 @@
 `--lower-mulberry` 现在做的是 storage-level lowering；完整 driver pipeline 会继续
 lower 到 LLVM dialect、LLVM IR，并在当前正向子集上执行 JIT：
 
-- `mulberry.tensor` lower 成 MLIR `memref`，方便 `cherry_nn` 继续 lower 到
-  `linalg`、`math`、`arith` 和 `memref`。
+- `mulberry.tensor` lower 成 MLIR `memref`，供 core Tensor load/store 和后续外部
+  NN package 复用。
 - stdlib/comptime `List<T>` lower 成普通 record/ptr/heap 操作，不再走
   `mulberry.list.*` op。
 - scalar 和 record storage 在能直接映射的地方使用 LLVM dialect。
@@ -28,7 +28,7 @@ lower 到 LLVM dialect、LLVM IR，并在当前正向子集上执行 JIT：
 ## 剩余 Mulberry 职责
 
 当前 `mulberry` dialect 仍然是必要的高层对象模型 IR，不能简单按“非
-`cherry_nn` dialect”整块删除。它现在承载的是源码对象语义到 backend IR 之间的
+NN dialect”整块删除。它现在承载的是源码对象语义到 backend IR 之间的
 过渡层：
 
 - `mulberry.record` / `mulberry.record.get_field` / `mulberry.record.extract`：
@@ -41,8 +41,8 @@ lower 到 LLVM dialect、LLVM IR，并在当前正向子集上执行 JIT：
   `std.io.File` value wrapper；String 已经是 stdlib `std.string.String` value
   wrapper，不再有 `mulberry.string.*` 专用 op。`io.open/close/read/write/readTensor`
   都不再依赖 file-specific dialect op。
-- `mulberry.tensor.*`：表达可写 Tensor 和当前 memref / `cherry_nn` lowering
-  所需的显式 Tensor value 过渡层。Tensor ABI descriptor 只存在于
+- `mulberry.tensor.*`：表达可写 Tensor 和当前 memref lowering 所需的显式 Tensor
+  value 过渡层。Tensor ABI descriptor 只存在于
   `LowerMulberry.cpp` 的 C++ helper 中，不再是 Mulberry dialect type/op。
 
 也就是说，当前已经删除的是不该属于 dialect 的 `mulberry.list.*` 容器语义；剩余
@@ -91,8 +91,8 @@ row-major layout 访问元素时的步长。这个 layout 借鉴 MLIR memref des
 LowerMulberry 内部会在需要时把本地 Tensor/memref 打包成这个 ABI descriptor：
 当前实现从 memref 中提取 data pointer、sizes 和 strides。
 
-反方向是从 Tensor ABI descriptor 重建可被后续 Tensor / `cherry_nn` op 使用的
-memref view。当前实现使用：
+反方向是从 Tensor ABI descriptor 重建可被后续 Tensor lowering 或外部 NN package
+使用的 memref view。当前实现使用：
 
 - `llvm.extractvalue` 取出 descriptor 的 data、sizes 和 strides。
 - `ptr.from_ptr` 把 ABI data pointer 变成 MLIR ptr dialect value。
@@ -123,16 +123,15 @@ stride 或生命周期。当前 lowering 通过：
 `Tensor<T>` header，通过 `buffer.data` 和 `buffer.numel * sizeof(T)` 计算 runtime
 需要的 raw-byte view，再用 `ptr.asUInt8(buffer.data)` 传给
 `mulberry_file_read` / `mulberry_file_write` runtime wrapper。这条边界和完整
-Tensor ABI descriptor 不同：后者服务 Tensor view / `cherry_nn`，前者只服务 raw
+Tensor ABI descriptor 不同：后者服务 Tensor view / memref interop，前者只服务 raw
 file IO。
 
 旧的实验性 `!mulberry.tensor_handle` / `tensor.handle_from_desc` 已删除，避免和
 新的 stdlib Tensor header 方向混淆。当前 source-level Tensor object 形态是
 `std.tensor.Tensor<T>` record header。
 
-P4.7 已明确：不能把旧 descriptor surface 伪装成 Tensor header。原因是当前
-`cherry_nn` 正向路径需要 Tensor lowering 成 `memref`，再继续 lower 到 `linalg`。
-因此现阶段的边界是：
+P4.7 已明确：不能把旧 descriptor surface 伪装成 Tensor header。当前仍需要
+Tensor value lowering 成 `memref`，因此现阶段的边界是：
 
 - `mulberry.tensor.*` 表示高层可写 Tensor value。
 - Tensor ABI descriptor 只是 LowerMulberry 内部 C++ helper，不是公开 Mulberry type/op。
@@ -160,7 +159,7 @@ comptime Tensor<T> = struct {
 LowerMulberry 目前收敛两个显式边界：
 
 - `Tensor<T> -> memref view`：`tensor.view(value)` 已提供这条
-  正向路径，给 `cherry_nn`、`linalg` 和 tensor load/store 使用。
+  正向路径，给外部 NN package、`linalg` interop 和 tensor load/store 使用。
 - `memref allocation -> Tensor<T>`：把当前 tensor allocation 结果包装回 source-level
   Tensor header；`tensor.pack(value)` 已提供这条 owning pack 路径。
 
@@ -174,7 +173,7 @@ bridge。
 - `tensor.alloc` / `tensor.dim` / `tensor.cast` / `tensor.load` / `tensor.store`
   仍然表示 source-level `Float32[...]` 这种可写 Tensor value。LowerMulberry 把它们
   直接变成 `memref.alloc`、`memref.dim`、`memref.cast`、`memref.load` 和
-  `memref.store`，这是 `cherry_nn -> linalg` 正向路径的基础。
+  `memref.store`。
 - `tensor.view` / `tensor.pack` 是 stdlib Tensor header 的显式边界。`tensor.view`
   把 `Tensor<T>` unwrap 成 memref-backed Tensor value；`tensor.pack` 把一个
   memref-backed Tensor value 拷贝到 Boehm heap，并返回 `Tensor<T>` header。
@@ -182,8 +181,8 @@ bridge。
 后续删除顺序应该保持这个分层：
 
 1. 先让 source-level Tensor value 本身也统一成 `Tensor<T>` header。
-2. 再把 `cherry_nn` / raw file IO / safetensors runtime boundary 都改成显式接受
-   Tensor header 或显式 view。
+2. 再把外部 `mulberry.nn` / raw file IO / safetensors runtime boundary 都改成显式
+   接受 Tensor header 或显式 view。
 3. 先删掉已经被 handle / multi-dimensional tests 重复覆盖的旧 value-path lit；保留
    `tensor.alloc/dim/cast/load/store` 的唯一正向覆盖点。旧 `mulberry.tensor.*`
    负向 verifier lit 不再维护。
@@ -272,7 +271,7 @@ stdlib/comptime 定义成普通 header struct，函数参数和返回值按 ordi
 
 当前已经支持的核心路径：
 
-- 函数内部 Tensor、stdlib/comptime List、`cherry_nn` lowering。
+- 函数内部 Tensor、stdlib/comptime List lowering。
 - Tensor 函数参数和返回值 lower 成 memref function boundary。
 - `List<T>` 参数和返回值按普通 struct value 传递；method receiver 使用 `Ptr<List<T>>`。
 - `Tensor<T>` 参数和返回值按普通 record header 传递；只有显式 `tensor.view(value)`
@@ -294,7 +293,8 @@ fn make(): List<Tensor<Float32>> {
 
 fn main(): UInt64 {
   const x: Float32[2, 1] = [[0.2], [0.8]];
-  argmax(matmul(tensor.view(make()[0]), x))
+  // External mulberry.nn can consume tensor.view(make()[0]) later.
+  x[0, 0]
 }
 ```
 
@@ -362,7 +362,7 @@ runtime 层：Boehm-managed heap object
 
 R3.8.88 已完成：Nielsen for-loop 推理脚本可以通过 `--dump=lowered-mlir`，
 lowered IR 使用 `scf`、`memref`、`linalg`、`arith` 和 `math`，不再残留
-`mulberry` 或 `cherry_nn` op。
+`mulberry` 或内部 NN dialect op。这是旧 core NN backend 删除前的历史状态。
 
 R3.8.89 已完成：scalar `List<T>` 函数边界可以通过 descriptor ABI lowering，
 当前覆盖 `UInt64`、`Float32` 和 `index` 这类 scalar element。
@@ -381,8 +381,8 @@ G3 已完成：接受 Boehm-only 方向后，删除 local `List<T>` auto dealloc
 G4 已完成：删除 `mulberry.list.dealloc` 和 `mulberry.list.desc_dealloc`。List
 descriptor data 的生命周期由 Boehm GC 管理，不再保留显式 cleanup op。
 
-R3.8.93：暂时不扩展 object generation；先增加 training 需要的 `matsub`、
-`hadamard`、`sigmoidPrime` 等 `cherry_nn` ops，并保持 for-loop 推理 JIT 路径稳定。
+R3.8.93 历史方向已废弃：`mulberry.nn` primitives 不再继续放在 core 里扩展，改由
+独立 `MulberryNNPackage` 提供 dialect、op、pass 和 lowering pipeline。
 
 R3.8.94：等 training script 需要时，再补更完整的 ownership / dealloc / runtime
 策略，而不是提前为负向场景堆 workaround。

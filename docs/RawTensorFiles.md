@@ -93,7 +93,10 @@ label.txt
 
 `label.txt` 只是给人和测试脚本看的辅助文件，不属于 raw tensor 文件格式。
 
-导出后可以直接运行 raw 文件版本的 MNIST 推理示例：
+这个 raw 文件版本示例现在作为外部 NN package 的回归素材保留。由于
+`mulberry.nn` 已从 core 拆出，driver 通过 bundled package registry 按需加载
+`MulberryNNPackage` 并接入 NN package pipeline。下面的命令已经重新成为默认
+JIT smoke：
 
 ```sh
 ./build/release/bin/cherry-driver examples/dl/inference_mnist_raw.cherry
@@ -102,5 +105,5 @@ label.txt
 这个示例先用 `zeros()` 创建 Tensor value，然后用 `read(file, tensor)` 把 raw
 bytes 读入对应 Tensor。推理部分把 Tensor value 通过 `tensor.pack()` 包装成
 `Tensor<Float32>` handle，再用 `List<Tensor<Float32>>` 保存 layer 权重和
-bias。喂给 `cherry_nn` op 前，通过 `tensor.view()` 显式取回当前 memref-backed
+bias。后续外部 NN package 可以通过 `tensor.view()` 显式取回当前 memref-backed
 Tensor value。

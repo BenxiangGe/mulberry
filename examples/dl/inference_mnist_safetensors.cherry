@@ -1,3 +1,8 @@
+# Requires the external mulberry.nn package. Core Mulberry still supports
+# safetensors IO and Tensor/List object handling, but NN primitives are no
+# longer implemented as compiler intrinsics.
+import mulberry.nn;
+
 fn main(): UInt64 {
   const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
 
@@ -14,12 +19,12 @@ fn main(): UInt64 {
   var activation: Tensor<Float32> = x;
 
   for layer in 0 .. weights.size() {
-    activation = sigmoid(matadd(
-        matmul(weights[layer], activation),
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(weights[layer], activation),
         biases[layer]));
     ()
   };
 
-  io.print(argmax(activation));
+  io.print(nn.argmax(activation));
   0
 }

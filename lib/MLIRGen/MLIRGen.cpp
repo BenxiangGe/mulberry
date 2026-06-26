@@ -10,7 +10,6 @@
 #include "cherry/Basic/CherryResult.h"
 #include "cherry/Basic/Logging.h"
 #include "cherry/Basic/ScopeStack.h"
-#include "cherry/MLIRGen/IR/CherryNNOps.h"
 #include "cherry/MLIRGen/IR/MulberryOps.h"
 #include "cherry/MLIRGen/IR/MulberryTypes.h"
 #include "cherry/MLIRGen/TypeConverter.h"
@@ -121,12 +120,6 @@ private:
   auto gen(const WhileExpr *node) -> mlir::Value;
   auto gen(const ForExpr *node) -> mlir::Value;
   auto genPrint(const CallExpr *node) -> mlir::Value;
-  auto genMatmul(const CallExpr *node) -> mlir::Value;
-  auto genTensorBinaryNN(const CallExpr *node) -> mlir::Value;
-  auto genMatscale(const CallExpr *node) -> mlir::Value;
-  auto genTranspose(const CallExpr *node) -> mlir::Value;
-  auto genElementwiseNN(const CallExpr *node) -> mlir::Value;
-  auto genArgmax(const CallExpr *node) -> mlir::Value;
   auto genZeros(const CallExpr *node) -> mlir::Value;
   auto genTensorPack(const CallExpr *node) -> mlir::Value;
   auto genTensorView(const CallExpr *node) -> mlir::Value;
@@ -229,9 +222,6 @@ private:
                          mlir::Location location) -> mlir::Value;
   auto createTensorDim(mlir::Value tensor, int64_t dimension,
                        mlir::Location location) -> mlir::Value;
-  auto genTensorOperand(const Expr *expr) -> mlir::Value;
-  auto packNNTensorResult(const CallExpr *node, mlir::Value tensor)
-      -> mlir::Value;
   auto literalDynamicSizes(const ArrayLiteralExpr *expr,
                            mlir::mulberry::TensorType tensorType)
       -> std::vector<mlir::Value>;
@@ -613,22 +603,6 @@ auto MLIRGenImpl::genIntrinsicCall(const CallExpr *node) -> mlir::Value {
     llvm_unreachable("normal call reached intrinsic lowering");
   case CallExpr::IntrinsicKind::Print:
     return genPrint(node);
-  case CallExpr::IntrinsicKind::Matmul:
-    return genMatmul(node);
-  case CallExpr::IntrinsicKind::Matadd:
-  case CallExpr::IntrinsicKind::Matsub:
-  case CallExpr::IntrinsicKind::Hadamard:
-    return genTensorBinaryNN(node);
-  case CallExpr::IntrinsicKind::Matscale:
-    return genMatscale(node);
-  case CallExpr::IntrinsicKind::Transpose:
-    return genTranspose(node);
-  case CallExpr::IntrinsicKind::Exp:
-  case CallExpr::IntrinsicKind::Sigmoid:
-  case CallExpr::IntrinsicKind::SigmoidPrime:
-    return genElementwiseNN(node);
-  case CallExpr::IntrinsicKind::Argmax:
-    return genArgmax(node);
   case CallExpr::IntrinsicKind::Zeros:
     return genZeros(node);
   case CallExpr::IntrinsicKind::TensorPack:
@@ -689,98 +663,6 @@ auto MLIRGenImpl::genPrint(const CallExpr *node) -> mlir::Value {
   // source-level std.io.print still typechecks without a separate runtime
   // lowering pass.
   return mlir::arith::ConstantIntOp::create(_builder, location, 0, 64);
-}
-
-auto MLIRGenImpl::genMatmul(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto lhs = genTensorOperand(expressions[0].get());
-  auto rhs = genTensorOperand(expressions[1].get());
-  auto outType = getTensorPayloadType(node);
-  auto out = createTensorAlloc(
-      outType, sourceDynamicSizes(outType, {{lhs, 0}, {rhs, 1}}, loc(node)),
-      loc(node));
-  mlir::cherry_nn::MatmulOp::create(_builder, loc(node), lhs, rhs, out);
-  return packNNTensorResult(node, out);
-}
-
-auto MLIRGenImpl::genTensorBinaryNN(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto lhs = genTensorOperand(expressions[0].get());
-  auto rhs = genTensorOperand(expressions[1].get());
-  auto outType = getTensorPayloadType(node);
-  auto out = createTensorAlloc(
-      outType, sourceDynamicSizes(outType, {{lhs, 0}, {lhs, 1}}, loc(node)),
-      loc(node));
-  switch (node->intrinsicKind()) {
-  case CallExpr::IntrinsicKind::Matadd:
-    mlir::cherry_nn::MataddOp::create(_builder, loc(node), lhs, rhs, out);
-    return packNNTensorResult(node, out);
-  case CallExpr::IntrinsicKind::Matsub:
-    mlir::cherry_nn::MatsubOp::create(_builder, loc(node), lhs, rhs, out);
-    return packNNTensorResult(node, out);
-  case CallExpr::IntrinsicKind::Hadamard:
-    mlir::cherry_nn::HadamardOp::create(_builder, loc(node), lhs, rhs, out);
-    return packNNTensorResult(node, out);
-  default:
-    llvm_unreachable("unexpected binary cherry_nn op");
-  }
-}
-
-auto MLIRGenImpl::genMatscale(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto input = genTensorOperand(expressions[0].get());
-  auto scale = gen(expressions[1].get());
-  auto outType = getTensorPayloadType(node);
-  auto out = createTensorAlloc(
-      outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
-                                  loc(node)),
-      loc(node));
-  mlir::cherry_nn::MatscaleOp::create(_builder, loc(node), input, scale, out);
-  return packNNTensorResult(node, out);
-}
-
-auto MLIRGenImpl::genTranspose(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto input = genTensorOperand(expressions[0].get());
-  auto outType = getTensorPayloadType(node);
-  auto out = createTensorAlloc(
-      outType, sourceDynamicSizes(outType, {{input, 1}, {input, 0}},
-                                  loc(node)),
-      loc(node));
-  mlir::cherry_nn::TransposeOp::create(_builder, loc(node), input, out);
-  return packNNTensorResult(node, out);
-}
-
-auto MLIRGenImpl::genElementwiseNN(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto input = genTensorOperand(expressions[0].get());
-  auto outType = getTensorPayloadType(node);
-  auto out = createTensorAlloc(
-      outType, sourceDynamicSizes(outType, {{input, 0}, {input, 1}},
-                                  loc(node)),
-      loc(node));
-
-  switch (node->intrinsicKind()) {
-  case CallExpr::IntrinsicKind::Exp:
-    mlir::cherry_nn::ExpOp::create(_builder, loc(node), input, out);
-    return packNNTensorResult(node, out);
-  case CallExpr::IntrinsicKind::Sigmoid:
-    mlir::cherry_nn::SigmoidOp::create(_builder, loc(node), input, out);
-    return packNNTensorResult(node, out);
-  case CallExpr::IntrinsicKind::SigmoidPrime:
-    mlir::cherry_nn::SigmoidPrimeOp::create(_builder, loc(node), input, out);
-    return packNNTensorResult(node, out);
-  default:
-    llvm_unreachable("unexpected elementwise cherry_nn op");
-  }
-}
-
-auto MLIRGenImpl::genArgmax(const CallExpr *node) -> mlir::Value {
-  auto &expressions = node->expressions();
-  auto input = genTensorOperand(expressions[0].get());
-  auto op = mlir::cherry_nn::ArgmaxOp::create(_builder, loc(node),
-                                              _builder.getI64Type(), input);
-  return op.getResult();
 }
 
 auto MLIRGenImpl::genZeros(const CallExpr *node) -> mlir::Value {
@@ -1264,28 +1146,6 @@ auto MLIRGenImpl::createTensorDim(mlir::Value tensor, int64_t dimension,
   return mlir::mulberry::TensorDimOp::create(_builder, location,
                                              _builder.getIndexType(), tensor,
                                              index);
-}
-
-auto MLIRGenImpl::genTensorOperand(const Expr *expr) -> mlir::Value {
-  auto value = gen(expr);
-  auto tensorType = getTensorPayloadType(expr->type());
-  if (llvm::isa<mlir::mulberry::TensorType>(value.getType()))
-    return castToType(value, tensorType, loc(expr));
-
-  // Tensor<T> is a high-level ndarray header. cherry_nn still consumes the
-  // current ranked memref-backed tensor value, so builtin lowering unwraps
-  // Tensor<T> at this narrow boundary.
-  return mlir::mulberry::TensorViewOp::create(_builder, loc(expr),
-                                             tensorType, value);
-}
-
-auto MLIRGenImpl::packNNTensorResult(const CallExpr *node,
-                                     mlir::Value tensor) -> mlir::Value {
-  auto resultType = getMLIRType(node);
-  if (auto recordType = llvm::dyn_cast<mlir::mulberry::RecordType>(resultType))
-    return mlir::mulberry::TensorPackOp::create(_builder, loc(node), recordType,
-                                                tensor);
-  return castToType(tensor, resultType, loc(node));
 }
 
 auto MLIRGenImpl::literalDynamicSizes(

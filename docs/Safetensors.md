@@ -73,7 +73,11 @@ x   F32[784, 1]
 这个导出工具直接写 safetensors layout，不依赖 Python `safetensors` package。
 Mulberry runtime 读取同一个文件格式。
 
-导出后可以直接运行当前 MNIST 推理示例：
+这些文件和示例现在作为外部 NN package 的回归素材保留。当前已经有独立
+`MulberryNNPackage`，driver 通过 bundled package registry 检测
+`import mulberry.nn`，自动加载 package，并接入 source-level `nn.matmul(...)`
+到 `mulberry_nn.*` / `linalg` 的 lowering。
+下面的命令已经重新成为默认 JIT smoke：
 
 ```sh
 ./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
@@ -118,16 +122,14 @@ iterator，所以 training bootstrap 先把每个样本导成独立 named tensor
 语言补齐 dataset 抽象，可以改成 `train_x: Float32[?, 784, 1]` 和
 `train_y: Float32[?, 10, 1]` 这样的批量布局。
 
-导出后可以运行一个最小真实数据 training smoke：
+这个 smoke 使用默认导出的 `10` 个 training 样本跑 `30` 个 epoch 的 per-sample SGD，然后读取
+`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
+输出层 delta 采用 Nielsen `network2.py` 默认的 CrossEntropy 形式：
+`delta = a - y`。mini-batch、shuffle、L2 regularization 和保存训练结果后续再补。
 
 ```sh
 ./build/release/bin/cherry-driver examples/dl/training_mnist_safetensors.cherry
 ```
-
-当前 smoke 使用默认导出的 `10` 个 training 样本跑 `30` 个 epoch 的 per-sample SGD，然后读取
-`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
-输出层 delta 采用 Nielsen `network2.py` 默认的 CrossEntropy 形式：
-`delta = a - y`。mini-batch、shuffle、L2 regularization 和保存训练结果后续再补。
 
 ## Mulberry API
 

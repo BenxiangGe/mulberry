@@ -1,7 +1,11 @@
-# RUN: %numpy_python %cherry_src_root/tools/export_mnist_training_safetensors.py --sample-count 10 --output /tmp/cherry_mnist_training_run.safetensors > %t.training.log && %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_mnist_training_inference.safetensors > %t.inference.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_training_safetensors.py --output /tmp/cherry_mnist_training_safetensors_training_jit.safetensors > %t.train.export.log && %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_mnist_training_safetensors_inference_jit.safetensors > %t.infer.export.log && cherry-driver %s 2>&1 | FileCheck %s
+
+import mulberry.nn;
 
 fn main(): UInt64 {
-  const file: File = io.open("/tmp/cherry_mnist_training_run.safetensors", "rb");
+  const file: File =
+      io.open("/tmp/cherry_mnist_training_safetensors_training_jit.safetensors",
+              "rb");
 
   var w1: Tensor<Float32> = io.readTensor(file, "w1");
   var b1: Tensor<Float32> = io.readTensor(file, "b1");
@@ -43,93 +47,50 @@ fn main(): UInt64 {
       var weights: List<Tensor<Float32>> = [w1, w2];
       var biases: List<Tensor<Float32>> = [b1, b2];
 
-      var z1: Tensor<Float32> = matadd(
-          matmul(weights[0], x),
+      var z1: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[0], x),
           biases[0]);
-      var a1: Tensor<Float32> = sigmoid(z1);
-      var z2: Tensor<Float32> = matadd(
-          matmul(weights[1], a1),
+      var a1: Tensor<Float32> = nn.sigmoid(z1);
+      var z2: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[1], a1),
           biases[1]);
-      var a2: Tensor<Float32> = sigmoid(z2);
+      var a2: Tensor<Float32> = nn.sigmoid(z2);
 
-      var delta2: Tensor<Float32> = matsub(a2, y);
-      var nablaW2: Tensor<Float32> = matmul(delta2, transpose(a1));
+      var delta2: Tensor<Float32> = nn.matsub(a2, y);
+      var nablaW2: Tensor<Float32> = nn.matmul(delta2, nn.transpose(a1));
 
       var delta1: Tensor<Float32> =
-        hadamard(matmul(transpose(weights[1]), delta2),
-                 sigmoidPrime(z1));
-      var nablaW1: Tensor<Float32> = matmul(delta1, transpose(x));
+        nn.hadamard(nn.matmul(nn.transpose(weights[1]), delta2),
+                    nn.sigmoidPrime(z1));
+      var nablaW1: Tensor<Float32> = nn.matmul(delta1, nn.transpose(x));
 
-      w1 = matsub(weights[0], matscale(nablaW1, eta));
-      w2 = matsub(weights[1], matscale(nablaW2, eta));
-      b1 = matsub(biases[0], matscale(delta1, eta));
-      b2 = matsub(biases[1], matscale(delta2, eta));
+      w1 = nn.matsub(weights[0], nn.matscale(nablaW1, eta));
+      w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
+      b1 = nn.matsub(biases[0], nn.matscale(delta1, eta));
+      b2 = nn.matsub(biases[1], nn.matscale(delta2, eta));
       ()
     };
     ()
   };
 
-  const w1Output: File = io.open("/tmp/cherry_mnist_training_saved_w1.f32", "wb");
-  io.write(w1Output, w1);
-  io.close(w1Output);
-
-  const b1Output: File = io.open("/tmp/cherry_mnist_training_saved_b1.f32", "wb");
-  io.write(b1Output, b1);
-  io.close(b1Output);
-
-  const w2Output: File = io.open("/tmp/cherry_mnist_training_saved_w2.f32", "wb");
-  io.write(w2Output, w2);
-  io.close(w2Output);
-
-  const b2Output: File = io.open("/tmp/cherry_mnist_training_saved_b2.f32", "wb");
-  io.write(b2Output, b2);
-  io.close(b2Output);
-
-  var savedW1: Float32[30, 784] = zeros();
-  var savedB1: Float32[30, 1] = zeros();
-  var savedW2: Float32[10, 30] = zeros();
-  var savedB2: Float32[10, 1] = zeros();
-  var savedW1Tensor: Tensor<Float32> = tensor.pack(savedW1);
-  var savedB1Tensor: Tensor<Float32> = tensor.pack(savedB1);
-  var savedW2Tensor: Tensor<Float32> = tensor.pack(savedW2);
-  var savedB2Tensor: Tensor<Float32> = tensor.pack(savedB2);
-
-  const w1Input: File = io.open("/tmp/cherry_mnist_training_saved_w1.f32", "rb");
-  io.read(w1Input, savedW1Tensor);
-  io.close(w1Input);
-
-  const b1Input: File = io.open("/tmp/cherry_mnist_training_saved_b1.f32", "rb");
-  io.read(b1Input, savedB1Tensor);
-  io.close(b1Input);
-
-  const w2Input: File = io.open("/tmp/cherry_mnist_training_saved_w2.f32", "rb");
-  io.read(w2Input, savedW2Tensor);
-  io.close(w2Input);
-
-  const b2Input: File = io.open("/tmp/cherry_mnist_training_saved_b2.f32", "rb");
-  io.read(b2Input, savedB2Tensor);
-  io.close(b2Input);
-
-  var finalWeights: List<Tensor<Float32>> =
-      [savedW1Tensor, savedW2Tensor];
-  var finalBiases: List<Tensor<Float32>> =
-      [savedB1Tensor, savedB2Tensor];
-
-  const inferenceFile: File = io.open("/tmp/cherry_mnist_training_inference.safetensors",
-                                   "rb");
+  const inferenceFile: File =
+      io.open("/tmp/cherry_mnist_training_safetensors_inference_jit.safetensors",
+              "rb");
   var x: Tensor<Float32> = io.readTensor(inferenceFile, "x");
   io.close(inferenceFile);
 
+  var finalWeights: List<Tensor<Float32>> = [w1, w2];
+  var finalBiases: List<Tensor<Float32>> = [b1, b2];
   var activation: Tensor<Float32> = x;
   for layer in 0 .. finalWeights.size() {
-    activation = sigmoid(matadd(
-        matmul(finalWeights[layer], activation),
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(finalWeights[layer], activation),
         finalBiases[layer]));
     ()
   };
-  io.print(argmax(activation));
+  io.print(nn.argmax(activation));
 
   0
 }
 
-# JIT: 7
+# CHECK: 7

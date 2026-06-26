@@ -41,7 +41,6 @@ endef
 format:
 	echo "Format"
 	$(call format, cherry-opt)
-	$(call format, cherry-plugin)
 	$(call format, cherry-translate)
 	$(call format, include)
 	$(call format, lib)

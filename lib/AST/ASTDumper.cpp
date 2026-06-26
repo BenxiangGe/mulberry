@@ -43,26 +43,6 @@ auto intrinsicKindName(CallExpr::IntrinsicKind kind) -> std::string_view {
     return "print";
   case CallExpr::IntrinsicKind::BoolToUInt64:
     return "boolToUInt64";
-  case CallExpr::IntrinsicKind::Matmul:
-    return "matmul";
-  case CallExpr::IntrinsicKind::Matadd:
-    return "matadd";
-  case CallExpr::IntrinsicKind::Matsub:
-    return "matsub";
-  case CallExpr::IntrinsicKind::Hadamard:
-    return "hadamard";
-  case CallExpr::IntrinsicKind::Matscale:
-    return "matscale";
-  case CallExpr::IntrinsicKind::Transpose:
-    return "transpose";
-  case CallExpr::IntrinsicKind::Exp:
-    return "exp";
-  case CallExpr::IntrinsicKind::Sigmoid:
-    return "sigmoid";
-  case CallExpr::IntrinsicKind::SigmoidPrime:
-    return "sigmoidPrime";
-  case CallExpr::IntrinsicKind::Argmax:
-    return "argmax";
   case CallExpr::IntrinsicKind::Zeros:
     return "zeros";
   case CallExpr::IntrinsicKind::TensorPack:

@@ -36,12 +36,12 @@ auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
     return failure();
 
   VectorUniquePtr<Decl> declarations;
-  do {
+  while (!tokenIs(Token::eof)) {
     unique_ptr<Decl> decl;
     if (parseDeclaration(decl))
       return failure();
     declarations.push_back(std::move(decl));
-  } while (!tokenIs(Token::eof));
+  }
 
   module = make_unique<Module>(loc, std::move(declarations));
   module->setPackageName(_packageName);
@@ -332,8 +332,8 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
       return failure();
   } else {
     auto nameLocation = tokenLoc();
-    auto methodName = spelling();
-    if (parseToken(Token::identifier, diag::expected_id))
+    std::string methodName;
+    if (parseQualifiedName(methodName, diag::expected_id))
       return failure();
     name = make_unique<FunctionName>(nameLocation, methodName);
   }

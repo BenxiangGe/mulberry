@@ -1,3 +1,7 @@
+# Requires the external mulberry.nn package. This remains a compact
+# training-shape regression target while NN primitives are detached from core.
+import mulberry.nn;
+
 fn main(): UInt64 {
   var w1v: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
   var w2v: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
@@ -27,28 +31,28 @@ fn main(): UInt64 {
       var weights: List<Tensor<Float32>> = [w1, w2];
       var biases: List<Tensor<Float32>> = [b1, b2];
 
-      var z1: Tensor<Float32> = matadd(
-          matmul(weights[0], x),
+      var z1: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[0], x),
           biases[0]);
-      var a1: Tensor<Float32> = sigmoid(z1);
-      var z2: Tensor<Float32> = matadd(
-          matmul(weights[1], a1),
+      var a1: Tensor<Float32> = nn.sigmoid(z1);
+      var z2: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[1], a1),
           biases[1]);
-      var a2: Tensor<Float32> = sigmoid(z2);
+      var a2: Tensor<Float32> = nn.sigmoid(z2);
 
       var delta2: Tensor<Float32> =
-        hadamard(matsub(a2, y), sigmoidPrime(z2));
-      var nablaW2: Tensor<Float32> = matmul(delta2, transpose(a1));
+        nn.hadamard(nn.matsub(a2, y), nn.sigmoidPrime(z2));
+      var nablaW2: Tensor<Float32> = nn.matmul(delta2, nn.transpose(a1));
 
       var delta1: Tensor<Float32> =
-        hadamard(matmul(transpose(weights[1]), delta2),
-                 sigmoidPrime(z1));
-      var nablaW1: Tensor<Float32> = matmul(delta1, transpose(x));
+        nn.hadamard(nn.matmul(nn.transpose(weights[1]), delta2),
+                    nn.sigmoidPrime(z1));
+      var nablaW1: Tensor<Float32> = nn.matmul(delta1, nn.transpose(x));
 
-      w1 = matsub(weights[0], matscale(nablaW1, eta));
-      w2 = matsub(weights[1], matscale(nablaW2, eta));
-      b1 = matsub(biases[0], matscale(delta1, eta));
-      b2 = matsub(biases[1], matscale(delta2, eta));
+      w1 = nn.matsub(weights[0], nn.matscale(nablaW1, eta));
+      w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
+      b1 = nn.matsub(biases[0], nn.matscale(delta1, eta));
+      b2 = nn.matsub(biases[1], nn.matscale(delta2, eta));
       ()
     };
     ()
@@ -59,21 +63,21 @@ fn main(): UInt64 {
 
   var activation0: Tensor<Float32> = xs[0];
   for layer in 0 .. finalWeights.size() {
-    activation0 = sigmoid(matadd(
-        matmul(finalWeights[layer], activation0),
+    activation0 = nn.sigmoid(nn.matadd(
+        nn.matmul(finalWeights[layer], activation0),
         finalBiases[layer]));
     ()
   };
-  io.print(argmax(activation0));
+  io.print(nn.argmax(activation0));
 
   var activation1: Tensor<Float32> = xs[1];
   for layer in 0 .. finalWeights.size() {
-    activation1 = sigmoid(matadd(
-        matmul(finalWeights[layer], activation1),
+    activation1 = nn.sigmoid(nn.matadd(
+        nn.matmul(finalWeights[layer], activation1),
         finalBiases[layer]));
     ()
   };
-  io.print(argmax(activation1));
+  io.print(nn.argmax(activation1));
 
   0
 }
