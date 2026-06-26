@@ -16,8 +16,9 @@ fn main(): UInt64 {
   0
 }
 
+# CHECK-LABEL: func.func @main
 # CHECK: %[[KEEP_GOING:.*]] = mulberry.alloca i1 : !mulberry.ptr<i1>
-# CHECK: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK-NEXT: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
 # CHECK: arith.constant 3 : i64
 # CHECK: mulberry.store {{.*}}, %[[OUTER]] : i64, !mulberry.ptr<i64>
 # CHECK: scf.while

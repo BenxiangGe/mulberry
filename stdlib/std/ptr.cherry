@@ -3,3 +3,7 @@ package std.ptr;
 fn __module(): UInt64 {
   0
 }
+
+fn asUInt8<T>(value: Ptr<T>): Ptr<UInt8> {
+  value
+}

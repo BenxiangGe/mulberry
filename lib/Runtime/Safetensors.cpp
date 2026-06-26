@@ -249,25 +249,6 @@ TensorInfo findTensor(FILE* file, String name) {
   fail("tensor name not found");
 }
 
-void checkShape(const TensorInfo& info, int64_t rank, const int64_t* expected) {
-  expect(rank >= 0, "invalid tensor rank");
-  expect(static_cast<int64_t>(info.shape.size()) == rank,
-         "tensor rank mismatch");
-  for (int64_t i = 0; i < rank; ++i) {
-    expect(expected[i] < 0 || expected[i] == info.shape[i],
-           "tensor shape mismatch");
-  }
-}
-
-int64_t byteSize(const TensorInfo& info) {
-  int64_t elements = 1;
-  for (auto dim : info.shape) {
-    expect(dim >= 0, "negative runtime tensor dimension");
-    elements *= dim;
-  }
-  return elements * static_cast<int64_t>(sizeof(float));
-}
-
 } // namespace
 
 struct TensorFloat32 {
@@ -277,32 +258,6 @@ struct TensorFloat32 {
   ListUInt64 sizes;
   ListUInt64 strides;
 };
-
-extern "C" void mulberry_safetensor_shape_f32(
-    FILE* file, String name, int64_t rank, const int64_t* expectedShape,
-    int64_t* outShape) {
-  auto info = findTensor(file, name);
-  checkShape(info, rank, expectedShape);
-  for (int64_t i = 0; i < rank; ++i)
-    outShape[i] = info.shape[i];
-}
-
-extern "C" void mulberry_safetensor_read_f32(
-    FILE* file, String name, int64_t rank, const int64_t* expectedShape,
-    void* data) {
-  expect(data != nullptr, "tensor data pointer is null");
-  auto info = findTensor(file, name);
-  checkShape(info, rank, expectedShape);
-
-  auto payloadOffset = static_cast<long>(8 + info.headerLength + info.begin);
-  expect(std::fseek(file, payloadOffset, SEEK_SET) == 0,
-         "failed to seek tensor payload");
-
-  auto bytes = byteSize(info);
-  expect(info.end - info.begin == bytes, "tensor byte size mismatch");
-  expect(std::fread(data, 1, bytes, file) == static_cast<size_t>(bytes),
-         "failed to read tensor payload");
-}
 
 extern "C" TensorFloat32 mulberry_safetensor_read_tensor_f32(FILE* file,
                                                              String name) {

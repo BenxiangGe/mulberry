@@ -2,6 +2,7 @@
 
 #include "cherry/Driver/Compilation.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace cherry;
 namespace cl = llvm::cl;
@@ -27,8 +28,16 @@ static cl::opt<std::string> inputFilename(cl::Positional,
                                           cl::value_desc("filename"));
 
 static cl::opt<std::string>
-    outputFilename("c", cl::desc("Generate a target \".o\" object file"),
+    outputFilename("c", cl::desc("Generate a native object file"),
                    cl::ValueOptional, cl::value_desc("filename"));
+
+static cl::opt<std::string>
+    executableFilename("o", cl::desc("Generate a native executable"),
+                       cl::ValueRequired, cl::value_desc("filename"));
+
+static cl::opt<bool>
+    bundleRuntime("bundle-runtime",
+                  cl::desc("Copy runtime shared libraries next to -o output"));
 
 static cl::opt<bool> typecheck("typecheck",
                                cl::desc("Parse and type-check input file"));
@@ -63,9 +72,30 @@ auto main(int argc, const char **argv) -> int {
   if (compilation == nullptr)
     return EXIT_FAILURE;
 
+  if (outputFilename.getPosition() && executableFilename.getPosition()) {
+    llvm::errs() << "error: -c and -o cannot be used together\n";
+    return EXIT_FAILURE;
+  }
+
+  if (bundleRuntime && !executableFilename.getPosition()) {
+    llvm::errs() << "error: --bundle-runtime requires -o\n";
+    return EXIT_FAILURE;
+  }
+
+  if ((outputFilename.getPosition() || executableFilename.getPosition()) &&
+      (typecheck || dumpAction != Action::None)) {
+    llvm::errs() << "error: output generation cannot be combined with "
+                    "--typecheck or --dump\n";
+    return EXIT_FAILURE;
+  }
+
   if (outputFilename.getPosition())
     return compilation->genObjectFile(
         outputFilename != "" ? outputFilename.c_str() : "a.o");
+
+  if (executableFilename.getPosition())
+    return compilation->genExecutable(executableFilename.c_str(),
+                                      bundleRuntime);
 
   if (typecheck)
     return compilation->typecheck();

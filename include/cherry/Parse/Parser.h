@@ -184,6 +184,15 @@ private:
   auto parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
                           std::unique_ptr<Expr> &expr) -> CherryResult;
 
+  auto parseTensorZerosExpr(llvm::SMLoc location, std::string_view name,
+                            std::unique_ptr<Expr> &expr) -> CherryResult;
+
+  auto parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
+                           std::unique_ptr<Expr> &expr) -> CherryResult;
+
+  auto parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
+                           std::unique_ptr<Expr> &expr) -> CherryResult;
+
   auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseStructLiteral(llvm::SMLoc location,

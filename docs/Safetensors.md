@@ -133,7 +133,7 @@ iterator，所以 training bootstrap 先把每个样本导成独立 named tensor
 
 ## Mulberry API
 
-第一版使用 expected type，不做裸类型推断：
+第一版固定返回 `Tensor<Float32>`，不做裸类型推断：
 
 ```cherry
 const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
@@ -147,7 +147,7 @@ var x: Tensor<Float32> = io.readTensor(file, "x");
 io.close(file);
 ```
 
-expected type 提供 element type。safetensors header 提供 concrete shape。当前推荐直接使用
+safetensors header 提供 dtype、concrete shape 和 payload offset。当前推荐直接使用
 `Tensor<Float32>` header：
 
 ```cherry
@@ -156,12 +156,10 @@ var w1: Tensor<Float32> = io.readTensor(file, "w1");
 
 含义是：
 
-- Mulberry expected type 要求 `Float32` element。
+- stdlib 签名要求返回 `Tensor<Float32>`。
+- runtime 检查 safetensors dtype 是 `F32`。
 - runtime 从 header 读出实际 shape，例如 `[30, 784]`。
-- runtime 检查 dtype 是 `F32`，rank 是 2。
-- lowering 使用实际 shape 分配动态 Tensor value，再通过 `tensor.pack` 构造
-  `Tensor<Float32>` header。
-- runtime 把 payload bytes 读入 Tensor value，最终返回 `Tensor<Float32>` header。
+- runtime 分配 payload、sizes 和 strides buffer，最终返回 `Tensor<Float32>` header。
 
 ## 分层设计
 
@@ -169,9 +167,10 @@ var w1: Tensor<Float32> = io.readTensor(file, "w1");
 
 ```text
 Mulberry source
-  -> Sema: io.readTensor() 必须有 expected Tensor type
-  -> MLIRGen: temporary __cherry_safetensor_read_bridge_* marker call
-  -> Lowering: runtime helper + tensor allocation + payload read
+  -> stdlib: io.readTensor(file, name)
+  -> MLIRGen: ordinary func.call @std.io.readTensor
+  -> Lowering: ordinary extern call @mulberry_safetensor_read_tensor_f32
+  -> Runtime: parse header, allocate Tensor<Float32> header buffers, read payload
 ```
 
 当前 runtime helper 每次 `io.readTensor(file, name)` 都 parse 一次 header。
@@ -194,23 +193,18 @@ C++ runtime helper 负责：
 - 读 JSON header。
 - 查找 tensor name。
 - 检查 dtype。
-- 检查 rank 和静态维度。
 - 读取 `shape` 和 `data_offsets`。
 - 定位 payload offset。
-- 把 payload bytes 读入 lowering 已经分配好的 Tensor data pointer。
+- 分配 payload、sizes 和 strides buffer。
+- 返回 `Tensor<Float32>` header。
 
-compiler/lowering 负责：
-
-- 根据 expected type 知道 element type 和 rank。
-- 根据 runtime 返回的 concrete shape 分配动态 Tensor storage。
-- 把 Tensor data pointer 传给 runtime。
-- 如果 expected type 是 `Tensor<Float32>`，返回 Tensor header。
+compiler/lowering 负责把 stdlib `io.readTensor(file, name)` 降成普通 extern
+runtime call，不再插入 safetensors-specific 隐藏调用。
 
 ## 当前限制
 
 - 只支持 `Float32` / safetensors `F32`。
 - 只支持 Tensor，不支持 List 或 struct 直接从 safetensors 读取。
-- 必须有 expected `Tensor<Float32>` type。
 - `io.readTensor()` 统一返回 `Tensor<Float32>` header。
 - 不支持 `var w = io.readTensor(file, "w1");` 这种裸推断。
 - training 数据当前使用 `train_x_N` / `train_y_N` named tensor bootstrap 布局，

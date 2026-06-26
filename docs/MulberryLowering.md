@@ -36,11 +36,10 @@ NN dialect”整块删除。它现在承载的是源码对象语义到 backend I
 - `mulberry.ptr` / `mulberry.heap.alloc` / `mulberry.alloca` / `mulberry.load` /
   `mulberry.store` / `mulberry.ptr.index`：表达统一的 C/C++ typed pointer 模型。
 - safetensors runtime API 不再有 dedicated Mulberry op。`io.readTensor(file, name)`
-  通过 temporary `func.call @__cherry_safetensor_read_bridge_*` marker 进入 LowerMulberry，
-  再展开成 shape query、Tensor allocation 和 payload read。File 已经是 stdlib
-  `std.io.File` value wrapper；String 已经是 stdlib `std.string.String` value
-  wrapper，不再有 `mulberry.string.*` 专用 op。`io.open/close/read/write/readTensor`
-  都不再依赖 file-specific dialect op。
+  是 stdlib 函数，内部调用普通 `extern fn mulberry_safetensor_read_tensor_f32`。
+  File 已经是 stdlib `std.io.File` value wrapper；String 已经是 stdlib
+  `std.string.String` value wrapper，不再有 `mulberry.string.*` 专用 op。
+  `io.open/close/read/write/readTensor` 都不再依赖 file-specific dialect op。
 - `mulberry.tensor.*`：表达可写 Tensor 和当前 memref lowering 所需的显式 Tensor
   value 过渡层。Tensor ABI descriptor 只存在于
   `LowerMulberry.cpp` 的 C++ helper 中，不再是 Mulberry dialect type/op。
@@ -48,7 +47,7 @@ NN dialect”整块删除。它现在承载的是源码对象语义到 backend I
 也就是说，当前已经删除的是不该属于 dialect 的 `mulberry.list.*` 容器语义；剩余
 Mulberry op/type 暂时仍是 codegen 和 lowering 之间的清晰边界。后续如果要继续减少
 Mulberry 的职责，应该逐项迁移到 source/stdlib 能力或更通用的 object ABI，而不是
-再引入 bridge pass 或 list-specific descriptor。
+再引入隐藏 ABI pass 或 list-specific descriptor。
 
 ## List 分层
 
@@ -136,13 +135,13 @@ Tensor value lowering 成 `memref`，因此现阶段的边界是：
 - `mulberry.tensor.*` 表示高层可写 Tensor value。
 - Tensor ABI descriptor 只是 LowerMulberry 内部 C++ helper，不是公开 Mulberry type/op。
 - Tensor 函数边界继续 lower 成 `memref`。
-- 函数边界不允许通过隐藏 descriptor bridge 暗中改变语义。
+- 函数边界不允许通过隐藏 descriptor 边界暗中改变语义。
 
 真正的 Tensor header 已经可以用 source-level `std.tensor.Tensor<T>` 表达，并通过
 显式 `tensor.view(value)` 接入现有 `Float32[?, ?]` Tensor lowering。MLIRGen 为它生成
 `mulberry.tensor.view`，LowerMulberry 从 Tensor header 的 `data/sizes/strides`
 字段重建 memref view。不要复活旧 `tensor.handle_from_desc`，也不要增加新的
-descriptor marker。
+descriptor surface。
 
 `std.tensor` 的 source-level layout 是：
 
@@ -164,7 +163,7 @@ LowerMulberry 目前收敛两个显式边界：
   Tensor header；`tensor.pack(value)` 已提供这条 owning pack 路径。
 
 这两个边界必须是 Tensor object model 的一部分，不能通过隐藏 descriptor 暗中
-bridge。
+改写。
 
 ### C8.1.19 剩余 `mulberry.tensor.*` 边界
 
@@ -188,18 +187,13 @@ bridge。
    负向 verifier lit 不再维护。
 4. `tensor.view/pack` 只能在有更通用的 stdlib/runtime lowering 入口后再删除。
 
-不要用新的 descriptor bridge 替代这些 op。缺少通用 Tensor object lowering 能力时，
+不要用新的 descriptor 捷径替代这些 op。缺少通用 Tensor object lowering 能力时，
 应该先补 source/stdlib 能力，而不是在 MLIRGen 或 LowerMulberry 里再加一条隐藏 ABI
 捷径。
 
-`io.readTensor(file, name)` 根据 expected type 选择返回形式：
-
-- expected type 是 `Float32[?, ...]` 时，返回现有 Tensor value。
-- expected type 是 `std.tensor.Tensor<Float32>` 时，先读取 Tensor value，再通过
-  `tensor.pack` 打包成 Tensor header。
-
-这样 safetensors runtime 仍只负责读取 payload；Tensor object layout 仍由
-`tensor.pack`/`tensor.view` 这两个显式边界管理。
+`io.readTensor(file, name)` 当前统一返回 `std.tensor.Tensor<Float32>` header。需要
+ranked memref-backed Tensor value 时，源码显式写 `tensor.view(value)`，由 expected
+ranked type 决定 view 的 rank。
 
 ## 字符串 ABI
 
@@ -232,8 +226,8 @@ string literal 不再使用 string-specific op，也不再创建 global byte arr
 `String { length, data }` record value。这样 `String` 只是普通 stdlib struct，
 lowering 复用 generic heap/ptr/record/store 路径。
 
-`io.open`、`io.readTensor` 等 runtime 边界在 lowering call site 显式读取
-`String.data`，再传给 `fopen` 或 safetensors runtime helper。
+`io.open`、`io.readTensor` 等 runtime 边界是普通 stdlib wrapper。它们在 Mulberry
+源码里显式读取 `File.handle` / `String` value，再调用对应 extern runtime helper。
 
 现在 source-level `String` 已经搬到 stdlib struct，所以这里不再需要旧的 builtin
 string 语义，也不需要旧 pointer-storage alias 带来的额外 indirection。
@@ -277,7 +271,7 @@ stdlib/comptime 定义成普通 header struct，函数参数和返回值按 ordi
 - `Tensor<T>` 参数和返回值按普通 record header 传递；只有显式 `tensor.view(value)`
   时才 unwrap 成 memref-backed Tensor value。
 - record field 中的 `Tensor<T>` 也是普通 record field，field access 不触发 Tensor
-  descriptor bridge。
+  descriptor 边界改写。
 - list literal 已经通过 `std.collections.withCapacity` / `List.push` 初始化，不再生成
   `mulberry.list.create`。
 - list 读取和长度查询已经通过 `xs[index]` / `xs.size()`，不再生成
@@ -358,34 +352,21 @@ runtime 层：Boehm-managed heap object
 当前不引入 allocator、异常安全、move/copy 语义或复杂 grow 策略。等 training
 需要更完整的容器语义时，再单独设计。
 
-## 下一步
+## 已完成清理
 
-R3.8.88 已完成：Nielsen for-loop 推理脚本可以通过 `--dump=lowered-mlir`，
-lowered IR 使用 `scf`、`memref`、`linalg`、`arith` 和 `math`，不再残留
-`mulberry` 或内部 NN dialect op。这是旧 core NN backend 删除前的历史状态。
+当前清理结果：
 
-R3.8.89 已完成：scalar `List<T>` 函数边界可以通过 descriptor ABI lowering，
-当前覆盖 `UInt64`、`Float32` 和 `index` 这类 scalar element。
+- Nielsen for-loop 推理脚本可以 lower 到 LLVM dialect / LLVM IR，并通过 JIT 直接
+  运行，输出 `7`。
+- `mulberry.nn` primitives 不再放在 core codegen / lowering 里扩展，改由独立
+  `MulberryNNPackage` 提供 dialect、op、pass 和 lowering pipeline。
+- Boehm-only 方向已接受，旧 local `List<T>` auto dealloc 插入逻辑和
+  `mulberry.list.dealloc` / `mulberry.list.desc_dealloc` 已删除。
+- 旧 scalar/list descriptor function-boundary 方案已经废弃；`List<T>` 统一使用
+  stdlib/comptime header struct，参数和返回值按普通 record value 传递。
 
-R3.8.90 已完成：本地 list storage 曾支持内部显式 dealloc，`List<Tensor>` 返回
-descriptor 的 heap data 曾使用 caller-side `free`。这只是历史阶段，不是完整
-runtime ownership。
-
-R3.8.91 已完成：返回的 scalar `List<T>` 和 `List<Tensor>` 曾统一走 escaping
-descriptor storage，并复制到 Boehm-managed ABI data。这是旧阶段的历史记录。
-
-R3.8.92 已完成：当前支持的正向路径可以继续 lower 到 LLVM dialect / LLVM IR，
-并通过 JIT 执行。Nielsen for-loop 推理脚本可以直接运行，输出 `7`。
-
-G3 已完成：接受 Boehm-only 方向后，删除 local `List<T>` auto dealloc 插入逻辑。
-G4 已完成：删除 `mulberry.list.dealloc` 和 `mulberry.list.desc_dealloc`。List
-descriptor data 的生命周期由 Boehm GC 管理，不再保留显式 cleanup op。
-
-R3.8.93 历史方向已废弃：`mulberry.nn` primitives 不再继续放在 core 里扩展，改由
-独立 `MulberryNNPackage` 提供 dialect、op、pass 和 lowering pipeline。
-
-R3.8.94：等 training script 需要时，再补更完整的 ownership / dealloc / runtime
-策略，而不是提前为负向场景堆 workaround。
+后续等 training script 需要时，再补更完整的 ownership / dealloc / runtime 策略，
+不要提前为负向场景堆 workaround。
 
 P4.1 已完成：source surface 不再生成 `mulberry.list.create/get/size`，而是走
 stdlib/comptime `List<T>`。

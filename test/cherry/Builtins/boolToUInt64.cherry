@@ -8,10 +8,8 @@ fn main(): UInt64 {
   0
 }
 
-# CHECK: arith.extui
-# CHECK-SAME: i1 to i64
+# CHECK-LABEL: func.func @std.core.boolToUInt64
+# CHECK: scf.if
 # CHECK: call @std.io.print
-# CHECK: arith.extui
-# CHECK-SAME: i1 to i64
 # CHECK: call @std.io.print
 # CHECK-NOT: cir.

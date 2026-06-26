@@ -113,14 +113,14 @@ comptime Tensor<T> = struct {
 
 注意：旧的 `!mulberry.tensor_handle` / `tensor.handle_from_desc` 实验 IR 已删除。
 真正的 Tensor object 已经采用上面这种 source-level record header 形态，不能复用旧
-marker 偷换语义。
+实验 IR 偷换语义。
 
-`Tensor<T>` 是 by-value header，不是 descriptor marker。`rank` 是 runtime metadata；
+`Tensor<T>` 是 by-value header，不是 descriptor surface。`rank` 是 runtime metadata；
 `sizes` 和 `strides` 是 `List<UInt64>` header；`data` 指向 dense row-major payload。
 第一版即使只支持 contiguous Tensor，也保留
 `strides` 字段，避免后面支持 slice/view 时重排对象 layout。
 
-当前 C8 的设计结论是：先实现 Tensor header 和显式 view bridge，但不把所有
+当前 C8 的设计结论是：先实现 Tensor header 和显式 view/pack 边界，但不把所有
 source-level `Float32[?, ?]` 一次性改成 Tensor header。原因是现有 Tensor value
 lowering 仍以 MLIR `memref` 为核心；如果强行整体替换，会把 Tensor 语义、memref
 view、函数边界 ABI 和 runtime ownership 一次性混在一起，风险很高。
@@ -289,7 +289,7 @@ list-specific boundary rewrite。
 ```text
 C4.9   引入 `*p` / `*p = value`，不把 ptr.load / ptr.store 暴露为用户 API
 C4.10  清理 Ptr API 文档和测试命名
-C4.11  删除旧的 Tensor handle marker IR
+C4.11  删除旧的 Tensor handle 实验 IR
 C4.12  实现 `heap.alloc<T>(count)` 和 `p[i]` 指针索引
 C4.13  支持 generic struct，用 Mulberry 表达 List<T>
 C4.14  支持 generic function，用 Mulberry 表达 List<T> API

@@ -8,7 +8,6 @@
 #include "cherry/Sema/Sema.h"
 #include "Symbols.h"
 #include "cherry/AST/AST.h"
-#include "cherry/Basic/Builtins.h"
 #include "cherry/Sema/DiagnosticsSema.h"
 #include <memory>
 #include <optional>
@@ -522,6 +521,17 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<DerefExpr>(
         expr->location(), substituteExpr(expr->pointer().get(), substitutions));
   }
+  case Expr::Expr_TensorPack: {
+    auto *expr = cast<TensorPackExpr>(node);
+    return std::make_unique<TensorPackExpr>(
+        expr->location(), substituteExpr(expr->tensor().get(), substitutions));
+  }
+  case Expr::Expr_TensorView: {
+    auto *expr = cast<TensorViewExpr>(node);
+    return std::make_unique<TensorViewExpr>(
+        expr->location(),
+        substituteExpr(expr->tensorRecord().get(), substitutions));
+  }
   case Expr::Expr_Call: {
     auto *expr = cast<CallExpr>(node);
     VectorUniquePtr<Expr> expressions;
@@ -536,6 +546,8 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<CallExpr>(
         expr->location(), expr->name(), std::move(expressions));
   }
+  case Expr::Expr_TensorZeros:
+    return std::make_unique<TensorZerosExpr>(node->location());
   case Expr::Expr_StructLiteral: {
     auto *expr = cast<StructLiteralExpr>(node);
     VectorUniquePtr<Expr> expressions;
@@ -656,8 +668,6 @@ private:
   auto sema(BlockExpr *node) -> CherryResult;
   auto sema(BlockExpr *node, const Type *returnType) -> CherryResult;
   auto sema(CallExpr *node) -> CherryResult;
-  auto semaCompilerPrimitiveCall(CallExpr *node)
-      -> std::optional<CherryResult>;
   auto sema(StructLiteralExpr *node) -> CherryResult;
   auto sema(VariableExpr *node) -> CherryResult;
   auto sema(MemberExpr *node) -> CherryResult;
@@ -669,6 +679,10 @@ private:
   auto sema(TypeLayoutExpr *node) -> CherryResult;
   auto sema(HeapAllocExpr *node) -> CherryResult;
   auto sema(DerefExpr *node) -> CherryResult;
+  auto sema(TensorZerosExpr *node, const TensorType *type) -> CherryResult;
+  auto sema(TensorPackExpr *node) -> CherryResult;
+  auto sema(TensorViewExpr *node,
+            const Type *expectedType = nullptr) -> CherryResult;
   auto sema(BinaryExpr *node) -> CherryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
   auto checkAssignable(const Expr *expr) -> CherryResult;
@@ -679,13 +693,7 @@ private:
   auto semaStdlibListLiteral(ArrayLiteralExpr *expr, const Type *type,
                              const Type *elementType) -> CherryResult;
   auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
-  auto semaZeros(CallExpr *node, const TensorType *type) -> CherryResult;
   auto sema(IndexExpr *expr) -> CherryResult;
-  auto semaPrint(CallExpr *node) -> CherryResult;
-  auto semaTensorPack(CallExpr *node) -> CherryResult;
-  auto semaTensorView(CallExpr *node,
-                      const Type *expectedType = nullptr) -> CherryResult;
-  auto semaPtrAsUInt8(CallExpr *node) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
   auto sema(ForExpr *node) -> CherryResult;
@@ -726,17 +734,10 @@ private:
 
   auto addBuiltins() -> void {
     declareBuiltinType(BuiltinTypeKind::Unit);
-    auto *boolType = declareBuiltinType(BuiltinTypeKind::Bool);
+    declareBuiltinType(BuiltinTypeKind::Bool);
     declareBuiltinType(BuiltinTypeKind::UInt8);
-    auto *uint64Type = declareBuiltinType(BuiltinTypeKind::UInt64);
+    declareBuiltinType(BuiltinTypeKind::UInt64);
     declareBuiltinType(BuiltinTypeKind::Float32);
-
-    declareFunction(builtins::builtinPrint,
-                    std::vector<const Type *>{uint64Type}, uint64Type);
-    declareFunction(builtins::print, std::vector<const Type *>{uint64Type},
-                    uint64Type);
-    declareFunction(builtins::boolToUInt64,
-                    std::vector<const Type *>{boolType}, uint64Type);
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {
@@ -1217,6 +1218,16 @@ private:
     return ptrType && sameType(ptrType->pointeeType(), actualType);
   }
 
+  auto sameReturnType(const Type *returnType, const Type *actualType) -> bool {
+    if (sameType(returnType, actualType))
+      return true;
+
+    // Pointer reinterpretation stays explicit in source code through helpers
+    // such as std.ptr.asUInt8<T>(). The helper's body returns Ptr<T>; MLIRGen
+    // materializes the declared Ptr<UInt8> return with mulberry.ptr.cast.
+    return getPtrType(returnType) && getPtrType(actualType);
+  }
+
   auto instantiateGenericFunction(const Node *diagnosticNode,
                                   std::string_view name,
                                   const Type *argumentType,
@@ -1666,7 +1677,7 @@ auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
     return failure();
 
   auto expression = node->body()->expression().get();
-  if (!sameType(signature->returnType, expression->type()))
+  if (!sameReturnType(signature->returnType, expression->type()))
     return emitError(expression, diag::wrong_return_type);
 
   return success();
@@ -1793,6 +1804,12 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<HeapAllocExpr>(node));
   case Expr::Expr_Deref:
     return sema(cast<DerefExpr>(node));
+  case Expr::Expr_TensorZeros:
+    return emitError(node, diag::mismatch_type);
+  case Expr::Expr_TensorPack:
+    return sema(cast<TensorPackExpr>(node));
+  case Expr::Expr_TensorView:
+    return sema(cast<TensorViewExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -1831,20 +1848,21 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
       return semaStdlibListLiteral(arrayLiteral, type, elementType);
   }
 
+  auto *tensorZeros = dyn_cast<TensorZerosExpr>(node);
+  if (tensorZeros) {
+    auto *tensorType = cherry::getTensorType(type);
+    if (!tensorType)
+      return emitError(tensorZeros, diag::mismatch_type);
+    return sema(tensorZeros, tensorType);
+  }
+
+  if (auto *tensorView = dyn_cast<TensorViewExpr>(node))
+    return sema(tensorView, type);
+
   auto *call = dyn_cast<CallExpr>(node);
   if (call && call->hasReceiver())
     return semaMethodCall(call, type);
 
-  if (call && call->name() == builtins::zeros) {
-    auto *tensorType = cherry::getTensorType(type);
-    if (!tensorType)
-      return emitError(call, diag::mismatch_type);
-    return semaZeros(call, tensorType);
-  }
-  if (call && canonicalizeImportedName(call->name()) == builtins::tensorView) {
-    call->setName(builtins::tensorView);
-    return semaTensorView(call, type);
-  }
   if (call) {
     auto name = canonicalizeImportedName(call->name());
     if (auto *genericFunction = lookupGenericFunction(name)) {
@@ -1967,36 +1985,12 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
   return sema(node->expression().get(), returnType);
 }
 
-auto SemaImpl::semaCompilerPrimitiveCall(CallExpr *node)
-    -> std::optional<CherryResult> {
-  auto name = node->name();
-  if (name == builtins::builtinPrint || name == builtins::print) {
-    return semaPrint(node);
-  }
-  if (name == builtins::zeros) {
-    return emitError(node, diag::mismatch_type);
-  }
-  if (name == builtins::tensorPack) {
-    return semaTensorPack(node);
-  }
-  if (name == builtins::tensorView) {
-    return semaTensorView(node);
-  }
-  if (name == builtins::ptrAsUInt8) {
-    return semaPtrAsUInt8(node);
-  }
-  return std::nullopt;
-}
-
 auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   if (node->hasReceiver())
     return semaMethodCall(node);
 
   node->setName(canonicalizeImportedName(node->name()));
   auto name = node->name();
-
-  if (auto primitiveResult = semaCompilerPrimitiveCall(node))
-    return *primitiveResult;
 
   auto *signature = lookupFunction(name);
   if (!signature) {
@@ -2037,9 +2031,6 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
   auto resolvedName = resolveFunctionName(name);
   if (!resolvedName.empty())
     node->setName(resolvedName);
-
-  if (name == builtins::boolToUInt64)
-    node->setIntrinsicKind(CallExpr::IntrinsicKind::BoolToUInt64);
 
   if (signature->returnType)
     node->setType(signature->returnType);
@@ -2495,11 +2486,8 @@ auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
   return success();
 }
 
-auto SemaImpl::semaZeros(CallExpr *node, const TensorType *type)
+auto SemaImpl::sema(TensorZerosExpr *node, const TensorType *type)
     -> CherryResult {
-  if (!node->expressions().empty())
-    return emitError(node, diag::wrong_num_arg);
-
   // zeros() is target-typed so it can allocate a Tensor without a huge literal.
   // Dynamic-shape zero fill needs loop-based initialization and is a separate
   // operation from the static raw-file buffers needed by the current pipeline.
@@ -2509,7 +2497,6 @@ auto SemaImpl::semaZeros(CallExpr *node, const TensorType *type)
   }
 
   node->setType(type);
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Zeros);
   return success();
 }
 
@@ -2577,35 +2564,13 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::semaPrint(CallExpr *node) -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::Print);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  auto *expr = expressions.front().get();
-  if (sema(expr))
-    return failure();
-  if (!isUInt64Type(expr->type()) && !isUInt8Type(expr->type()))
-    return emitError(expr, diag::mismatch_type);
-
-  setBuiltinType(node, BuiltinTypeKind::UInt64);
-  return success();
-}
-
-auto SemaImpl::semaTensorPack(CallExpr *node) -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::TensorPack);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
+auto SemaImpl::sema(TensorPackExpr *node) -> CherryResult {
+  if (sema(node->tensor().get()))
     return failure();
 
-  auto *tensorType = cherry::getTensorType(expressions[0]->type());
+  auto *tensorType = cherry::getTensorType(node->tensor()->type());
   if (!tensorType)
-    return emitError(expressions[0].get(), diag::mismatch_type);
-  node->setTensorPayloadType(tensorType);
+    return emitError(node->tensor().get(), diag::mismatch_type);
 
   auto *recordType = tensorRecordType(tensorType, node->location());
   if (!recordType)
@@ -2615,38 +2580,16 @@ auto SemaImpl::semaTensorPack(CallExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::semaTensorView(CallExpr *node, const Type *expectedType)
+auto SemaImpl::sema(TensorViewExpr *node, const Type *expectedType)
     -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::TensorView);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
+  if (sema(node->tensorRecord().get()))
     return failure();
 
-  auto *tensorType = tensorViewType(expressions[0]->type(), expectedType);
+  auto *tensorType = tensorViewType(node->tensorRecord()->type(), expectedType);
   if (!tensorType)
-    return emitError(expressions[0].get(), diag::mismatch_type);
+    return emitError(node->tensorRecord().get(), diag::mismatch_type);
 
-  node->setTensorPayloadType(tensorType);
   node->setType(tensorType);
-  return success();
-}
-
-auto SemaImpl::semaPtrAsUInt8(CallExpr *node) -> CherryResult {
-  node->setIntrinsicKind(CallExpr::IntrinsicKind::PtrAsUInt8);
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1)
-    return emitError(node, diag::wrong_num_arg);
-
-  if (sema(expressions[0].get()))
-    return failure();
-  if (!cherry::getPtrType(expressions[0]->type()))
-    return emitError(expressions[0].get(), diag::mismatch_type);
-
-  auto *uint8Type = _typeContext.getBuiltinType(BuiltinTypeKind::UInt8);
-  node->setType(_typeContext.createPtrType(uint8Type));
   return success();
 }
 

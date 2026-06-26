@@ -49,6 +49,7 @@ public:
   auto typecheck() -> int;
   auto jit() -> int;
   auto genObjectFile(const char *outputFileName) -> int;
+  auto genExecutable(const char *outputFileName, bool bundleRuntime) -> int;
 
   auto sourceManager() -> llvm::SourceMgr & { return _sourceManager; };
 
@@ -79,6 +80,8 @@ private:
       -> CherryResult;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
       -> CherryResult;
+  auto genObjectFile(const char *outputFileName, bool addExecutableWrapper)
+      -> int;
 };
 
 } // end namespace cherry

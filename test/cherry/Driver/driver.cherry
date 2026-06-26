@@ -1,5 +1,19 @@
 # RUN: cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
-# RUN: not cherry-driver %s -c=%t.o 2>&1 | FileCheck %s --check-prefix=OBJECT
+# RUN: cherry-driver %s -c=%t.o
+# RUN: test -s %t.o
+# RUN: cherry-driver %s -o %t.exe
+# RUN: %t.exe 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: mkdir -p %t.bundle
+# RUN: cherry-driver %s -o %t.bundle/driver --bundle-runtime
+# RUN: test -s %t.bundle/driver
+# RUN: test -s %t.bundle/libcherry_runtime.so
+# RUN: ls %t.bundle/libmlir_c_runner_utils.so* >/dev/null
+# RUN: ls %t.bundle/libmlir_apfloat_wrappers.so* >/dev/null
+# RUN: ls %t.bundle/libmlir_float16_utils.so* >/dev/null
+# RUN: ls %t.bundle/libgc.so* >/dev/null
+# RUN: %t.bundle/driver 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: not cherry-driver %s -c=%t.o -o %t.exe 2>&1 | FileCheck %s --check-prefix=BAD-OUTPUT
+# RUN: not cherry-driver %s --bundle-runtime 2>&1 | FileCheck %s --check-prefix=BAD-BUNDLE
 
 struct A { }
 
@@ -44,4 +58,5 @@ fn main(): UInt64 {
 
 # JIT: 1
 # JIT-NEXT: 0
-# OBJECT: error: object file generation is temporarily disabled while Mulberry lowering is redesigned
+# BAD-OUTPUT: error: -c and -o cannot be used together
+# BAD-BUNDLE: error: --bundle-runtime requires -o

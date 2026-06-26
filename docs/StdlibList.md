@@ -248,7 +248,7 @@ source List<T>
 - `ListCreateOpLowering` / `ListGetOpLowering` / `ListDesc*` lowering
 - boundary rewrite 里针对 list descriptor 的特殊逻辑
 
-后续不要恢复这条 descriptor bridge 路径。缺少能力时应补语言/stdlib 能力，而不是把
+后续不要恢复这条 list descriptor 边界路径。缺少能力时应补语言/stdlib 能力，而不是把
 list-specific workaround 塞回 MLIRGen 或 lowering。
 
 ## 迁移顺序
@@ -289,5 +289,5 @@ buffer；`push<T>()` 在容量不足时会按 `0 -> 1 -> 2x` 策略分配新 buf
 当前 C4.9 已经完成：旧 `mulberry.list` / `mulberry.list_storage` /
 `mulberry.list_desc` type、op、lowering 和直接测试这些 IR 的 lit 已删除。
 
-如果某一步需要靠 lowering bridge 才能“看起来能跑”，先停下来补语言/IR 能力，不要
+如果某一步需要靠 lowering-only 捷径才能“看起来能跑”，先停下来补语言/IR 能力，不要
 把 workaround 塞回 MLIRGen。

@@ -26,8 +26,8 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
   改写成 core Tensor/List 正向测试。
 - `--dump=lowered-mlir` 可以把当前 core Tensor 和对象模型 lower 到 storage-level
   MLIR，例如 `memref`、`arith` 和 `llvm` dialect。
-- `--dump=mlir-llvm`、`--dump=llvm` 和 JIT 已经对当前正向子集打开。
-- object file pipeline 暂时关闭，等待后续单独设计。
+- `--dump=mlir-llvm`、`--dump=llvm`、JIT、object file 和 executable pipeline
+  已经对当前正向子集打开。
 
 ## Pipeline
 
@@ -42,7 +42,7 @@ Mulberry source
   -> optional lowering
        - mulberry.tensor -> memref
        - scalar and record storage -> LLVM dialect where currently supported
-  -> LLVM dialect / LLVM IR / JIT for the currently supported positive path
+  -> LLVM dialect / LLVM IR / JIT / object file / executable
 ```
 
 ## 语言快照
@@ -112,7 +112,24 @@ makefile 当前默认使用 `release` CMake preset。
 ```sh
 ./build/release/bin/cherry-driver --dump=mlir test/cherry/Language/structs.cherry
 ./build/release/bin/cherry-driver --dump=llvm test/cherry/Driver/driver.cherry
+./build/release/bin/cherry-driver -c=/tmp/driver.o test/cherry/Driver/driver.cherry
+./build/release/bin/cherry-driver -o /tmp/driver test/cherry/Driver/driver.cherry
 ```
+
+`-c=<file>` 只生成 native object file。`-o <file>` 会先生成临时 object file，
+再调用系统 `clang`/`cc` 链接 executable。当前 executable 会链接构建树里的
+Mulberry runtime、MLIR runner utils 和源码编译出的 Boehm GC，并写入对应
+runtime rpath。
+
+如果需要把 runtime `.so` 放到 executable 同目录，可以使用
+`--bundle-runtime`：
+
+```sh
+./build/release/bin/cherry-driver -o /tmp/driver --bundle-runtime test/cherry/Driver/driver.cherry
+```
+
+这个模式会把当前需要的 runtime shared libraries 复制到输出文件所在目录，并
+使用 `$ORIGIN` rpath。
 
 直接运行 lit 测试：
 
@@ -156,7 +173,7 @@ python3 tools/export_mnist_raw_tensors.py
 [Raw Tensor Files](docs/RawTensorFiles.md)。
 
 raw `.f32` 是 bootstrap/debug 格式。日常 MNIST 推理优先使用 safetensors：它用
-单个文件保存多个 tensor，并通过 expected-type `io.readTensor(file, name)` 读取。
+单个文件保存多个 tensor，并通过 `io.readTensor(file, name)` 按名字读取 Tensor header。
 详细约定见 [Safetensors](docs/Safetensors.md)。
 
 导出 safetensors 单文件：
@@ -170,6 +187,13 @@ python3 tools/export_mnist_safetensors.py
 
 ```sh
 ./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
+```
+
+也可以直接生成 native executable：
+
+```sh
+./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry -o /tmp/mnist
+/tmp/mnist
 ```
 
 导出一个小的 training safetensors 子集：

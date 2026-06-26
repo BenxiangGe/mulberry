@@ -16,7 +16,7 @@ fn main(): UInt64 {
 # AST: VariableStat (id=packedTensor
 # AST-SAME: type=Tensor<Float32>
 # AST-SAME: origin=std.tensor.Tensor<Float32>
-# AST: CallExpr {{.*}}callee=std.tensor.pack
+# AST: TensorPackExpr {{.*}}type=std_tensor_Tensor__Float32
 
 # MLIR: mulberry.tensor.pack
 # MLIR-SAME: -> !mulberry.record<std_tensor_Tensor__Float32
