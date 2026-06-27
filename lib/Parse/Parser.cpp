@@ -12,6 +12,19 @@ using std::make_unique;
 using std::unique_ptr;
 
 namespace {
+constexpr std::string_view kTensorPack = "tensor.pack";
+constexpr std::string_view kStdTensorPack = "std.tensor.pack";
+constexpr std::string_view kTensorView = "tensor.view";
+constexpr std::string_view kStdTensorView = "std.tensor.view";
+
+auto isTensorPackName(std::string_view name) -> bool {
+  return name == kTensorPack || name == kStdTensorPack;
+}
+
+auto isTensorViewName(std::string_view name) -> bool {
+  return name == kTensorView || name == kStdTensorView;
+}
+
 auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
     -> std::unique_ptr<Expr> {
   auto dot = name.find('.');
@@ -819,6 +832,12 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
+    if (name == builtins::zeros)
+      return parseTensorZerosExpr(location, name, expr);
+    if (isTensorPackName(name))
+      return parseTensorPackExpr(location, name, expr);
+    if (isTensorViewName(name))
+      return parseTensorViewExpr(location, name, expr);
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
@@ -867,6 +886,49 @@ auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
 
   expr = make_unique<HeapAllocExpr>(location, std::move(typeNode),
                                     std::move(count));
+  return success();
+}
+
+auto Parser::parseTensorZerosExpr(llvm::SMLoc location, std::string_view name,
+                                  unique_ptr<Expr> &expr) -> CherryResult {
+  if (name != builtins::zeros)
+    return emitError(diag::expected_expr);
+
+  consume(Token::l_paren);
+  if (parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<TensorZerosExpr>(location);
+  return success();
+}
+
+auto Parser::parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
+                                 unique_ptr<Expr> &expr) -> CherryResult {
+  if (!isTensorPackName(name))
+    return emitError(diag::expected_expr);
+
+  consume(Token::l_paren);
+  unique_ptr<Expr> tensor;
+  if (parseExpression(tensor) ||
+      parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<TensorPackExpr>(location, std::move(tensor));
+  return success();
+}
+
+auto Parser::parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
+                                 unique_ptr<Expr> &expr) -> CherryResult {
+  if (!isTensorViewName(name))
+    return emitError(diag::expected_expr);
+
+  consume(Token::l_paren);
+  unique_ptr<Expr> tensorRecord;
+  if (parseExpression(tensorRecord) ||
+      parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<TensorViewExpr>(location, std::move(tensorRecord));
   return success();
 }
 

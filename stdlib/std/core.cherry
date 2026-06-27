@@ -3,3 +3,11 @@ package std.core;
 fn identity(value: UInt64): UInt64 {
   value
 }
+
+fn boolToUInt64(value: Bool): UInt64 {
+  if value {
+    1
+  } else {
+    0
+  }
+}

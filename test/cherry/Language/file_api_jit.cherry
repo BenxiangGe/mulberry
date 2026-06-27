@@ -14,15 +14,15 @@ fn main(): UInt64 {
   var inputView: UInt8[?] = tensor.view(inputTensor);
 
   io.print(count);
-  print(inputView[0]);
-  print(inputView[1]);
-  print(inputView[2]);
-  print(inputView[3]);
+  io.print(boolToUInt64(inputView[0] eq outputBytes[0]));
+  io.print(boolToUInt64(inputView[1] eq outputBytes[1]));
+  io.print(boolToUInt64(inputView[2] eq outputBytes[2]));
+  io.print(boolToUInt64(inputView[3] eq outputBytes[3]));
   0
 }
 
 # JIT: 4
-# JIT-NEXT: 10
-# JIT-NEXT: 20
-# JIT-NEXT: 30
-# JIT-NEXT: 40
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1

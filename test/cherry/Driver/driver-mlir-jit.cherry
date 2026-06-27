@@ -36,8 +36,9 @@ fn main(): UInt64 {
   0
 }
 
-# MLIRLLVM: llvm.func @printU64(i64)
-# MLIRLLVM: llvm.func @std.io.print
+# MLIRLLVM-DAG: llvm.func @std.io.print
+# MLIRLLVM-DAG: llvm.func private @printU64
+# MLIRLLVM-DAG: llvm.func @_mlir_ciface_printU64
 # MLIRLLVM: llvm.call @printU64
 # MLIRLLVM: llvm.func @main() -> i64
 # MLIRLLVM: llvm.call @std.io.print
@@ -46,8 +47,9 @@ fn main(): UInt64 {
 # MLIRLLVM-NOT: func.func
 # MLIRLLVM-NOT: builtin.unrealized_conversion_cast
 
-# LLVM: declare void @printU64(i64)
-# LLVM: define i64 @std.io.print
+# LLVM-DAG: define i64 @std.io.print
+# LLVM-DAG: define private void @printU64
+# LLVM-DAG: declare void @_mlir_ciface_printU64
 # LLVM: call void @printU64
 # LLVM: define i64 @main()
 # LLVM: call i64 @std.io.print

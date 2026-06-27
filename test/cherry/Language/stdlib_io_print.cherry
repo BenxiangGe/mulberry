@@ -7,15 +7,18 @@ fn main(): UInt64 {
   0
 }
 
+# AST: Prototype {{.*}}name=printU64
+# AST: Prototype {{.*}}name=printNewline
 # AST: Prototype {{.*}}name=std.io.print
-# AST: CallExpr {{.*}}type=UInt64 callee=builtinPrint intrinsic=print
+# AST: CallExpr {{.*}}type=Unit callee=printU64
+# AST: CallExpr {{.*}}type=Unit callee=printNewline
 # AST: CallExpr {{.*}}type=UInt64 callee=std.io.print
 
-# MLIR: llvm.func @printNewline()
-# MLIR: llvm.func @printU64(i64)
+# MLIR: func.func private @printU64(i64)
+# MLIR: func.func private @printNewline()
 # MLIR-LABEL: func.func @std.io.print
-# MLIR: llvm.call @printU64
-# MLIR: llvm.call @printNewline
+# MLIR: call @printU64
+# MLIR: call @printNewline
 # MLIR-LABEL: func.func @main
 # MLIR: call @std.io.print
 

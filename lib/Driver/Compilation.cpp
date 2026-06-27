@@ -36,12 +36,18 @@
 #include "mlir/Tools/Plugins/PassPlugin.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -62,9 +68,61 @@ auto getRuntimeLibPath() -> std::string {
 #endif
 }
 
+auto splitRuntimeLibPaths(std::string_view paths) -> std::vector<std::string> {
+  std::vector<std::string> result;
+  size_t start = 0;
+  while (start <= paths.size()) {
+    auto separator = paths.find('|', start);
+    auto item = separator == std::string_view::npos
+                    ? paths.substr(start)
+                    : paths.substr(start, separator - start);
+    if (!item.empty())
+      result.push_back(std::string(item));
+    if (separator == std::string_view::npos)
+      break;
+    start = separator + 1;
+  }
+  return result;
+}
+
+auto getMLIRRuntimeLibPaths() -> std::vector<std::string> {
+#ifdef CHERRY_MLIR_RUNTIME_LIBS
+  return splitRuntimeLibPaths(CHERRY_MLIR_RUNTIME_LIBS);
+#else
+  auto runtimeLibPath = getRuntimeLibPath();
+  if (runtimeLibPath.empty())
+    return {};
+  return {runtimeLibPath};
+#endif
+}
+
 auto getCherryRuntimeLibPath() -> std::string {
 #ifdef CHERRY_RUNTIME_LIB
   return CHERRY_RUNTIME_LIB;
+#else
+  return {};
+#endif
+}
+
+auto getBoehmLinkLibPath() -> std::string {
+#ifdef CHERRY_BDWGC_LINK_LIB
+  return CHERRY_BDWGC_LINK_LIB;
+#else
+  return {};
+#endif
+}
+
+auto getBoehmRuntimeLibPaths() -> std::vector<std::string> {
+#ifdef CHERRY_BDWGC_RUNTIME_LIBS
+  return splitRuntimeLibPaths(CHERRY_BDWGC_RUNTIME_LIBS);
+#else
+  return {};
+#endif
+}
+
+auto getBoehmRuntimeLibDir() -> std::string {
+#ifdef CHERRY_BDWGC_LIBRARY_DIR
+  return CHERRY_BDWGC_LIBRARY_DIR;
 #else
   return {};
 #endif
@@ -230,6 +288,258 @@ auto initializeMulberryRuntime(mlir::ExecutionEngine &engine)
 
   reinterpret_cast<void (*)()>(*runtimeInit)();
   return llvm::Error::success();
+}
+
+auto genLLVMModule(mlir::ModuleOp module, bool enableOpt,
+                   std::unique_ptr<llvm::TargetMachine> &targetMachine,
+                   llvm::LLVMContext &llvmContext)
+    -> std::unique_ptr<llvm::Module> {
+  registerLLVMTranslations(module);
+
+  auto llvmModule = mlir::translateModuleToLLVMIR(module, llvmContext);
+  if (!llvmModule) {
+    llvm::errs() << "error: failed to translate MLIR LLVM dialect to LLVM IR\n";
+    return nullptr;
+  }
+
+  mlir::ExecutionEngine::setupTargetTripleAndDataLayout(llvmModule.get(),
+                                                        targetMachine.get());
+
+  auto transformer =
+      mlir::makeOptimizingTransformer(enableOpt ? 3 : 0, 0,
+                                      targetMachine.get());
+  if (auto error = transformer(llvmModule.get())) {
+    llvm::errs() << "error: failed to optimize LLVM IR: "
+                 << llvm::toString(std::move(error)) << "\n";
+    return nullptr;
+  }
+
+  return llvmModule;
+}
+
+auto createLLVMObjectFile(llvm::Module &module,
+                          llvm::TargetMachine &targetMachine,
+                          llvm::StringRef outputFileName) -> bool {
+  std::error_code ec;
+  llvm::raw_fd_ostream output(outputFileName, ec, llvm::sys::fs::OF_None);
+  if (ec) {
+    llvm::errs() << "error: failed to open object file '" << outputFileName
+                 << "': " << ec.message() << "\n";
+    return true;
+  }
+
+  llvm::legacy::PassManager pm;
+  if (targetMachine.addPassesToEmitFile(pm, output, nullptr,
+                                        llvm::CodeGenFileType::ObjectFile)) {
+    llvm::errs() << "error: target machine cannot emit object files\n";
+    return true;
+  }
+
+  pm.run(module);
+  output.flush();
+  return false;
+}
+
+auto addRuntimeMainWrapper(llvm::Module &module) -> bool {
+  auto *userMain = module.getFunction("main");
+  if (!userMain) {
+    llvm::errs() << "error: AOT executable requires a main function\n";
+    return true;
+  }
+
+  if (!userMain->getFunctionType()->getReturnType()->isIntegerTy(64) ||
+      userMain->arg_size() != 0) {
+    llvm::errs() << "error: AOT executable main must have type () -> UInt64\n";
+    return true;
+  }
+
+  auto &context = module.getContext();
+  userMain->setName("__mulberry_user_main");
+
+  auto *voidType = llvm::Type::getVoidTy(context);
+  auto *i64Type = llvm::Type::getInt64Ty(context);
+  auto *runtimeInitType = llvm::FunctionType::get(voidType, false);
+  auto runtimeInit = module.getOrInsertFunction("mulberry_runtime_init",
+                                                runtimeInitType);
+  auto *mainType = llvm::FunctionType::get(i64Type, false);
+  auto *wrapperMain =
+      llvm::Function::Create(mainType, llvm::GlobalValue::ExternalLinkage,
+                             "main", module);
+  auto *entry = llvm::BasicBlock::Create(context, "entry", wrapperMain);
+
+  llvm::IRBuilder<> builder(entry);
+  builder.CreateCall(runtimeInit);
+  auto *result = builder.CreateCall(userMain);
+  builder.CreateRet(result);
+  return false;
+}
+
+auto findProgram(std::string_view programName) -> std::string {
+  auto program = llvm::sys::findProgramByName(programName);
+  if (!program)
+    return {};
+  return std::string(*program);
+}
+
+auto parentDir(llvm::StringRef filePath) -> std::string {
+  llvm::SmallString<256> path(filePath);
+  llvm::sys::path::remove_filename(path);
+  return std::string(path.str());
+}
+
+auto basename(llvm::StringRef filePath) -> std::string {
+  llvm::SmallString<256> path(filePath);
+  return std::string(llvm::sys::path::filename(path));
+}
+
+auto appendPath(llvm::StringRef dir, llvm::StringRef filename)
+    -> std::string {
+  llvm::SmallString<256> path(dir);
+  llvm::sys::path::append(path, filename);
+  return std::string(path.str());
+}
+
+auto copyRuntimeLibrary(llvm::StringRef sourcePath,
+                        llvm::StringRef outputDir) -> bool {
+  auto targetPath = appendPath(outputDir, basename(sourcePath));
+  if (sourcePath == targetPath)
+    return false;
+
+  llvm::sys::fs::remove(targetPath);
+  if (auto ec = llvm::sys::fs::copy_file(sourcePath, targetPath)) {
+    llvm::errs() << "error: failed to copy runtime library '" << sourcePath
+                 << "' to '" << targetPath << "': " << ec.message() << "\n";
+    return true;
+  }
+  return false;
+}
+
+auto copyBundledRuntimeLibraries(llvm::StringRef outputFileName,
+                                 llvm::StringRef cherryRuntimeLibPath,
+                                 const std::vector<std::string> &mlirLibPaths,
+                                 const std::vector<std::string> &boehmLibPaths)
+    -> bool {
+  auto outputDir = parentDir(outputFileName);
+  if (outputDir.empty())
+    outputDir = ".";
+
+  if (copyRuntimeLibrary(cherryRuntimeLibPath, outputDir))
+    return true;
+
+  for (auto &libPath : mlirLibPaths) {
+    if (copyRuntimeLibrary(libPath, outputDir))
+      return true;
+  }
+
+  for (auto &libPath : boehmLibPaths) {
+    if (copyRuntimeLibrary(libPath, outputDir))
+      return true;
+  }
+
+  return false;
+}
+
+auto addRPath(std::vector<std::string> &argStorage,
+              std::vector<std::string> &rpaths,
+              llvm::StringRef path) -> void {
+  if (path.empty())
+    return;
+  std::string pathString(path);
+  if (std::find(rpaths.begin(), rpaths.end(), pathString) != rpaths.end())
+    return;
+  rpaths.push_back(pathString);
+  argStorage.push_back("-Wl,-rpath," + pathString);
+}
+
+auto linkExecutable(llvm::StringRef objectFileName,
+                    llvm::StringRef outputFileName,
+                    bool bundleRuntime) -> int {
+  auto linker = findProgram("clang");
+  if (linker.empty())
+    linker = findProgram("cc");
+  if (linker.empty()) {
+    llvm::errs() << "error: unable to find clang or cc for executable linking\n";
+    return EXIT_FAILURE;
+  }
+
+  auto cherryRuntimeLibPath = getCherryRuntimeLibPath();
+  if (cherryRuntimeLibPath.empty()) {
+    llvm::errs() << "error: cherry runtime library path is not configured\n";
+    return EXIT_FAILURE;
+  }
+
+  auto mlirRuntimeLibPath = getRuntimeLibPath();
+  if (mlirRuntimeLibPath.empty()) {
+    llvm::errs() << "error: MLIR runtime library path is not configured\n";
+    return EXIT_FAILURE;
+  }
+  auto mlirRuntimeLibPaths = getMLIRRuntimeLibPaths();
+  if (mlirRuntimeLibPaths.empty()) {
+    llvm::errs() << "error: MLIR runtime library list is not configured\n";
+    return EXIT_FAILURE;
+  }
+
+  auto runtimeDir = parentDir(cherryRuntimeLibPath);
+  auto mlirRuntimeDir = parentDir(mlirRuntimeLibPath);
+
+  auto boehmLinkLibPath = getBoehmLinkLibPath();
+  auto boehmRuntimeLibDir = getBoehmRuntimeLibDir();
+  auto boehmRuntimeLibPaths = getBoehmRuntimeLibPaths();
+
+  std::vector<std::string> argStorage = {
+      linker,
+      std::string(objectFileName),
+      cherryRuntimeLibPath,
+  };
+  if (bundleRuntime) {
+    argStorage.push_back("-Wl,--no-as-needed");
+    for (auto &libPath : mlirRuntimeLibPaths)
+      argStorage.push_back(libPath);
+    if (!boehmLinkLibPath.empty())
+      argStorage.push_back(boehmLinkLibPath);
+    argStorage.push_back("-Wl,--as-needed");
+  } else {
+    for (auto &libPath : mlirRuntimeLibPaths)
+      argStorage.push_back(libPath);
+    if (!boehmLinkLibPath.empty())
+      argStorage.push_back(boehmLinkLibPath);
+  }
+  argStorage.push_back("-lm");
+  if (bundleRuntime) {
+    // Use old-style RPATH here so $ORIGIN also applies to runtime libraries'
+    // transitive dependencies when the executable is moved with its bundle.
+    argStorage.push_back("-Wl,-rpath,$ORIGIN");
+    argStorage.push_back("-Wl,--disable-new-dtags");
+  } else {
+    std::vector<std::string> rpaths;
+    addRPath(argStorage, rpaths, runtimeDir);
+    addRPath(argStorage, rpaths, mlirRuntimeDir);
+    for (auto &libPath : mlirRuntimeLibPaths)
+      addRPath(argStorage, rpaths, parentDir(libPath));
+    addRPath(argStorage, rpaths, boehmRuntimeLibDir);
+    for (auto &libPath : boehmRuntimeLibPaths)
+      addRPath(argStorage, rpaths, parentDir(libPath));
+  }
+  argStorage.push_back("-o");
+  argStorage.push_back(std::string(outputFileName));
+
+  std::vector<llvm::StringRef> args;
+  for (auto &arg : argStorage)
+    args.push_back(arg);
+
+  int result = llvm::sys::ExecuteAndWait(linker, args);
+  if (result != 0) {
+    llvm::errs() << "error: executable linker failed with exit code " << result
+                 << "\n";
+    return EXIT_FAILURE;
+  }
+
+  if (bundleRuntime &&
+      copyBundledRuntimeLibraries(outputFileName, cherryRuntimeLibPath,
+                                  mlirRuntimeLibPaths, boehmRuntimeLibPaths))
+    return EXIT_FAILURE;
+
+  return EXIT_SUCCESS;
 }
 
 } // namespace
@@ -591,10 +901,60 @@ auto Compilation::jit() -> int {
 }
 
 auto Compilation::genObjectFile(const char *outputFileName) -> int {
-  (void)outputFileName;
-  llvm::errs() << "error: object file generation is temporarily disabled "
-                  "while Mulberry lowering is redesigned\n";
-  return EXIT_FAILURE;
+  return genObjectFile(outputFileName, false);
+}
+
+auto Compilation::genObjectFile(const char *outputFileName,
+                                bool addExecutableWrapper) -> int {
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTargetAsmParser();
+
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  if (genMLIR(module, Lowering::LLVM))
+    return EXIT_FAILURE;
+
+  auto targetMachine = createTargetMachine();
+  if (!targetMachine) {
+    llvm::errs() << "error: failed to create target machine: "
+                 << llvm::toString(targetMachine.takeError()) << "\n";
+    return EXIT_FAILURE;
+  }
+
+  llvm::LLVMContext llvmContext;
+  auto llvmModule =
+      genLLVMModule(*module, _enableOpt, *targetMachine, llvmContext);
+  if (!llvmModule)
+    return EXIT_FAILURE;
+
+  if (addExecutableWrapper && addRuntimeMainWrapper(*llvmModule))
+    return EXIT_FAILURE;
+
+  if (createLLVMObjectFile(*llvmModule, **targetMachine, outputFileName))
+    return EXIT_FAILURE;
+
+  return EXIT_SUCCESS;
+}
+
+auto Compilation::genExecutable(const char *outputFileName,
+                                bool bundleRuntime) -> int {
+  llvm::SmallString<128> objectFileName;
+  int objectFd = -1;
+  if (auto ec =
+          llvm::sys::fs::createTemporaryFile("cherry-aot", "o", objectFd,
+                                             objectFileName)) {
+    llvm::errs() << "error: failed to create temporary object file: "
+                 << ec.message() << "\n";
+    return EXIT_FAILURE;
+  }
+  llvm::raw_fd_ostream objectStream(objectFd, true);
+  objectStream.close();
+  llvm::FileRemover removeObjectFile(objectFileName);
+
+  if (genObjectFile(objectFileName.c_str(), true))
+    return EXIT_FAILURE;
+
+  return linkExecutable(objectFileName, outputFileName, bundleRuntime);
 }
 
 auto Compilation::dumpTokens() -> int {
@@ -643,19 +1003,11 @@ auto Compilation::dumpMLIR(Lowering lowering) -> int {
 auto Compilation::dumpLLVM() -> int {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTargetAsmParser();
 
   mlir::OwningOpRef<mlir::ModuleOp> module;
   if (genMLIR(module, Lowering::LLVM))
     return EXIT_FAILURE;
-
-  registerLLVMTranslations(*module);
-
-  llvm::LLVMContext llvmContext;
-  auto llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
-  if (!llvmModule) {
-    llvm::errs() << "error: failed to translate MLIR LLVM dialect to LLVM IR\n";
-    return EXIT_FAILURE;
-  }
 
   auto targetMachine = createTargetMachine();
   if (!targetMachine) {
@@ -664,16 +1016,11 @@ auto Compilation::dumpLLVM() -> int {
     return EXIT_FAILURE;
   }
 
-  mlir::ExecutionEngine::setupTargetTripleAndDataLayout(llvmModule.get(),
-                                                        targetMachine->get());
-
-  auto transformer = mlir::makeOptimizingTransformer(
-      _enableOpt ? 3 : 0, 0, targetMachine->get());
-  if (auto error = transformer(llvmModule.get())) {
-    llvm::errs() << "error: failed to optimize LLVM IR: "
-                 << llvm::toString(std::move(error)) << "\n";
+  llvm::LLVMContext llvmContext;
+  auto llvmModule =
+      genLLVMModule(*module, _enableOpt, *targetMachine, llvmContext);
+  if (!llvmModule)
     return EXIT_FAILURE;
-  }
 
   llvm::outs() << *llvmModule << "\n";
   return EXIT_SUCCESS;

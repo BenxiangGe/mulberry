@@ -14,9 +14,6 @@
 
 namespace cherry {
 
-class StructType;
-class TensorType;
-
 class VariableExpr final : public Expr {
 public:
   explicit VariableExpr(llvm::SMLoc location, std::string_view name)
@@ -68,16 +65,6 @@ private:
 
 class CallExpr final : public Expr {
 public:
-  enum class IntrinsicKind {
-    None,
-    Print,
-    BoolToUInt64,
-    Zeros,
-    TensorPack,
-    TensorView,
-    PtrAsUInt8,
-  };
-
   explicit CallExpr(llvm::SMLoc location, std::string_view name,
                     VectorUniquePtr<Expr> expressions)
       : Expr{Expr_Call, location}, _name(name),
@@ -121,27 +108,11 @@ public:
 
   auto isLoweredMethodCall() const -> bool { return _isLoweredMethodCall; }
 
-  auto intrinsicKind() const -> IntrinsicKind { return _intrinsicKind; }
-
-  auto setIntrinsicKind(IntrinsicKind intrinsicKind) -> void {
-    _intrinsicKind = intrinsicKind;
-  }
-
-  auto tensorPayloadType() const -> const TensorType * {
-    return _tensorPayloadType;
-  }
-
-  auto setTensorPayloadType(const TensorType *type) -> void {
-    _tensorPayloadType = type;
-  }
-
 private:
   std::string _name;
   std::unique_ptr<Expr> _receiver;
   VectorUniquePtr<Expr> _expressions;
-  IntrinsicKind _intrinsicKind = IntrinsicKind::None;
   bool _isLoweredMethodCall = false;
-  const TensorType *_tensorPayloadType = nullptr;
 
 public:
   auto begin() const -> decltype(_expressions.begin()) {

@@ -16,7 +16,7 @@ fn main(): UInt64 {
 
 # AST: VariableStat (id=view
 # AST-SAME: type=Float32[?, ?]
-# AST: CallExpr {{.*}}type=Float32[?, ?] callee=std.tensor.view
+# AST: TensorViewExpr {{.*}}type=Float32[?, ?]
 
 # MLIR: mulberry.tensor.view
 # MLIR-SAME: !mulberry.record<std_tensor_Tensor__Float32

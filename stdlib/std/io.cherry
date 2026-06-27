@@ -13,9 +13,13 @@ extern fn mulberry_file_close(handle: Ptr<UInt8>): UInt64;
 extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_safetensor_read_tensor_f32(file: Ptr<UInt8>, name: String): Tensor<Float32>;
+extern fn printU64(value: UInt64): ();
+extern fn printNewline(): ();
 
 fn print(value: UInt64): UInt64 {
-  builtinPrint(value)
+  printU64(value);
+  printNewline();
+  0
 }
 
 fn open(path: String, mode: String): File {

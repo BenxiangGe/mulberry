@@ -35,27 +35,6 @@ auto indexKindName(IndexExpr::IndexKind kind) -> std::string_view {
   return "unknown";
 }
 
-auto intrinsicKindName(CallExpr::IntrinsicKind kind) -> std::string_view {
-  switch (kind) {
-  case CallExpr::IntrinsicKind::None:
-    return "none";
-  case CallExpr::IntrinsicKind::Print:
-    return "print";
-  case CallExpr::IntrinsicKind::BoolToUInt64:
-    return "boolToUInt64";
-  case CallExpr::IntrinsicKind::Zeros:
-    return "zeros";
-  case CallExpr::IntrinsicKind::TensorPack:
-    return "tensorPack";
-  case CallExpr::IntrinsicKind::TensorView:
-    return "tensorView";
-  case CallExpr::IntrinsicKind::PtrAsUInt8:
-    return "ptrAsUInt8";
-  }
-
-  return "unknown";
-}
-
 class Dumper {
 public:
   Dumper(const llvm::SourceMgr &sourceManager)
@@ -91,6 +70,9 @@ private:
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const DerefExpr *node) -> void;
+  auto dump(const TensorZerosExpr *node) -> void;
+  auto dump(const TensorPackExpr *node) -> void;
+  auto dump(const TensorViewExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
   auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
@@ -302,8 +284,9 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            TypeLayoutExpr, HeapAllocExpr, DerefExpr,
-            ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
+            TypeLayoutExpr, HeapAllocExpr, DerefExpr, TensorZerosExpr,
+            TensorPackExpr, TensorViewExpr, ArrayLiteralExpr, IndexExpr,
+            VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
@@ -329,13 +312,31 @@ auto Dumper::dump(const CallExpr *node) -> void {
   errs() << "CallExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " callee=" << node->name();
-  if (node->intrinsicKind() != CallExpr::IntrinsicKind::None)
-    errs() << " intrinsic=" << intrinsicKindName(node->intrinsicKind());
   errs() << "\n";
   if (node->hasReceiver())
     dump(node->receiver().get());
   for (auto &expr : *node)
     dump(expr.get());
+}
+
+auto Dumper::dump(const TensorZerosExpr *node) -> void {
+  INDENT();
+  errs() << "TensorZerosExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+}
+
+auto Dumper::dump(const TensorPackExpr *node) -> void {
+  INDENT();
+  errs() << "TensorPackExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->tensor().get());
+}
+
+auto Dumper::dump(const TensorViewExpr *node) -> void {
+  INDENT();
+  errs() << "TensorViewExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->tensorRecord().get());
 }
 
 auto Dumper::dump(const StructLiteralExpr *node) -> void {

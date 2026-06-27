@@ -72,7 +72,6 @@ fn main(): UInt64 {
 # CHECK: arith.cmpi ne
 # CHECK: arith.andi
 # CHECK: arith.ori
-# CHECK: arith.extui
-# CHECK-SAME: i1 to i64
+# CHECK: call @std.core.boolToUInt64
 # CHECK: call @std.io.print
 # CHECK-NOT: cir.

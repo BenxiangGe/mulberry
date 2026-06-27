@@ -1,0 +1,100 @@
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_training_safetensors.py --output %t.training.safetensors > %t.train.export.log
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output %t.inference.safetensors > %t.infer.export.log
+# RUN: sed -e 's|@TRAINING_SAFETENSORS@|%t.training.safetensors|g' -e 's|@INFERENCE_SAFETENSORS@|%t.inference.safetensors|g' %s > %t.cherry
+# RUN: cherry-driver %t.cherry -o %t.exe
+# RUN: %t.exe 2>&1 | FileCheck %s
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  const file: File =
+      io.open("@TRAINING_SAFETENSORS@",
+              "rb");
+
+  var w1: Tensor<Float32> = io.readTensor(file, "w1");
+  var b1: Tensor<Float32> = io.readTensor(file, "b1");
+  var w2: Tensor<Float32> = io.readTensor(file, "w2");
+  var b2: Tensor<Float32> = io.readTensor(file, "b2");
+  var x0: Tensor<Float32> = io.readTensor(file, "train_x_0");
+  var y0: Tensor<Float32> = io.readTensor(file, "train_y_0");
+  var x1: Tensor<Float32> = io.readTensor(file, "train_x_1");
+  var y1: Tensor<Float32> = io.readTensor(file, "train_y_1");
+  var x2: Tensor<Float32> = io.readTensor(file, "train_x_2");
+  var y2: Tensor<Float32> = io.readTensor(file, "train_y_2");
+  var x3: Tensor<Float32> = io.readTensor(file, "train_x_3");
+  var y3: Tensor<Float32> = io.readTensor(file, "train_y_3");
+  var x4: Tensor<Float32> = io.readTensor(file, "train_x_4");
+  var y4: Tensor<Float32> = io.readTensor(file, "train_y_4");
+  var x5: Tensor<Float32> = io.readTensor(file, "train_x_5");
+  var y5: Tensor<Float32> = io.readTensor(file, "train_y_5");
+  var x6: Tensor<Float32> = io.readTensor(file, "train_x_6");
+  var y6: Tensor<Float32> = io.readTensor(file, "train_y_6");
+  var x7: Tensor<Float32> = io.readTensor(file, "train_x_7");
+  var y7: Tensor<Float32> = io.readTensor(file, "train_y_7");
+  var x8: Tensor<Float32> = io.readTensor(file, "train_x_8");
+  var y8: Tensor<Float32> = io.readTensor(file, "train_y_8");
+  var x9: Tensor<Float32> = io.readTensor(file, "train_x_9");
+  var y9: Tensor<Float32> = io.readTensor(file, "train_y_9");
+
+  io.close(file);
+
+  var xs: List<Tensor<Float32>> =
+      [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9];
+  var ys: List<Tensor<Float32>> =
+      [y0, y1, y2, y3, y4, y5, y6, y7, y8, y9];
+  const eta: Float32 = 0.1;
+
+  for epoch in 0 .. 30 {
+    for sample in 0 .. xs.size() {
+      const x: Tensor<Float32> = xs[sample];
+      const y: Tensor<Float32> = ys[sample];
+      var weights: List<Tensor<Float32>> = [w1, w2];
+      var biases: List<Tensor<Float32>> = [b1, b2];
+
+      var z1: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[0], x),
+          biases[0]);
+      var a1: Tensor<Float32> = nn.sigmoid(z1);
+      var z2: Tensor<Float32> = nn.matadd(
+          nn.matmul(weights[1], a1),
+          biases[1]);
+      var a2: Tensor<Float32> = nn.sigmoid(z2);
+
+      var delta2: Tensor<Float32> = nn.matsub(a2, y);
+      var nablaW2: Tensor<Float32> = nn.matmul(delta2, nn.transpose(a1));
+
+      var delta1: Tensor<Float32> =
+        nn.hadamard(nn.matmul(nn.transpose(weights[1]), delta2),
+                    nn.sigmoidPrime(z1));
+      var nablaW1: Tensor<Float32> = nn.matmul(delta1, nn.transpose(x));
+
+      w1 = nn.matsub(weights[0], nn.matscale(nablaW1, eta));
+      w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
+      b1 = nn.matsub(biases[0], nn.matscale(delta1, eta));
+      b2 = nn.matsub(biases[1], nn.matscale(delta2, eta));
+      ()
+    };
+    ()
+  };
+
+  const inferenceFile: File =
+      io.open("@INFERENCE_SAFETENSORS@",
+              "rb");
+  var x: Tensor<Float32> = io.readTensor(inferenceFile, "x");
+  io.close(inferenceFile);
+
+  var finalWeights: List<Tensor<Float32>> = [w1, w2];
+  var finalBiases: List<Tensor<Float32>> = [b1, b2];
+  var activation: Tensor<Float32> = x;
+  for layer in 0 .. finalWeights.size() {
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(finalWeights[layer], activation),
+        finalBiases[layer]));
+    ()
+  };
+  io.print(nn.argmax(activation));
+
+  0
+}
+
+# CHECK: 7

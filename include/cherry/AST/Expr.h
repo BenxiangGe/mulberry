@@ -43,6 +43,9 @@ public:
     Expr_TypeLayout,
     Expr_HeapAlloc,
     Expr_Deref,
+    Expr_TensorZeros,
+    Expr_TensorPack,
+    Expr_TensorView,
   };
 
   explicit Expr(ExpressionKind kind, llvm::SMLoc location)
