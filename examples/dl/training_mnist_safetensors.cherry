@@ -71,19 +71,19 @@ fn main(): UInt64 {
     }
   }
 
-  const w1Output: File = io.open("/tmp/cherry_mnist_trained_w1.f32", "wb");
+  const w1Output: File = io.open("/tmp/mulberry_mnist_trained_w1.f32", "wb");
   io.write(w1Output, w1);
   io.close(w1Output);
 
-  const b1Output: File = io.open("/tmp/cherry_mnist_trained_b1.f32", "wb");
+  const b1Output: File = io.open("/tmp/mulberry_mnist_trained_b1.f32", "wb");
   io.write(b1Output, b1);
   io.close(b1Output);
 
-  const w2Output: File = io.open("/tmp/cherry_mnist_trained_w2.f32", "wb");
+  const w2Output: File = io.open("/tmp/mulberry_mnist_trained_w2.f32", "wb");
   io.write(w2Output, w2);
   io.close(w2Output);
 
-  const b2Output: File = io.open("/tmp/cherry_mnist_trained_b2.f32", "wb");
+  const b2Output: File = io.open("/tmp/mulberry_mnist_trained_b2.f32", "wb");
   io.write(b2Output, b2);
   io.close(b2Output);
 
@@ -96,19 +96,19 @@ fn main(): UInt64 {
   var savedW2Tensor: Tensor<Float32> = tensor.pack(savedW2);
   var savedB2Tensor: Tensor<Float32> = tensor.pack(savedB2);
 
-  const w1Input: File = io.open("/tmp/cherry_mnist_trained_w1.f32", "rb");
+  const w1Input: File = io.open("/tmp/mulberry_mnist_trained_w1.f32", "rb");
   io.read(w1Input, savedW1Tensor);
   io.close(w1Input);
 
-  const b1Input: File = io.open("/tmp/cherry_mnist_trained_b1.f32", "rb");
+  const b1Input: File = io.open("/tmp/mulberry_mnist_trained_b1.f32", "rb");
   io.read(b1Input, savedB1Tensor);
   io.close(b1Input);
 
-  const w2Input: File = io.open("/tmp/cherry_mnist_trained_w2.f32", "rb");
+  const w2Input: File = io.open("/tmp/mulberry_mnist_trained_w2.f32", "rb");
   io.read(w2Input, savedW2Tensor);
   io.close(w2Input);
 
-  const b2Input: File = io.open("/tmp/cherry_mnist_trained_b2.f32", "rb");
+  const b2Input: File = io.open("/tmp/mulberry_mnist_trained_b2.f32", "rb");
   io.read(b2Input, savedB2Tensor);
   io.close(b2Input);
 

@@ -1,6 +1,6 @@
-set(LIB_HEADERS ${CHERRY_SOURCE_DIR}/include/cherry/AST)
+set(LIB_HEADERS ${MULBERRY_SOURCE_DIR}/include/mulberry/AST)
 
-add_library(cherryAST STATIC
+add_library(mulberryAST STATIC
         ${LIB_HEADERS}/AST.h
         ${LIB_HEADERS}/Node.h
         ${LIB_HEADERS}/Module.h
@@ -11,10 +11,10 @@ add_library(cherryAST STATIC
         ASTDumper.cpp
 )
 
-target_include_directories(cherryAST PUBLIC
+target_include_directories(mulberryAST PUBLIC
         ${LIB_HEADERS}
 )
 
-target_link_libraries(cherryAST PUBLIC
-        cherryBasic
+target_link_libraries(mulberryAST PUBLIC
+        mulberryBasic
 )

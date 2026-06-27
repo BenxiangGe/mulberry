@@ -80,7 +80,7 @@ Mulberry runtime 读取同一个文件格式。
 下面的命令已经重新成为默认 JIT smoke：
 
 ```sh
-./build/release/bin/cherry-driver examples/dl/inference_mnist_safetensors.cherry
+./build/release/bin/mulberry-driver examples/dl/inference_mnist_safetensors.cherry
 ```
 
 `test_data[0]` 的期望预测结果是：
@@ -128,7 +128,7 @@ iterator，所以 training bootstrap 先把每个样本导成独立 named tensor
 `delta = a - y`。mini-batch、shuffle、L2 regularization 和保存训练结果后续再补。
 
 ```sh
-./build/release/bin/cherry-driver examples/dl/training_mnist_safetensors.cherry
+./build/release/bin/mulberry-driver examples/dl/training_mnist_safetensors.cherry
 ```
 
 ## Mulberry API

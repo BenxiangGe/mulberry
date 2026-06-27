@@ -7,8 +7,7 @@ add_mlir_dialect_library(MulberryNNIR
         MLIRMulberryOpsIncGen
 
         LINK_LIBS PUBLIC
-        cherryMLIRGen
+        mulberryMLIRGen
         MLIRIR
         MLIRInferTypeOpInterface
 )
-

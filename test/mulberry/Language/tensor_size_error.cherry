@@ -1,0 +1,7 @@
+# RUN: mulberry-driver -typecheck %s
+
+fn main(): UInt64 {
+  var xs: UInt64[3] = [1, 2, 3];
+  var xsTensor: Tensor<UInt64> = tensor.pack(xs);
+  xsTensor.numel()
+}

@@ -17,7 +17,7 @@ Core Mulberry 目前仍然保留 tensor literal、`Tensor<T>`、`List<T>`、raw 
 `nn.matmul(...)` 这类普通 package call，并把最终的 `mulberry_nn.*` op lower 到
 `linalg` / `arith` / `math`。driver 通过 bundled package registry 检测
 `import mulberry.nn`，自动加载 `MulberryNNPackage` 并接入 NN package pipeline，
-所以 inference 示例可以作为普通 `cherry-driver file.cherry` 的默认 JIT smoke。
+所以 inference 示例可以作为普通 `mulberry-driver file.cherry` 的默认 JIT smoke。
 
 `matmul` 和 `transpose` 当前只实现 rank-2 tensor，刚好覆盖 Nielsen MNIST
 推理/训练需要的路径。后续如果要支持更通用的 broadcasting、batch matmul 或

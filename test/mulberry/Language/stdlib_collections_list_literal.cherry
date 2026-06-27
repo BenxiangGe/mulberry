@@ -1,0 +1,25 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: List<UInt64> = [10, 20, 30];
+  io.print(xs[1]);
+  xs.size()
+}
+
+# CHECK-LABEL: func.func @main()
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_List_push__UInt64
+# CHECK: call @std_collections_List_push__UInt64
+# CHECK: call @std_collections_List_push__UInt64
+# CHECK: call @std_collections_List_get__UInt64
+# CHECK: call @std_collections_List_size__UInt64
+
+# LOWER-LABEL: func.func @main
+# LOWER: call @std_collections_withCapacity__UInt64
+# LOWER: call @std_collections_List_push__UInt64
+# LOWER: call @std_collections_List_get__UInt64
+# LOWER: call @std_collections_List_size__UInt64
+
+# JIT: 20

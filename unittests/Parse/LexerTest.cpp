@@ -1,9 +1,9 @@
-#include "cherry/Parse/Lexer.h"
+#include "mulberry/Parse/Lexer.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "gtest/gtest.h"
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 

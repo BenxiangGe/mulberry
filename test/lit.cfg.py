@@ -16,7 +16,7 @@ from lit.llvm.subst import FindTool
 # Configuration file for the 'lit' test runner.
 
 # name: The name of this test suite.
-config.name = "CHERRY"
+config.name = "Mulberry"
 
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
@@ -27,11 +27,13 @@ config.suffixes = [".mlir", ".cherry"]
 config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.cherry_obj_root, "test")
+config.test_exec_root = os.path.join(config.mulberry_obj_root, "test")
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
-config.substitutions.append(("%cherry_src_root", os.path.dirname(config.test_source_root)))
+config.substitutions.append(
+    ("%mulberry_src_root", os.path.dirname(config.test_source_root))
+)
 # Nielsen's mnist.pkl.gz is a NumPy pickle. Keep this explicit so lit's own
 # Python environment does not accidentally pick a venv without numpy.
 config.substitutions.append(("%numpy_python", "/usr/bin/python3"))
@@ -46,22 +48,22 @@ llvm_config.use_default_substitutions()
 config.excludes = ["Inputs", "Examples", "CMakeLists.txt", "README.txt", "LICENSE.txt"]
 
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.cherry_obj_root, "test")
-config.cherry_tools_dir = os.path.join(config.cherry_obj_root, "bin")
-config.cherry_libs_dir = os.path.join(config.cherry_obj_root, "lib")
+config.test_exec_root = os.path.join(config.mulberry_obj_root, "test")
+config.mulberry_tools_dir = os.path.join(config.mulberry_obj_root, "bin")
+config.mulberry_libs_dir = os.path.join(config.mulberry_obj_root, "lib")
 
-config.substitutions.append(("%cherry_libs", config.cherry_libs_dir))
+config.substitutions.append(("%mulberry_libs", config.mulberry_libs_dir))
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 
-tool_dirs = [config.cherry_tools_dir, config.llvm_tools_dir]
+tool_dirs = [config.mulberry_tools_dir, config.llvm_tools_dir]
 tools = [
     "mlir-opt",
-    "cherry-capi-test",
-    "cherry-opt",
-    "cherry-translate",
-    "cherry-driver"
+    "mulberry-capi-test",
+    "mulberry-opt",
+    "mulberry-translate",
+    "mulberry-driver"
 ]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
@@ -69,7 +71,7 @@ llvm_config.add_tool_substitutions(tools, tool_dirs)
 llvm_config.with_environment(
     "PYTHONPATH",
     [
-        os.path.join(config.mlir_obj_dir, "python_packages", "cherry"),
+        os.path.join(config.mlir_obj_dir, "python_packages", "mulberry"),
     ],
     append_path=True,
 )

@@ -10,7 +10,7 @@ add_llvm_library(MulberryNNPackage
         MLIRMulberryNNPassesIncGen
 
         PLUGIN_TOOL
-        cherry-opt
+        mulberry-opt
 
         LINK_LIBS
         MulberryNNIR

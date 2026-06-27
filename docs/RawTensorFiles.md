@@ -99,7 +99,7 @@ label.txt
 JIT smoke：
 
 ```sh
-./build/release/bin/cherry-driver examples/dl/inference_mnist_raw.cherry
+./build/release/bin/mulberry-driver examples/dl/inference_mnist_raw.cherry
 ```
 
 这个示例先用 `zeros()` 创建 Tensor value，然后用 `read(file, tensor)` 把 raw

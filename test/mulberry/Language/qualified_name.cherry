@@ -1,0 +1,17 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn std.print.echo(value: UInt64): UInt64 {
+  value
+}
+
+fn main(): UInt64 {
+  std.print.echo(42)
+}
+
+# AST: Prototype {{.*}}name=std.print.echo
+# AST: CallExpr {{.*}}type=UInt64 callee=std.print.echo
+
+# MLIR-LABEL: func.func @std.print.echo
+# MLIR-LABEL: func.func @main
+# MLIR: call @std.print.echo

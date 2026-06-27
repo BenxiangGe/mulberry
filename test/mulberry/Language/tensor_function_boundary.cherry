@@ -1,0 +1,38 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+
+fn widen(x: Float32[2, 2]): Float32[?, ?] {
+  x
+}
+
+fn passDynamic(x: Float32[?, ?]): Float32[?, ?] {
+  x
+}
+
+fn main(): UInt64 {
+  var staticTensor: Float32[2, 2] = [[1.0, 2.0], [3.0, 4.0]];
+  var dynamicTensor: Float32[?, ?] = widen(staticTensor);
+  var returned: Float32[?, ?] = passDynamic(dynamicTensor);
+  2
+}
+
+# CHECK-LABEL: func.func @widen(%arg0: !mulberry.tensor<2x2xf32>) -> !mulberry.tensor<?x?xf32>
+# CHECK: mulberry.tensor.cast %arg0 : !mulberry.tensor<2x2xf32> to !mulberry.tensor<?x?xf32>
+# CHECK: return %{{.*}} : !mulberry.tensor<?x?xf32>
+# CHECK-LABEL: func.func @passDynamic(%arg0: !mulberry.tensor<?x?xf32>) -> !mulberry.tensor<?x?xf32>
+# CHECK: return %{{.*}} : !mulberry.tensor<?x?xf32>
+# CHECK-LABEL: func.func @main
+# CHECK: mulberry.tensor.alloc() : !mulberry.tensor<2x2xf32>
+# CHECK: call @widen
+# CHECK: call @passDynamic
+
+# LOWER-LABEL: func.func @widen(%arg0: memref<2x2xf32>) -> memref<?x?xf32>
+# LOWER: memref.cast
+# LOWER: return %{{.*}} : memref<?x?xf32>
+# LOWER-LABEL: func.func @passDynamic(%arg0: memref<?x?xf32>) -> memref<?x?xf32>
+# LOWER: return %{{.*}} : memref<?x?xf32>
+# LOWER-LABEL: func.func @main
+# LOWER: call @widen
+# LOWER: call @passDynamic
+# LOWER-NOT: mulberry.
+# LOWER-NOT: mulberry_nn.

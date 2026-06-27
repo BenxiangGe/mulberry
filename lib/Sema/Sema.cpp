@@ -1,14 +1,14 @@
-//===--- Sema.cpp - Cherry Semantic Analysis ------------------------------===//
+//===--- Sema.cpp - Mulberry Semantic Analysis ------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/Sema/Sema.h"
+#include "mulberry/Sema/Sema.h"
 #include "Symbols.h"
-#include "cherry/AST/AST.h"
-#include "cherry/Sema/DiagnosticsSema.h"
+#include "mulberry/AST/AST.h"
+#include "mulberry/Sema/DiagnosticsSema.h"
 #include <memory>
 #include <optional>
 #include <set>
@@ -18,7 +18,7 @@
 #include <vector>
 
 namespace {
-using namespace cherry;
+using namespace mulberry;
 using llvm::cast;
 using llvm::dyn_cast;
 
@@ -612,7 +612,7 @@ public:
     addBuiltins();
   }
 
-  auto sema(Module &node) -> CherryResult {
+  auto sema(Module &node) -> MulberryResult {
     for (auto &decl : node)
       if (sema(decl.get()))
         return failure();
@@ -661,85 +661,85 @@ private:
   // Semantic Analysis
 
   // Declarations
-  auto sema(Decl *node) -> CherryResult;
-  auto sema(Prototype *node) -> CherryResult;
+  auto sema(Decl *node) -> MulberryResult;
+  auto sema(Prototype *node) -> MulberryResult;
   auto semaFunctionParameters(Prototype *node,
                               std::vector<const Type *> &parameterTypes)
-      -> CherryResult;
+      -> MulberryResult;
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
-      -> CherryResult;
-  auto semaFunctionSignature(Prototype *node) -> CherryResult;
-  auto sema(FunctionDecl *node) -> CherryResult;
-  auto sema(StructDecl *node) -> CherryResult;
-  auto sema(ComptimeTypeAliasDecl *node) -> CherryResult;
+      -> MulberryResult;
+  auto semaFunctionSignature(Prototype *node) -> MulberryResult;
+  auto sema(FunctionDecl *node) -> MulberryResult;
+  auto sema(StructDecl *node) -> MulberryResult;
+  auto sema(ComptimeTypeAliasDecl *node) -> MulberryResult;
 
   // Expressions
-  auto sema(Expr *node) -> CherryResult;
-  auto sema(Expr *node, const Type *type) -> CherryResult;
-  auto sema(UnitExpr *node) -> CherryResult;
-  auto sema(BlockExpr *node) -> CherryResult;
-  auto sema(BlockExpr *node, const Type *returnType) -> CherryResult;
-  auto sema(CallExpr *node) -> CherryResult;
-  auto sema(StructLiteralExpr *node) -> CherryResult;
-  auto sema(VariableExpr *node) -> CherryResult;
-  auto sema(MemberExpr *node) -> CherryResult;
-  auto sema(AssignExpr *node) -> CherryResult;
-  auto sema(DecimalLiteralExpr *node) -> CherryResult;
-  auto sema(FloatLiteralExpr *node) -> CherryResult;
-  auto sema(BoolLiteralExpr *node) -> CherryResult;
-  auto sema(StringLiteralExpr *node) -> CherryResult;
-  auto sema(CharLiteralExpr *node) -> CherryResult;
-  auto sema(TypeLayoutExpr *node) -> CherryResult;
-  auto sema(HeapAllocExpr *node) -> CherryResult;
-  auto sema(DerefExpr *node) -> CherryResult;
-  auto sema(TensorZerosExpr *node, const TensorType *type) -> CherryResult;
-  auto sema(TensorPackExpr *node) -> CherryResult;
+  auto sema(Expr *node) -> MulberryResult;
+  auto sema(Expr *node, const Type *type) -> MulberryResult;
+  auto sema(UnitExpr *node) -> MulberryResult;
+  auto sema(BlockExpr *node) -> MulberryResult;
+  auto sema(BlockExpr *node, const Type *returnType) -> MulberryResult;
+  auto sema(CallExpr *node) -> MulberryResult;
+  auto sema(StructLiteralExpr *node) -> MulberryResult;
+  auto sema(VariableExpr *node) -> MulberryResult;
+  auto sema(MemberExpr *node) -> MulberryResult;
+  auto sema(AssignExpr *node) -> MulberryResult;
+  auto sema(DecimalLiteralExpr *node) -> MulberryResult;
+  auto sema(FloatLiteralExpr *node) -> MulberryResult;
+  auto sema(BoolLiteralExpr *node) -> MulberryResult;
+  auto sema(StringLiteralExpr *node) -> MulberryResult;
+  auto sema(CharLiteralExpr *node) -> MulberryResult;
+  auto sema(TypeLayoutExpr *node) -> MulberryResult;
+  auto sema(HeapAllocExpr *node) -> MulberryResult;
+  auto sema(DerefExpr *node) -> MulberryResult;
+  auto sema(TensorZerosExpr *node, const TensorType *type) -> MulberryResult;
+  auto sema(TensorPackExpr *node) -> MulberryResult;
   auto sema(TensorViewExpr *node,
-            const Type *expectedType = nullptr) -> CherryResult;
-  auto sema(BinaryExpr *node) -> CherryResult;
-  auto semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult;
-  auto checkAssignable(const Expr *expr) -> CherryResult;
-  auto checkConstTensorUseAsMutable(const Expr *expr) -> CherryResult;
+            const Type *expectedType = nullptr) -> MulberryResult;
+  auto sema(BinaryExpr *node) -> MulberryResult;
+  auto semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult;
+  auto checkAssignable(const Expr *expr) -> MulberryResult;
+  auto checkConstTensorUseAsMutable(const Expr *expr) -> MulberryResult;
   auto checkConstTensorBinding(const VariableStat *node,
-                               const Type *type) -> CherryResult;
-  auto sema(ArrayLiteralExpr *expr) -> CherryResult;
+                               const Type *type) -> MulberryResult;
+  auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
   auto semaStdlibListLiteral(ArrayLiteralExpr *expr, const Type *type,
-                             const Type *elementType) -> CherryResult;
-  auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> CherryResult;
-  auto sema(IndexExpr *expr) -> CherryResult;
-  auto sema(IfExpr *node) -> CherryResult;
-  auto sema(WhileExpr *node) -> CherryResult;
-  auto sema(BreakExpr *node) -> CherryResult;
-  auto sema(ContinueExpr *node) -> CherryResult;
-  auto sema(ForExpr *node) -> CherryResult;
+                             const Type *elementType) -> MulberryResult;
+  auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> MulberryResult;
+  auto sema(IndexExpr *expr) -> MulberryResult;
+  auto sema(IfExpr *node) -> MulberryResult;
+  auto sema(WhileExpr *node) -> MulberryResult;
+  auto sema(BreakExpr *node) -> MulberryResult;
+  auto sema(ContinueExpr *node) -> MulberryResult;
+  auto sema(ForExpr *node) -> MulberryResult;
   auto semaTensorLiteralElement(Expr *expr, const Type *type)
-      -> CherryResult;
+      -> MulberryResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
-                       const Type *expectedType = nullptr) -> CherryResult;
+                       const Type *expectedType = nullptr) -> MulberryResult;
   auto semaMethodCall(CallExpr *node,
-                      const Type *expectedType = nullptr) -> CherryResult;
+                      const Type *expectedType = nullptr) -> MulberryResult;
   auto semaDottedMethodCall(CallExpr *node,
                             const Type *expectedType = nullptr)
-      -> CherryResult;
+      -> MulberryResult;
   auto declareStructMethods(std::string_view ownerName,
                             const VectorUniquePtr<FunctionDecl> &methods,
                             const std::vector<ComptimeParam> &typeParameters,
-                            std::string_view packageName) -> CherryResult;
+                            std::string_view packageName) -> MulberryResult;
 
   // Statements
-  auto sema(Stat *node) -> CherryResult;
-  auto sema(VariableStat *node) -> CherryResult;
-  auto sema(ExprStat *node) -> CherryResult;
+  auto sema(Stat *node) -> MulberryResult;
+  auto sema(VariableStat *node) -> MulberryResult;
+  auto sema(ExprStat *node) -> MulberryResult;
 
   // Errors
-  auto emitError(const Node *node, const llvm::Twine &msg) -> CherryResult {
+  auto emitError(const Node *node, const llvm::Twine &msg) -> MulberryResult {
     _sourceManager.PrintMessage(node->location(),
                                 llvm::SourceMgr::DiagKind::DK_Error, msg);
     return failure();
   }
 
-  auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> CherryResult {
+  auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> MulberryResult {
     _sourceManager.PrintMessage(loc, llvm::SourceMgr::DiagKind::DK_Error, msg);
     return failure();
   }
@@ -842,7 +842,7 @@ private:
   }
 
   auto lookupStructType(std::string_view name) -> const StructType * {
-    return cherry::getStructType(lookupType(name));
+    return mulberry::getStructType(lookupType(name));
   }
 
   auto comptimeTypeAliasName(std::string_view name) -> std::string {
@@ -884,7 +884,7 @@ private:
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConst = false)
-      -> CherryResult {
+      -> MulberryResult {
     return _symbols.declareVariable(name, type, isConst);
   }
 
@@ -931,7 +931,7 @@ private:
                        std::vector<const Type *> parameterTypes,
                        const Type *returnType,
                        std::string_view packageName = {})
-      -> CherryResult {
+      -> MulberryResult {
     if (packageName.empty())
       packageName = _currentPackageName;
     _functionPackages[std::string(name)] = std::string(packageName);
@@ -942,14 +942,14 @@ private:
   auto declareGenericFunction(std::string_view name,
                               const FunctionDecl *decl,
                               std::string_view packageName = {})
-      -> CherryResult {
+      -> MulberryResult {
     if (packageName.empty())
       packageName = _currentPackageName;
     _genericFunctionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareGenericFunction(name, decl);
   }
 
-  auto declareType(std::string_view name, const Type *type) -> CherryResult {
+  auto declareType(std::string_view name, const Type *type) -> MulberryResult {
     return _symbols.declareType(name, type);
   }
 
@@ -959,7 +959,7 @@ private:
     return type;
   }
 
-  auto declareStructType(const StructType *type) -> CherryResult {
+  auto declareStructType(const StructType *type) -> MulberryResult {
     return declareType(type->name(), type);
   }
 
@@ -1260,7 +1260,7 @@ private:
                                   std::string_view name,
                                   const Type *argumentType,
                                   std::string &concreteName)
-      -> CherryResult {
+      -> MulberryResult {
     auto *symbol = lookupGenericFunction(name);
     if (!symbol) {
       auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
@@ -1325,7 +1325,7 @@ private:
   }
 
   auto rejectUnitType(const TypeNode *typeNode, const Type *type)
-      -> CherryResult {
+      -> MulberryResult {
     if (!isUnitType(type))
       return success();
 
@@ -1333,7 +1333,7 @@ private:
   }
 
   auto rejectUnitElementType(const TypeNode *typeNode, const Type *type)
-      -> CherryResult {
+      -> MulberryResult {
     if (!hasUnitElementType(type))
       return success();
 
@@ -1519,7 +1519,7 @@ private:
   auto isTensorParameter(const FunctionSymbol *signature, size_t index) -> bool {
     auto *parameterType = signature->parameterTypes[index];
     if (parameterType)
-      return cherry::isTensorType(parameterType);
+      return mulberry::isTensorType(parameterType);
     return false;
   }
 
@@ -1528,7 +1528,7 @@ private:
   }
 
   static auto stdlibListElementType(const Type *type) -> const Type * {
-    auto *structType = cherry::getStructType(type);
+    auto *structType = mulberry::getStructType(type);
     if (!structType)
       return nullptr;
 
@@ -1546,7 +1546,7 @@ private:
     if (fields[2].name() != "data")
       return nullptr;
 
-    auto *dataPtrType = cherry::getPtrType(fields[2].type());
+    auto *dataPtrType = mulberry::getPtrType(fields[2].type());
     if (!dataPtrType)
       return nullptr;
     return dataPtrType->pointeeType();
@@ -1563,7 +1563,7 @@ private:
   }
 
   auto tensorElementType(const Type *type) -> const Type * {
-    auto *structType = cherry::getStructType(type);
+    auto *structType = mulberry::getStructType(type);
     if (!structType)
       return nullptr;
 
@@ -1582,7 +1582,7 @@ private:
   auto tensorViewType(const Type *type, const Type *expectedType)
       -> const TensorType * {
     auto *elementType = tensorElementType(type);
-    auto *expectedTensorType = cherry::getTensorType(expectedType);
+    auto *expectedTensorType = mulberry::getTensorType(expectedType);
     if (!elementType || !expectedTensorType)
       return nullptr;
     if (!sameType(expectedTensorType->elementType(), elementType))
@@ -1594,7 +1594,7 @@ private:
 
 } // end namespace
 
-auto SemaImpl::sema(Decl *node) -> CherryResult {
+auto SemaImpl::sema(Decl *node) -> MulberryResult {
   switch (node->getKind()) {
   case Decl::Decl_Import:
     return success();
@@ -1607,7 +1607,7 @@ auto SemaImpl::sema(Decl *node) -> CherryResult {
   }
 }
 
-auto SemaImpl::sema(Prototype *node) -> CherryResult {
+auto SemaImpl::sema(Prototype *node) -> MulberryResult {
   if (node->isGeneric())
     return success();
 
@@ -1616,7 +1616,7 @@ auto SemaImpl::sema(Prototype *node) -> CherryResult {
 
 auto SemaImpl::semaFunctionParameters(
     Prototype *node, std::vector<const Type *> &parameterTypes)
-    -> CherryResult {
+    -> MulberryResult {
   for (auto &par : node->parameters()) {
     auto *parameterType = checkType(par->typeNode(), UnitPolicy::Reject);
     if (!parameterType)
@@ -1631,7 +1631,7 @@ auto SemaImpl::semaFunctionParameters(
 
 auto SemaImpl::bindFunctionParameters(Prototype *node,
                                       const FunctionSymbol *signature)
-    -> CherryResult {
+    -> MulberryResult {
   auto &parameters = node->parameters();
   for (size_t i = 0; i < parameters.size(); ++i) {
     auto &parameter = parameters[i];
@@ -1644,7 +1644,7 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
   return success();
 }
 
-auto SemaImpl::semaFunctionSignature(Prototype *node) -> CherryResult {
+auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
   std::vector<const Type *> parameterTypes;
   if (semaFunctionParameters(node, parameterTypes))
     return failure();
@@ -1662,7 +1662,7 @@ auto SemaImpl::semaFunctionSignature(Prototype *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(FunctionDecl *node) -> CherryResult {
+auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   auto functionPackage = node->isExtern()
                              ? _currentPackageName
                              : functionPackageName(node->proto()->id()->name());
@@ -1715,7 +1715,7 @@ auto SemaImpl::declareStructMethods(
     std::string_view ownerName, const VectorUniquePtr<FunctionDecl> &methods,
     const std::vector<ComptimeParam> &typeParameters,
     std::string_view packageName)
-    -> CherryResult {
+    -> MulberryResult {
   NameSet methodNames;
   for (auto &method : methods) {
     auto *prototype = method->proto().get();
@@ -1749,7 +1749,7 @@ auto SemaImpl::declareStructMethods(
   return success();
 }
 
-auto SemaImpl::sema(StructDecl *node) -> CherryResult {
+auto SemaImpl::sema(StructDecl *node) -> MulberryResult {
   PackageScope packageScope(_currentPackageName,
                             packageNameOf(node->id()->name()));
   std::vector<StructField> fields;
@@ -1781,7 +1781,7 @@ auto SemaImpl::sema(StructDecl *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
+auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
   auto packageName = packageNameOf(node->name());
   PackageScope packageScope(_currentPackageName, packageName);
   if (_symbols.lookupType(node->name()) ||
@@ -1814,7 +1814,7 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(Expr *node) -> CherryResult {
+auto SemaImpl::sema(Expr *node) -> MulberryResult {
   switch (node->getKind()) {
   case Expr::Expr_Unit:
     return sema(cast<UnitExpr>(node));
@@ -1871,12 +1871,12 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
   }
 }
 
-auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
+auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   auto *arrayLiteral = dyn_cast<ArrayLiteralExpr>(node);
   if (arrayLiteral) {
     // Source `[...]` is neutral syntax. Expected type decides whether it is a
     // Tensor literal or a stdlib List alias; other expressions stay bottom-up.
-    if (auto *tensorType = cherry::getTensorType(type))
+    if (auto *tensorType = mulberry::getTensorType(type))
       return sema(arrayLiteral, tensorType);
     if (auto *elementType = stdlibListElementType(type))
       return semaStdlibListLiteral(arrayLiteral, type, elementType);
@@ -1884,7 +1884,7 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
 
   auto *tensorZeros = dyn_cast<TensorZerosExpr>(node);
   if (tensorZeros) {
-    auto *tensorType = cherry::getTensorType(type);
+    auto *tensorType = mulberry::getTensorType(type);
     if (!tensorType)
       return emitError(tensorZeros, diag::mismatch_type);
     return sema(tensorZeros, tensorType);
@@ -1936,7 +1936,7 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
 auto SemaImpl::semaGenericCall(CallExpr *node,
                                const GenericFunctionSymbol *symbol,
                                const Type *expectedType)
-    -> CherryResult {
+    -> MulberryResult {
   auto *genericFunction = symbol->decl;
   auto *genericProto = genericFunction->proto().get();
   auto name = genericProto->id()->name();
@@ -2020,12 +2020,12 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   return success();
 }
 
-auto SemaImpl::sema(UnitExpr *node) -> CherryResult {
+auto SemaImpl::sema(UnitExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(BlockExpr *node) -> CherryResult {
+auto SemaImpl::sema(BlockExpr *node) -> MulberryResult {
   VariableScope blockScope(_symbols);
   for (auto &expr : *node)
     if (sema(expr.get()))
@@ -2038,7 +2038,7 @@ auto SemaImpl::sema(BlockExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
-    -> CherryResult {
+    -> MulberryResult {
   VariableScope blockScope(_symbols);
   for (auto &expr : *node)
     if (sema(expr.get()))
@@ -2050,7 +2050,7 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
   return success();
 }
 
-auto SemaImpl::sema(CallExpr *node) -> CherryResult {
+auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
   if (node->hasReceiver())
     return semaMethodCall(node);
 
@@ -2103,7 +2103,7 @@ auto SemaImpl::sema(CallExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
+    -> MulberryResult {
   if (!node->hasReceiver())
     return semaDottedMethodCall(node, expectedType);
 
@@ -2111,9 +2111,9 @@ auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
     return failure();
 
   auto *receiverType = node->receiver()->type();
-  auto *ptrType = cherry::getPtrType(receiverType);
-  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
-                             : cherry::getStructType(receiverType);
+  auto *ptrType = mulberry::getPtrType(receiverType);
+  auto *structType = ptrType ? mulberry::getStructType(ptrType->pointeeType())
+                             : mulberry::getStructType(receiverType);
   if (!structType)
     return emitError(node->receiver().get(), diag::mismatch_type);
 
@@ -2141,7 +2141,7 @@ auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
 }
 
 auto SemaImpl::semaDottedMethodCall(CallExpr *node, const Type *expectedType)
-    -> CherryResult {
+    -> MulberryResult {
   auto name = std::string(node->name());
   auto dot = name.rfind('.');
   if (dot == std::string::npos) {
@@ -2156,9 +2156,9 @@ auto SemaImpl::semaDottedMethodCall(CallExpr *node, const Type *expectedType)
   return semaMethodCall(node, expectedType);
 }
 
-auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
   auto *type = resolveType(node->typeNode());
-  auto *structType = cherry::getStructType(type);
+  auto *structType = mulberry::getStructType(type);
   if (!structType)
     return emitError(node, diag::undefined_type);
   node->setStructType(structType);
@@ -2181,7 +2181,7 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(VariableExpr *node) -> CherryResult {
+auto SemaImpl::sema(VariableExpr *node) -> MulberryResult {
   auto *symbol = lookupVariable(node->name());
   if (!symbol)
     return emitError(node, diag::undefined_var);
@@ -2189,14 +2189,14 @@ auto SemaImpl::sema(VariableExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
+auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
   if (sema(node->base().get()))
     return failure();
 
   auto *baseType = node->base()->type();
-  auto *ptrType = cherry::getPtrType(baseType);
-  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
-                             : cherry::getStructType(baseType);
+  auto *ptrType = mulberry::getPtrType(baseType);
+  auto *structType = ptrType ? mulberry::getStructType(ptrType->pointeeType())
+                             : mulberry::getStructType(baseType);
   if (!structType)
     return emitError(node->base().get(), diag::mismatch_type);
 
@@ -2221,22 +2221,22 @@ auto SemaImpl::sema(MemberExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(DecimalLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(DecimalLiteralExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::UInt64);
   return success();
 }
 
-auto SemaImpl::sema(FloatLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(FloatLiteralExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::Float32);
   return success();
 }
 
-auto SemaImpl::sema(BoolLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(BoolLiteralExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::Bool);
   return success();
 }
 
-auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(StringLiteralExpr *node) -> MulberryResult {
   auto *type = lookupType("String");
   if (!type)
     return emitError(node, diag::undefined_type);
@@ -2244,12 +2244,12 @@ auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(CharLiteralExpr *node) -> CherryResult {
+auto SemaImpl::sema(CharLiteralExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::UInt8);
   return success();
 }
 
-auto SemaImpl::sema(TypeLayoutExpr *node) -> CherryResult {
+auto SemaImpl::sema(TypeLayoutExpr *node) -> MulberryResult {
   auto *queriedType = resolveType(node->typeNode());
   if (!queriedType)
     return failure();
@@ -2266,7 +2266,7 @@ auto SemaImpl::sema(TypeLayoutExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(HeapAllocExpr *node) -> CherryResult {
+auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
   auto *allocatedType = checkType(node->typeNode(), UnitPolicy::Reject);
   if (!allocatedType)
     return failure();
@@ -2283,11 +2283,11 @@ auto SemaImpl::sema(HeapAllocExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(DerefExpr *node) -> CherryResult {
+auto SemaImpl::sema(DerefExpr *node) -> MulberryResult {
   if (sema(node->pointer().get()))
     return failure();
 
-  auto *ptrType = cherry::getPtrType(node->pointer()->type());
+  auto *ptrType = mulberry::getPtrType(node->pointer()->type());
   if (!ptrType)
     return emitError(node->pointer().get(), diag::mismatch_type);
 
@@ -2295,7 +2295,7 @@ auto SemaImpl::sema(DerefExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(AssignExpr *node) -> CherryResult {
+auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
   if (sema(node->lhs().get()) ||
       sema(node->rhs().get(), node->lhs()->type()))
     return failure();
@@ -2305,14 +2305,14 @@ auto SemaImpl::sema(AssignExpr *node) -> CherryResult {
     return emitError(node->lhs().get(), diag::expected_lvalue);
   if (checkAssignable(node->lhs().get()))
     return failure();
-  if (cherry::isTensorType(node->lhs()->type()) &&
+  if (mulberry::isTensorType(node->lhs()->type()) &&
       checkConstTensorUseAsMutable(node->rhs().get()))
     return failure();
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
+auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   using Operator = BinaryExpr::Operator;
   if (semaBinaryOperandsSameType(node))
     return llvm::failure();
@@ -2363,7 +2363,7 @@ auto SemaImpl::sema(BinaryExpr *node) -> CherryResult {
   llvm_unreachable("Unexpected BinaryExpr operator");
 }
 
-auto SemaImpl::semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult {
+auto SemaImpl::semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult {
   if (sema(node->lhs().get()) || sema(node->rhs().get()))
     return failure();
   if (!sameType(node->lhs()->type(), node->rhs()->type()))
@@ -2371,7 +2371,7 @@ auto SemaImpl::semaBinaryOperandsSameType(BinaryExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
+auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
   if (auto *var = llvm::dyn_cast<VariableExpr>(expr)) {
     auto *symbol = lookupVariable(var->name());
     if (!symbol)
@@ -2394,7 +2394,7 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> CherryResult {
+auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> MulberryResult {
   auto *var = llvm::dyn_cast<VariableExpr>(expr);
   if (!var)
     return success();
@@ -2409,13 +2409,13 @@ auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> CherryResult {
 
 auto SemaImpl::checkConstTensorBinding(const VariableStat *node,
                                        const Type *type)
-    -> CherryResult {
-  if (node->isConst() || !cherry::isTensorType(type))
+    -> MulberryResult {
+  if (node->isConst() || !mulberry::isTensorType(type))
     return success();
   return checkConstTensorUseAsMutable(node->init().get());
 }
 
-auto SemaImpl::sema(ArrayLiteralExpr *expr) -> CherryResult {
+auto SemaImpl::sema(ArrayLiteralExpr *expr) -> MulberryResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
@@ -2427,7 +2427,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr) -> CherryResult {
   auto *elementType = firstElementType;
   std::vector<int64_t> currentShape{static_cast<int64_t>(elements.size())};
 
-  if (auto *nestedTensorType = cherry::getTensorType(elementType)) {
+  if (auto *nestedTensorType = mulberry::getTensorType(elementType)) {
     elementType = nestedTensorType->elementType();
     currentShape.insert(currentShape.end(), nestedTensorType->shape().begin(),
                         nestedTensorType->shape().end());
@@ -2455,7 +2455,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr) -> CherryResult {
 auto SemaImpl::semaStdlibListLiteral(ArrayLiteralExpr *expr,
                                      const Type *type,
                                      const Type *elementType)
-    -> CherryResult {
+    -> MulberryResult {
   auto &elements = expr->getElements();
   for (auto &element : elements) {
     if (sema(element.get(), elementType))
@@ -2483,7 +2483,7 @@ auto SemaImpl::semaStdlibListLiteral(ArrayLiteralExpr *expr,
 }
 
 auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
-    -> CherryResult {
+    -> MulberryResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
@@ -2534,7 +2534,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
 }
 
 auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
-    -> CherryResult {
+    -> MulberryResult {
   if (auto *decimal = dyn_cast<DecimalLiteralExpr>(expr)) {
     if (isUInt8Type(type)) {
       if (decimal->value() > 255)
@@ -2557,7 +2557,7 @@ auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
 }
 
 auto SemaImpl::sema(TensorZerosExpr *node, const TensorType *type)
-    -> CherryResult {
+    -> MulberryResult {
   // zeros() is target-typed so it can allocate a Tensor without a huge literal.
   // Dynamic-shape zero fill needs loop-based initialization and is a separate
   // operation from the static raw-file buffers needed by the current pipeline.
@@ -2570,7 +2570,7 @@ auto SemaImpl::sema(TensorZerosExpr *node, const TensorType *type)
   return success();
 }
 
-auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
+auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
   if (sema(expr->base().get()))
     return failure();
 
@@ -2597,7 +2597,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
     return success();
   }
 
-  auto *ptrType = cherry::getPtrType(expr->base()->type());
+  auto *ptrType = mulberry::getPtrType(expr->base()->type());
   if (ptrType) {
     if (expr->indices().size() != 1)
       return emitError(expr, diag::mismatch_type);
@@ -2613,7 +2613,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
     return success();
   }
 
-  auto *tensorType = cherry::getTensorType(expr->base()->type());
+  auto *tensorType = mulberry::getTensorType(expr->base()->type());
   if (!tensorType)
     return emitError(expr, diag::mismatch_type);
 
@@ -2634,11 +2634,11 @@ auto SemaImpl::sema(IndexExpr *expr) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(TensorPackExpr *node) -> CherryResult {
+auto SemaImpl::sema(TensorPackExpr *node) -> MulberryResult {
   if (sema(node->tensor().get()))
     return failure();
 
-  auto *tensorType = cherry::getTensorType(node->tensor()->type());
+  auto *tensorType = mulberry::getTensorType(node->tensor()->type());
   if (!tensorType)
     return emitError(node->tensor().get(), diag::mismatch_type);
 
@@ -2651,7 +2651,7 @@ auto SemaImpl::sema(TensorPackExpr *node) -> CherryResult {
 }
 
 auto SemaImpl::sema(TensorViewExpr *node, const Type *expectedType)
-    -> CherryResult {
+    -> MulberryResult {
   if (sema(node->tensorRecord().get()))
     return failure();
 
@@ -2663,7 +2663,7 @@ auto SemaImpl::sema(TensorViewExpr *node, const Type *expectedType)
   return success();
 }
 
-auto SemaImpl::sema(IfExpr *node) -> CherryResult {
+auto SemaImpl::sema(IfExpr *node) -> MulberryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
     return failure();
@@ -2692,7 +2692,7 @@ auto SemaImpl::sema(IfExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(WhileExpr *node) -> CherryResult {
+auto SemaImpl::sema(WhileExpr *node) -> MulberryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
     return failure();
@@ -2711,21 +2711,21 @@ auto SemaImpl::sema(WhileExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(BreakExpr *node) -> CherryResult {
+auto SemaImpl::sema(BreakExpr *node) -> MulberryResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(ContinueExpr *node) -> CherryResult {
+auto SemaImpl::sema(ContinueExpr *node) -> MulberryResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(ForExpr *node) -> CherryResult {
+auto SemaImpl::sema(ForExpr *node) -> MulberryResult {
   if (sema(node->startExpr().get()) || sema(node->endExpr().get()))
     return failure();
 
@@ -2750,7 +2750,7 @@ auto SemaImpl::sema(ForExpr *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(Stat *node) -> CherryResult {
+auto SemaImpl::sema(Stat *node) -> MulberryResult {
   switch (node->getKind()) {
   case Stat::Stat_VariableDecl:
     return sema(cast<VariableStat>(node));
@@ -2759,7 +2759,7 @@ auto SemaImpl::sema(Stat *node) -> CherryResult {
   }
 }
 
-auto SemaImpl::sema(VariableStat *node) -> CherryResult {
+auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   auto var = node->variable().get();
   auto *varType = checkType(node->typeNode(), UnitPolicy::Allow);
   if (!varType)
@@ -2778,21 +2778,21 @@ auto SemaImpl::sema(VariableStat *node) -> CherryResult {
   return success();
 }
 
-auto SemaImpl::sema(ExprStat *node) -> CherryResult {
+auto SemaImpl::sema(ExprStat *node) -> MulberryResult {
   return sema(node->expression().get());
 }
 
-namespace cherry {
+namespace mulberry {
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST)
-    -> CherryResult {
+    -> MulberryResult {
   return SemaImpl(sourceManager).sema(moduleAST);
 }
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST,
           const std::map<std::string, std::string> &importAliases)
-    -> CherryResult {
+    -> MulberryResult {
   return SemaImpl(sourceManager, importAliases).sema(moduleAST);
 }
 
-} // end namespace cherry
+} // end namespace mulberry

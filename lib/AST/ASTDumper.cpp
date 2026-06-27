@@ -1,20 +1,20 @@
-//===--- ASTDumper.cpp - Cherry Language AST Dumper
+//===--- ASTDumper.cpp - Mulberry Language AST Dumper
 //------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/AST/AST.h"
-#include "cherry/Basic/Types.h"
+#include "mulberry/AST/AST.h"
+#include "mulberry/Basic/Types.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
 #include <string_view>
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 using llvm::cast;
@@ -534,11 +534,11 @@ auto Dumper::dump(const ExprStat *node) -> void {
   dump(node->expression().get());
 }
 
-namespace cherry {
+namespace mulberry {
 
 auto dumpAST(const llvm::SourceMgr &sourceManager, const Module &module)
     -> void {
   Dumper(sourceManager).dump(&module);
 }
 
-} // end namespace cherry
+} // end namespace mulberry

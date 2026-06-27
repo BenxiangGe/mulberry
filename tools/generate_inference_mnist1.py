@@ -1,6 +1,6 @@
-"""Generate a Cherry source file with Nielsen MNIST inference data.
+"""Generate a Mulberry source file with Nielsen MNIST inference data.
 
-Run from the Cherry repository root:
+Run from the Mulberry repository root:
 
     python3 tools/generate_inference_mnist1.py
 
@@ -53,7 +53,7 @@ def parseArgs() -> argparse.Namespace:
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help="Generated Cherry source path.",
+        help="Generated Mulberry source path.",
     )
     return parser.parse_args()
 
@@ -149,7 +149,7 @@ def formatPathForComment(path: Path) -> str:
         return path.as_posix()
 
 
-def writeCherrySource(
+def writeMulberrySource(
     output: Path,
     networkJson: Path,
     mnistData: Path,
@@ -228,7 +228,7 @@ def main() -> None:
     w1, b1, w2, b2 = loadNetwork(networkJson)
     x, y = loadTestSample(mnistData, args.sample_index)
 
-    writeCherrySource(
+    writeMulberrySource(
         args.output,
         networkJson,
         mnistData,

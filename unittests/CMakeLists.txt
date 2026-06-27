@@ -1,8 +1,8 @@
-add_custom_target(CherryUnitTests)
-set_target_properties(CherryUnitTests PROPERTIES FOLDER "Cherry Tests")
+add_custom_target(MulberryUnitTests)
+set_target_properties(MulberryUnitTests PROPERTIES FOLDER "Mulberry Tests")
 
-function(add_cherry_unittest test_dirname)
-    add_unittest(CherryUnitTests ${test_dirname} ${ARGN})
+function(add_mulberry_unittest test_dirname)
+    add_unittest(MulberryUnitTests ${test_dirname} ${ARGN})
 endfunction()
 
 add_subdirectory(Parse)

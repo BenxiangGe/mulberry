@@ -41,7 +41,7 @@ fn sum(xs: List<UInt64>): UInt64 {
 
 ## 目标源码形态
 
-下面是目标方向，不是当前 Cherry 已经支持的语法。
+下面是目标方向，不是当前 Mulberry 已经支持的语法。
 
 ```cherry
 package std.collections;

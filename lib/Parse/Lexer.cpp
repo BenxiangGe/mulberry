@@ -1,15 +1,15 @@
-//===--- Lexer.cpp - Cherry Language Lexer --------------------------------===//
+//===--- Lexer.cpp - Mulberry Language Lexer --------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/Parse/Lexer.h"
+#include "mulberry/Parse/Lexer.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <cctype>
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 auto isDigit(char c) -> bool {

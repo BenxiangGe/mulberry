@@ -1,0 +1,25 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var w1: Float32[?, ?] = [[1.0, 2.0], [3.0, 4.0]];
+  var w2: Float32[?, ?] = [[5.0, 6.0]];
+  var w1h: Tensor<Float32> = tensor.pack(w1);
+  var w2h: Tensor<Float32> = tensor.pack(w2);
+
+  var weights: List<Tensor<Float32>> =
+      collections.withCapacity(1);
+  weights.push(w1h);
+  weights = collections.withCapacity(1);
+  weights.push(w2h);
+
+  var activation: Float32[?, ?] = w1;
+  activation = w2;
+
+  weights.size() + 1
+}
+
+# CHECK-LABEL: func.func @main()
+# CHECK: mulberry.tensor.pack
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_List_push__
+# CHECK: call @std_collections_List_size__

@@ -1,0 +1,26 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: List<UInt64> = collections.withCapacity(2);
+  xs.push(42);
+  xs.push(58);
+  io.print(xs.size());
+  io.print(xs[0] + xs[1]);
+  0
+}
+
+# AST-DAG: CallExpr {{.*}}callee=std_collections_withCapacity__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_collections_List_push__UInt64
+# AST-DAG: IndexExpr {{.*}}type=UInt64 kind=stdlibList
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_collections_withCapacity__UInt64
+# MLIR: call @std_collections_List_push__UInt64
+# MLIR-DAG: func.func @std_collections_List_push__UInt64
+# MLIR-DAG: mulberry.ptr.index
+# MLIR-DAG: arith.addi
+
+# JIT: 2
+# JIT-NEXT: 100

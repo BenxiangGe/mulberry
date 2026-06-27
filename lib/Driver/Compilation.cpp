@@ -1,17 +1,17 @@
 //===--- Compilation.cpp - Compilation Task Data Structure ----------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/Driver/Compilation.h"
-#include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/MulberryDialect.h"
-#include "cherry/MLIRGen/MLIRGen.h"
-#include "cherry/Parse/Lexer.h"
-#include "cherry/Parse/Parser.h"
-#include "cherry/Sema/Sema.h"
+#include "mulberry/Driver/Compilation.h"
+#include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
+#include "mulberry/MLIRGen/IR/MulberryDialect.h"
+#include "mulberry/MLIRGen/MLIRGen.h"
+#include "mulberry/Parse/Lexer.h"
+#include "mulberry/Parse/Parser.h"
+#include "mulberry/Sema/Sema.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -56,13 +56,13 @@
 #include <string_view>
 #include <vector>
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 
 auto getRuntimeLibPath() -> std::string {
-#ifdef CHERRY_MLIR_C_RUNNER_UTILS
-  return CHERRY_MLIR_C_RUNNER_UTILS;
+#ifdef MULBERRY_MLIR_C_RUNNER_UTILS
+  return MULBERRY_MLIR_C_RUNNER_UTILS;
 #else
   return {};
 #endif
@@ -86,8 +86,8 @@ auto splitRuntimeLibPaths(std::string_view paths) -> std::vector<std::string> {
 }
 
 auto getMLIRRuntimeLibPaths() -> std::vector<std::string> {
-#ifdef CHERRY_MLIR_RUNTIME_LIBS
-  return splitRuntimeLibPaths(CHERRY_MLIR_RUNTIME_LIBS);
+#ifdef MULBERRY_MLIR_RUNTIME_LIBS
+  return splitRuntimeLibPaths(MULBERRY_MLIR_RUNTIME_LIBS);
 #else
   auto runtimeLibPath = getRuntimeLibPath();
   if (runtimeLibPath.empty())
@@ -96,49 +96,49 @@ auto getMLIRRuntimeLibPaths() -> std::vector<std::string> {
 #endif
 }
 
-auto getCherryRuntimeLibPath() -> std::string {
-#ifdef CHERRY_RUNTIME_LIB
-  return CHERRY_RUNTIME_LIB;
+auto getMulberryRuntimeLibPath() -> std::string {
+#ifdef MULBERRY_RUNTIME_LIB
+  return MULBERRY_RUNTIME_LIB;
 #else
   return {};
 #endif
 }
 
 auto getBoehmLinkLibPath() -> std::string {
-#ifdef CHERRY_BDWGC_LINK_LIB
-  return CHERRY_BDWGC_LINK_LIB;
+#ifdef MULBERRY_BDWGC_LINK_LIB
+  return MULBERRY_BDWGC_LINK_LIB;
 #else
   return {};
 #endif
 }
 
 auto getBoehmRuntimeLibPaths() -> std::vector<std::string> {
-#ifdef CHERRY_BDWGC_RUNTIME_LIBS
-  return splitRuntimeLibPaths(CHERRY_BDWGC_RUNTIME_LIBS);
+#ifdef MULBERRY_BDWGC_RUNTIME_LIBS
+  return splitRuntimeLibPaths(MULBERRY_BDWGC_RUNTIME_LIBS);
 #else
   return {};
 #endif
 }
 
 auto getBoehmRuntimeLibDir() -> std::string {
-#ifdef CHERRY_BDWGC_LIBRARY_DIR
-  return CHERRY_BDWGC_LIBRARY_DIR;
+#ifdef MULBERRY_BDWGC_LIBRARY_DIR
+  return MULBERRY_BDWGC_LIBRARY_DIR;
 #else
   return {};
 #endif
 }
 
 auto getBundledPackageRegistry() -> std::string {
-#ifdef CHERRY_BUNDLED_PACKAGE_REGISTRY
-  return CHERRY_BUNDLED_PACKAGE_REGISTRY;
+#ifdef MULBERRY_BUNDLED_PACKAGE_REGISTRY
+  return MULBERRY_BUNDLED_PACKAGE_REGISTRY;
 #else
   return {};
 #endif
 }
 
 auto getDefaultStdlibPath() -> std::string {
-#ifdef CHERRY_STDLIB_DIR
-  return CHERRY_STDLIB_DIR;
+#ifdef MULBERRY_STDLIB_DIR
+  return MULBERRY_STDLIB_DIR;
 #else
   return "stdlib";
 #endif
@@ -415,7 +415,7 @@ auto copyRuntimeLibrary(llvm::StringRef sourcePath,
 }
 
 auto copyBundledRuntimeLibraries(llvm::StringRef outputFileName,
-                                 llvm::StringRef cherryRuntimeLibPath,
+                                 llvm::StringRef mulberryRuntimeLibPath,
                                  const std::vector<std::string> &mlirLibPaths,
                                  const std::vector<std::string> &boehmLibPaths)
     -> bool {
@@ -423,7 +423,7 @@ auto copyBundledRuntimeLibraries(llvm::StringRef outputFileName,
   if (outputDir.empty())
     outputDir = ".";
 
-  if (copyRuntimeLibrary(cherryRuntimeLibPath, outputDir))
+  if (copyRuntimeLibrary(mulberryRuntimeLibPath, outputDir))
     return true;
 
   for (auto &libPath : mlirLibPaths) {
@@ -462,9 +462,9 @@ auto linkExecutable(llvm::StringRef objectFileName,
     return EXIT_FAILURE;
   }
 
-  auto cherryRuntimeLibPath = getCherryRuntimeLibPath();
-  if (cherryRuntimeLibPath.empty()) {
-    llvm::errs() << "error: cherry runtime library path is not configured\n";
+  auto mulberryRuntimeLibPath = getMulberryRuntimeLibPath();
+  if (mulberryRuntimeLibPath.empty()) {
+    llvm::errs() << "error: Mulberry runtime library path is not configured\n";
     return EXIT_FAILURE;
   }
 
@@ -479,7 +479,7 @@ auto linkExecutable(llvm::StringRef objectFileName,
     return EXIT_FAILURE;
   }
 
-  auto runtimeDir = parentDir(cherryRuntimeLibPath);
+  auto runtimeDir = parentDir(mulberryRuntimeLibPath);
   auto mlirRuntimeDir = parentDir(mlirRuntimeLibPath);
 
   auto boehmLinkLibPath = getBoehmLinkLibPath();
@@ -489,7 +489,7 @@ auto linkExecutable(llvm::StringRef objectFileName,
   std::vector<std::string> argStorage = {
       linker,
       std::string(objectFileName),
-      cherryRuntimeLibPath,
+      mulberryRuntimeLibPath,
   };
   if (bundleRuntime) {
     argStorage.push_back("-Wl,--no-as-needed");
@@ -535,7 +535,7 @@ auto linkExecutable(llvm::StringRef objectFileName,
   }
 
   if (bundleRuntime &&
-      copyBundledRuntimeLibraries(outputFileName, cherryRuntimeLibPath,
+      copyBundledRuntimeLibraries(outputFileName, mulberryRuntimeLibPath,
                                   mlirRuntimeLibPaths, boehmRuntimeLibPaths))
     return EXIT_FAILURE;
 
@@ -574,7 +574,7 @@ auto Compilation::make(llvm::StringRef filename,
   return compilation;
 }
 
-auto Compilation::parse(std::unique_ptr<Module> &module) -> CherryResult {
+auto Compilation::parse(std::unique_ptr<Module> &module) -> MulberryResult {
   _importAliases.clear();
   _loadedModules.clear();
   _usedBundledPackages.clear();
@@ -590,7 +590,7 @@ auto Compilation::parse(std::unique_ptr<Module> &module) -> CherryResult {
 
 auto Compilation::parseFile(const std::string &filename,
                             llvm::SMLoc includeLocation,
-                            std::unique_ptr<Module> &module) -> CherryResult {
+                            std::unique_ptr<Module> &module) -> MulberryResult {
   auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
   if (auto ec = fileOrErr.getError()) {
     llvm::errs() << "error: " << ec.message() << ": '" << filename << "'\n";
@@ -607,7 +607,7 @@ auto Compilation::parseFile(const std::string &filename,
 auto Compilation::resolveStdlibPath(std::string_view relativePath)
     -> std::string {
   std::string path;
-  if (const char *envPath = std::getenv("CHERRY_STDLIB_PATH")) {
+  if (const char *envPath = std::getenv("MULBERRY_STDLIB_PATH")) {
     path = envPath;
   } else {
     path = getDefaultStdlibPath();
@@ -629,7 +629,7 @@ auto Compilation::resolveImportPath(std::string_view moduleName)
   return path;
 }
 
-auto Compilation::loadPrelude(Module &module) -> CherryResult {
+auto Compilation::loadPrelude(Module &module) -> MulberryResult {
   std::unique_ptr<Module> preludeModule;
   auto preludePath = resolveStdlibPath("prelude.cherry");
   if (parseFile(preludePath, module.location(), preludeModule) ||
@@ -644,7 +644,7 @@ auto Compilation::loadPrelude(Module &module) -> CherryResult {
   return success();
 }
 
-auto Compilation::loadImports(Module &module) -> CherryResult {
+auto Compilation::loadImports(Module &module) -> MulberryResult {
   VectorUniquePtr<Decl> mergedDeclarations;
   for (auto &decl : module.takeDeclarations()) {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
@@ -702,7 +702,7 @@ auto Compilation::loadImports(Module &module) -> CherryResult {
 }
 
 auto Compilation::loadBundledPackage(std::string_view moduleName)
-    -> CherryResult {
+    -> MulberryResult {
   auto spec = findBundledPackageSpec(moduleName);
   if (!spec)
     return success();
@@ -743,7 +743,7 @@ auto Compilation::loadBundledPackage(std::string_view moduleName)
   return success();
 }
 
-auto Compilation::loadUsedBundledPackages() -> CherryResult {
+auto Compilation::loadUsedBundledPackages() -> MulberryResult {
   for (auto &moduleName : _usedBundledPackages) {
     if (loadBundledPackage(moduleName))
       return failure();
@@ -752,7 +752,7 @@ auto Compilation::loadUsedBundledPackages() -> CherryResult {
 }
 
 auto Compilation::addBundledPackagePreCorePipelines(mlir::PassManager &pm)
-    -> CherryResult {
+    -> MulberryResult {
   for (auto &moduleName : _usedBundledPackages) {
     auto spec = findBundledPackageSpec(moduleName);
     if (!spec || spec->preCorePipeline.empty())
@@ -765,7 +765,7 @@ auto Compilation::addBundledPackagePreCorePipelines(mlir::PassManager &pm)
 }
 
 auto Compilation::addBundledPackagePostCorePipelines(mlir::PassManager &pm)
-    -> CherryResult {
+    -> MulberryResult {
   for (auto &moduleName : _usedBundledPackages) {
     auto spec = findBundledPackageSpec(moduleName);
     if (!spec || spec->postCorePipeline.empty())
@@ -780,19 +780,19 @@ auto Compilation::addBundledPackagePostCorePipelines(mlir::PassManager &pm)
 }
 
 auto Compilation::addPassPipeline(mlir::PassManager &pm,
-                                  llvm::StringRef pipeline) -> CherryResult {
+                                  llvm::StringRef pipeline) -> MulberryResult {
   if (mlir::failed(mlir::parsePassPipeline(pipeline, pm, llvm::errs())))
     return failure();
   return success();
 }
 
 auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
-                          Lowering lowering) -> CherryResult {
+                          Lowering lowering) -> MulberryResult {
   std::unique_ptr<Module> moduleAST;
   if (parse(moduleAST))
     return failure();
 
-  if (cherry::sema(_sourceManager, *moduleAST.get(), _importAliases) ||
+  if (mulberry::sema(_sourceManager, *moduleAST.get(), _importAliases) ||
       mlirGen(_sourceManager, _mlirContext, *moduleAST, module))
     return failure();
 
@@ -809,7 +809,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     return failure();
 
   if (lowering >= Lowering::Mulberry)
-    pm.addPass(mlir::cherry::createLowerMulberry());
+    pm.addPass(mlir::mulberry::createLowerMulberry());
 
   if (lowering >= Lowering::Mulberry &&
       addBundledPackagePostCorePipelines(pm))
@@ -821,7 +821,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::LLVM::createLLVMRequestCWrappersPass());
-    pm.addPass(mlir::cherry::createConvertCherryToLLVM());
+    pm.addPass(mlir::mulberry::createConvertMulberryToLLVM());
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
   }
 
@@ -831,7 +831,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 auto Compilation::typecheck() -> int {
   std::unique_ptr<Module> module;
   if (parse(module) ||
-      cherry::sema(_sourceManager, *module.get(), _importAliases))
+      mulberry::sema(_sourceManager, *module.get(), _importAliases))
     return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
@@ -865,12 +865,12 @@ auto Compilation::jit() -> int {
                  : llvm::CodeGenOptLevel::None;
 
   auto runtimeLibPath = getRuntimeLibPath();
-  auto cherryRuntimeLibPath = getCherryRuntimeLibPath();
+  auto mulberryRuntimeLibPath = getMulberryRuntimeLibPath();
   std::vector<llvm::StringRef> sharedLibPaths;
   if (!runtimeLibPath.empty())
     sharedLibPaths.push_back(runtimeLibPath);
-  if (!cherryRuntimeLibPath.empty())
-    sharedLibPaths.push_back(cherryRuntimeLibPath);
+  if (!mulberryRuntimeLibPath.empty())
+    sharedLibPaths.push_back(mulberryRuntimeLibPath);
   options.sharedLibPaths = sharedLibPaths;
 
   auto engine = mlir::ExecutionEngine::create(*module, options,
@@ -941,7 +941,7 @@ auto Compilation::genExecutable(const char *outputFileName,
   llvm::SmallString<128> objectFileName;
   int objectFd = -1;
   if (auto ec =
-          llvm::sys::fs::createTemporaryFile("cherry-aot", "o", objectFd,
+          llvm::sys::fs::createTemporaryFile("mulberry-aot", "o", objectFd,
                                              objectFileName)) {
     llvm::errs() << "error: failed to create temporary object file: "
                  << ec.message() << "\n";
@@ -977,17 +977,17 @@ auto Compilation::dumpParse() -> int {
   if (parse(module))
     return EXIT_FAILURE;
 
-  cherry::dumpAST(_sourceManager, *module);
+  mulberry::dumpAST(_sourceManager, *module);
   return EXIT_SUCCESS;
 }
 
 auto Compilation::dumpAST() -> int {
   std::unique_ptr<Module> module;
   if (parse(module) ||
-      cherry::sema(_sourceManager, *module.get(), _importAliases))
+      mulberry::sema(_sourceManager, *module.get(), _importAliases))
     return EXIT_FAILURE;
 
-  cherry::dumpAST(_sourceManager, *module);
+  mulberry::dumpAST(_sourceManager, *module);
   return EXIT_SUCCESS;
 }
 

@@ -1,4 +1,4 @@
-# Cherry Grammar  
+# Mulberry Grammar
 
 ## Lexical Structure  
 

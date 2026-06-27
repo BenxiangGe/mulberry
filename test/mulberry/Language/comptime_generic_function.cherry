@@ -1,0 +1,31 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn setFirst<T>(ptr: Ptr<T>, value: T): UInt64 {
+  ptr[0] = value;
+  0
+}
+
+fn first<T>(ptr: Ptr<T>): T {
+  ptr[0]
+}
+
+fn main(): UInt64 {
+  var data: Ptr<UInt64> = heap.alloc<UInt64>(1);
+  setFirst(data, 42);
+  io.print(first(data));
+  0
+}
+
+# AST: Prototype {{.*}}name=setFirst parameter=T
+# AST: Prototype {{.*}}name=first parameter=T
+# AST-DAG: CallExpr {{.*}}callee=setFirst__UInt64
+# AST-DAG: CallExpr {{.*}}callee=first__UInt64
+# AST-DAG: Prototype {{.*}}name=setFirst__UInt64
+# AST-DAG: Prototype {{.*}}name=first__UInt64
+
+# MLIR-LABEL: func.func @main()
+# MLIR: call @setFirst__UInt64
+# MLIR: call @first__UInt64
+# MLIR-DAG: func.func @setFirst__UInt64
+# MLIR-DAG: func.func @first__UInt64
