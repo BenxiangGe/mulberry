@@ -1,10 +1,10 @@
-//===--- driver.cpp - Cherry Compiler Driver ------------------------------===//
+//===--- driver.cpp - Mulberry Compiler Driver ----------------------------===//
 
-#include "cherry/Driver/Compilation.h"
+#include "mulberry/Driver/Compilation.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace cherry;
+using namespace mulberry;
 namespace cl = llvm::cl;
 
 namespace {
@@ -50,12 +50,14 @@ static cl::opt<enum Action> dumpAction(
                           "parse and output the AST dump")),
     cl::values(clEnumValN(Dump_AST, "ast",
                           "parse, type-check and output the AST dump")),
-    cl::values(clEnumValN(Dump_MLIR, "mlir", "output the MLIR dump (cherry)")),
+    cl::values(
+        clEnumValN(Dump_MLIR, "mlir", "output the MLIR dump (mulberry)")),
     cl::values(clEnumValN(Dump_MLIR_SCF, "mlir1",
-                          "output the MLIR dump (cherry + scf)")),
+                          "output the MLIR dump (mulberry + scf)")),
     cl::values(
         clEnumValN(Dump_MLIR_ARITH_CF_FUNC, "mlir2",
-                   "output the MLIR dump (cherry + scf + arith + cf + func)")),
+                   "output the MLIR dump (mulberry + scf + arith + cf + "
+                   "func)")),
     cl::values(clEnumValN(Dump_Lowered_MLIR, "lowered-mlir",
                           "output the lowered Mulberry MLIR dump")),
     cl::values(clEnumValN(Dump_MLIR_LLVM, "mlir-llvm",
@@ -65,7 +67,7 @@ static cl::opt<enum Action> dumpAction(
 static cl::opt<bool> enableOpt("opt", cl::desc("Enable optimizations"));
 
 auto main(int argc, const char **argv) -> int {
-  cl::ParseCommandLineOptions(argc, argv, "Cherry compiler\n");
+  cl::ParseCommandLineOptions(argc, argv, "Mulberry compiler\n");
 
   std::unique_ptr<Compilation> compilation =
       Compilation::make(inputFilename, enableOpt);

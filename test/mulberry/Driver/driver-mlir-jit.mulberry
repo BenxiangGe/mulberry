@@ -1,0 +1,58 @@
+# RUN: mulberry-driver %s -dump=mlir-llvm 2>&1 | FileCheck %s --check-prefix=MLIRLLVM
+# RUN: mulberry-driver %s -dump=llvm 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn bar(x: UInt64, y: Bool): Bool {
+  var k: Bool = y;
+  
+  k = if k {
+    io.print(18446744073709551615);
+    false
+  } else {
+    io.print(1);
+    true
+  };
+
+  while k {
+    k = false;
+  }
+
+  k
+}
+
+fn baz(): () {
+  ()
+}
+
+fn main(): UInt64 {
+  0 % 3 * 8 / 4 + 3 - 1;
+  3 < 1; 3 <= 1; 3 > 1; 3 >= 1;
+  true and false or true == false != true;
+
+  var boolValue: Bool = bar(18446744073709551615, false);
+  io.print(boolToUInt64(boolValue));
+  baz();
+  0
+}
+
+# MLIRLLVM-DAG: llvm.func @std.io.print
+# MLIRLLVM-DAG: llvm.func private @printU64
+# MLIRLLVM-DAG: llvm.func @_mlir_ciface_printU64
+# MLIRLLVM: llvm.call @printU64
+# MLIRLLVM: llvm.func @main() -> i64
+# MLIRLLVM: llvm.call @std.io.print
+# MLIRLLVM: llvm.func @_mlir_ciface_main() -> i64
+# MLIRLLVM-NOT: mulberry.
+# MLIRLLVM-NOT: func.func
+# MLIRLLVM-NOT: builtin.unrealized_conversion_cast
+
+# LLVM-DAG: define i64 @std.io.print
+# LLVM-DAG: define private void @printU64
+# LLVM-DAG: declare void @_mlir_ciface_printU64
+# LLVM: call void @printU64
+# LLVM: define i64 @main()
+# LLVM: call i64 @std.io.print
+# LLVM: define i64 @_mlir_ciface_main()
+
+# JIT: 1
+# JIT-NEXT: 0

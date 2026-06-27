@@ -1,0 +1,10 @@
+# RUN: not mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const weights: Float32[2] = [1.0, 2.0];
+  var mutableWeights: Float32[2] = weights;
+
+  0
+}
+
+# CHECK: error: cannot bind const tensor to mutable variable

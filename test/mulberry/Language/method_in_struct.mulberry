@@ -1,0 +1,25 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+comptime BoxStorage<T> = struct {
+  value: T,
+
+  pub fn get(self: Ptr<BoxStorage<T>>): T {
+    self.value
+  }
+};
+
+comptime Box<T> = Ptr<BoxStorage<T>>;
+
+fn main(): UInt64 {
+  var box: Box<UInt64> = heap.alloc<BoxStorage<UInt64>>();
+  box.value = 42;
+  io.print(box.get());
+  0
+}
+
+# AST: ComptimeTypeAliasDecl {{.*}}name=BoxStorage parameter=T type=struct {value: T, fn BoxStorage.get}
+# AST: CallExpr {{.*}}callee=BoxStorage_get__UInt64
+# AST: Prototype {{.*}}name=BoxStorage_get__UInt64
+
+# JIT: 42

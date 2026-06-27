@@ -1,0 +1,23 @@
+# RUN: mulberry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: mulberry-driver -dump=parse %s 2>&1 | FileCheck %s --check-prefix=PARSE
+
+fn main(): UInt64 {
+  for i in 0 .. 3 {
+    io.print(i);
+  }
+
+  0
+}
+
+# TOKENS: kw_for 'for'
+# TOKENS: identifier 'i'
+# TOKENS: kw_in 'in'
+# TOKENS: dot_dot '..'
+
+# PARSE: ForExpr
+# PARSE-SAME: variable=i
+# PARSE: DecimalExpr
+# PARSE-SAME: value=0
+# PARSE: DecimalExpr
+# PARSE-SAME: value=3
+# PARSE: bodyBlock:

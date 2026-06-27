@@ -1,12 +1,12 @@
-add_library(cherryRuntime SHARED
+add_library(mulberryRuntime SHARED
         BoehmGC.cpp
         Core.cpp
         File.cpp
         Print.cpp
 )
 
-set_target_properties(cherryRuntime PROPERTIES
-        OUTPUT_NAME cherry_runtime
+set_target_properties(mulberryRuntime PROPERTIES
+        OUTPUT_NAME mulberry_runtime
 )
 
-target_link_libraries(cherryRuntime PRIVATE gc)
+target_link_libraries(mulberryRuntime PRIVATE gc)

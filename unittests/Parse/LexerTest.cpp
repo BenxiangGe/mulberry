@@ -1,15 +1,15 @@
-#include "cherry/Parse/Lexer.h"
+#include "mulberry/Parse/Lexer.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "gtest/gtest.h"
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 
 TEST(LexerTest, firstTest) {
   auto input = R"(fn ; , { } ( ) & 01 a0 a0a)";
-  auto inputBuffer = llvm::MemoryBuffer::getMemBuffer(input, "main.cherry");
+  auto inputBuffer = llvm::MemoryBuffer::getMemBuffer(input, "main.mulberry");
 
   llvm::SourceMgr sourceManager;
   sourceManager.AddNewSourceBuffer(std::move(inputBuffer),

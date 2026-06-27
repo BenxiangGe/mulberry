@@ -1,13 +1,13 @@
-//===--- Parser.cpp - Cherry Language Parser ---------------------------------//
+//===--- Parser.cpp - Mulberry Language Parser ---------------------------------//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/Parse/Parser.h"
-#include "cherry/Basic/Builtins.h"
-using namespace cherry;
+#include "mulberry/Parse/Parser.h"
+#include "mulberry/Basic/Builtins.h"
+using namespace mulberry;
 using std::make_unique;
 using std::unique_ptr;
 
@@ -49,7 +49,7 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
 }
 } // namespace
 
-auto Parser::parseModule(unique_ptr<Module> &module) -> CherryResult {
+auto Parser::parseModule(unique_ptr<Module> &module) -> MulberryResult {
   auto loc = tokenLoc();
   if (tokenIs(Token::kw_package) && parsePackageDecl())
     return failure();
@@ -73,7 +73,7 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
                        const char *const end_error,
                        VectorUniquePtr<T> &elements,
                        ParseElement parseElement)
-    -> CherryResult {
+    -> MulberryResult {
   while (!tokenIs(end) && !tokenIs(Token::eof)) {
     unique_ptr<T> exp;
     if (parseElement(exp))
@@ -92,7 +92,7 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
 // _____________________________________________________________________________
 // Parse Identifiers
 
-auto Parser::parsePackageDecl() -> CherryResult {
+auto Parser::parsePackageDecl() -> MulberryResult {
   consume(Token::kw_package);
   if (parseQualifiedName(_packageName, diag::expected_id) ||
       parseToken(Token::semi, diag::expected_semi))
@@ -100,7 +100,7 @@ auto Parser::parsePackageDecl() -> CherryResult {
   return success();
 }
 
-auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
+auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   auto location = tokenLoc();
   consume(Token::l_paren);
   if (parseToken(Token::r_paren, diag::expected_l_paren))
@@ -109,7 +109,7 @@ auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
   return success();
 }
 
-auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
+auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   if (tokenIs(Token::l_paren))
     return parseUnitType(typeNode);
 
@@ -145,7 +145,7 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> CherryResult {
 }
 
 auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
-    -> CherryResult {
+    -> MulberryResult {
   consume(Token::less);
   if (tokenIs(Token::greater))
     return emitError(diag::expected_type);
@@ -176,7 +176,7 @@ auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
 }
 
 auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
-    -> CherryResult {
+    -> MulberryResult {
   consume(Token::less);
   if (tokenIs(Token::greater))
     return emitError(diag::expected_id);
@@ -204,7 +204,7 @@ auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
 }
 
 auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
-                           llvm::SMLoc location) -> CherryResult {
+                           llvm::SMLoc location) -> MulberryResult {
   if (parseToken(Token::less, diag::expected_less))
     return failure();
 
@@ -218,7 +218,7 @@ auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
 }
 
 auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
-                          llvm::SMLoc location) -> CherryResult {
+                          llvm::SMLoc location) -> MulberryResult {
   if (parseToken(Token::less, diag::expected_less))
     return failure();
 
@@ -232,7 +232,7 @@ auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
 }
 
 auto Parser::parseQualifiedName(std::string &name, const char *const message)
-    -> CherryResult {
+    -> MulberryResult {
   name = std::string(spelling());
   if (parseToken(Token::identifier, message))
     return failure();
@@ -248,7 +248,7 @@ auto Parser::parseQualifiedName(std::string &name, const char *const message)
 }
 
 auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
-                               const char *const message) -> CherryResult {
+                               const char *const message) -> MulberryResult {
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, message))
@@ -259,7 +259,7 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
 }
 
 auto Parser::parseStructName(unique_ptr<StructName> &structName,
-                             const char *const message) -> CherryResult {
+                             const char *const message) -> MulberryResult {
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, message))
@@ -282,7 +282,7 @@ auto Parser::qualifyPackageName(std::string_view name) const -> std::string {
 // _____________________________________________________________________________
 // Parse Declarations
 
-auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> MulberryResult {
   switch (tokenKind()) {
   case Token::kw_import:
     return parseImportDecl(decl);
@@ -299,7 +299,7 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> CherryResult {
   }
 }
 
-auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_import);
 
@@ -312,7 +312,7 @@ auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> CherryResult {
   return success();
 }
 
-auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   auto loc = tokenLoc();
   unique_ptr<Prototype> proto;
   unique_ptr<FunctionDecl> functionDecl;
@@ -324,7 +324,7 @@ auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
   return success();
 }
 
-auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_extern);
 
@@ -339,7 +339,7 @@ auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> CherryResult {
 }
 
 auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
-    -> CherryResult {
+    -> MulberryResult {
   auto location = tokenLoc();
   consume(Token::kw_fn);
 
@@ -367,7 +367,7 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
   unique_ptr<TypeNode> typeNode;
   if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
                 diag::expected_r_paren, parameters,
-                [this](unique_ptr<VariableStat> &elem) -> CherryResult {
+                [this](unique_ptr<VariableStat> &elem) -> MulberryResult {
                   unique_ptr<VariableExpr> param;
                   unique_ptr<TypeNode> typeNode;
                   if (parseVariableExpr(param) ||
@@ -392,7 +392,7 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
 auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
                                    unique_ptr<Prototype> proto,
                                    unique_ptr<FunctionDecl> &functionDecl)
-    -> CherryResult {
+    -> MulberryResult {
   unique_ptr<BlockExpr> body;
   if (parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(body))
@@ -404,7 +404,7 @@ auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
 }
 
 auto Parser::parseStructMethod(unique_ptr<FunctionDecl> &method)
-    -> CherryResult {
+    -> MulberryResult {
   auto loc = tokenLoc();
   consumeIf(Token::kw_pub);
 
@@ -416,7 +416,7 @@ auto Parser::parseStructMethod(unique_ptr<FunctionDecl> &method)
   return success();
 }
 
-auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> CherryResult {
+auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
   auto loc = tokenLoc();
   VectorUniquePtr<Stat> statements;
   while (true) {
@@ -455,7 +455,7 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> CherryResult {
   }
 }
 
-auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
+auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
 
@@ -477,7 +477,7 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> CherryResult {
 
 auto Parser::parseStructMembers(VectorUniquePtr<VariableStat> &fields,
                                 VectorUniquePtr<FunctionDecl> &methods)
-    -> CherryResult {
+    -> MulberryResult {
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     if (tokenIs(Token::kw_pub) || tokenIs(Token::kw_fn)) {
       unique_ptr<FunctionDecl> method;
@@ -505,7 +505,7 @@ auto Parser::parseStructMembers(VectorUniquePtr<VariableStat> &fields,
 }
 
 auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
-    -> CherryResult {
+    -> MulberryResult {
   if (!tokenIs(Token::kw_struct))
     return parseType(typeNode);
 
@@ -525,7 +525,7 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
 }
 
 auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
-    -> CherryResult {
+    -> MulberryResult {
   auto location = tokenLoc();
   consume(Token::kw_comptime);
 
@@ -554,7 +554,7 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
 }
 
 auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
-    -> CherryResult {
+    -> MulberryResult {
   consume(Token::l_square);
   while (!tokenIs(Token::r_square) && !tokenIs(Token::eof)) {
     if (auto number = token().getUInt64IntegerValue()) {
@@ -578,7 +578,7 @@ auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
   return parseToken(Token::r_square, diag::expected_r_square);
 }
 
-auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> elements;
@@ -604,7 +604,7 @@ auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseIndex(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIndex(unique_ptr<Expr> &expr) -> MulberryResult {
   auto location = expr->location();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> indices;
@@ -625,7 +625,7 @@ auto Parser::parseIndex(unique_ptr<Expr> &expr) -> CherryResult {
 // _____________________________________________________________________________
 // Parse Expressions
 
-auto Parser::parseExpression(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseExpression(unique_ptr<Expr> &expr) -> MulberryResult {
   if (parsePrimaryExpression(expr)) {
     return failure();
   } else {
@@ -633,7 +633,7 @@ auto Parser::parseExpression(unique_ptr<Expr> &expr) -> CherryResult {
   }
 }
 
-auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> MulberryResult {
   auto oldStopBeforeStructLiteral = _stopBeforeStructLiteral;
   // In `if/while flag { ... }`, keep `{` for the block instead of parsing
   // `flag { ... }` as a struct literal.
@@ -646,14 +646,14 @@ auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> CherryResult {
 auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
                               Token::Kind separator, Token::Kind end,
                               const char *const separator_error,
-                              const char *const end_error) -> CherryResult {
+                              const char *const end_error) -> MulberryResult {
   return parseList(separator, end, separator_error, end_error, expressions,
-                   [this](unique_ptr<Expr> &elem) -> CherryResult {
+                   [this](unique_ptr<Expr> &elem) -> MulberryResult {
                      return parseExpression(elem);
                    });
 }
 
-auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
   switch (tokenKind()) {
   case Token::decimal:
     return parseDecimal(expr);
@@ -671,6 +671,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseIdentifierExpr(expr);
   case Token::l_square:
     return parseArrayLiteral(expr);
+  case Token::l_brace:
+    return parseZeroInitExpr(tokenLoc(), expr);
   case Token::kw_if:
     return parseIfExpr(expr);
   case Token::kw_while:
@@ -707,7 +709,7 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
 }
 
 auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
-    -> CherryResult {
+    -> MulberryResult {
   auto location = tokenLoc();
   auto name = spelling();
   if (parseToken(Token::identifier, diag::expected_id))
@@ -716,7 +718,7 @@ auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
   return success();
 }
 
-auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_if);
   unique_ptr<Expr> condition;
@@ -738,7 +740,7 @@ auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_while);
   unique_ptr<Expr> condition;
@@ -752,21 +754,21 @@ auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseBreakExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseBreakExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_break);
   expr = make_unique<BreakExpr>(loc);
   return success();
 }
 
-auto Parser::parseContinueExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseContinueExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_continue);
   expr = make_unique<ContinueExpr>(loc);
   return success();
 }
 
-auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_for);
 
@@ -790,7 +792,7 @@ auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseDecimal(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseDecimal(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   if (auto value = token().getUInt64IntegerValue()) {
     consume(Token::decimal);
@@ -800,7 +802,7 @@ auto Parser::parseDecimal(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::integer_literal_overflows);
 }
 
-auto Parser::parseFloat(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseFloat(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   if (auto value = token().getFloat32Value()) {
     consume(Token::float_literal);
@@ -810,7 +812,7 @@ auto Parser::parseFloat(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::diff);
   if (!tokenIs(Token::float_literal))
@@ -825,7 +827,7 @@ auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseString(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   if (auto value = token().getStringLiteralValue()) {
     consume(Token::string_literal);
@@ -835,7 +837,7 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::string_literal_invalid);
 }
 
-auto Parser::parseChar(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseChar(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
   if (auto value = token().getCharLiteralValue()) {
     consume(Token::char_literal);
@@ -845,7 +847,7 @@ auto Parser::parseChar(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::expected_expr);
 }
 
-auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   auto location = tokenLoc();
   consume(Token::mul);
 
@@ -866,7 +868,7 @@ auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> CherryResult {
   return success();
 }
 
-auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
+auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, diag::expected_id))
@@ -882,8 +884,6 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
-    if (name == builtins::zeros)
-      return parseTensorZerosExpr(location, name, expr);
     if (isTensorPackName(name))
       return parseTensorPackExpr(location, name, expr);
     if (isTensorViewName(name))
@@ -903,7 +903,7 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
 }
 
 auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> CherryResult {
+                                 unique_ptr<Expr> &expr) -> MulberryResult {
   consume(Token::l_paren);
 
   unique_ptr<TypeNode> typeNode;
@@ -917,7 +917,7 @@ auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
 }
 
 auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
-                                unique_ptr<Expr> &expr) -> CherryResult {
+                                unique_ptr<Expr> &expr) -> MulberryResult {
   if (name != "heap.alloc")
     return emitError(diag::expected_expr);
 
@@ -939,21 +939,18 @@ auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
   return success();
 }
 
-auto Parser::parseTensorZerosExpr(llvm::SMLoc location, std::string_view name,
-                                  unique_ptr<Expr> &expr) -> CherryResult {
-  if (name != builtins::zeros)
-    return emitError(diag::expected_expr);
-
-  consume(Token::l_paren);
-  if (parseToken(Token::r_paren, diag::expected_r_paren))
+auto Parser::parseZeroInitExpr(llvm::SMLoc location,
+                               unique_ptr<Expr> &expr) -> MulberryResult {
+  consume(Token::l_brace);
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
     return failure();
 
-  expr = make_unique<TensorZerosExpr>(location);
+  expr = make_unique<ZeroInitExpr>(location);
   return success();
 }
 
 auto Parser::parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> CherryResult {
+                                 unique_ptr<Expr> &expr) -> MulberryResult {
   if (!isTensorPackName(name))
     return emitError(diag::expected_expr);
 
@@ -968,7 +965,7 @@ auto Parser::parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
 }
 
 auto Parser::parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> CherryResult {
+                                 unique_ptr<Expr> &expr) -> MulberryResult {
   if (!isTensorViewName(name))
     return emitError(diag::expected_expr);
 
@@ -983,7 +980,7 @@ auto Parser::parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
 }
 
 auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
-                               unique_ptr<Expr> &expr) -> CherryResult {
+                               unique_ptr<Expr> &expr) -> MulberryResult {
   consume(Token::l_paren);
   auto expressions = VectorUniquePtr<Expr>();
   if (parseExpressions(expressions, Token::comma, Token::r_paren,
@@ -995,7 +992,7 @@ auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
 
 auto Parser::parseStructLiteral(llvm::SMLoc location,
                                 unique_ptr<TypeNode> typeNode,
-                                unique_ptr<Expr> &expr) -> CherryResult {
+                                unique_ptr<Expr> &expr) -> MulberryResult {
   consume(Token::l_brace);
   auto expressions = VectorUniquePtr<Expr>();
   if (parseExpressions(expressions, Token::comma, Token::r_brace,
@@ -1008,7 +1005,7 @@ auto Parser::parseStructLiteral(llvm::SMLoc location,
 
 auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
                                        std::string_view name,
-                                       unique_ptr<Expr> &expr) -> CherryResult {
+                                       unique_ptr<Expr> &expr) -> MulberryResult {
   std::vector<ComptimeArg> arguments;
   if (parseGenericTypeArgs(arguments))
     return failure();
@@ -1021,7 +1018,7 @@ auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
 }
 
 auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
-    -> CherryResult {
+    -> MulberryResult {
   while (true) {
     int tokPrec = getTokenPrecedence();
     if (tokPrec < exprPrec)
@@ -1066,7 +1063,7 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
 }
 
 auto Parser::parseMemberAccess(std::unique_ptr<Expr> &expr)
-    -> CherryResult {
+    -> MulberryResult {
   auto location = tokenLoc();
   consume(Token::dot);
 
@@ -1178,7 +1175,7 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
 // _____________________________________________________________________________
 // Parse Statements
 
-auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
+auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult {
   switch (tokenKind()) {
   case Token::kw_var:
     return parseVarDecl(stat);
@@ -1195,16 +1192,16 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> CherryResult {
   }
 }
 
-auto Parser::parseVarDecl(unique_ptr<Stat> &stat) -> CherryResult {
+auto Parser::parseVarDecl(unique_ptr<Stat> &stat) -> MulberryResult {
   return parseVariableDecl(stat, /*isConst=*/false);
 }
 
-auto Parser::parseConstDecl(unique_ptr<Stat> &stat) -> CherryResult {
+auto Parser::parseConstDecl(unique_ptr<Stat> &stat) -> MulberryResult {
   return parseVariableDecl(stat, /*isConst=*/true);
 }
 
 auto Parser::parseVariableDecl(unique_ptr<Stat> &stat, bool isConst)
-    -> CherryResult {
+    -> MulberryResult {
   auto loc = tokenLoc();
   consume(isConst ? Token::kw_const : Token::kw_var);
   unique_ptr<VariableExpr> var;

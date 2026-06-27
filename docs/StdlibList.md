@@ -23,7 +23,7 @@ typed pointer 理解；需要共享的 runtime storage 用 Boehm GC 管理。
 
 源码里的 `List<T>` 拼写应该保持稳定：
 
-```cherry
+```mulberry
 fn sum(xs: List<UInt64>): UInt64 {
   var i: UInt64 = 0;
   var result: UInt64 = 0;
@@ -41,9 +41,9 @@ fn sum(xs: List<UInt64>): UInt64 {
 
 ## 目标源码形态
 
-下面是目标方向，不是当前 Cherry 已经支持的语法。
+下面是目标方向，不是当前 Mulberry 已经支持的语法。
 
-```cherry
+```mulberry
 package std.collections;
 
 comptime List<T> = struct {
@@ -59,7 +59,7 @@ comptime List<T> = struct {
 
 `List<T>` 后续应该优先暴露为 method API：
 
-```cherry
+```mulberry
 var xs: List<UInt64> = [1, 2, 3];
 xs.push(4);
 io.print(xs.size());
@@ -89,7 +89,7 @@ xs[index] = v   -> std.collections.List.set(xs, index, v)
 
 在当前浅拷贝 header 模型下，method 声明在 `List<T>` 内，receiver 显式写成 `Ptr<List<T>>`，这样 `push` 可以修改调用者的 header：
 
-```cherry
+```mulberry
 package std.collections;
 
 comptime List<T> = struct {
@@ -120,7 +120,7 @@ header 仍共享同一个 `data` buffer。
 
 第一批标准库 API 应保持很小：
 
-```cherry
+```mulberry
 package std.collections;
 
 fn withCapacity<T>(capacity: UInt64): List<T>;
@@ -135,7 +135,7 @@ comptime List<T> = struct {
 
 `withCapacity` 是没有 receiver 的 factory function。空 list 直接使用 `[]`：
 
-```cherry
+```mulberry
 var xs: List<UInt64> = [];
 ```
 
@@ -145,14 +145,14 @@ var xs: List<UInt64> = [];
 
 语法层面的 `xs[i]` 已经在 Sema/MLIRGen 里走 `List.get`：
 
-```cherry
+```mulberry
 xs[i]
 ```
 
 当前 generic function inference 已经能从普通参数和 expected return type 推断 `T`，
 用户不应该经常手写类型参数：
 
-```cherry
+```mulberry
 xs.push(42)
 ```
 
@@ -176,7 +176,7 @@ capacity 的场景。普通空 list 不需要额外 factory。
 
 当前已经接入 Boehm GC，因此第一阶段不需要 `free`。已经实现的最小 primitive 是：
 
-```cherry
+```mulberry
 package std.heap;
 
 fn alloc<T>(): Ptr<T>;
@@ -184,7 +184,7 @@ fn alloc<T>(): Ptr<T>;
 
 它用于分配一个 `T` 对象。连续元素 storage 使用同名带 count 的形式：
 
-```cherry
+```mulberry
 package std.heap;
 
 fn alloc<T>(count: UInt64): Ptr<T>;
@@ -199,7 +199,7 @@ fn alloc<T>(count: UInt64): Ptr<T>;
 
 如果以后需要 resize，可以先用 allocate-copy 的方式实现：
 
-```cherry
+```mulberry
 fn grow<T>(oldData: Ptr<T>, oldLength: UInt64, newCapacity: UInt64): Ptr<T>
 ```
 
@@ -271,7 +271,7 @@ C4.9  删除 mulberry.list 相关 Dialect/op/lowering
 
 当前 C4.7 已经支持最小 generic function 单态化。函数可以写成：
 
-```cherry
+```mulberry
 fn push<T>(xs: collections.List<T>, value: T): UInt64 {
   ...
 }

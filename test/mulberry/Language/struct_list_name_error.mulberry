@@ -1,0 +1,11 @@
+# RUN: not mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct A[2] {
+  value: UInt64
+}
+
+fn main(): UInt64 {
+  0
+}
+
+# CHECK: error: expected

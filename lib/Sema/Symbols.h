@@ -1,17 +1,17 @@
 //===--- Symbols.h - Symbol Table -------------------------------*- C++ -*-===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CHERRY_SYMBOLS_H
-#define CHERRY_SYMBOLS_H
+#ifndef MULBERRY_SYMBOLS_H
+#define MULBERRY_SYMBOLS_H
 
-#include "cherry/AST/Type.h"
-#include "cherry/Basic/CherryResult.h"
-#include "cherry/Basic/ScopeStack.h"
-#include "cherry/Basic/Types.h"
+#include "mulberry/AST/Type.h"
+#include "mulberry/Basic/MulberryResult.h"
+#include "mulberry/Basic/ScopeStack.h"
+#include "mulberry/Basic/Types.h"
 #include <functional>
 #include <map>
 #include <string>
@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace cherry {
+namespace mulberry {
 class FunctionDecl;
 class TypeNode;
 using llvm::failure;
@@ -53,7 +53,7 @@ public:
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
                        const Type *returnType)
-      -> CherryResult {
+      -> MulberryResult {
     return declareSymbol(
         _functionsByName, name,
         FunctionSymbol{std::move(parameterTypes), returnType});
@@ -67,7 +67,7 @@ public:
   }
 
   auto declareGenericFunction(std::string_view name,
-                              const FunctionDecl *decl) -> CherryResult {
+                              const FunctionDecl *decl) -> MulberryResult {
     return declareSymbol(_genericFunctionsByName, name,
                          GenericFunctionSymbol{decl});
   }
@@ -80,7 +80,7 @@ public:
     return &symbol->second;
   }
 
-  auto declareType(std::string_view name, const Type *type) -> CherryResult {
+  auto declareType(std::string_view name, const Type *type) -> MulberryResult {
     return declareSymbol(_typesByName, name, type);
   }
 
@@ -95,7 +95,7 @@ public:
                                 std::string_view packageName,
                                 std::vector<ComptimeParam> parameters,
                                 const TypeNode *bodyTypeNode)
-      -> CherryResult {
+      -> MulberryResult {
     return declareSymbol(_comptimeTypeAliasesByName, name,
                          ComptimeTypeAliasSymbol{
                              std::string(packageName), std::move(parameters),
@@ -123,7 +123,7 @@ public:
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConst = false)
-      -> CherryResult {
+      -> MulberryResult {
     if (_variableScopes.empty())
       enterVariableScope();
 
@@ -140,7 +140,7 @@ public:
 private:
   template <typename T>
   auto declareSymbol(NameMap<T> &symbols, std::string_view name, T value)
-      -> CherryResult {
+      -> MulberryResult {
     if (symbols.find(name) != symbols.end())
       return failure();
     symbols.insert(std::make_pair(std::string(name), std::move(value)));
@@ -154,6 +154,6 @@ private:
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;
 };
 
-} // end namespace cherry
+} // end namespace mulberry
 
-#endif // CHERRY_SYMBOLS_H
+#endif // MULBERRY_SYMBOLS_H

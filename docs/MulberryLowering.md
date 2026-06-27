@@ -51,9 +51,9 @@ Mulberry 的职责，应该逐项迁移到 source/stdlib 能力或更通用的 o
 
 ## List 分层
 
-当前 source-level `List<T>` 由 `stdlib/std/collections.cherry` 定义：
+当前 source-level `List<T>` 由 `stdlib/std/collections.mulberry` 定义：
 
-```cherry
+```mulberry
 comptime List<T> = struct {
   length: UInt64,
   capacity: UInt64,
@@ -145,7 +145,7 @@ descriptor surface。
 
 `std.tensor` 的 source-level layout 是：
 
-```cherry
+```mulberry
 comptime Tensor<T> = struct {
   data: Ptr<T>,
   rank: UInt64,
@@ -200,7 +200,7 @@ ranked type 决定 view 的 rank。
 Mulberry `String` 现在是 stdlib struct value，不再是 builtin value，也不是 heap
 object handle：
 
-```cherry
+```mulberry
 struct String {
   length: UInt64,
   data: Ptr<UInt8>
@@ -236,7 +236,7 @@ string 语义，也不需要旧 pointer-storage alias 带来的额外 indirectio
 
 当前 `File` 是 stdlib struct value：
 
-```cherry
+```mulberry
 struct File {
   handle: Ptr<UInt8>
 }
@@ -279,7 +279,7 @@ stdlib/comptime 定义成普通 header struct，函数参数和返回值按 ordi
 
 源码级正向例子：
 
-```cherry
+```mulberry
 fn make(): List<Tensor<Float32>> {
   const w: Float32[2, 2] = [[1.0, 0.0], [0.0, 1.0]];
   [tensor.pack(w)]

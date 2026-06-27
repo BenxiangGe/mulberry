@@ -1,9 +1,9 @@
-#include "cherry/MLIRGen/TypeConverter.h"
+#include "mulberry/MLIRGen/TypeConverter.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
-namespace cherry {
+namespace mulberry {
 
 static auto convertMemRefShape(const std::vector<int64_t>& shape)
     -> std::vector<int64_t> {
@@ -30,29 +30,13 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
   }
 }
 
-auto MLIRTypeConverter::convertTensorElement(const BuiltinType& type) const
-    -> mlir::Type {
-  switch (type.builtinKind()) {
-  case BuiltinTypeKind::UInt8:
-    return _builder.getI8Type();
-  case BuiltinTypeKind::UInt64:
-    return _builder.getI64Type();
-  case BuiltinTypeKind::Float32:
-    return _builder.getF32Type();
-  case BuiltinTypeKind::Bool:
-    return _builder.getI1Type();
-  case BuiltinTypeKind::Unit:
-    llvm_unreachable("Unit cannot be used as a memref element type");
-  }
-}
-
 auto MLIRTypeConverter::convert(const TensorType& type) const
     -> mlir::mulberry::TensorType {
-  auto *elementType = cherry::getBuiltinType(type.elementType());
-  if (!elementType)
+  auto *elementType = mulberry::getBuiltinType(type.elementType());
+  if (!elementType || mulberry::isUnitType(elementType))
     return {};
 
-  auto mlirElementType = convertTensorElement(*elementType);
+  auto mlirElementType = convert(*elementType);
   if (!mlirElementType)
     return {};
 
@@ -71,11 +55,11 @@ auto MLIRTypeConverter::convert(const PtrType& type) const
 
 auto MLIRTypeConverter::convertTensorToMemRefType(
     const TensorType& type) const -> mlir::MemRefType {
-  auto *elementType = cherry::getBuiltinType(type.elementType());
-  if (!elementType)
+  auto *elementType = mulberry::getBuiltinType(type.elementType());
+  if (!elementType || mulberry::isUnitType(elementType))
     return {};
 
-  auto mlirElementType = convertTensorElement(*elementType);
+  auto mlirElementType = convert(*elementType);
   if (!mlirElementType)
     return {};
 
@@ -101,25 +85,25 @@ auto MLIRTypeConverter::convert(const StructType& type) const
 }
 
 auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
-  if (auto *builtinType = cherry::getBuiltinType(type))
+  if (auto *builtinType = mulberry::getBuiltinType(type))
     return convert(*builtinType);
 
-  if (auto *tensorType = cherry::getTensorType(type))
+  if (auto *tensorType = mulberry::getTensorType(type))
     return convert(*tensorType);
 
   // Source-level List<T> should be a stdlib/comptime struct before MLIRGen.
   // The old !mulberry.list IR path has been removed, so a remaining semantic
   // ListType is not lowerable here.
-  if (cherry::getListType(type))
+  if (mulberry::getListType(type))
     return {};
 
-  if (auto *ptrType = cherry::getPtrType(type))
+  if (auto *ptrType = mulberry::getPtrType(type))
     return convert(*ptrType);
 
-  if (auto *structType = cherry::getStructType(type))
+  if (auto *structType = mulberry::getStructType(type))
     return convert(*structType);
 
   return {};
 }
 
-} // namespace cherry
+} // namespace mulberry

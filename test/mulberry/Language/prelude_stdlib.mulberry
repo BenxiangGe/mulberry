@@ -1,0 +1,14 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn main(): UInt64 {
+  core.identity(9)
+}
+
+# AST: Prototype {{.*}}name=std.core.identity
+# AST: Prototype {{.*}}name=main
+# AST: CallExpr {{.*}}type=UInt64 callee=std.core.identity
+
+# MLIR-LABEL: func.func @std.core.identity
+# MLIR-LABEL: func.func @main
+# MLIR: call @std.core.identity

@@ -1,16 +1,16 @@
-add_llvm_executable(cherry-driver driver.cpp)
+add_llvm_executable(mulberry-driver driver.cpp)
 
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 
-target_link_libraries(cherry-driver PUBLIC
-        cherryBasic
-        cherryDriver
-        cherryParse
-        cherryMLIRGen
-        cherrySema
-        cherryAST
+target_link_libraries(mulberry-driver PUBLIC
+        mulberryBasic
+        mulberryDriver
+        mulberryParse
+        mulberryMLIRGen
+        mulberrySema
+        mulberryAST
         ${dialect_libs}
         ${conversion_libs}
         ${extension_libs}
