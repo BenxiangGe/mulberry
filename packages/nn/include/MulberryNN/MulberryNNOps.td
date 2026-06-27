@@ -2,7 +2,7 @@
 #define MULBERRY_NN_OPS
 
 include "MulberryNN/MulberryNNDialect.td"
-include "cherry/MLIRGen/IR/MulberryTypes.td"
+include "mulberry/MLIRGen/IR/MulberryTypes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"

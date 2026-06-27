@@ -1,14 +1,14 @@
-//===--- Token.cpp - Cherry Language Token --------------------------------===//
+//===--- Token.cpp - Mulberry Language Token --------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/Parse/Token.h"
+#include "mulberry/Parse/Token.h"
 #include "llvm/ADT/StringSwitch.h"
 
-using namespace cherry;
+using namespace mulberry;
 using llvm::SMLoc;
 using llvm::SMRange;
 
@@ -116,6 +116,6 @@ auto Token::getTokenName() -> const char * {
 #define TOK_KEYWORD(SPELLING)                                                  \
   case kw_##SPELLING:                                                          \
     return "kw_" #SPELLING;
-#include "cherry/Parse/TokenKinds.def"
+#include "mulberry/Parse/TokenKinds.def"
   }
 }

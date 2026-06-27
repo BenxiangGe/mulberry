@@ -1,0 +1,29 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+struct Pair {
+  flag: Bool,
+  value: UInt64
+}
+
+fn main(): UInt64 {
+  const byteSize: UInt64 = sizeof(UInt8);
+  const scalarAlign: UInt64 = alignof(UInt64);
+  const pairSize: UInt64 = sizeof(Pair);
+  const pairAlign: UInt64 = alignof(Pair);
+  byteSize + scalarAlign + pairSize + pairAlign
+}
+
+# AST: Prototype {{.*}}name=main
+# AST: TypeLayoutExpr
+# AST-SAME: type=UInt64 query=sizeof target=UInt8 value=1
+# AST: TypeLayoutExpr
+# AST-SAME: type=UInt64 query=alignof target=UInt64 value=8
+# AST: TypeLayoutExpr
+# AST-SAME: type=UInt64 query=sizeof target=Pair value=16
+# AST: TypeLayoutExpr
+# AST-SAME: type=UInt64 query=alignof target=Pair value=8
+# MLIR: arith.constant 1 : i64
+# MLIR: arith.constant 8 : i64
+# MLIR: arith.constant 16 : i64

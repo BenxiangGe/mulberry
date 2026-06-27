@@ -1,0 +1,20 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var xs: UInt64[3] = [1, 2, 3];
+  var ys: UInt64[2, 3] = [[1, 2, 3], [4, 5, 6]];
+  var xsTensor: Tensor<UInt64> = tensor.pack(xs);
+  var ysTensor: Tensor<UInt64> = tensor.pack(ys);
+
+  io.print(xsTensor.numel());
+  io.print(ysTensor.numel());
+
+  0
+}
+
+# AST: CallExpr {{.*}}type=UInt64 callee=std_tensor_Tensor_numel__UInt64
+
+# CHECK: arith.constant 3 : i64
+# CHECK: arith.constant 6 : i64
+# CHECK-NOT: cir.

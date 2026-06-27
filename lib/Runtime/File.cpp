@@ -1,6 +1,6 @@
 //===--- File.cpp ---------------------------------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//

@@ -1,13 +1,13 @@
 //===--- MulberryTypes.cpp - Mulberry dialect types -----------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/MLIRGen/IR/MulberryTypes.h"
+#include "mulberry/MLIRGen/IR/MulberryTypes.h"
 
-#include "cherry/MLIRGen/IR/MulberryDialect.h"
+#include "mulberry/MLIRGen/IR/MulberryDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 
@@ -17,7 +17,7 @@ using namespace mlir;
 using namespace mlir::mulberry;
 
 #define GET_TYPEDEF_CLASSES
-#include "cherry/MLIRGen/IR/MulberryOpsTypes.cpp.inc"
+#include "mulberry/MLIRGen/IR/MulberryOpsTypes.cpp.inc"
 
 static ParseResult parseField(AsmParser& parser,
                               RecordType::Field& field) {
@@ -148,6 +148,6 @@ unsigned RecordType::getFieldIndex(StringRef name) const {
 void MulberryDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "cherry/MLIRGen/IR/MulberryOpsTypes.cpp.inc"
+#include "mulberry/MLIRGen/IR/MulberryOpsTypes.cpp.inc"
       >();
 }

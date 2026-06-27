@@ -9,7 +9,7 @@ add_mlir_dialect_library(MulberryNNConversion
 
         LINK_LIBS PUBLIC
         MulberryNNIR
-        cherryMLIRGen
+        mulberryMLIRGen
         MLIRArithDialect
         MLIRLinalgDialect
         MLIRMathDialect

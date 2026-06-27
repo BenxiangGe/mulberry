@@ -4,7 +4,7 @@
 #define MULBERRY_NN_OPS_H
 
 #include "MulberryNN/MulberryNNDialect.h"
-#include "cherry/MLIRGen/IR/MulberryTypes.h"
+#include "mulberry/MLIRGen/IR/MulberryTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"

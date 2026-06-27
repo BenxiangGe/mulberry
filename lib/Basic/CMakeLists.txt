@@ -1,13 +1,12 @@
-set(LIB_HEADERS ${CHERRY_SOURCE_DIR}/include/cherry/Basic)
+set(LIB_HEADERS ${MULBERRY_SOURCE_DIR}/include/mulberry/Basic)
 
-add_library(cherryBasic STATIC
+add_library(mulberryBasic STATIC
         ${LIB_HEADERS}/Builtins.h
-        ${LIB_HEADERS}/CherryResult.h
+        ${LIB_HEADERS}/MulberryResult.h
         ${LIB_HEADERS}/Types.h
-        CherryResult.cpp
         Types.cpp
 )
 
-target_include_directories(cherryBasic PUBLIC
+target_include_directories(mulberryBasic PUBLIC
         ${LIB_HEADERS}
 )

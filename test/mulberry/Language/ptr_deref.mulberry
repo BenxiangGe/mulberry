@@ -1,0 +1,44 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct Pair {
+  x: UInt64,
+  y: Bool
+}
+
+fn scalar(): UInt64 {
+  var p: Ptr<UInt64> = heap.alloc<UInt64>();
+  *p = 42;
+  *p
+}
+
+fn record(): UInt64 {
+  var p: Ptr<Pair> = heap.alloc<Pair>();
+  p.x = 7;
+  var value: Pair = *p;
+  value.x
+}
+
+fn main(): UInt64 {
+  0
+}
+
+# CHECK-LABEL: func.func @scalar()
+# CHECK: %[[ONE:.*]] = arith.constant 1 : index
+# CHECK: %[[PTR:.*]] = mulberry.heap.alloc i64, %[[ONE]] : !mulberry.ptr<i64>
+# CHECK: mulberry.store %[[PTR]]
+# CHECK: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<i64>> -> !mulberry.ptr<i64>
+# CHECK: mulberry.store {{.*}}, %[[CURRENT]] : i64, !mulberry.ptr<i64>
+# CHECK: %[[VALUE_PTR:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<i64>> -> !mulberry.ptr<i64>
+# CHECK: %[[VALUE:.*]] = mulberry.load %[[VALUE_PTR]] : !mulberry.ptr<i64> -> i64
+# CHECK: return %[[VALUE]] : i64
+
+# CHECK-LABEL: func.func @record()
+# CHECK: %[[ONE:.*]] = arith.constant 1 : index
+# CHECK: %[[PAIR:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
+# CHECK: mulberry.store %[[PAIR]]
+# CHECK: %[[PAIR_CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
+# CHECK: mulberry.record.get_field %[[PAIR_CURRENT]]["x"]
+# CHECK: %[[VALUE_PTR:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
+# CHECK: %[[VALUE:.*]] = mulberry.load %[[VALUE_PTR]] : !mulberry.ptr<!mulberry.record<Pair
+# CHECK: mulberry.store %[[VALUE]]
+# CHECK: mulberry.record.get_field

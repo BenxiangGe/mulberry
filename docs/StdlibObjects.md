@@ -43,7 +43,7 @@ source type/API
 
 当前已完成：
 
-```cherry
+```mulberry
 comptime List<T> = struct {
   length: UInt64,
   capacity: UInt64,
@@ -57,7 +57,7 @@ comptime List<T> = struct {
 
 当前形态：
 
-```cherry
+```mulberry
 struct String {
   length: UInt64,
   data: Ptr<UInt8>
@@ -66,7 +66,7 @@ struct String {
 
 如果后续需要可变字符串或 byte buffer，再引入 `capacity`：
 
-```cherry
+```mulberry
 struct ByteBufferStorage {
   length: UInt64,
   capacity: UInt64,
@@ -116,7 +116,7 @@ record/ptr 值通过通用 lowering 到 runtime boundary。
 
 当前已经完成的实现：
 
-1. `stdlib/std/string.cherry` 定义了 `struct String { length, data }`。
+1. `stdlib/std/string.mulberry` 定义了 `struct String { length, data }`。
 2. `MLIRGen` 直接为 string literal 创建 heap byte buffer，再构造 by-value `String`
    record，并写入 `length` 和 `data` 字段。
 3. lowering 通过通用 record/ptr 路径把 `String` 的 `data` 和 `File` 的 `handle`
@@ -127,7 +127,7 @@ record/ptr 值通过通用 lowering 到 runtime boundary。
 
 目标形态：
 
-```cherry
+```mulberry
 struct File {
   handle: Ptr<UInt8>
 }
@@ -142,7 +142,7 @@ wrapper function。`read/write` 现在也是 stdlib generic wrapper：它们从
 
 当前已经完成：
 
-1. `stdlib/std/io.cherry` 定义了 `struct File { handle: Ptr<UInt8> }`。
+1. `stdlib/std/io.mulberry` 定义了 `struct File { handle: Ptr<UInt8> }`。
 2. `std.io.open` 现在通过 runtime wrapper `mulberry_file_open` 调用 `fopen`，然后把
    raw `FILE*` handle 包装成 `File { handle }`。
 3. `std.io.close` 现在读取 `file.handle`，再通过 runtime wrapper
@@ -153,7 +153,7 @@ wrapper function。`read/write` 现在也是 stdlib generic wrapper：它们从
 
 目标形态：
 
-```cherry
+```mulberry
 comptime Tensor<T> = struct {
   data: Ptr<T>,
   rank: UInt64,
@@ -170,9 +170,9 @@ payload；`rank` 是 runtime rank；`numel` 是元素总数；`sizes` 和 `strid
 source-level object layout。用户层建议通过 `ndim()`、`numel()`、`shape()`、
 `dim(i)`、`stride(i)` 访问这些 metadata，而不是直接碰字段。
 
-当前 `stdlib/std/tensor.cherry` 已经可以直接表达这个形态：
+当前 `stdlib/std/tensor.mulberry` 已经可以直接表达这个形态：
 
-```cherry
+```mulberry
 comptime Tensor<T> = struct {
   data: Ptr<T>,
   rank: UInt64,
@@ -223,7 +223,7 @@ memref allocation result
 当前先不把 source-level `Float32[?, ?]` 整体替换成 heap handle。原因是现有 Tensor
 value lowering 仍以 `memref` 为核心。迁移时使用显式入口：
 
-```cherry
+```mulberry
 var tensor2d: Tensor<Float32> = tensor.pack(data);
 var view: Float32[?, ?] = tensor.view(tensor2d);
 ```
@@ -240,7 +240,7 @@ buffer，并把原 tensor payload copy 到 heap buffer，保证返回的 Tensor 
 
 `io.readTensor(file, name)` 直接返回 `Tensor<Float32>`：
 
-```cherry
+```mulberry
 var xTensor: Tensor<Float32> = io.readTensor(file, "x");
 var x: Float32[?, ?] = tensor.view(xTensor);
 ```

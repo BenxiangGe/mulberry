@@ -1,0 +1,31 @@
+# RUN: mulberry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+fn add(x: Float32, y: Float32): Float32 {
+  x + y
+}
+
+fn main(): UInt64 {
+  var x: Float32 = 1.25;
+  var y: Float32 = add(x, 2.5e1);
+  y < 30.0;
+
+  0
+}
+
+# TOKENS: float_literal '1.25'
+# TOKENS: float_literal '2.5e1'
+# TOKENS: float_literal '30.0'
+
+# AST: FloatLiteralExpr
+# AST-SAME: type=Float32
+
+# MLIR: func.func @add(%arg0: f32, %arg1: f32) -> f32
+# MLIR: arith.addf
+# MLIR-SAME: f32
+# MLIR: arith.constant 1.250000e+00 : f32
+# MLIR: arith.constant 2.500000e+01 : f32
+# MLIR: arith.cmpf olt
+# MLIR-SAME: f32
+# MLIR-NOT: cir.

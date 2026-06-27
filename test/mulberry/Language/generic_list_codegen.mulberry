@@ -1,0 +1,44 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
+
+fn first(xs: List<UInt64>): UInt64 {
+  xs[0]
+}
+
+fn make(): List<UInt64> {
+  var numbers: List<UInt64> = [1, 2, 3];
+  numbers
+}
+
+fn main(): UInt64 {
+  var numbers: List<UInt64> = [4, 5, 6];
+  io.print(first(numbers));
+  make().size()
+}
+
+# CHECK-LABEL: func.func @first(%arg0: !mulberry.record<std_collections_List__UInt64
+# CHECK-SAME: -> i64
+# CHECK: call @std_collections_List_get__UInt64
+# CHECK-LABEL: func.func @make()
+# CHECK-SAME: -> !mulberry.record<std_collections_List__UInt64
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_List_push__UInt64
+# CHECK-LABEL: func.func @main()
+# CHECK: call @std_collections_withCapacity__UInt64
+# CHECK: call @std_collections_List_push__UInt64
+# CHECK: call @first
+# CHECK: call @make
+# CHECK: call @std_collections_List_size__UInt64
+
+# LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
+# LOWER-LABEL: func.func @first(%arg0: !llvm.struct<(i64, i64, ptr)>) -> i64
+# LOWER: call @std_collections_List_get__UInt64
+# LOWER-LABEL: func.func @make
+# LOWER-SAME: -> !llvm.struct<(i64, i64, ptr)>
+# LOWER: call @std_collections_withCapacity__UInt64
+# LOWER: call @std_collections_List_push__UInt64
+# LOWER-LABEL: func.func @main
+# LOWER: call @first
+# LOWER: call @make
+# LOWER: call @std_collections_List_size__UInt64
+# LOWER-NOT: llvm.call @free

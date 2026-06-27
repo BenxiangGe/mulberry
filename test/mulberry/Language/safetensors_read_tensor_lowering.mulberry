@@ -1,0 +1,21 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+import safetensors;
+
+fn main(): UInt64 {
+  const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
+  var w1Tensor: Tensor<Float32> = safetensors.readTensor(file, "w1");
+  io.close(file);
+  var w1: Float32[?, ?] = tensor.view(w1Tensor);
+  w1Tensor.numel()
+}
+
+# MLIR: call @std.safetensors.readTensor
+# MLIR: mulberry.tensor.view
+
+# LOWERED-NOT: mulberry_safetensor_read_tensor_f32
+# LOWERED: func.func @std.safetensors.readTensor
+# LOWERED: call @std.safetensors.findTensor
+# LOWERED: call @std_io_read__Float32
+# LOWERED-NOT: mulberry.tensor.view
