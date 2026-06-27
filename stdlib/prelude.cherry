@@ -1,4 +1,5 @@
 import core;
+import core.Char;
 import core.boolToUInt64;
 import collections;
 import collections.List;

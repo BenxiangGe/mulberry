@@ -33,10 +33,9 @@ fn bar(x: UInt64, y: Bool): B {
     true
   };
 
-  var unit: () = while k {
-  	k = false;
-  	()
-  };
+  while k {
+    k = false;
+  }
 
   B { k, A {} }
 }
@@ -47,8 +46,8 @@ fn baz(): () {
 
 fn main(): UInt64 {
   0 % 3 * 8 / 4 + 3 - 1;
-  3 lt 1; 3 le 1; 3 gt 1; 3 ge 1;
-  true and false or true eq false neq true;
+  3 < 1; 3 <= 1; 3 > 1; 3 >= 1;
+  true and false or true == false != true;
 
   var structValue: B = bar(18446744073709551615, false);
   io.print(boolToUInt64(structValue.x));

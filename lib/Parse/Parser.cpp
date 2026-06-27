@@ -17,6 +17,12 @@ constexpr std::string_view kStdTensorPack = "std.tensor.pack";
 constexpr std::string_view kTensorView = "tensor.view";
 constexpr std::string_view kStdTensorView = "std.tensor.view";
 
+auto isTypeLikeName(std::string_view name) -> bool {
+  auto tail = name.substr(name.rfind('.') + 1);
+  return !tail.empty() &&
+         std::isupper(static_cast<unsigned char>(tail.front()));
+}
+
 auto isTensorPackName(std::string_view name) -> bool {
   return name == kTensorPack || name == kStdTensorPack;
 }
@@ -414,6 +420,12 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> CherryResult {
   auto loc = tokenLoc();
   VectorUniquePtr<Stat> statements;
   while (true) {
+    if (consumeIf(Token::r_brace)) {
+      block = make_unique<BlockExpr>(
+          loc, std::move(statements), make_unique<UnitExpr>(loc));
+      return success();
+    }
+
     unique_ptr<Stat> stat;
     if (parseStatementWithoutSemi(stat))
       return failure();
@@ -431,8 +443,10 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> CherryResult {
       continue;
     }
 
-    if (parseToken(Token::r_brace, diag::expected_r_brace))
-      return failure();
+    if (!consumeIf(Token::r_brace)) {
+      statements.push_back(std::move(stat));
+      continue;
+    }
 
     unique_ptr<ExprStat> exprStat(static_cast<ExprStat *>(stat.release()));
     block = make_unique<BlockExpr>(loc, std::move(statements),
@@ -647,6 +661,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseFloat(expr);
   case Token::string_literal:
     return parseString(expr);
+  case Token::char_literal:
+    return parseChar(expr);
   case Token::diff:
     return parseNegativeFloat(expr);
   case Token::mul:
@@ -659,6 +675,10 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> CherryResult {
     return parseIfExpr(expr);
   case Token::kw_while:
     return parseWhileExpr(expr);
+  case Token::kw_break:
+    return parseBreakExpr(expr);
+  case Token::kw_continue:
+    return parseContinueExpr(expr);
   case Token::kw_for:
     return parseForExpr(expr);
   case Token::kw_true: {
@@ -704,11 +724,14 @@ auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
   unique_ptr<BlockExpr> elseBlock;
   if (parseBlockCondition(condition) ||
       parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(thenBlock) ||
-      parseToken(Token::kw_else, diag::expected_else) ||
-      parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(elseBlock))
+      parseBlockExpr(thenBlock))
     return failure();
+
+  if (consumeIf(Token::kw_else)) {
+    if (parseToken(Token::l_brace, diag::expected_l_brace) ||
+        parseBlockExpr(elseBlock))
+      return failure();
+  }
 
   expr = make_unique<IfExpr>(loc, std::move(condition), std::move(thenBlock),
                              std::move(elseBlock));
@@ -726,6 +749,20 @@ auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
     return failure();
   expr =
       make_unique<WhileExpr>(loc, std::move(condition), std::move(bodyBlock));
+  return success();
+}
+
+auto Parser::parseBreakExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_break);
+  expr = make_unique<BreakExpr>(loc);
+  return success();
+}
+
+auto Parser::parseContinueExpr(std::unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_continue);
+  expr = make_unique<ContinueExpr>(loc);
   return success();
 }
 
@@ -798,6 +835,16 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> CherryResult {
   return emitError(diag::string_literal_invalid);
 }
 
+auto Parser::parseChar(unique_ptr<Expr> &expr) -> CherryResult {
+  auto loc = tokenLoc();
+  if (auto value = token().getCharLiteralValue()) {
+    consume(Token::char_literal);
+    expr = make_unique<CharLiteralExpr>(loc, *value);
+    return success();
+  }
+  return emitError(diag::expected_expr);
+}
+
 auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> CherryResult {
   auto location = tokenLoc();
   consume(Token::mul);
@@ -826,9 +873,12 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> CherryResult {
     return failure();
   switch (tokenKind()) {
   case Token::less:
-    if (name != "heap.alloc")
+    if (name != "heap.alloc" && isTypeLikeName(name))
       return parseGenericStructLiteral(location, name, expr);
-    return parseHeapAllocExpr(location, name, expr);
+    if (name == "heap.alloc")
+      return parseHeapAllocExpr(location, name, expr);
+    expr = createMemberAccessChain(location, name);
+    return success();
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
@@ -1050,11 +1100,17 @@ auto Parser::getTokenPrecedence() -> int {
     return 300;
   case Token::kw_eq:
   case Token::kw_neq:
+  case Token::eq:
+  case Token::neq:
     return 400;
   case Token::kw_lt:
   case Token::kw_le:
   case Token::kw_gt:
   case Token::kw_ge:
+  case Token::less:
+  case Token::less_equal:
+  case Token::greater:
+  case Token::greater_equal:
     return 500;
   case Token::add:
   case Token::diff:
@@ -1097,16 +1153,22 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
   case Token::kw_or:
     return BinaryExpr::Operator::Or;
   case Token::kw_eq:
+  case Token::eq:
     return BinaryExpr::Operator::EQ;
   case Token::kw_neq:
+  case Token::neq:
     return BinaryExpr::Operator::NEQ;
   case Token::kw_lt:
+  case Token::less:
     return BinaryExpr::Operator::LT;
   case Token::kw_le:
+  case Token::less_equal:
     return BinaryExpr::Operator::LE;
   case Token::kw_gt:
+  case Token::greater:
     return BinaryExpr::Operator::GT;
   case Token::kw_ge:
+  case Token::greater_equal:
     return BinaryExpr::Operator::GE;
   default:
     llvm_unreachable("Unexpected operator");

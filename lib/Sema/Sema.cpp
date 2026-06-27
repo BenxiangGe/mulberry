@@ -436,6 +436,10 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<StringLiteralExpr>(
         expr->location(), std::string(expr->value()));
   }
+  case Expr::Expr_CharLiteral: {
+    auto *expr = cast<CharLiteralExpr>(node);
+    return std::make_unique<CharLiteralExpr>(expr->location(), expr->value());
+  }
   case Expr::Expr_ArrayLiteral: {
     auto *expr = cast<ArrayLiteralExpr>(node);
     std::vector<std::unique_ptr<Expr>> elements;
@@ -480,11 +484,15 @@ auto substituteExpr(const Expr *node,
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
   case Expr::Expr_If: {
     auto *expr = cast<IfExpr>(node);
+    auto elseBlock = expr->hasElseBlock()
+                         ? substituteBlockExpr(expr->elseBlock().get(),
+                                               substitutions)
+                         : nullptr;
     return std::make_unique<IfExpr>(
         expr->location(),
         substituteExpr(expr->conditionExpr().get(), substitutions),
         substituteBlockExpr(expr->thenBlock().get(), substitutions),
-        substituteBlockExpr(expr->elseBlock().get(), substitutions));
+        std::move(elseBlock));
   }
   case Expr::Expr_While: {
     auto *expr = cast<WhileExpr>(node);
@@ -493,6 +501,10 @@ auto substituteExpr(const Expr *node,
         substituteExpr(expr->conditionExpr().get(), substitutions),
         substituteBlockExpr(expr->bodyBlock().get(), substitutions));
   }
+  case Expr::Expr_Break:
+    return std::make_unique<BreakExpr>(node->location());
+  case Expr::Expr_Continue:
+    return std::make_unique<ContinueExpr>(node->location());
   case Expr::Expr_For: {
     auto *expr = cast<ForExpr>(node);
     return std::make_unique<ForExpr>(
@@ -639,6 +651,7 @@ private:
   const std::map<std::string, std::string> &_importAliases =
       emptyImportAliases();
   std::string _currentPackageName;
+  int _whileDepth = 0;
 
   enum class UnitPolicy {
     Allow,
@@ -676,6 +689,7 @@ private:
   auto sema(FloatLiteralExpr *node) -> CherryResult;
   auto sema(BoolLiteralExpr *node) -> CherryResult;
   auto sema(StringLiteralExpr *node) -> CherryResult;
+  auto sema(CharLiteralExpr *node) -> CherryResult;
   auto sema(TypeLayoutExpr *node) -> CherryResult;
   auto sema(HeapAllocExpr *node) -> CherryResult;
   auto sema(DerefExpr *node) -> CherryResult;
@@ -696,6 +710,8 @@ private:
   auto sema(IndexExpr *expr) -> CherryResult;
   auto sema(IfExpr *node) -> CherryResult;
   auto sema(WhileExpr *node) -> CherryResult;
+  auto sema(BreakExpr *node) -> CherryResult;
+  auto sema(ContinueExpr *node) -> CherryResult;
   auto sema(ForExpr *node) -> CherryResult;
   auto semaTensorLiteralElement(Expr *expr, const Type *type)
       -> CherryResult;
@@ -897,6 +913,18 @@ private:
   private:
     std::string &_currentPackageName;
     std::string _oldPackageName;
+  };
+
+  class WhileScope {
+  public:
+    explicit WhileScope(int &whileDepth) : _whileDepth(whileDepth) {
+      ++_whileDepth;
+    }
+
+    ~WhileScope() { --_whileDepth; }
+
+  private:
+    int &_whileDepth;
   };
 
   auto declareFunction(std::string_view name,
@@ -1798,6 +1826,8 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_StringLiteral:
     return sema(cast<StringLiteralExpr>(node));
+  case Expr::Expr_CharLiteral:
+    return sema(cast<CharLiteralExpr>(node));
   case Expr::Expr_TypeLayout:
     return sema(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
@@ -1830,6 +1860,10 @@ auto SemaImpl::sema(Expr *node) -> CherryResult {
     return sema(cast<IfExpr>(node));
   case Expr::Expr_While:
     return sema(cast<WhileExpr>(node));
+  case Expr::Expr_Break:
+    return sema(cast<BreakExpr>(node));
+  case Expr::Expr_Continue:
+    return sema(cast<ContinueExpr>(node));
   case Expr::Expr_For:
     return sema(cast<ForExpr>(node));
   default:
@@ -1858,6 +1892,31 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> CherryResult {
 
   if (auto *tensorView = dyn_cast<TensorViewExpr>(node))
     return sema(tensorView, type);
+
+  if (auto *ifExpr = dyn_cast<IfExpr>(node)) {
+    if (!ifExpr->hasElseBlock() || isUnitType(type))
+      return sema(ifExpr);
+
+    auto conditionExpr = ifExpr->conditionExpr().get();
+    if (sema(conditionExpr))
+      return failure();
+    if (!isBoolType(conditionExpr->type()))
+      return emitError(conditionExpr, diag::expected_bool);
+
+    if (sema(ifExpr->thenBlock().get(), type) ||
+        sema(ifExpr->elseBlock().get(), type))
+      return failure();
+
+    auto *thenType = ifExpr->thenBlock()->expression()->type();
+    auto *elseType = ifExpr->elseBlock()->expression()->type();
+    if (!sameType(thenType, elseType))
+      return emitError(ifExpr->elseBlock()->expression().get(),
+                       diag::mismatch_type_then_else);
+    if (!sameType(type, elseType))
+      return emitError(ifExpr, diag::mismatch_type);
+    ifExpr->setType(type);
+    return success();
+  }
 
   auto *call = dyn_cast<CallExpr>(node);
   if (call && call->hasReceiver())
@@ -1972,7 +2031,10 @@ auto SemaImpl::sema(BlockExpr *node) -> CherryResult {
     if (sema(expr.get()))
       return failure();
 
-  return sema(node->expression().get());
+  if (sema(node->expression().get()))
+    return failure();
+  node->setType(node->expression()->type());
+  return success();
 }
 
 auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
@@ -1982,7 +2044,10 @@ auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
     if (sema(expr.get()))
       return failure();
 
-  return sema(node->expression().get(), returnType);
+  if (sema(node->expression().get(), returnType))
+    return failure();
+  node->setType(node->expression()->type());
+  return success();
 }
 
 auto SemaImpl::sema(CallExpr *node) -> CherryResult {
@@ -2176,6 +2241,11 @@ auto SemaImpl::sema(StringLiteralExpr *node) -> CherryResult {
   if (!type)
     return emitError(node, diag::undefined_type);
   node->setType(type);
+  return success();
+}
+
+auto SemaImpl::sema(CharLiteralExpr *node) -> CherryResult {
+  setBuiltinType(node, BuiltinTypeKind::UInt8);
   return success();
 }
 
@@ -2601,8 +2671,16 @@ auto SemaImpl::sema(IfExpr *node) -> CherryResult {
     return emitError(conditionExpr, diag::expected_bool);
 
   auto thenBlock = node->thenBlock().get();
+  if (sema(thenBlock))
+    return failure();
+
+  if (!node->hasElseBlock()) {
+    setBuiltinType(node, BuiltinTypeKind::Unit);
+    return success();
+  }
+
   auto elseBlock = node->elseBlock().get();
-  if (sema(thenBlock) || sema(elseBlock))
+  if (sema(elseBlock))
     return failure();
 
   auto elseExpr = elseBlock->expression().get();
@@ -2622,12 +2700,27 @@ auto SemaImpl::sema(WhileExpr *node) -> CherryResult {
     return emitError(conditionExpr, diag::expected_bool);
 
   auto bodyBlock = node->bodyBlock().get();
+  WhileScope whileScope(_whileDepth);
   if (sema(bodyBlock))
     return failure();
 
   if (!isUnitType(bodyBlock->expression()->type()))
     return emitError(bodyBlock->expression().get(), diag::mismatch_type);
 
+  setBuiltinType(node, BuiltinTypeKind::Unit);
+  return success();
+}
+
+auto SemaImpl::sema(BreakExpr *node) -> CherryResult {
+  if (_whileDepth == 0)
+    return emitError(node, diag::loop_control_outside_loop);
+  setBuiltinType(node, BuiltinTypeKind::Unit);
+  return success();
+}
+
+auto SemaImpl::sema(ContinueExpr *node) -> CherryResult {
+  if (_whileDepth == 0)
+    return emitError(node, diag::loop_control_outside_loop);
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }

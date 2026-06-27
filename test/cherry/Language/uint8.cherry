@@ -7,7 +7,7 @@ fn first(bytes: UInt8[?]): UInt8 {
 }
 
 fn minByte(lhs: UInt8, rhs: UInt8): UInt8 {
-  if lhs lt rhs {
+  if lhs < rhs {
     lhs
   } else {
     rhs

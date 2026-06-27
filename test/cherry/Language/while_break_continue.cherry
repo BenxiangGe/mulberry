@@ -1,0 +1,22 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
+
+import io;
+
+fn main(): UInt64 {
+  var i: UInt64 = 0;
+  var sum: UInt64 = 0;
+  while i < 6 {
+    i = i + 1;
+    if i == 2 {
+      continue;
+    }
+    if i == 5 {
+      break;
+    }
+    sum = sum + i;
+  }
+  io.print(sum);
+  0
+}
+
+# CHECK: 8

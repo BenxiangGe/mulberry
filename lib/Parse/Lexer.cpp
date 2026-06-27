@@ -67,8 +67,16 @@ auto Lexer::lexToken() -> Token {
     case ')':
       return formToken(Token::r_paren, tokStart);
     case '<':
+      if (*_curPtr == '=') {
+        ++_curPtr;
+        return formToken(Token::less_equal, tokStart);
+      }
       return formToken(Token::less, tokStart);
     case '>':
+      if (*_curPtr == '=') {
+        ++_curPtr;
+        return formToken(Token::greater_equal, tokStart);
+      }
       return formToken(Token::greater, tokStart);
     case '{':
       return formToken(Token::l_brace, tokStart);
@@ -87,7 +95,17 @@ auto Lexer::lexToken() -> Token {
       }
       return formToken(Token::dot, tokStart);
     case '=':
+      if (*_curPtr == '=') {
+        ++_curPtr;
+        return formToken(Token::eq, tokStart);
+      }
       return formToken(Token::assign, tokStart);
+    case '!':
+      if (*_curPtr == '=') {
+        ++_curPtr;
+        return formToken(Token::neq, tokStart);
+      }
+      return formToken(Token::error, tokStart);
     case '+':
       return formToken(Token::add, tokStart);
     case '-':
@@ -100,6 +118,8 @@ auto Lexer::lexToken() -> Token {
       return formToken(Token::rem, tokStart);
     case '"':
       return lexString(tokStart);
+    case '\'':
+      return lexChar(tokStart);
     case '0':
     case '1':
     case '2':
@@ -184,4 +204,24 @@ auto Lexer::lexString(const char *tokStart) -> Token {
   }
 
   return formToken(Token::error, tokStart);
+}
+
+auto Lexer::lexChar(const char *tokStart) -> Token {
+  if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
+      *_curPtr == '\n' || *_curPtr == '\r')
+    return formToken(Token::error, tokStart);
+
+  if (*_curPtr == '\\') {
+    ++_curPtr;
+    if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
+        *_curPtr == '\n' || *_curPtr == '\r')
+      return formToken(Token::error, tokStart);
+  }
+
+  ++_curPtr;
+  if (_curPtr == _curBuffer.end() || *_curPtr != '\'')
+    return formToken(Token::error, tokStart);
+
+  ++_curPtr;
+  return formToken(Token::char_literal, tokStart);
 }

@@ -39,6 +39,26 @@ extern "C" uint64_t _mlir_ciface_mulberry_file_close(uint8_t* file) {
   return mulberry_file_close(file);
 }
 
+extern "C" uint64_t mulberry_file_seek(uint8_t* file, uint64_t offset) {
+  auto* handle = reinterpret_cast<std::FILE*>(file);
+  return static_cast<uint64_t>(
+      std::fseek(handle, static_cast<long>(offset), SEEK_SET));
+}
+
+extern "C" uint64_t _mlir_ciface_mulberry_file_seek(uint8_t* file,
+                                                    uint64_t offset) {
+  return mulberry_file_seek(file, offset);
+}
+
+extern "C" uint64_t mulberry_file_tell(uint8_t* file) {
+  auto* handle = reinterpret_cast<std::FILE*>(file);
+  return static_cast<uint64_t>(std::ftell(handle));
+}
+
+extern "C" uint64_t _mlir_ciface_mulberry_file_tell(uint8_t* file) {
+  return mulberry_file_tell(file);
+}
+
 extern "C" uint64_t mulberry_file_read(uint8_t* file, uint8_t* data,
                                        uint64_t byteSize) {
   auto* handle = reinterpret_cast<std::FILE*>(file);

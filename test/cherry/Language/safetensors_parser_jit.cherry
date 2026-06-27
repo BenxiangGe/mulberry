@@ -1,0 +1,37 @@
+# RUN: %numpy_python %cherry_src_root/tools/export_mnist_safetensors.py --output /tmp/cherry_safetensors_parser_jit.safetensors > %t.export.log && cherry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import safetensors;
+
+fn main(): UInt64 {
+  const file: File =
+      io.open("/tmp/cherry_safetensors_parser_jit.safetensors", "rb");
+  const w1: safetensors.TensorInfo = safetensors.findTensor(file, "w1");
+  const x: safetensors.TensorInfo = safetensors.findTensor(file, "x");
+  io.print(boolToUInt64(w1.found));
+  io.print(w1.headerLength);
+  io.print(w1.shape.size());
+  io.print(w1.shape[0]);
+  io.print(w1.shape[1]);
+  io.print(w1.begin);
+  io.print(w1.end);
+  io.print(boolToUInt64(x.found));
+  io.print(x.shape[0]);
+  io.print(x.shape[1]);
+  io.print(x.begin);
+  io.print(x.end);
+  io.close(file);
+  0
+}
+
+# JIT: 1
+# JIT-NEXT: 325
+# JIT-NEXT: 2
+# JIT-NEXT: 30
+# JIT-NEXT: 784
+# JIT-NEXT: 0
+# JIT-NEXT: 94080
+# JIT-NEXT: 1
+# JIT-NEXT: 784
+# JIT-NEXT: 1
+# JIT-NEXT: 95440
+# JIT-NEXT: 98576

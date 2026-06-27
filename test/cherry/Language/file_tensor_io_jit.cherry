@@ -15,7 +15,7 @@ fn main(): UInt64 {
 
   io.print(writeCount);
   io.print(readCount);
-  io.print(boolToUInt64(inputView[1] gt 6.5));
+  io.print(boolToUInt64(inputView[1] > 6.5));
   0
 }
 

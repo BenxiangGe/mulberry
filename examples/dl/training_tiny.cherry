@@ -53,10 +53,8 @@ fn main(): UInt64 {
       w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
       b1 = nn.matsub(biases[0], nn.matscale(delta1, eta));
       b2 = nn.matsub(biases[1], nn.matscale(delta2, eta));
-      ()
-    };
-    ()
-  };
+    }
+  }
 
   var finalWeights: List<Tensor<Float32>> = [w1, w2];
   var finalBiases: List<Tensor<Float32>> = [b1, b2];
@@ -66,8 +64,7 @@ fn main(): UInt64 {
     activation0 = nn.sigmoid(nn.matadd(
         nn.matmul(finalWeights[layer], activation0),
         finalBiases[layer]));
-    ()
-  };
+  }
   io.print(nn.argmax(activation0));
 
   var activation1: Tensor<Float32> = xs[1];
@@ -75,8 +72,7 @@ fn main(): UInt64 {
     activation1 = nn.sigmoid(nn.matadd(
         nn.matmul(finalWeights[layer], activation1),
         finalBiases[layer]));
-    ()
-  };
+  }
   io.print(nn.argmax(activation1));
 
   0

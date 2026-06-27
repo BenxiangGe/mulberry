@@ -1,0 +1,19 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
+
+import io;
+
+fn main(): UInt64 {
+  var value: UInt64 = 1;
+  if value == 1 {
+    value = 2;
+  }
+  if value == 0 {
+    value = 3;
+  } else {
+    value = value + 4;
+  }
+  io.print(value);
+  0
+}
+
+# CHECK: 6

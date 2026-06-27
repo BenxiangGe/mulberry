@@ -67,6 +67,7 @@ private:
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
+  auto dump(const CharLiteralExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const DerefExpr *node) -> void;
@@ -78,6 +79,8 @@ private:
   auto dump(const BinaryExpr *node) -> void;
   auto dump(const IfExpr *node) -> void;
   auto dump(const WhileExpr *node) -> void;
+  auto dump(const BreakExpr *node) -> void;
+  auto dump(const ContinueExpr *node) -> void;
   auto dump(const ForExpr *node) -> void;
 
   // Statements
@@ -284,10 +287,11 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            TypeLayoutExpr, HeapAllocExpr, DerefExpr, TensorZerosExpr,
+            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr, TensorZerosExpr,
             TensorPackExpr, TensorViewExpr, ArrayLiteralExpr, IndexExpr,
             VariableExpr, MemberExpr,
-            AssignExpr, IfExpr, WhileExpr, ForExpr, BinaryExpr>(
+            AssignExpr, IfExpr, WhileExpr, BreakExpr, ContinueExpr, ForExpr,
+            BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -401,6 +405,13 @@ auto Dumper::dump(const StringLiteralExpr *node) -> void {
          << " value=\"" << node->value() << "\"\n";
 }
 
+auto Dumper::dump(const CharLiteralExpr *node) -> void {
+  INDENT();
+  errs() << "CharLiteralExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " value=" << static_cast<unsigned>(node->value()) << "\n";
+}
+
 auto Dumper::dump(const TypeLayoutExpr *node) -> void {
   INDENT();
   auto query = node->query() == TypeLayoutExpr::Query::SizeOf ? "sizeof"
@@ -462,7 +473,8 @@ auto Dumper::dump(const IfExpr *node) -> void {
          << " type=" << formatType(node->type()) << "\n";
   dump(node->conditionExpr().get());
   dump(node->thenBlock().get(), "thenBlock:");
-  dump(node->elseBlock().get(), "elseBlock:");
+  if (node->hasElseBlock())
+    dump(node->elseBlock().get(), "elseBlock:");
 }
 
 auto Dumper::dump(const WhileExpr *node) -> void {
@@ -471,6 +483,18 @@ auto Dumper::dump(const WhileExpr *node) -> void {
          << " type=" << formatType(node->type()) << "\n";
   dump(node->conditionExpr().get());
   dump(node->bodyBlock().get(), "bodyBlock:");
+}
+
+auto Dumper::dump(const BreakExpr *node) -> void {
+  INDENT();
+  errs() << "BreakExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+}
+
+auto Dumper::dump(const ContinueExpr *node) -> void {
+  INDENT();
+  errs() << "ContinueExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
 }
 
 auto Dumper::dump(const ForExpr *node) -> void {

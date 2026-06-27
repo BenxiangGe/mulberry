@@ -10,7 +10,7 @@ fn main(): UInt64 {
 
   var view: Float32[?, ?] = tensor.view(tensor2d);
   io.print(tensor2d.numel());
-  io.print(boolToUInt64(view[1, 1] gt 3.5));
+  io.print(boolToUInt64(view[1, 1] > 3.5));
   0
 }
 

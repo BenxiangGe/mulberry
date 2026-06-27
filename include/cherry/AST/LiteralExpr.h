@@ -85,6 +85,21 @@ private:
   std::string _value;
 };
 
+class CharLiteralExpr final : public Expr {
+public:
+  explicit CharLiteralExpr(llvm::SMLoc location, uint8_t value)
+      : Expr{Expr_CharLiteral, location}, _value(value) {};
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_CharLiteral;
+  }
+
+  auto value() const -> uint8_t { return _value; }
+
+private:
+  uint8_t _value;
+};
+
 } // end namespace cherry
 
 #endif // CHERRY_LITERAL_EXPR_H

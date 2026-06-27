@@ -13,7 +13,7 @@ fn makeLayer(weight: Tensor<Float32>): Layer {
 
 fn useLayer(layer: Layer): UInt64 {
   var view: Float32[?, ?] = tensor.view(layer.weight);
-  boolToUInt64(view[0, 1] gt 1.5)
+  boolToUInt64(view[0, 1] > 1.5)
 }
 
 fn main(): UInt64 {

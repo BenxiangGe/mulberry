@@ -4,13 +4,11 @@ fn main(): UInt64 {
   var value: UInt64 = 1;
   io.print(value);
 
-  var unit: () = if true {
+  if true {
     var value: UInt64 = 2;
     io.print(value);
-    ()
   } else {
-    ()
-  };
+  }
 
   io.print(value);
   0

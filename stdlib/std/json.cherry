@@ -1,0 +1,186 @@
+package std.json;
+
+import collections.List;
+import core;
+import core.Char;
+import string.String;
+import tensor;
+import tensor.Tensor;
+
+# Cursor-style JSON parser for small structured metadata.  It intentionally
+# avoids building a DOM; callers parse only the fields they need.
+fn isSpace(char: Char): Bool {
+  char == ' ' or char == '\n' or char == '\r' or char == '\t'
+}
+
+fn isDigitChar(char: Char): Bool {
+  char >= '0' and char <= '9'
+}
+
+struct Parser {
+  text: Tensor<UInt8>,
+  position: UInt64,
+  length: UInt64,
+
+  pub fn peekChar(self: Ptr<Parser>): Char {
+    var view: UInt8[?] = tensor.view(self.text);
+    view[self.position]
+  }
+
+  pub fn isDigit(self: Ptr<Parser>): Bool {
+    var result: Bool = false;
+    if self.position < self.length {
+      result = isDigitChar(self.peekChar());
+    }
+    result
+  }
+
+  pub fn skipSpaces(self: Ptr<Parser>): () {
+    while self.position < self.length {
+      if isSpace(self.peekChar()) {
+        self.position = self.position + 1;
+      } else {
+        break;
+      }
+    }
+  }
+
+  pub fn consumeChar(self: Ptr<Parser>, value: Char): Bool {
+    self.skipSpaces();
+    var result: Bool = false;
+    if self.position < self.length and self.peekChar() == value {
+      self.position = self.position + 1;
+      result = true;
+    }
+    result
+  }
+
+  pub fn skipComma(self: Ptr<Parser>): () {
+    self.skipSpaces();
+    if self.position < self.length and self.peekChar() == ',' {
+      self.position = self.position + 1;
+    }
+  }
+
+  pub fn skipString(self: Ptr<Parser>): Bool {
+    var result: Bool = false;
+    if self.consumeChar('"') {
+      while self.position < self.length {
+        if self.peekChar() == '"' {
+          self.position = self.position + 1;
+          break;
+        }
+        self.position = self.position + 1;
+      }
+      result = true;
+    }
+    result
+  }
+
+  pub fn stringEquals(self: Ptr<Parser>, value: String): Bool {
+    self.skipSpaces();
+    var result: Bool = false;
+    if self.position < self.length and self.peekChar() == '"' {
+      self.position = self.position + 1;
+      var index: UInt64 = 0;
+      var matches: Bool = true;
+      while self.position < self.length {
+        if self.peekChar() == '"' {
+          break;
+        }
+        if index >= value.length {
+          matches = false;
+        } else {
+          if self.peekChar() != value.data[index] {
+            matches = false;
+          }
+        }
+        index = index + 1;
+        self.position = self.position + 1;
+      }
+      if self.position < self.length and self.peekChar() == '"' {
+        self.position = self.position + 1;
+      } else {
+        matches = false;
+      }
+      result = matches and index == value.length;
+    }
+    result
+  }
+
+  pub fn parseInteger(self: Ptr<Parser>): UInt64 {
+    self.skipSpaces();
+    var value: UInt64 = 0;
+    while self.isDigit() {
+      const digit: UInt64 = core.toUInt64(self.peekChar()) - core.toUInt64('0');
+      value = value * 10 + digit;
+      self.position = self.position + 1;
+    }
+    value
+  }
+
+  pub fn parseIntegerArray(self: Ptr<Parser>): List<UInt64> {
+    var values: List<UInt64> = [];
+    if self.consumeChar('[') {
+      while true {
+        self.skipSpaces();
+        if self.position < self.length and self.peekChar() == ']' {
+          self.position = self.position + 1;
+          break;
+        }
+        values.push(self.parseInteger());
+        self.skipComma();
+      }
+    }
+    values
+  }
+
+  pub fn skipBracketValue(self: Ptr<Parser>): () {
+    var depth: UInt64 = 0;
+    while self.position < self.length {
+      if self.peekChar() == '"' {
+        self.skipString();
+        continue;
+      }
+      if self.peekChar() == '[' or self.peekChar() == '{' {
+        depth = depth + 1;
+        self.position = self.position + 1;
+        continue;
+      }
+      if self.peekChar() == ']' or self.peekChar() == '}' {
+        depth = depth - 1;
+        self.position = self.position + 1;
+        if depth == 0 {
+          break;
+        }
+        continue;
+      }
+      self.position = self.position + 1;
+    }
+  }
+
+  pub fn skipScalarValue(self: Ptr<Parser>): () {
+    while self.position < self.length {
+      if self.peekChar() == ',' or self.peekChar() == '}' or
+          self.peekChar() == ']' {
+        break;
+      }
+      self.position = self.position + 1;
+    }
+  }
+
+  pub fn skipValue(self: Ptr<Parser>): () {
+    self.skipSpaces();
+    if self.position < self.length {
+      if self.peekChar() == '"' {
+        self.skipString();
+      } else {
+        if self.peekChar() == '[' or self.peekChar() == '{' {
+          self.skipBracketValue();
+        } else {
+          self.skipScalarValue();
+        }
+      }
+    }
+  }
+}

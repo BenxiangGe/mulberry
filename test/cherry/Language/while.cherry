@@ -3,10 +3,9 @@
 fn bar(y: Bool): Bool {
   var k: Bool = y;
 
-  var unit: () = while k {
+  while k {
     k = false;
-    ()
-  };
+  }
 
   k
 }

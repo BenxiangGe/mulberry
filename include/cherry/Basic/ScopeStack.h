@@ -28,6 +28,15 @@ public:
     return nullptr;
   }
 
+  auto lookupCurrent(std::string_view name) -> typename Scope::mapped_type * {
+    if (_scopes.empty())
+      return nullptr;
+    auto symbol = _scopes.back().find(name);
+    if (symbol == _scopes.back().end())
+      return nullptr;
+    return &symbol->second;
+  }
+
 private:
   std::vector<Scope> _scopes;
 };

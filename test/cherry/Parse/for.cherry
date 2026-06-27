@@ -4,8 +4,7 @@
 fn main(): UInt64 {
   for i in 0 .. 3 {
     io.print(i);
-    ()
-  };
+  }
 
   0
 }

@@ -14,10 +14,10 @@ fn main(): UInt64 {
   var inputView: UInt8[?] = tensor.view(inputTensor);
 
   io.print(count);
-  io.print(boolToUInt64(inputView[0] eq outputBytes[0]));
-  io.print(boolToUInt64(inputView[1] eq outputBytes[1]));
-  io.print(boolToUInt64(inputView[2] eq outputBytes[2]));
-  io.print(boolToUInt64(inputView[3] eq outputBytes[3]));
+  io.print(boolToUInt64(inputView[0] == outputBytes[0]));
+  io.print(boolToUInt64(inputView[1] == outputBytes[1]));
+  io.print(boolToUInt64(inputView[2] == outputBytes[2]));
+  io.print(boolToUInt64(inputView[3] == outputBytes[3]));
   0
 }
 

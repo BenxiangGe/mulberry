@@ -1,0 +1,157 @@
+package std.safetensors;
+
+import collections;
+import collections.List;
+import core;
+import io;
+import io.File;
+import json;
+import json.Parser;
+import string.String;
+import tensor.Tensor;
+
+struct TensorInfo {
+  found: Bool,
+  headerLength: UInt64,
+  begin: UInt64,
+  end: UInt64,
+  shape: List<UInt64>
+}
+
+fn parseTensorObject(parser: Parser, headerLength: UInt64): TensorInfo {
+  var info: TensorInfo = TensorInfo { false, headerLength, 0, 0, [] };
+  if parser.consumeChar('{') {
+    info.found = true;
+    while true {
+      parser.skipSpaces();
+      if parser.peekChar() == '}' {
+        parser.position = parser.position + 1;
+        break;
+      }
+      const keyStart: UInt64 = parser.position;
+      if parser.stringEquals("dtype") {
+        parser.consumeChar(':');
+        parser.skipString();
+        parser.skipComma();
+        continue;
+      }
+
+      parser.position = keyStart;
+      if parser.stringEquals("shape") {
+        parser.consumeChar(':');
+        info.shape = parser.parseIntegerArray();
+        parser.skipComma();
+        continue;
+      }
+
+      parser.position = keyStart;
+      if parser.stringEquals("data_offsets") {
+        parser.consumeChar(':');
+        var offsets: List<UInt64> = parser.parseIntegerArray();
+        info.begin = offsets[0];
+        info.end = offsets[1];
+        parser.skipComma();
+        continue;
+      }
+
+      parser.position = keyStart;
+      parser.skipString();
+      parser.consumeChar(':');
+      parser.skipValue();
+      parser.skipComma();
+    }
+  }
+  info
+}
+
+fn findTensorInHeader(parser: Parser, name: String,
+                      headerLength: UInt64): TensorInfo {
+  var info: TensorInfo = TensorInfo { false, headerLength, 0, 0, [] };
+  if parser.consumeChar('{') {
+    while true {
+      parser.skipSpaces();
+      if parser.position >= parser.length {
+        break;
+      }
+      if parser.peekChar() == '}' {
+        break;
+      }
+      if parser.stringEquals(name) {
+        parser.consumeChar(':');
+        info = parseTensorObject(parser, headerLength);
+        break;
+      }
+      parser.consumeChar(':');
+      parser.skipValue();
+      parser.skipComma();
+    }
+  }
+  info
+}
+
+fn readHeaderLength(file: File): UInt64 {
+  var bytes: UInt8[8] = zeros();
+  var tensorBytes: Tensor<UInt8> = tensor.pack(bytes);
+  io.seek(file, 0);
+  io.read(file, tensorBytes);
+  var view: UInt8[?] = tensor.view(tensorBytes);
+  core.toUInt64(view[0]) +
+      core.toUInt64(view[1]) * 256 +
+      core.toUInt64(view[2]) * 65536 +
+      core.toUInt64(view[3]) * 16777216 +
+      core.toUInt64(view[4]) * 4294967296 +
+      core.toUInt64(view[5]) * 1099511627776 +
+      core.toUInt64(view[6]) * 281474976710656 +
+      core.toUInt64(view[7]) * 72057594037927936
+}
+
+fn findTensor(file: File, name: String): TensorInfo {
+  const headerLength: UInt64 = readHeaderLength(file);
+  var headerBytes: Tensor<UInt8> =
+      Tensor<UInt8> { heap.alloc<UInt8>(headerLength), 1, headerLength,
+                      [headerLength], [1] };
+  io.seek(file, 8);
+  io.read(file, headerBytes);
+  var parser: Parser = Parser { headerBytes, 0, headerLength };
+  findTensorInHeader(parser, name, headerLength)
+}
+
+fn shapeNumel(shape: List<UInt64>): UInt64 {
+  var count: UInt64 = 1;
+  var index: UInt64 = 0;
+  while index < shape.size() {
+    count = count * shape[index];
+    index = index + 1;
+  }
+  count
+}
+
+fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {
+  const rank: UInt64 = shape.size();
+  var strides: List<UInt64> = collections.withCapacity(rank);
+  var index: UInt64 = 0;
+  while index < rank {
+    strides.push(0);
+    index = index + 1;
+  }
+
+  var stride: UInt64 = 1;
+  var reverseIndex: UInt64 = rank;
+  while reverseIndex > 0 {
+    reverseIndex = reverseIndex - 1;
+    strides[reverseIndex] = stride;
+    stride = stride * shape[reverseIndex];
+  }
+  strides
+}
+
+fn readTensor(file: File, name: String): Tensor<Float32> {
+  const info: TensorInfo = findTensor(file, name);
+  const count: UInt64 = shapeNumel(info.shape);
+  var value: Tensor<Float32> =
+      Tensor<Float32> { heap.alloc<Float32>(count), info.shape.size(), count,
+                        info.shape, rowMajorStrides(info.shape) };
+  io.seek(file, 8 + info.headerLength + info.begin);
+  io.read(file, value);
+  value
+}
