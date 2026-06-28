@@ -5,36 +5,37 @@
 # RUN: %t.exe 2>&1 | FileCheck %s
 
 import mulberry.nn;
+import safetensors;
 
 fn main(): UInt64 {
   const file: File =
       io.open("@TRAINING_SAFETENSORS@",
               "rb");
 
-  var w1: Tensor<Float32> = io.readTensor(file, "w1");
-  var b1: Tensor<Float32> = io.readTensor(file, "b1");
-  var w2: Tensor<Float32> = io.readTensor(file, "w2");
-  var b2: Tensor<Float32> = io.readTensor(file, "b2");
-  var x0: Tensor<Float32> = io.readTensor(file, "train_x_0");
-  var y0: Tensor<Float32> = io.readTensor(file, "train_y_0");
-  var x1: Tensor<Float32> = io.readTensor(file, "train_x_1");
-  var y1: Tensor<Float32> = io.readTensor(file, "train_y_1");
-  var x2: Tensor<Float32> = io.readTensor(file, "train_x_2");
-  var y2: Tensor<Float32> = io.readTensor(file, "train_y_2");
-  var x3: Tensor<Float32> = io.readTensor(file, "train_x_3");
-  var y3: Tensor<Float32> = io.readTensor(file, "train_y_3");
-  var x4: Tensor<Float32> = io.readTensor(file, "train_x_4");
-  var y4: Tensor<Float32> = io.readTensor(file, "train_y_4");
-  var x5: Tensor<Float32> = io.readTensor(file, "train_x_5");
-  var y5: Tensor<Float32> = io.readTensor(file, "train_y_5");
-  var x6: Tensor<Float32> = io.readTensor(file, "train_x_6");
-  var y6: Tensor<Float32> = io.readTensor(file, "train_y_6");
-  var x7: Tensor<Float32> = io.readTensor(file, "train_x_7");
-  var y7: Tensor<Float32> = io.readTensor(file, "train_y_7");
-  var x8: Tensor<Float32> = io.readTensor(file, "train_x_8");
-  var y8: Tensor<Float32> = io.readTensor(file, "train_y_8");
-  var x9: Tensor<Float32> = io.readTensor(file, "train_x_9");
-  var y9: Tensor<Float32> = io.readTensor(file, "train_y_9");
+  var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
+  var b1: Tensor<Float32> = safetensors.readTensor(file, "b1");
+  var w2: Tensor<Float32> = safetensors.readTensor(file, "w2");
+  var b2: Tensor<Float32> = safetensors.readTensor(file, "b2");
+  var x0: Tensor<Float32> = safetensors.readTensor(file, "train_x_0");
+  var y0: Tensor<Float32> = safetensors.readTensor(file, "train_y_0");
+  var x1: Tensor<Float32> = safetensors.readTensor(file, "train_x_1");
+  var y1: Tensor<Float32> = safetensors.readTensor(file, "train_y_1");
+  var x2: Tensor<Float32> = safetensors.readTensor(file, "train_x_2");
+  var y2: Tensor<Float32> = safetensors.readTensor(file, "train_y_2");
+  var x3: Tensor<Float32> = safetensors.readTensor(file, "train_x_3");
+  var y3: Tensor<Float32> = safetensors.readTensor(file, "train_y_3");
+  var x4: Tensor<Float32> = safetensors.readTensor(file, "train_x_4");
+  var y4: Tensor<Float32> = safetensors.readTensor(file, "train_y_4");
+  var x5: Tensor<Float32> = safetensors.readTensor(file, "train_x_5");
+  var y5: Tensor<Float32> = safetensors.readTensor(file, "train_y_5");
+  var x6: Tensor<Float32> = safetensors.readTensor(file, "train_x_6");
+  var y6: Tensor<Float32> = safetensors.readTensor(file, "train_y_6");
+  var x7: Tensor<Float32> = safetensors.readTensor(file, "train_x_7");
+  var y7: Tensor<Float32> = safetensors.readTensor(file, "train_y_7");
+  var x8: Tensor<Float32> = safetensors.readTensor(file, "train_x_8");
+  var y8: Tensor<Float32> = safetensors.readTensor(file, "train_y_8");
+  var x9: Tensor<Float32> = safetensors.readTensor(file, "train_x_9");
+  var y9: Tensor<Float32> = safetensors.readTensor(file, "train_y_9");
 
   io.close(file);
 
@@ -72,15 +73,13 @@ fn main(): UInt64 {
       w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
       b1 = nn.matsub(biases[0], nn.matscale(delta1, eta));
       b2 = nn.matsub(biases[1], nn.matscale(delta2, eta));
-      ()
-    };
-    ()
-  };
+    }
+  }
 
   const inferenceFile: File =
       io.open("@INFERENCE_SAFETENSORS@",
               "rb");
-  var x: Tensor<Float32> = io.readTensor(inferenceFile, "x");
+  var x: Tensor<Float32> = safetensors.readTensor(inferenceFile, "x");
   io.close(inferenceFile);
 
   var finalWeights: List<Tensor<Float32>> = [w1, w2];
@@ -90,8 +89,7 @@ fn main(): UInt64 {
     activation = nn.sigmoid(nn.matadd(
         nn.matmul(finalWeights[layer], activation),
         finalBiases[layer]));
-    ()
-  };
+  }
   io.print(nn.argmax(activation));
 
   0

@@ -2,8 +2,7 @@
 
 fn main(): UInt64 {
   for i in false .. 3 {
-    ()
-  };
+  }
 
   0
 }

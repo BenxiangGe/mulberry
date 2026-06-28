@@ -12,6 +12,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SMLoc.h"
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -39,6 +40,7 @@ public:
   auto getUInt64IntegerValue() const -> std::optional<uint64_t>;
   auto getFloat32Value() const -> std::optional<llvm::APFloat>;
   auto getStringLiteralValue() const -> std::optional<std::string>;
+  auto getCharLiteralValue() const -> std::optional<uint8_t>;
 
   llvm::SMLoc getLoc() const;
   llvm::SMLoc getEndLoc() const;

@@ -1,8 +1,8 @@
 add_library(cherryRuntime SHARED
         BoehmGC.cpp
+        Core.cpp
         File.cpp
         Print.cpp
-        Safetensors.cpp
 )
 
 set_target_properties(cherryRuntime PROPERTIES

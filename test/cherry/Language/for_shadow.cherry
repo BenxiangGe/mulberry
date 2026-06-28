@@ -6,8 +6,7 @@ fn main(): UInt64 {
 
   for i in 0 .. 2 {
     io.print(i);
-    ()
-  };
+  }
 
   io.print(i);
   0

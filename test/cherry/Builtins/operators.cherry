@@ -16,35 +16,35 @@ fn main(): UInt64 {
   io.print(20 % 10);
   io.print(20 % 3);
 
-  io.print(boolToUInt64(20 lt 10));
-  io.print(boolToUInt64(10 lt 20));
-  io.print(boolToUInt64(10 lt 10));
+  io.print(boolToUInt64(20 < 10));
+  io.print(boolToUInt64(10 < 20));
+  io.print(boolToUInt64(10 < 10));
 
-  io.print(boolToUInt64(20 le 10));
-  io.print(boolToUInt64(10 le 20));
-  io.print(boolToUInt64(10 le 10));
+  io.print(boolToUInt64(20 <= 10));
+  io.print(boolToUInt64(10 <= 20));
+  io.print(boolToUInt64(10 <= 10));
 
-  io.print(boolToUInt64(20 gt 10));
-  io.print(boolToUInt64(10 gt 20));
-  io.print(boolToUInt64(10 gt 10));
+  io.print(boolToUInt64(20 > 10));
+  io.print(boolToUInt64(10 > 20));
+  io.print(boolToUInt64(10 > 10));
 
-  io.print(boolToUInt64(20 ge 10));
-  io.print(boolToUInt64(10 ge 20));
-  io.print(boolToUInt64(10 ge 10));
+  io.print(boolToUInt64(20 >= 10));
+  io.print(boolToUInt64(10 >= 20));
+  io.print(boolToUInt64(10 >= 10));
 
-  io.print(boolToUInt64(20 eq 10));
-  io.print(boolToUInt64(10 ge 20));
-  io.print(boolToUInt64(10 eq 10));
+  io.print(boolToUInt64(20 == 10));
+  io.print(boolToUInt64(10 >= 20));
+  io.print(boolToUInt64(10 == 10));
 
-  io.print(boolToUInt64(20 neq 10));
-  io.print(boolToUInt64(10 neq 20));
-  io.print(boolToUInt64(10 neq 10));
+  io.print(boolToUInt64(20 != 10));
+  io.print(boolToUInt64(10 != 20));
+  io.print(boolToUInt64(10 != 10));
 
-  io.print(boolToUInt64(true eq true));
-  io.print(boolToUInt64(true eq false));
+  io.print(boolToUInt64(true == true));
+  io.print(boolToUInt64(true == false));
 
-  io.print(boolToUInt64(true neq true));
-  io.print(boolToUInt64(true neq false));
+  io.print(boolToUInt64(true != true));
+  io.print(boolToUInt64(true != false));
 
   io.print(boolToUInt64(false and false));
   io.print(boolToUInt64(false and true));

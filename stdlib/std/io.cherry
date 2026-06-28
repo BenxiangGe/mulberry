@@ -10,9 +10,10 @@ struct File {
 
 extern fn mulberry_file_open(path: String, mode: String): Ptr<UInt8>;
 extern fn mulberry_file_close(handle: Ptr<UInt8>): UInt64;
+extern fn mulberry_file_seek(file: Ptr<UInt8>, offset: UInt64): UInt64;
+extern fn mulberry_file_tell(file: Ptr<UInt8>): UInt64;
 extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
-extern fn mulberry_safetensor_read_tensor_f32(file: Ptr<UInt8>, name: String): Tensor<Float32>;
 extern fn printU64(value: UInt64): ();
 extern fn printNewline(): ();
 
@@ -30,6 +31,14 @@ fn close(file: File): UInt64 {
   mulberry_file_close(file.handle)
 }
 
+fn seek(file: File, offset: UInt64): UInt64 {
+  mulberry_file_seek(file.handle, offset)
+}
+
+fn tell(file: File): UInt64 {
+  mulberry_file_tell(file.handle)
+}
+
 fn read<T>(file: File, buffer: Tensor<T>): UInt64 {
   mulberry_file_read(file.handle, ptr.asUInt8(buffer.data),
                      buffer.numel * sizeof(T))
@@ -38,8 +47,4 @@ fn read<T>(file: File, buffer: Tensor<T>): UInt64 {
 fn write<T>(file: File, buffer: Tensor<T>): UInt64 {
   mulberry_file_write(file.handle, ptr.asUInt8(buffer.data),
                       buffer.numel * sizeof(T))
-}
-
-fn readTensor(file: File, name: String): Tensor<Float32> {
-  mulberry_safetensor_read_tensor_f32(file.handle, name)
 }

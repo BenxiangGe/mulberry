@@ -4,16 +4,17 @@
 # RUN: %t.exe 2>&1 | FileCheck %s
 
 import mulberry.nn;
+import safetensors;
 
 fn main(): UInt64 {
   const file: File =
       io.open("@MNIST_SAFETENSORS@", "rb");
 
-  var w1: Tensor<Float32> = io.readTensor(file, "w1");
-  var b1: Tensor<Float32> = io.readTensor(file, "b1");
-  var w2: Tensor<Float32> = io.readTensor(file, "w2");
-  var b2: Tensor<Float32> = io.readTensor(file, "b2");
-  var x: Tensor<Float32> = io.readTensor(file, "x");
+  var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
+  var b1: Tensor<Float32> = safetensors.readTensor(file, "b1");
+  var w2: Tensor<Float32> = safetensors.readTensor(file, "w2");
+  var b2: Tensor<Float32> = safetensors.readTensor(file, "b2");
+  var x: Tensor<Float32> = safetensors.readTensor(file, "x");
 
   io.close(file);
 
@@ -25,8 +26,7 @@ fn main(): UInt64 {
     activation = nn.sigmoid(nn.matadd(
         nn.matmul(weights[layer], activation),
         biases[layer]));
-    ()
-  };
+  }
 
   io.print(nn.argmax(activation));
   0

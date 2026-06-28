@@ -6,8 +6,7 @@ fn main(): UInt64 {
 
   for i in 0 .. 3 {
     sum = sum + xs[i];
-    ()
-  };
+  }
 
   io.print(sum);
   0

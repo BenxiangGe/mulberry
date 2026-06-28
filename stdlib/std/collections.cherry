@@ -21,27 +21,23 @@ comptime List<T> = struct {
   pub fn grow(self: Ptr<List<T>>, newCapacity: UInt64): UInt64 {
     var newData: Ptr<T> = heap.alloc<T>(newCapacity);
     var index: UInt64 = 0;
-    while index lt self.length {
+    while index < self.length {
       newData[index] = self.data[index];
       index = index + 1;
-      ()
-    };
+    }
     self.data = newData;
     self.capacity = newCapacity;
     0
   }
 
   pub fn push(self: Ptr<List<T>>, value: T): UInt64 {
-    if self.length ge self.capacity {
-      var newCapacity: UInt64 = if self.capacity eq 0 {
-        1
-      } else {
-        self.capacity * 2
-      };
-      self.grow(newCapacity)
-    } else {
-      0
-    };
+    if self.length >= self.capacity {
+      var newCapacity: UInt64 = self.capacity * 2;
+      if self.capacity == 0 {
+        newCapacity = 1;
+      }
+      self.grow(newCapacity);
+    }
     self.data[self.length] = value;
     self.length = self.length + 1;
     0

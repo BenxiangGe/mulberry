@@ -62,6 +62,35 @@ auto Token::getStringLiteralValue() const -> std::optional<std::string> {
   return result;
 }
 
+auto Token::getCharLiteralValue() const -> std::optional<uint8_t> {
+  if (_kind != char_literal || _spelling.size() < 3 ||
+      _spelling.front() != '\'' || _spelling.back() != '\'')
+    return std::nullopt;
+
+  if (_spelling.size() == 3)
+    return static_cast<uint8_t>(_spelling[1]);
+
+  if (_spelling.size() != 4 || _spelling[1] != '\\')
+    return std::nullopt;
+
+  switch (_spelling[2]) {
+  case 'n':
+    return static_cast<uint8_t>('\n');
+  case 't':
+    return static_cast<uint8_t>('\t');
+  case 'r':
+    return static_cast<uint8_t>('\r');
+  case '\'':
+    return static_cast<uint8_t>('\'');
+  case '"':
+    return static_cast<uint8_t>('"');
+  case '\\':
+    return static_cast<uint8_t>('\\');
+  default:
+    return std::nullopt;
+  }
+}
+
 SMLoc Token::getLoc() const { return SMLoc::getFromPointer(_spelling.data()); }
 
 SMLoc Token::getEndLoc() const {

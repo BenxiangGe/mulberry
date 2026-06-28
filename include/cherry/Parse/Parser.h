@@ -168,12 +168,15 @@ private:
   auto parseIfExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseWhileExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseBreakExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseContinueExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseForExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseDecimal(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseString(std::unique_ptr<Expr> &expr) -> CherryResult;
+  auto parseChar(std::unique_ptr<Expr> &expr) -> CherryResult;
   auto parseDerefExpr(std::unique_ptr<Expr> &expr) -> CherryResult;
 
   auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> CherryResult;

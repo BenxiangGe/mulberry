@@ -1,0 +1,35 @@
+# RUN: cherry-driver %s 2>&1 | FileCheck %s
+
+import json;
+import tensor;
+import tensor.Tensor;
+import io;
+
+fn main(): UInt64 {
+  var bytes: UInt8[25] = [
+      '{', '"', 'a', '"', ':', '[', '1', '2', ',', '3', '4', ']', ',',
+      '"', 'b', '"', ':', '{', '"', 'c', '"', ':', '5', '}', '}'
+  ];
+  var text: Tensor<UInt8> = tensor.pack(bytes);
+  var parser: json.Parser = json.Parser { text, 0, 25 };
+  parser.consumeChar('{');
+  io.print(boolToUInt64(parser.stringEquals("a")));
+  parser.consumeChar(':');
+  var values: List<UInt64> = parser.parseIntegerArray();
+  io.print(values.size());
+  io.print(values[0]);
+  io.print(values[1]);
+  parser.consumeChar(',');
+  io.print(boolToUInt64(parser.stringEquals("b")));
+  parser.consumeChar(':');
+  parser.skipValue();
+  io.print(parser.position);
+  0
+}
+
+# CHECK: 1
+# CHECK-NEXT: 2
+# CHECK-NEXT: 12
+# CHECK-NEXT: 34
+# CHECK-NEXT: 1
+# CHECK-NEXT: 24

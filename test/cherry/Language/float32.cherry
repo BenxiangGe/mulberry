@@ -9,7 +9,7 @@ fn add(x: Float32, y: Float32): Float32 {
 fn main(): UInt64 {
   var x: Float32 = 1.25;
   var y: Float32 = add(x, 2.5e1);
-  y lt 30.0;
+  y < 30.0;
 
   0
 }

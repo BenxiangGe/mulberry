@@ -80,6 +80,11 @@ struct TensorDimSource {
   int64_t dimension;
 };
 
+struct WhileControl {
+  mlir::Value breakFlag;
+  mlir::Value continueFlag;
+};
+
 auto isParameterValueType(const Type *type) -> bool {
   return cherry::isTensorType(type) || cherry::isPtrType(type);
 }
@@ -100,6 +105,7 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<VariableBinding>> _variableScopes;
+  std::vector<WhileControl> _whileControls;
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   MLIRTypeConverter _typeConverter{_builder};
@@ -116,6 +122,8 @@ private:
   auto gen(const BlockExpr *node) -> mlir::Value;
   auto gen(const IfExpr *node) -> mlir::Value;
   auto gen(const WhileExpr *node) -> mlir::Value;
+  auto gen(const BreakExpr *node) -> mlir::Value;
+  auto gen(const ContinueExpr *node) -> mlir::Value;
   auto gen(const ForExpr *node) -> mlir::Value;
   auto genDeclaredCall(std::string_view name, llvm::ArrayRef<const Expr *> args,
                        mlir::Location location) -> mlir::func::CallOp;
@@ -130,6 +138,7 @@ private:
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
+  auto gen(const CharLiteralExpr *node) -> mlir::Value;
   auto gen(const TypeLayoutExpr *node) -> mlir::Value;
   auto gen(const HeapAllocExpr *node) -> mlir::Value;
   auto gen(const DerefExpr *node) -> mlir::Value;
@@ -143,6 +152,11 @@ private:
   auto gen(const Stat *node) -> void;
   auto gen(const VariableStat *node) -> void;
   auto gen(const ExprStat *node) -> void;
+  auto declareLocalVariableSlot(const VariableStat *node) -> void;
+  auto genStatements(const VectorUniquePtr<Stat> &statements) -> void;
+  auto genGuardedWhileStatement(const Stat *node) -> void;
+  auto genGuardedWhileExpression(const Expr *node) -> mlir::Value;
+  auto currentWhileContinueAllowed() -> mlir::Value;
 
   template <typename T>
   void setSymbol(NameMap<T> &symbols, std::string_view name, T value) {
@@ -178,6 +192,10 @@ private:
 
   auto getVariableBinding(std::string_view name) -> VariableBinding * {
     return _variableScopes.lookup(name);
+  }
+
+  auto getCurrentVariableBinding(std::string_view name) -> VariableBinding * {
+    return _variableScopes.lookupCurrent(name);
   }
 
   auto getVariableAddress(std::string_view name) -> mlir::Value {
@@ -294,16 +312,34 @@ auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
   // instead of manufacturing a loosely typed func.call.
   for (auto &decl : node) {
     auto *function = llvm::dyn_cast<FunctionDecl>(decl.get());
-    if (!function || function->proto()->isGeneric())
+    if (function && !function->proto()->isGeneric()) {
+      module.push_back(declareFunction(function));
       continue;
-    module.push_back(declareFunction(function));
+    }
+
+    auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get());
+    if (!structDecl)
+      continue;
+    for (auto &method : structDecl->methods()) {
+      if (!method->proto()->isGeneric())
+        module.push_back(declareFunction(method.get()));
+    }
   }
 
   for (auto &decl : node) {
     auto *function = llvm::dyn_cast<FunctionDecl>(decl.get());
-    if (!function || function->proto()->isGeneric() || function->isExtern())
+    if (function && !function->proto()->isGeneric() && !function->isExtern()) {
+      gen(function);
       continue;
-    gen(function);
+    }
+
+    auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get());
+    if (!structDecl)
+      continue;
+    for (auto &method : structDecl->methods()) {
+      if (!method->proto()->isGeneric() && !method->isExtern())
+        gen(method.get());
+    }
   }
 
   if (failed(mlir::verify(module))) {
@@ -419,6 +455,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<BoolLiteralExpr>(node));
   case Expr::Expr_StringLiteral:
     return gen(cast<StringLiteralExpr>(node));
+  case Expr::Expr_CharLiteral:
+    return gen(cast<CharLiteralExpr>(node));
   case Expr::Expr_TypeLayout:
     return gen(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
@@ -451,6 +489,10 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<IfExpr>(node));
   case Expr::Expr_While:
     return gen(cast<WhileExpr>(node));
+  case Expr::Expr_Break:
+    return gen(cast<BreakExpr>(node));
+  case Expr::Expr_Continue:
+    return gen(cast<ContinueExpr>(node));
   case Expr::Expr_For:
     return gen(cast<ForExpr>(node));
   default:
@@ -462,9 +504,17 @@ auto MLIRGenImpl::gen(const UnitExpr *node) -> mlir::Value { return nullptr; }
 
 auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
   enterVariableScope();
-  for (auto &expr : *node)
-    gen(expr.get());
-  auto value = gen(node->expression().get());
+  genStatements(node->statements());
+  auto *expression = node->expression().get();
+  mlir::Value value = nullptr;
+  if (cherry::isUnitType(node->type())) {
+    if (!_whileControls.empty())
+      genGuardedWhileExpression(expression);
+    else
+      gen(expression);
+  } else {
+    value = gen(expression);
+  }
   leaveVariableScope();
   return value;
 }
@@ -473,20 +523,20 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
   DBG("IfExpr Cherry type: {0}, then type: {1}, else type: {2}",
       formatType(node->type()),
       formatType(node->thenBlock()->type()),
-      formatType(node->elseBlock()->type()));
+      node->hasElseBlock() ? formatType(node->elseBlock()->type()) : "none");
   auto cond = gen(node->conditionExpr().get());
 
   if (cherry::isUnitType(node->type())) {
-    mlir::scf::IfOp::create(
-        _builder, loc(node), cond,
-        [&](mlir::OpBuilder &builder, mlir::Location location) {
-          gen(node->thenBlock().get());
-          mlir::scf::YieldOp::create(builder, location);
-        },
-        [&](mlir::OpBuilder &builder, mlir::Location location) {
-          gen(node->elseBlock().get());
-          mlir::scf::YieldOp::create(builder, location);
-        });
+    auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), cond,
+                                        node->hasElseBlock());
+    _builder.setInsertionPointToStart(ifOp.thenBlock());
+    gen(node->thenBlock().get());
+
+    if (node->hasElseBlock()) {
+      _builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+      gen(node->elseBlock().get());
+    }
+    _builder.setInsertionPointAfter(ifOp);
     return nullptr;
   }
 
@@ -512,20 +562,55 @@ auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
   auto bodyBlock = node->bodyBlock().get();
+  auto location = loc(node);
+  auto flagType = _builder.getI1Type();
+  auto falseValue =
+      mlir::arith::ConstantIntOp::create(_builder, location, 0, 1);
+  auto trueValue =
+      mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
+  auto breakFlag = createAlloca(flagType, location);
+  auto continueFlag = createAlloca(flagType, location);
+  createStore(falseValue, breakFlag, location);
+  createStore(falseValue, continueFlag, location);
+
   mlir::scf::WhileOp::create(
-      _builder, loc(node), mlir::TypeRange{}, mlir::ValueRange{},
+      _builder, location, mlir::TypeRange{}, mlir::ValueRange{},
       [&](mlir::OpBuilder &builder, mlir::Location location,
           mlir::ValueRange args) {
+        createStore(falseValue, continueFlag, location);
         auto cond = gen(node->conditionExpr().get());
-        mlir::scf::ConditionOp::create(builder, location, cond,
+        auto shouldBreak = createLoad(breakFlag, flagType, location);
+        auto notBreak = mlir::arith::XOrIOp::create(builder, location,
+                                                    shouldBreak, trueValue);
+        auto loopCond =
+            mlir::arith::AndIOp::create(builder, location, cond, notBreak);
+        mlir::scf::ConditionOp::create(builder, location, loopCond,
                                        mlir::ValueRange{});
       },
       [&](mlir::OpBuilder &builder, mlir::Location location,
           mlir::ValueRange args) {
+        _whileControls.push_back({breakFlag, continueFlag});
         gen(bodyBlock);
+        _whileControls.pop_back();
         mlir::scf::YieldOp::create(builder, location);
       });
 
+  return nullptr;
+}
+
+auto MLIRGenImpl::gen(const BreakExpr *node) -> mlir::Value {
+  auto control = _whileControls.back();
+  auto trueValue =
+      mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
+  createStore(trueValue, control.breakFlag, loc(node));
+  return nullptr;
+}
+
+auto MLIRGenImpl::gen(const ContinueExpr *node) -> mlir::Value {
+  auto control = _whileControls.back();
+  auto trueValue =
+      mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
+  createStore(trueValue, control.continueFlag, loc(node));
   return nullptr;
 }
 
@@ -707,6 +792,11 @@ auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
   return mlir::arith::ConstantIntOp::create(_builder, loc(node),
                                             node->value(), 1);
+}
+
+auto MLIRGenImpl::gen(const CharLiteralExpr *node) -> mlir::Value {
+  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
+                                            node->value(), 8);
 }
 
 auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
@@ -984,6 +1074,72 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
   case Stat::Stat_Expression:
     return gen(cast<ExprStat>(node));
   }
+}
+
+auto MLIRGenImpl::genStatements(const VectorUniquePtr<Stat> &statements)
+    -> void {
+  for (auto &statement : statements) {
+    if (_whileControls.empty())
+      gen(statement.get());
+    else
+      genGuardedWhileStatement(statement.get());
+  }
+}
+
+auto MLIRGenImpl::currentWhileContinueAllowed() -> mlir::Value {
+  auto location = _builder.getUnknownLoc();
+  auto trueValue =
+      mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
+  auto flagType = _builder.getI1Type();
+  auto control = _whileControls.back();
+  auto shouldBreak = createLoad(control.breakFlag, flagType, location);
+  auto shouldContinue = createLoad(control.continueFlag, flagType, location);
+  auto stopped = mlir::arith::OrIOp::create(
+      _builder, location, shouldBreak, shouldContinue);
+  return mlir::arith::XOrIOp::create(_builder, location, stopped, trueValue);
+}
+
+auto MLIRGenImpl::genGuardedWhileStatement(const Stat *node) -> void {
+  if (auto *variable = llvm::dyn_cast<VariableStat>(node))
+    declareLocalVariableSlot(variable);
+
+  auto condition = currentWhileContinueAllowed();
+  auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), condition,
+                                      /*withElseRegion=*/false);
+  _builder.setInsertionPointToStart(ifOp.thenBlock());
+  gen(node);
+  _builder.setInsertionPointAfter(ifOp);
+}
+
+auto MLIRGenImpl::declareLocalVariableSlot(const VariableStat *node) -> void {
+  auto *varType = node->type();
+  if (cherry::isUnitType(varType)) {
+    setUnitVariable(node->variable()->name());
+    return;
+  }
+
+  if (auto *structType = cherry::getStructType(varType)) {
+    auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
+    if (structLiteral) {
+      auto ptr = genStructLiteral(structLiteral, structType, nullptr);
+      setVariableAddress(node->variable()->name(), ptr);
+      return;
+    }
+  }
+
+  auto mlirType = getMLIRType(varType);
+  auto alloca = createAlloca(mlirType, loc(node));
+  setVariableAddress(node->variable()->name(), alloca);
+}
+
+auto MLIRGenImpl::genGuardedWhileExpression(const Expr *node) -> mlir::Value {
+  auto condition = currentWhileContinueAllowed();
+  auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), condition,
+                                      /*withElseRegion=*/false);
+  _builder.setInsertionPointToStart(ifOp.thenBlock());
+  gen(node);
+  _builder.setInsertionPointAfter(ifOp);
+  return nullptr;
 }
 
 auto MLIRGenImpl::getPtrType(mlir::Type pointeeType) const
@@ -1474,6 +1630,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto *ptrType = cherry::getPtrType(varType);
   auto *structType = cherry::getStructType(varType);
   auto varName = node->variable()->name();
+  auto *predeclaredBinding = getCurrentVariableBinding(varName);
 
   if (tensorType) {
     DBG("use Cherry variable tensor type `{0}`",
@@ -1487,6 +1644,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
       value = genTensorLiteral(literal, targetType);
     } else {
       value = castToType(gen(node->init().get()), targetType, loc(node));
+    }
+
+    if (predeclaredBinding && predeclaredBinding->isAddress()) {
+      createStore(value, predeclaredBinding->mlirValue, loc(node));
+      return;
     }
 
     if (node->isConst()) {
@@ -1506,6 +1668,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     auto value = gen(node->init().get());
     value = castToType(value, targetType, loc(node));
 
+    if (predeclaredBinding && predeclaredBinding->isAddress()) {
+      createStore(value, predeclaredBinding->mlirValue, loc(node));
+      return;
+    }
+
     if (node->isConst()) {
       setVariableValue(varName, value);
       return;
@@ -1520,6 +1687,11 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   if (structType) {
     auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
     if (structLiteral) {
+      if (predeclaredBinding && predeclaredBinding->isAddress()) {
+        genStructLiteral(structLiteral, structType,
+                         predeclaredBinding->mlirValue);
+        return;
+      }
       DBG("use Cherry variable struct literal `{0}`",
           formatType(structType));
       setVariableAddress(varName,
@@ -1530,9 +1702,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     DBG("use Cherry variable struct value `{0}`",
         formatType(structType));
     auto mlirType = getMLIRType(varType);
+    if (predeclaredBinding && predeclaredBinding->isAddress()) {
+      auto initValue = gen(node->init().get());
+      createStore(initValue, predeclaredBinding->mlirValue, loc(node));
+      return;
+    }
+
     auto alloca = createAlloca(mlirType, loc(node));
     setVariableAddress(varName, alloca);
-
     auto initValue = gen(node->init().get());
     createStore(initValue, alloca, loc(node));
     return;
@@ -1545,6 +1722,13 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   }
 
   auto mlirType = getMLIRType(varType);
+  if (predeclaredBinding && predeclaredBinding->isAddress()) {
+    auto initValue = gen(node->init().get());
+    initValue = castToType(initValue, mlirType, loc(node));
+    createStore(initValue, predeclaredBinding->mlirValue, loc(node));
+    return;
+  }
+
   auto alloca = createAlloca(mlirType, loc(node));
   setVariableAddress(varName, alloca);
 

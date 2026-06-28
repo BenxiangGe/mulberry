@@ -30,6 +30,7 @@ public:
     Expr_FloatLiteral,
     Expr_BoolLiteral,
     Expr_StringLiteral,
+    Expr_CharLiteral,
     Expr_ArrayLiteral,
     Expr_Index,
     Expr_Member,
@@ -39,6 +40,8 @@ public:
     Expr_Block,
     Expr_If,
     Expr_While,
+    Expr_Break,
+    Expr_Continue,
     Expr_For,
     Expr_TypeLayout,
     Expr_HeapAlloc,
@@ -125,6 +128,8 @@ public:
     return _elseExpr;
   }
 
+  auto hasElseBlock() const -> bool { return static_cast<bool>(_elseExpr); }
+
 private:
   std::unique_ptr<Expr> _condition;
   std::unique_ptr<BlockExpr> _thenExpr;
@@ -156,6 +161,28 @@ public:
 private:
   std::unique_ptr<Expr> _condition;
   std::unique_ptr<BlockExpr> _bodyBlock;
+};
+
+// _____________________________________________________________________________
+// Loop control expressions
+
+class BreakExpr final : public Expr {
+public:
+  explicit BreakExpr(llvm::SMLoc location) : Expr{Expr_Break, location} {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_Break;
+  }
+};
+
+class ContinueExpr final : public Expr {
+public:
+  explicit ContinueExpr(llvm::SMLoc location)
+      : Expr{Expr_Continue, location} {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_Continue;
+  }
 };
 
 // _____________________________________________________________________________

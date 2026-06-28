@@ -21,6 +21,7 @@ ERROR(expected_expr, "expected expression")
 ERROR(expected_lvalue, "expected lvalue")
 ERROR(assign_const, "cannot assign to const variable")
 ERROR(const_to_mutable, "cannot bind const tensor to mutable variable")
+ERROR(loop_control_outside_loop, "`break` or `continue` outside loop")
 
 ERROR(undefined_field, "undefined field")
 ERROR(undefined_func, "cannot find function `%s`")

@@ -9,7 +9,7 @@ fn idTensor(value: Tensor<Float32>): Tensor<Float32> {
 
 fn checkTensor(value: Tensor<Float32>): UInt64 {
   var view: Float32[?, ?] = tensor.view(value);
-  boolToUInt64(view[1, 1] gt 3.5)
+  boolToUInt64(view[1, 1] > 3.5)
 }
 
 fn main(): UInt64 {

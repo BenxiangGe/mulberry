@@ -5,7 +5,7 @@
 fn main(): UInt64 {
   var values: Float32[4] = zeros();
   values[2] = 1.0;
-  io.print(boolToUInt64(values[2] gt 0.5));
+  io.print(boolToUInt64(values[2] > 0.5));
   0
 }
 

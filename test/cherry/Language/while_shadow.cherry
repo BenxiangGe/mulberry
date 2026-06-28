@@ -5,22 +5,22 @@ fn main(): UInt64 {
   var keepGoing: Bool = true;
   io.print(value);
 
-  var unit: () = while keepGoing {
+  while keepGoing {
     var value: UInt64 = 4;
     io.print(value);
     keepGoing = false;
-    ()
-  };
+  }
 
   io.print(value);
   0
 }
 
 # CHECK-LABEL: func.func @main
-# CHECK: %[[KEEP_GOING:.*]] = mulberry.alloca i1 : !mulberry.ptr<i1>
-# CHECK-NEXT: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
 # CHECK: arith.constant 3 : i64
 # CHECK: mulberry.store {{.*}}, %[[OUTER]] : i64, !mulberry.ptr<i64>
+# CHECK: %[[TRUE:.*]] = arith.constant true
+# CHECK: mulberry.store %[[TRUE]], %[[KEEP_GOING:.*]] : i1, !mulberry.ptr<i1>
 # CHECK: scf.while
 # CHECK: %[[INNER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
 # CHECK: arith.constant 4 : i64

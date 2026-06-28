@@ -15,8 +15,7 @@ fn main(): UInt64 {
 
   for i in 0 .. 2 {
     sum = sum + i;
-    ()
-  };
+  }
 
   if a.flag {
     add(sum)

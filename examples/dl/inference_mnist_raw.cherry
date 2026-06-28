@@ -43,8 +43,7 @@ fn main(): UInt64 {
     activation = nn.sigmoid(nn.matadd(
         nn.matmul(weights[layer], activation),
         biases[layer]));
-    ()
-  };
+  }
 
   io.print(nn.argmax(activation));
   0
