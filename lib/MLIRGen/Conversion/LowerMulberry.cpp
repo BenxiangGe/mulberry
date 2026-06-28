@@ -1,14 +1,14 @@
 //===--- LowerMulberry.cpp -----------------------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/MLIRGen/Conversion/CherryPasses.h"
-#include "cherry/MLIRGen/IR/MulberryDialect.h"
-#include "cherry/MLIRGen/IR/MulberryOps.h"
-#include "cherry/MLIRGen/IR/MulberryTypes.h"
+#include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
+#include "mulberry/MLIRGen/IR/MulberryDialect.h"
+#include "mulberry/MLIRGen/IR/MulberryOps.h"
+#include "mulberry/MLIRGen/IR/MulberryTypes.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -27,10 +27,10 @@
 #include <optional>
 #include <string>
 
-namespace mlir::cherry {
+namespace mlir::mulberry {
 
 #define GEN_PASS_DEF_LOWERMULBERRY
-#include "cherry/MLIRGen/Conversion/CherryPasses.h.inc"
+#include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
 
 namespace {
 
@@ -1088,4 +1088,4 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
 };
 
 } // namespace
-} // namespace mlir::cherry
+} // namespace mlir::mulberry

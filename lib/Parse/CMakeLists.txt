@@ -1,6 +1,6 @@
-set(LIB_HEADERS ${CHERRY_SOURCE_DIR}/include/cherry/Parse)
+set(LIB_HEADERS ${MULBERRY_SOURCE_DIR}/include/mulberry/Parse)
 
-add_library(cherryParse STATIC
+add_library(mulberryParse STATIC
         ${LIB_HEADERS}/TokenKinds.def
         ${LIB_HEADERS}/Token.h
         Token.cpp
@@ -12,6 +12,6 @@ add_library(cherryParse STATIC
         ${LIB_HEADERS}/DiagnosticsParse.def
 )
 
-target_include_directories(cherryParse PUBLIC
+target_include_directories(mulberryParse PUBLIC
         ${LIB_HEADERS}
 )

@@ -1,0 +1,11 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+
+comptime RankedBox<T, Rank: UInt64> = struct {
+  value: T
+};
+
+fn main(): UInt64 {
+  0
+}
+
+# AST: ComptimeTypeAliasDecl {{.*}}name=RankedBox parameter=T, Rank: UInt64 type=struct {value: T}

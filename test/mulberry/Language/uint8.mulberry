@@ -1,0 +1,33 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+fn first(bytes: UInt8[?]): UInt8 {
+  bytes[0]
+}
+
+fn minByte(lhs: UInt8, rhs: UInt8): UInt8 {
+  if lhs < rhs {
+    lhs
+  } else {
+    rhs
+  }
+}
+
+fn main(): UInt64 {
+  0
+}
+
+# AST: Prototype {{.*}}name=first{{.*}}type=UInt8
+# AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[?]
+# AST: Prototype {{.*}}name=minByte{{.*}}type=UInt8
+
+# MLIR-LABEL: func.func @first(%arg0: !mulberry.tensor<?xi8>) -> i8
+# MLIR: mulberry.tensor.load
+# MLIR-SAME: !mulberry.tensor<?xi8> -> i8
+# MLIR-LABEL: func.func @minByte(%arg0: i8, %arg1: i8) -> i8
+# MLIR: arith.cmpi ult, {{.*}} : i8
+
+# LOWERED-LABEL: func.func @first(%arg0: memref<?xi8>) -> i8
+# LOWERED: memref.load
+# LOWERED-SAME: memref<?xi8>

@@ -1,14 +1,14 @@
-set(LIB_HEADERS ${CHERRY_SOURCE_DIR}/include/cherry/MLIRGen)
+set(LIB_HEADERS ${MULBERRY_SOURCE_DIR}/include/mulberry/MLIRGen)
 
-add_mlir_dialect_library(cherryMLIRGen
+add_mlir_dialect_library(mulberryMLIRGen
         ${LIB_HEADERS}/MLIRGen.h
         MLIRGen.cpp
         ${LIB_HEADERS}/TypeConverter.h
         TypeConverter.cpp
 
         # Conversion
-        ${LIB_HEADERS}/Conversion/CherryPasses.h
-        Conversion/ConvertCherryToLLVM.cpp
+        ${LIB_HEADERS}/Conversion/MulberryPasses.h
+        Conversion/ConvertMulberryToLLVM.cpp
         Conversion/LowerMulberry.cpp
 
         # IR
@@ -21,10 +21,10 @@ add_mlir_dialect_library(cherryMLIRGen
 
         DEPENDS
         MLIRMulberryOpsIncGen
-        MLIRCherryConversionPassIncGen
+        MLIRMulberryConversionPassIncGen
 
         LINK_LIBS PUBLIC
-        cherryBasic
+        mulberryBasic
         MLIRArithDialect
         MLIRConvertToLLVMInterface
         MLIRLLVMCommonConversion

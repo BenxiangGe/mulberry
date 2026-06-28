@@ -1,0 +1,9 @@
+# RUN: not mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var values: Float32[2] = [1, 2];
+
+  0
+}
+
+# CHECK: error: type mismatch

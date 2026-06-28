@@ -1,0 +1,11 @@
+# RUN: mulberry-driver %s -typecheck
+
+fn main(): UInt64 {
+  12345;
+  false;
+  true;
+  54321
+}
+
+# CHECK: 10
+# CHECK: 20

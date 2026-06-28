@@ -1,7 +1,7 @@
 # _____________________________________________________________________________
 # Parameters
 
-CHERRY_PRESET=release
+MULBERRY_PRESET=release
 
 LLVM_COMMIT=llvmorg-22.1.0
 LLVM_PRESET=Release
@@ -15,7 +15,7 @@ LLVM_PYTHON_ENV=${HOME}/.pyenv/shims/
 # Paths
 
 PROJECT_DIR=${shell cd .; pwd}
-CHERRY_BUILD_DIR=./build
+MULBERRY_BUILD_DIR=./build
 
 # _____________________________________________________________________________
 # Targets
@@ -29,9 +29,9 @@ help:
 	sed -nr 's/^.PHONY: (.*) - (.*)/\1|\2/p' ${MAKEFILE_LIST} | \
 		awk -F '|' '{printf "* %-30s %s\n", $$1, $$2}' | sort
 
-.PHONY: all - Execute all LLVM and Cherry targets.
+.PHONY: all - Execute all LLVM and Mulberry targets.
 all:	llvm-all \
-		cherry-all
+		mulberry-all
 
 define format
 	find ${1} -name "*.cpp" -or -name "*.h" | xargs clang-format -i
@@ -40,8 +40,8 @@ endef
 .PHONY: format - Format source files.
 format:
 	echo "Format"
-	$(call format, cherry-opt)
-	$(call format, cherry-translate)
+	$(call format, mulberry-opt)
+	$(call format, mulberry-translate)
 	$(call format, include)
 	$(call format, lib)
 	$(call format, test)
@@ -102,39 +102,39 @@ llvm-build:
 	cmake --build ${LLVM_BUILD_DIR} $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
 
 # _____________________________________________________________________________
-# Targets - Cherry
+# Targets - Mulberry
 
-.PHONY: cherry-all - Execute all Cherry targets.
-cherry-all: cherry-generate-presets \
-			cherry-generate-project \
-			cherry-copy-compile-commands \
-			cherry-build
+.PHONY: mulberry-all - Execute all Mulberry targets.
+mulberry-all: mulberry-generate-presets \
+			mulberry-generate-project \
+			mulberry-copy-compile-commands \
+			mulberry-build
 
-.PHONY: cherry-clean - Clean Cherry Build.
-cherry-clean:
-	echo "Cherry - Clean"
-	rm -rdf ${CHERRY_BUILD_DIR}
+.PHONY: mulberry-clean - Clean Mulberry Build.
+mulberry-clean:
+	echo "Mulberry - Clean"
+	rm -rdf ${MULBERRY_BUILD_DIR}
 
-.PHONY: cherry-generate-presets - Generate Cherry CMake Presets.
-cherry-generate-presets:
-	echo "Cherry - Generate Presets"
+.PHONY: mulberry-generate-presets - Generate Mulberry CMake Presets.
+mulberry-generate-presets:
+	echo "Mulberry - Generate Presets"
 	echo $$CMAKE_PRESETS_TEMPLATE > ./CMakeUserPresets.json
 
-.PHONY: cherry-generate-project - Generate Cherry Project.
-cherry-generate-project:
-	echo "Cherry - Generate Project"
-	cmake -S ${PROJECT_DIR} --preset ${CHERRY_PRESET}
+.PHONY: mulberry-generate-project - Generate Mulberry Project.
+mulberry-generate-project:
+	echo "Mulberry - Generate Project"
+	cmake -S ${PROJECT_DIR} --preset ${MULBERRY_PRESET}
 
-.PHONY: cherry-copy-compile-commands - Copy Cherry `compile_commands.json`.
-cherry-copy-compile-commands:
-	echo "Cherry - Copy compile_commands.json"
-	cp ${PROJECT_DIR}/build/${CHERRY_PRESET}/compile_commands.json  ${PROJECT_DIR}/build
+.PHONY: mulberry-copy-compile-commands - Copy Mulberry `compile_commands.json`.
+mulberry-copy-compile-commands:
+	echo "Mulberry - Copy compile_commands.json"
+	cp ${PROJECT_DIR}/build/${MULBERRY_PRESET}/compile_commands.json  ${PROJECT_DIR}/build
 
-.PHONY: cherry-build - Build Cherry.
-cherry-build:
-	echo "Cherry - Build"
-	cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
-	# echo cmake --build ${PROJECT_DIR}/build/${CHERRY_PRESET} --target check-cherry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
+.PHONY: mulberry-build - Build Mulberry.
+mulberry-build:
+	echo "Mulberry - Build"
+	cmake --build ${PROJECT_DIR}/build/${MULBERRY_PRESET} --target check-mulberry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
+	# echo cmake --build ${PROJECT_DIR}/build/${MULBERRY_PRESET} --target check-mulberry mlir-doc --verbose $(if $(strip $(JOBS)),-j$(strip $(JOBS)))
 
 # _____________________________________________________________________________
 # Presets

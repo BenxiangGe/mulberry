@@ -1,0 +1,35 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_mnist_safetensors.py --output %t.safetensors > %t.export.log
+# RUN: sed 's|@MNIST_SAFETENSORS@|%t.safetensors|g' %s > %t.mulberry
+# RUN: mulberry-driver %t.mulberry -o %t.exe
+# RUN: %t.exe 2>&1 | FileCheck %s
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: File =
+      io.open("@MNIST_SAFETENSORS@", "rb");
+
+  var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
+  var b1: Tensor<Float32> = safetensors.readTensor(file, "b1");
+  var w2: Tensor<Float32> = safetensors.readTensor(file, "w2");
+  var b2: Tensor<Float32> = safetensors.readTensor(file, "b2");
+  var x: Tensor<Float32> = safetensors.readTensor(file, "x");
+
+  io.close(file);
+
+  var weights: List<Tensor<Float32>> = [w1, w2];
+  var biases: List<Tensor<Float32>> = [b1, b2];
+  var activation: Tensor<Float32> = x;
+
+  for layer in 0 .. weights.size() {
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(weights[layer], activation),
+        biases[layer]));
+  }
+
+  io.print(nn.argmax(activation));
+  0
+}
+
+# CHECK: 7

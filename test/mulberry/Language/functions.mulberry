@@ -1,0 +1,19 @@
+# RUN: mulberry-driver %s -typecheck
+
+fn foo(k: UInt64): () {
+  ()
+}
+
+fn bar(x: UInt64, y: UInt64): () {
+  foo(x);
+  foo(y);
+  ()
+}
+
+fn main(): UInt64 {
+  bar(10, 20);
+  0
+}
+
+# CHECK: 10
+# CHECK: 20

@@ -10,33 +10,33 @@ configure_lit_site_cfg(
 )
 
 configure_lit_site_cfg(
-  ${CMAKE_CURRENT_SOURCE_DIR}/cherry/Unit/lit.site.cfg.py.in
-  ${CMAKE_CURRENT_BINARY_DIR}/cherry/Unit/lit.site.cfg.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/mulberry/Unit/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/mulberry/Unit/lit.site.cfg.py
   MAIN_CONFIG
-  ${CMAKE_CURRENT_SOURCE_DIR}/cherry/Unit/lit.cfg.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/mulberry/Unit/lit.cfg.py
 )
 
-set(CHERRY_TEST_DEPENDS
+set(MULBERRY_TEST_DEPENDS
         FileCheck count not
-        CherryUnitTests
-        cherry-capi-test
-        cherry-opt
-        cherry-translate
-        cherry-driver
-        cherryRuntime
+        MulberryUnitTests
+        mulberry-capi-test
+        mulberry-opt
+        mulberry-translate
+        mulberry-driver
+        mulberryRuntime
         MulberryNNPackage
 )
 
 if(MLIR_ENABLE_BINDINGS_PYTHON)
-    list(APPEND CHERRY_TEST_DEPENDS CherryPythonModules)
+    list(APPEND MULBERRY_TEST_DEPENDS MulberryPythonModules)
 endif()
 
-add_lit_testsuite(check-cherry "Running the cherry regression tests"
+add_lit_testsuite(check-mulberry "Running the Mulberry regression tests"
         ${CMAKE_CURRENT_BINARY_DIR}
-        DEPENDS ${CHERRY_TEST_DEPENDS}
+        DEPENDS ${MULBERRY_TEST_DEPENDS}
         )
-set_target_properties(check-cherry PROPERTIES FOLDER "Tests")
+set_target_properties(check-mulberry PROPERTIES FOLDER "Tests")
 
-add_lit_testsuites(cherry ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${CHERRY_TEST_DEPENDS})
+add_lit_testsuites(mulberry ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${MULBERRY_TEST_DEPENDS})
 
 add_subdirectory(CAPI)

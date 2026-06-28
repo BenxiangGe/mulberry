@@ -1,20 +1,20 @@
-//===--- ASTDumper.cpp - Cherry Language AST Dumper
+//===--- ASTDumper.cpp - Mulberry Language AST Dumper
 //------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/AST/AST.h"
-#include "cherry/Basic/Types.h"
+#include "mulberry/AST/AST.h"
+#include "mulberry/Basic/Types.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
 #include <string_view>
 
-using namespace cherry;
+using namespace mulberry;
 
 namespace {
 using llvm::cast;
@@ -71,7 +71,7 @@ private:
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const DerefExpr *node) -> void;
-  auto dump(const TensorZerosExpr *node) -> void;
+  auto dump(const ZeroInitExpr *node) -> void;
   auto dump(const TensorPackExpr *node) -> void;
   auto dump(const TensorViewExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
@@ -287,7 +287,7 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr, TensorZerosExpr,
+            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr, ZeroInitExpr,
             TensorPackExpr, TensorViewExpr, ArrayLiteralExpr, IndexExpr,
             VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, BreakExpr, ContinueExpr, ForExpr,
@@ -323,9 +323,9 @@ auto Dumper::dump(const CallExpr *node) -> void {
     dump(expr.get());
 }
 
-auto Dumper::dump(const TensorZerosExpr *node) -> void {
+auto Dumper::dump(const ZeroInitExpr *node) -> void {
   INDENT();
-  errs() << "TensorZerosExpr " << loc(node)
+  errs() << "ZeroInitExpr " << loc(node)
          << " type=" << formatType(node->type()) << "\n";
 }
 
@@ -534,11 +534,11 @@ auto Dumper::dump(const ExprStat *node) -> void {
   dump(node->expression().get());
 }
 
-namespace cherry {
+namespace mulberry {
 
 auto dumpAST(const llvm::SourceMgr &sourceManager, const Module &module)
     -> void {
   Dumper(sourceManager).dump(&module);
 }
 
-} // end namespace cherry
+} // end namespace mulberry

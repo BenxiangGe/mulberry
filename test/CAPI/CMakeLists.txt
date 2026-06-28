@@ -2,7 +2,7 @@
 # that we want to bundle together. Then we link a simple C executable
 # against it to demonstrate that it does have the fully self contained
 # core MLIR library.
-add_mlir_aggregate(CherryCAPITestLib
+add_mlir_aggregate(MulberryCAPITestLib
   SHARED
   EMBED_LIBS
   MLIRCAPIIR
@@ -11,9 +11,9 @@ add_mlir_aggregate(CherryCAPITestLib
   MLIRCAPIRegisterEverything
 )
 
-add_llvm_executable(cherry-capi-test
-  cherry-capi-test.c
+add_llvm_executable(mulberry-capi-test
+  mulberry-capi-test.c
 )
-llvm_update_compile_flags(cherry-capi-test)
-target_link_libraries(cherry-capi-test
-  PRIVATE CherryCAPITestLib)
+llvm_update_compile_flags(mulberry-capi-test)
+target_link_libraries(mulberry-capi-test
+  PRIVATE MulberryCAPITestLib)

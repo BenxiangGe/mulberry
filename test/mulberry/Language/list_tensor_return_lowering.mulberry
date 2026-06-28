@@ -1,0 +1,36 @@
+# RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s
+
+fn make(): List<Tensor<Float32>> {
+  var w: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var wh: Tensor<Float32> = tensor.pack(w);
+  var weights: List<Tensor<Float32>> = [wh];
+  weights
+}
+
+fn main(): UInt64 {
+  const weights: List<Tensor<Float32>> = make();
+  const first: Tensor<Float32> = weights[0];
+  first.numel()
+}
+
+# CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
+# CHECK-LABEL: func.func @make
+# CHECK-SAME: -> !llvm.struct<(i64, i64, ptr)>
+# CHECK: llvm.alloca
+# CHECK: llvm.alloca
+# CHECK: llvm.alloca
+# CHECK: !llvm.struct<(ptr, array<2 x i64>, array<2 x i64>)>
+# CHECK: memref.alloc(%{{.*}}, %{{.*}}) : memref<?x?xf32>
+# CHECK: memref.extract_aligned_pointer_as_index
+# CHECK: llvm.inttoptr
+# CHECK: memref.copy
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_List_push__
+# CHECK: return %{{.*}} : !llvm.struct<(i64, i64, ptr)>
+
+# CHECK-LABEL: func.func @main
+# CHECK: call @make() : () -> !llvm.struct<(i64, i64, ptr)>
+# CHECK: call @std_collections_List_get__
+# CHECK: call @std_tensor_Tensor_numel__Float32
+# CHECK: return
+# CHECK-NOT: mulberry_nn.

@@ -1,10 +1,10 @@
-add_cherry_unittest(CherryParseTests
+add_mulberry_unittest(MulberryParseTests
         LexerTest.cpp
 )
 
-target_link_libraries(CherryParseTests
+target_link_libraries(MulberryParseTests
         PRIVATE
-        cherryParse
+        mulberryParse
         LLVMSupport
         LLVMDemangle
 )

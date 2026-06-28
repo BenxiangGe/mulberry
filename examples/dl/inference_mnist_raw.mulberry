@@ -1,0 +1,50 @@
+# Requires the external mulberry.nn package. Core Mulberry still supports
+# raw tensor IO and Tensor/List object handling, but NN primitives are no longer
+# implemented as compiler intrinsics.
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var w1: Float32[30, 784] = {};
+  var b1: Float32[30, 1] = {};
+  var w2: Float32[10, 30] = {};
+  var b2: Float32[10, 1] = {};
+  var x: Float32[784, 1] = {};
+  var w1h: Tensor<Float32> = tensor.pack(w1);
+  var b1h: Tensor<Float32> = tensor.pack(b1);
+  var w2h: Tensor<Float32> = tensor.pack(w2);
+  var b2h: Tensor<Float32> = tensor.pack(b2);
+  var xh: Tensor<Float32> = tensor.pack(x);
+
+  const w1File: File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb");
+  io.read(w1File, w1h);
+  io.close(w1File);
+
+  const b1File: File = io.open("data/mnist-784-30-10-raw/b1.f32", "rb");
+  io.read(b1File, b1h);
+  io.close(b1File);
+
+  const w2File: File = io.open("data/mnist-784-30-10-raw/w2.f32", "rb");
+  io.read(w2File, w2h);
+  io.close(w2File);
+
+  const b2File: File = io.open("data/mnist-784-30-10-raw/b2.f32", "rb");
+  io.read(b2File, b2h);
+  io.close(b2File);
+
+  const xFile: File = io.open("data/mnist-784-30-10-raw/x.f32", "rb");
+  io.read(xFile, xh);
+  io.close(xFile);
+
+  var weights: List<Tensor<Float32>> = [w1h, w2h];
+  var biases: List<Tensor<Float32>> = [b1h, b2h];
+  var activation: Tensor<Float32> = xh;
+
+  for layer in 0 .. weights.size() {
+    activation = nn.sigmoid(nn.matadd(
+        nn.matmul(weights[layer], activation),
+        biases[layer]));
+  }
+
+  io.print(nn.argmax(activation));
+  0
+}

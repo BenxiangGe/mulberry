@@ -1,0 +1,10 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  for i in 0 .. 3 {
+  }
+
+  i
+}
+
+# CHECK: error: undefined variable

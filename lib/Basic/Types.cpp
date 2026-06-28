@@ -1,4 +1,4 @@
-#include "cherry/Basic/Types.h"
+#include "mulberry/Basic/Types.h"
 #include "llvm/Support/Casting.h"
 
 #include <algorithm>
@@ -7,7 +7,7 @@
 #include <string_view>
 #include <utility>
 
-namespace cherry {
+namespace mulberry {
 
 Type::Type(TypeKind kind) : _kind(kind) {}
 
@@ -602,4 +602,4 @@ auto TypeContext::createPtrType(const Type *pointeeType) const
   return ptrTypes.back().get();
 }
 
-} // namespace cherry
+} // namespace mulberry

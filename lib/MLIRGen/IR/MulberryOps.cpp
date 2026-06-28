@@ -1,11 +1,11 @@
 //===--- MulberryOps.cpp - Mulberry dialect ops ---------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/MLIRGen/IR/MulberryOps.h"
+#include "mulberry/MLIRGen/IR/MulberryOps.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
@@ -15,7 +15,7 @@ using namespace mlir;
 using namespace mlir::mulberry;
 
 #define GET_OP_CLASSES
-#include "cherry/MLIRGen/IR/MulberryOps.cpp.inc"
+#include "mulberry/MLIRGen/IR/MulberryOps.cpp.inc"
 
 static auto getPtrPointeeType(Type type) -> Type {
   if (auto ptrType = llvm::dyn_cast<PtrType>(type))

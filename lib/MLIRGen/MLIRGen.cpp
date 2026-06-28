@@ -1,18 +1,18 @@
 //===--- MLIRGen.cpp - MLIR Generator -------------------------------------===//
 //
-// This source file is part of the Cherry open source project
+// This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
 //
 //===----------------------------------------------------------------------===//
 
-#include "cherry/MLIRGen/MLIRGen.h"
-#include "cherry/AST/AST.h"
-#include "cherry/Basic/CherryResult.h"
-#include "cherry/Basic/Logging.h"
-#include "cherry/Basic/ScopeStack.h"
-#include "cherry/MLIRGen/IR/MulberryOps.h"
-#include "cherry/MLIRGen/IR/MulberryTypes.h"
-#include "cherry/MLIRGen/TypeConverter.h"
+#include "mulberry/MLIRGen/MLIRGen.h"
+#include "mulberry/AST/AST.h"
+#include "mulberry/Basic/MulberryResult.h"
+#include "mulberry/Basic/Logging.h"
+#include "mulberry/Basic/ScopeStack.h"
+#include "mulberry/MLIRGen/IR/MulberryOps.h"
+#include "mulberry/MLIRGen/IR/MulberryTypes.h"
+#include "mulberry/MLIRGen/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -34,7 +34,7 @@
 
 namespace {
 using namespace mlir::arith;
-using namespace cherry;
+using namespace mulberry;
 using llvm::cast;
 using llvm::failure;
 using llvm::success;
@@ -86,7 +86,7 @@ struct WhileControl {
 };
 
 auto isParameterValueType(const Type *type) -> bool {
-  return cherry::isTensorType(type) || cherry::isPtrType(type);
+  return mulberry::isTensorType(type) || mulberry::isPtrType(type);
 }
 
 class MLIRGenImpl {
@@ -97,7 +97,7 @@ public:
             _sourceManager.getMemoryBuffer(_sourceManager.getMainFileID())
                 ->getBufferIdentifier()} {}
 
-  auto gen(const Module &node) -> CherryResult;
+  auto gen(const Module &node) -> MulberryResult;
 
   mlir::ModuleOp module;
 
@@ -142,7 +142,7 @@ private:
   auto gen(const TypeLayoutExpr *node) -> mlir::Value;
   auto gen(const HeapAllocExpr *node) -> mlir::Value;
   auto gen(const DerefExpr *node) -> mlir::Value;
-  auto gen(const TensorZerosExpr *node) -> mlir::Value;
+  auto gen(const ZeroInitExpr *node) -> mlir::Value;
   auto gen(const TensorPackExpr *node) -> mlir::Value;
   auto gen(const TensorViewExpr *node) -> mlir::Value;
   auto gen(const AssignExpr *node) -> mlir::Value;
@@ -299,7 +299,7 @@ private:
 
 } // end namespace
 
-auto MLIRGenImpl::gen(const Module &node) -> CherryResult {
+auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
 
   for (auto &decl : node) {
@@ -360,7 +360,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
   auto funcName = node->id()->name();
   auto *returnType = node->type();
   llvm::SmallVector<mlir::Type, 1> resultTypes;
-  if (!cherry::isUnitType(returnType))
+  if (!mulberry::isUnitType(returnType))
     resultTypes.push_back(getMLIRType(returnType));
   auto funcType = _builder.getFunctionType(argTypes, resultTypes);
   mlir::OperationState state(loc(node), mlir::func::FuncOp::getOperationName());
@@ -409,7 +409,7 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
       setVariableValue(varName, value);
       continue;
     }
-    if (cherry::isUnitType(paramType)) {
+    if (mulberry::isUnitType(paramType)) {
       setUnitVariable(varName);
       continue;
     }
@@ -435,12 +435,12 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
 }
 
 auto MLIRGenImpl::gen(const StructDecl *node) -> void {
-  if (auto *structType = cherry::getStructType(node->id()->type())) {
+  if (auto *structType = mulberry::getStructType(node->id()->type())) {
     getMLIRType(structType);
     return;
   }
 
-  ERR("struct `{0}` has no Cherry type", node->id()->name());
+  ERR("struct `{0}` has no Mulberry type", node->id()->name());
 }
 
 auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
@@ -463,8 +463,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<HeapAllocExpr>(node));
   case Expr::Expr_Deref:
     return gen(cast<DerefExpr>(node));
-  case Expr::Expr_TensorZeros:
-    return gen(cast<TensorZerosExpr>(node));
+  case Expr::Expr_ZeroInit:
+    return gen(cast<ZeroInitExpr>(node));
   case Expr::Expr_TensorPack:
     return gen(cast<TensorPackExpr>(node));
   case Expr::Expr_TensorView:
@@ -507,7 +507,7 @@ auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
   genStatements(node->statements());
   auto *expression = node->expression().get();
   mlir::Value value = nullptr;
-  if (cherry::isUnitType(node->type())) {
+  if (mulberry::isUnitType(node->type())) {
     if (!_whileControls.empty())
       genGuardedWhileExpression(expression);
     else
@@ -520,13 +520,13 @@ auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
-  DBG("IfExpr Cherry type: {0}, then type: {1}, else type: {2}",
+  DBG("IfExpr Mulberry type: {0}, then type: {1}, else type: {2}",
       formatType(node->type()),
       formatType(node->thenBlock()->type()),
       node->hasElseBlock() ? formatType(node->elseBlock()->type()) : "none");
   auto cond = gen(node->conditionExpr().get());
 
-  if (cherry::isUnitType(node->type())) {
+  if (mulberry::isUnitType(node->type())) {
     auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), cond,
                                         node->hasElseBlock());
     _builder.setInsertionPointToStart(ifOp.thenBlock());
@@ -705,23 +705,23 @@ auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
     args.push_back(expr.get());
   auto callOp = genDeclaredCall(node->name(), args, loc(node));
 
-  return cherry::isUnitType(node->type()) ? nullptr : callOp.getResult(0);
+  return mulberry::isUnitType(node->type()) ? nullptr : callOp.getResult(0);
 }
 
 auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
   auto *structType = node->structType();
   if (!structType) {
-    ERR("struct literal has no Cherry struct type");
+    ERR("struct literal has no Mulberry struct type");
     return nullptr;
   }
 
-  DBG("use Cherry struct literal `{0}`",
+  DBG("use Mulberry struct literal `{0}`",
       formatType(structType));
   auto ptr = genStructLiteral(node, structType, nullptr);
   return createLoad(ptr, getMLIRType(structType), loc(node));
 }
 
-auto MLIRGenImpl::gen(const TensorZerosExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const ZeroInitExpr *node) -> mlir::Value {
   auto tensorType = llvm::cast<mlir::mulberry::TensorType>(getMLIRType(node));
   auto tensor = createTensorAlloc(tensorType, {}, loc(node));
   std::vector<mlir::Value> indices;
@@ -747,7 +747,7 @@ auto MLIRGenImpl::gen(const TensorViewExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
-  if (cherry::isUnitType(node->type()))
+  if (mulberry::isUnitType(node->type()))
     return nullptr;
   return getVariableValue(node->name(), loc(node));
 }
@@ -760,7 +760,7 @@ auto MLIRGenImpl::gen(const DerefExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   auto *field = getStructField(node);
   if (!field) {
-    ERR("struct member access has no Cherry field information");
+    ERR("struct member access has no Mulberry field information");
     return nullptr;
   }
 
@@ -881,7 +881,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
       return createStructFieldPtr(basePtr, *field, loc(node));
     }
 
-    ERR("struct member access has no Cherry field information");
+    ERR("struct member access has no Mulberry field information");
     return nullptr;
   }
 
@@ -903,8 +903,8 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
 auto MLIRGenImpl::genRecordPtrForMember(const MemberExpr *memberExpr)
     -> mlir::Value {
   auto *base = memberExpr->base().get();
-  if (auto *ptrType = cherry::getPtrType(base->type())) {
-    if (cherry::getStructType(ptrType->pointeeType()))
+  if (auto *ptrType = mulberry::getPtrType(base->type())) {
+    if (mulberry::getStructType(ptrType->pointeeType()))
       return gen(base);
   }
 
@@ -915,28 +915,28 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
     -> const StructField * {
   auto *base = memberExpr->base().get();
   auto *baseType = base->type();
-  auto *ptrType = cherry::getPtrType(baseType);
-  auto *structType = ptrType ? cherry::getStructType(ptrType->pointeeType())
-                             : cherry::getStructType(baseType);
+  auto *ptrType = mulberry::getPtrType(baseType);
+  auto *structType = ptrType ? mulberry::getStructType(ptrType->pointeeType())
+                             : mulberry::getStructType(baseType);
   if (!structType)
     return nullptr;
 
   auto index = memberExpr->fieldIndex();
   auto &fields = structType->fields();
   if (index >= fields.size()) {
-    DBG("Cherry struct field index `{0}` out of bounds for `{1}`", index,
+    DBG("Mulberry struct field index `{0}` out of bounds for `{1}`", index,
         formatType(structType));
     return nullptr;
   }
 
   auto *field = &fields[index];
   if (!field->type()) {
-    DBG("Cherry struct field `{0}` has no Cherry type",
+    DBG("Mulberry struct field `{0}` has no Mulberry type",
         field->name());
     return nullptr;
   }
 
-  DBG("use Cherry struct field `{0}` from `{1}`", field->name(),
+  DBG("use Mulberry struct field `{0}` from `{1}`", field->name(),
       formatType(structType));
   return field;
 }
@@ -1029,7 +1029,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
       .Case<VariableExpr>([&](const auto *var) {
         auto name = var->name();
         auto rhs = gen(node->rhs().get());
-        if (cherry::isTensorType(var->type())) {
+        if (mulberry::isTensorType(var->type())) {
           rhs = castToType(rhs, getMLIRType(var), loc(node));
           auto *binding = getVariableBinding(name);
           if (binding && binding->isAddress())
@@ -1040,7 +1040,7 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
         }
 
         auto address = getVariableAddress(name);
-        if (!cherry::isUnitType(node->lhs()->type())) {
+        if (!mulberry::isUnitType(node->lhs()->type())) {
           rhs = castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
           createStore(rhs, address, loc(node));
         }
@@ -1113,12 +1113,12 @@ auto MLIRGenImpl::genGuardedWhileStatement(const Stat *node) -> void {
 
 auto MLIRGenImpl::declareLocalVariableSlot(const VariableStat *node) -> void {
   auto *varType = node->type();
-  if (cherry::isUnitType(varType)) {
+  if (mulberry::isUnitType(varType)) {
     setUnitVariable(node->variable()->name());
     return;
   }
 
-  if (auto *structType = cherry::getStructType(varType)) {
+  if (auto *structType = mulberry::getStructType(varType)) {
     auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
     if (structLiteral) {
       auto ptr = genStructLiteral(structLiteral, structType, nullptr);
@@ -1192,14 +1192,14 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
 
   auto &fields = structType->fields();
   if (fields.size() != structLiteral->expressions().size()) {
-    ERR("Cherry struct literal field count mismatch for `{0}`",
+    ERR("Mulberry struct literal field count mismatch for `{0}`",
         formatType(structType));
     return nullptr;
   }
 
   for (auto &field : fields) {
     if (!field.type()) {
-      ERR("Cherry struct literal field `{0}` has no Cherry type",
+      ERR("Mulberry struct literal field `{0}` has no Mulberry type",
           field.name());
       return nullptr;
     }
@@ -1219,7 +1219,7 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
   unsigned index = 0;
   for (auto &expr : *structLiteral) {
     auto &field = fields[index];
-    DBG("Cherry struct literal field index: {0}, field name: {1}, "
+    DBG("Mulberry struct literal field index: {0}, field name: {1}, "
         "expr type: {2}",
         field.index(), field.name(),
         formatType(expr->type()));
@@ -1230,13 +1230,13 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
             llvm::dyn_cast<StructLiteralExpr>(expr.get())) {
       auto *nestedStructType = nestedStructLiteral->structType();
       if (nestedStructType) {
-        DBG("Cherry nested struct literal index: {0}, expr type: {1}, "
+        DBG("Mulberry nested struct literal index: {0}, expr type: {1}, "
             "type: {2}",
             field.index(), formatType(expr->type()),
             getMLIRType(expr.get()));
         genStructLiteral(nestedStructLiteral, nestedStructType, memberPtr);
       } else {
-        ERR("nested struct literal has no Cherry struct type");
+        ERR("nested struct literal has no Mulberry struct type");
         return nullptr;
       }
     } else {
@@ -1309,7 +1309,7 @@ auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
   if (!type)
     return {};
 
-  DBG("convert Cherry type `{0}` to MLIR type", formatType(type));
+  DBG("convert Mulberry type `{0}` to MLIR type", formatType(type));
   return _typeConverter.convert(type);
 }
 
@@ -1319,7 +1319,7 @@ auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
 
 auto MLIRGenImpl::getMemRefType(const Type *type) const
     -> mlir::MemRefType {
-  auto *tensorType = cherry::getTensorType(type);
+  auto *tensorType = mulberry::getTensorType(type);
   if (!tensorType)
     return {};
 
@@ -1347,7 +1347,7 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
   auto sourceIntType = llvm::dyn_cast<mlir::IntegerType>(value.getType());
   auto targetIntType = llvm::dyn_cast<mlir::IntegerType>(type);
   if (sourceIntType && targetIntType) {
-    // Cherry only has unsigned integer scalars today, so integer casts use
+    // Mulberry only has unsigned integer scalars today, so integer casts use
     // zero-extension and truncation instead of signed variants.
     if (sourceIntType.getWidth() < targetIntType.getWidth()) {
       DBG("castToType zero-extend integer {0} -> {1}", value.getType(), type);
@@ -1542,7 +1542,7 @@ auto MLIRGenImpl::zeroValue(mlir::Type type,
                                                 zero);
   }
 
-  ERR("zeros() does not support tensor element type `{0}`", type);
+  ERR("zero init does not support tensor element type `{0}`", type);
   return nullptr;
 }
 
@@ -1557,7 +1557,7 @@ void MLIRGenImpl::zeroFill(mlir::Value tensor, mlir::Type elementType,
     return;
   }
 
-  // Static zeros() is expanded to stores now; dynamic zeros() should become a
+  // Static zero init is expanded to stores now; dynamic zero init should become a
   // loop-based fill when the language needs dynamic Tensor allocation syntax.
   for (int64_t i = 0; i < shape[depth]; ++i) {
     auto index = mlir::arith::ConstantIndexOp::create(_builder, location, i);
@@ -1626,14 +1626,14 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
 
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto *varType = node->type();
-  auto *tensorType = cherry::getTensorType(varType);
-  auto *ptrType = cherry::getPtrType(varType);
-  auto *structType = cherry::getStructType(varType);
+  auto *tensorType = mulberry::getTensorType(varType);
+  auto *ptrType = mulberry::getPtrType(varType);
+  auto *structType = mulberry::getStructType(varType);
   auto varName = node->variable()->name();
   auto *predeclaredBinding = getCurrentVariableBinding(varName);
 
   if (tensorType) {
-    DBG("use Cherry variable tensor type `{0}`",
+    DBG("use Mulberry variable tensor type `{0}`",
         formatType(tensorType));
 
     auto targetType =
@@ -1663,7 +1663,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   }
 
   if (ptrType) {
-    DBG("use Cherry variable ptr type `{0}`", formatType(ptrType));
+    DBG("use Mulberry variable ptr type `{0}`", formatType(ptrType));
     auto targetType = getMLIRType(varType);
     auto value = gen(node->init().get());
     value = castToType(value, targetType, loc(node));
@@ -1692,14 +1692,14 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
                          predeclaredBinding->mlirValue);
         return;
       }
-      DBG("use Cherry variable struct literal `{0}`",
+      DBG("use Mulberry variable struct literal `{0}`",
           formatType(structType));
       setVariableAddress(varName,
                          genStructLiteral(structLiteral, structType, nullptr));
       return;
     }
 
-    DBG("use Cherry variable struct value `{0}`",
+    DBG("use Mulberry variable struct value `{0}`",
         formatType(structType));
     auto mlirType = getMLIRType(varType);
     if (predeclaredBinding && predeclaredBinding->isAddress()) {
@@ -1715,7 +1715,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     return;
   }
 
-  if (cherry::isUnitType(varType)) {
+  if (mulberry::isUnitType(varType)) {
     setUnitVariable(varName);
     gen(node->init().get());
     return;
@@ -1742,15 +1742,15 @@ auto MLIRGenImpl::gen(const ExprStat *node) -> void {
   gen(node->expression().get());
 }
 
-namespace cherry {
+namespace mulberry {
 
 auto mlirGen(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context,
              const Module &moduleAST, mlir::OwningOpRef<mlir::ModuleOp> &module)
-    -> CherryResult {
+    -> MulberryResult {
   auto generator = MLIRGenImpl(sourceManager, context);
   auto result = generator.gen(moduleAST);
   module = generator.module;
   return result;
 }
 
-} // end namespace cherry
+} // end namespace mulberry

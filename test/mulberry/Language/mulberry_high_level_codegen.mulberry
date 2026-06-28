@@ -1,0 +1,40 @@
+# RUN: mulberry-driver --dump=mlir %s 2>&1 | FileCheck %s
+
+struct A {
+  x: UInt64,
+  flag: Bool
+}
+
+fn add(x: UInt64): UInt64 {
+  x + 1
+}
+
+fn main(): UInt64 {
+  var a: A = A { 1, true };
+  var sum: UInt64 = 0;
+
+  for i in 0 .. 2 {
+    sum = sum + i;
+  }
+
+  if a.flag {
+    add(sum)
+  } else {
+    0
+  }
+}
+
+# CHECK-LABEL: module {
+# CHECK-LABEL: func.func @add
+# CHECK: mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: arith.addi
+# CHECK: return
+# CHECK-LABEL: func.func @main
+# CHECK: mulberry.alloca !mulberry.record<A
+# CHECK: mulberry.record.get_field
+# CHECK: mulberry.store
+# CHECK: scf.for unsigned
+# CHECK: arith.addi
+# CHECK: scf.if {{.*}} -> (i64)
+# CHECK: call @add
+# CHECK-NOT: cir.

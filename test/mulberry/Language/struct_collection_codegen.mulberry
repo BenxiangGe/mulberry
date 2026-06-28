@@ -1,0 +1,51 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+struct Model {
+  weights: List<Tensor<Float32>>,
+  bias: Float32[?, ?]
+}
+
+fn makeModel(w1: Tensor<Float32>,
+             w2: Tensor<Float32>,
+             bias: Float32[?, ?]): Model {
+  var weights: List<Tensor<Float32>> = [w1, w2];
+  Model { weights, bias }
+}
+
+fn main(): UInt64 {
+  var w1: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
+  var w2: Float32[?, ?] = [[1.0, 1.0]];
+  var bias: Float32[?, ?] = [[0.0]];
+  var w1h: Tensor<Float32> = tensor.pack(w1);
+  var w2h: Tensor<Float32> = tensor.pack(w2);
+
+  var model: Model = makeModel(w1h, w2h, bias);
+  var otherBias: Float32[?, ?] = bias;
+  var activeBias: Float32[?, ?] = if true {
+    model.bias
+  } else {
+    otherBias
+  };
+  var firstWeight: Tensor<Float32> =
+      model.weights[0];
+
+  model.weights.size() + firstWeight.numel() + 1
+}
+
+# CHECK-LABEL: func.func @makeModel
+# CHECK-SAME: !mulberry.record<std_tensor_Tensor__Float32
+# CHECK-SAME: !mulberry.record<std_tensor_Tensor__Float32
+# CHECK-SAME: !mulberry.tensor<?x?xf32>
+# CHECK-SAME: -> !mulberry.record<Model
+# CHECK: call @std_collections_withCapacity__
+# CHECK: call @std_collections_List_push__
+# CHECK: mulberry.record.get_field {{.*}}["bias"]
+# CHECK-LABEL: func.func @main()
+# CHECK: mulberry.tensor.pack
+# CHECK: call @makeModel
+# CHECK: scf.if
+# CHECK: mulberry.record.get_field {{.*}}["bias"]
+# CHECK: mulberry.record.get_field {{.*}}["weights"]
+# CHECK: call @std_collections_List_get__
+# CHECK: call @std_collections_List_size__
+# CHECK: call @std_tensor_Tensor_numel__Float32

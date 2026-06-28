@@ -1,0 +1,33 @@
+//===--- DiagnosticsParse.def - Diagnostics Text ----------------*- C++ -*-===//
+//
+// This source file is part of the Mulberry open source project
+// See LICENSE.txt for license information
+//
+//===----------------------------------------------------------------------===//
+
+ERROR(expected_semi, "expected `;`")
+ERROR(expected_colon, "expected `:`")
+ERROR(expected_assign, "expected `=`")
+ERROR(expected_less, "expected `<`")
+ERROR(expected_greater, "expected `>`")
+ERROR(expected_in, "expected `in`")
+ERROR(expected_dot_dot, "expected `..`")
+ERROR(expected_l_paren, "expected `(`")
+ERROR(expected_r_paren, "expected `)`")
+ERROR(expected_r_square, "expected `]`")
+ERROR(expected_l_brace, "expected `{`")
+ERROR(expected_r_brace, "expected `}`")
+ERROR(expected_comma_or_r_brace, "expected `,` or `}`")
+ERROR(expected_comma_or_r_paren, "expected `,` or `)`")
+ERROR(expected_comma_or_r_square, "expected `,` or `]`")
+ERROR(expected_else, "expected `else`")
+ERROR(expected_fun_struct, "expected `fun`, `extern`, `struct`, or `comptime`")
+ERROR(expected_type, "expected type")
+ERROR(expected_id, "expected identifier")
+ERROR(expected_expr, "expected expression")
+ERROR(integer_literal_overflows, "integer literal overflows")
+ERROR(float_literal_invalid, "invalid Float32 literal")
+ERROR(string_literal_invalid, "invalid String literal")
+
+// ___________________________________________________________________________
+#undef ERROR
