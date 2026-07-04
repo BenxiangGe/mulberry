@@ -134,10 +134,10 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
     return std::make_unique<NamedTypeNode>(namedType->location(),
                                            namedType->name());
 
-  if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
-    return std::make_unique<TensorTypeNode>(
-        cloneTypeNode(tensorType->elementTypeNode()), tensorType->shape(),
-        tensorType->location());
+  if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
+    return std::make_unique<ArrayTypeNode>(
+        cloneTypeNode(arrayType->elementTypeNode()), arrayType->shape(),
+        arrayType->location());
   }
 
   if (auto *listType = dyn_cast<ListTypeNode>(node)) {
@@ -225,9 +225,18 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
   }
 
   if (auto *tensorType = getTensorType(type)) {
-    return std::make_unique<TensorTypeNode>(
+    return std::make_unique<ArrayTypeNode>(
         typeToTypeNode(tensorType->elementType(), location),
         tensorType->shape(), location);
+  }
+
+  if (auto *arrayType = getArrayType(type)) {
+    std::vector<ComptimeArg> arguments;
+    arguments.push_back(ComptimeArg(
+        typeToTypeNode(arrayType->elementType(), location)));
+    arguments.push_back(ComptimeArg(location, arrayType->size()));
+    return std::make_unique<GenericTypeNode>(
+        location, "Array", std::move(arguments));
   }
 
   if (auto *listType = getListType(type)) {
@@ -253,10 +262,10 @@ auto substituteTypeNode(const TypeNode *node,
     return cloneTypeNode(namedType);
   }
 
-  if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
-    return std::make_unique<TensorTypeNode>(
-        substituteTypeNode(tensorType->elementTypeNode(), substitution),
-        tensorType->shape(), tensorType->location());
+  if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
+    return std::make_unique<ArrayTypeNode>(
+        substituteTypeNode(arrayType->elementTypeNode(), substitution),
+        arrayType->shape(), arrayType->location());
   }
 
   if (auto *listType = dyn_cast<ListTypeNode>(node)) {
@@ -353,8 +362,8 @@ auto containsComptimeParameter(const TypeNode *node,
     return false;
   }
 
-  if (auto *tensorType = dyn_cast<TensorTypeNode>(node))
-    return containsComptimeParameter(tensorType->elementTypeNode(),
+  if (auto *arrayType = dyn_cast<ArrayTypeNode>(node))
+    return containsComptimeParameter(arrayType->elementTypeNode(),
                                      parameters);
 
   if (auto *listType = dyn_cast<ListTypeNode>(node))
@@ -465,6 +474,14 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Variable: {
     auto *expr = cast<VariableExpr>(node);
+    // UInt64 comptime parameters are not runtime variables. Generic
+    // instantiation materializes their value as an integer literal in the
+    // cloned function body.
+    for (auto &substitution : substitutions)
+      if (expr->name() == substitution.parameterName &&
+          substitution.uint64Value)
+        return std::make_unique<DecimalLiteralExpr>(
+            expr->location(), *substitution.uint64Value);
     return std::make_unique<VariableExpr>(expr->location(), expr->name());
   }
   case Expr::Expr_Assign: {
@@ -533,17 +550,6 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<DerefExpr>(
         expr->location(), substituteExpr(expr->pointer().get(), substitutions));
   }
-  case Expr::Expr_TensorPack: {
-    auto *expr = cast<TensorPackExpr>(node);
-    return std::make_unique<TensorPackExpr>(
-        expr->location(), substituteExpr(expr->tensor().get(), substitutions));
-  }
-  case Expr::Expr_TensorView: {
-    auto *expr = cast<TensorViewExpr>(node);
-    return std::make_unique<TensorViewExpr>(
-        expr->location(),
-        substituteExpr(expr->tensorRecord().get(), substitutions));
-  }
   case Expr::Expr_Call: {
     auto *expr = cast<CallExpr>(node);
     VectorUniquePtr<Expr> expressions;
@@ -558,8 +564,6 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<CallExpr>(
         expr->location(), expr->name(), std::move(expressions));
   }
-  case Expr::Expr_ZeroInit:
-    return std::make_unique<ZeroInitExpr>(node->location());
   case Expr::Expr_StructLiteral: {
     auto *expr = cast<StructLiteralExpr>(node);
     VectorUniquePtr<Expr> expressions;
@@ -693,10 +697,6 @@ private:
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
   auto sema(DerefExpr *node) -> MulberryResult;
-  auto sema(ZeroInitExpr *node, const TensorType *type) -> MulberryResult;
-  auto sema(TensorPackExpr *node) -> MulberryResult;
-  auto sema(TensorViewExpr *node,
-            const Type *expectedType = nullptr) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
@@ -704,16 +704,22 @@ private:
   auto checkConstTensorBinding(const VariableStat *node,
                                const Type *type) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
-  auto semaStdlibListLiteral(ArrayLiteralExpr *expr, const Type *type,
-                             const Type *elementType) -> MulberryResult;
-  auto sema(ArrayLiteralExpr *expr, const TensorType *type) -> MulberryResult;
+  auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> MulberryResult;
+  auto semaTensorSourceArrayLiteral(ArrayLiteralExpr *expr,
+                                    const Type *leafElementType,
+                                    std::vector<int64_t> &inferredShape)
+      -> MulberryResult;
+  auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr) -> MulberryResult;
+  auto semaTensorFromArrayCall(CallExpr *node,
+                               const Type *expectedType = nullptr)
+      -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
   auto sema(IfExpr *node) -> MulberryResult;
   auto sema(WhileExpr *node) -> MulberryResult;
   auto sema(BreakExpr *node) -> MulberryResult;
   auto sema(ContinueExpr *node) -> MulberryResult;
   auto sema(ForExpr *node) -> MulberryResult;
-  auto semaTensorLiteralElement(Expr *expr, const Type *type)
+  auto semaArrayLiteralElement(Expr *expr, const Type *type)
       -> MulberryResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
                        const Type *expectedType = nullptr) -> MulberryResult;
@@ -828,6 +834,10 @@ private:
     fullName += ".";
     fullName += name;
     return fullName;
+  }
+
+  auto isTensorFromName(std::string_view name) const -> bool {
+    return canonicalizeImportedName(name) == "std.tensor.from";
   }
 
   auto lookupType(std::string_view name) -> const Type * {
@@ -1115,12 +1125,14 @@ private:
       return sameType(patternType, actualType);
     }
 
-    if (auto *tensorPattern = dyn_cast<TensorTypeNode>(pattern)) {
-      auto *tensorType = getTensorType(actualType);
-      return tensorType &&
-             tensorPattern->shape() == tensorType->shape() &&
-             matchGenericType(tensorPattern->elementTypeNode(),
-                              tensorType->elementType(), parameters,
+    if (auto *arrayPattern = dyn_cast<ArrayTypeNode>(pattern)) {
+      auto *arrayType = getArrayType(actualType);
+      return arrayType && arrayPattern->shape().size() == 1 &&
+             arrayPattern->shape().front() >= 0 &&
+             static_cast<uint64_t>(arrayPattern->shape().front()) ==
+                 arrayType->size() &&
+             matchGenericType(arrayPattern->elementTypeNode(),
+                              arrayType->elementType(), parameters,
                               arguments);
     }
 
@@ -1140,6 +1152,21 @@ private:
     }
 
     if (auto *genericPattern = dyn_cast<GenericTypeNode>(pattern)) {
+      if (genericPattern->name() == "Array") {
+        auto *arrayType = getArrayType(actualType);
+        auto &patternArguments = genericPattern->arguments();
+        if (!arrayType || patternArguments.size() != 2 ||
+            patternArguments[0].kind() != ComptimeArg::Kind::Type)
+          return false;
+        if (!matchGenericType(patternArguments[0].typeNode(),
+                              arrayType->elementType(), parameters,
+                              arguments))
+          return false;
+        auto sizeValue = ComptimeTypeValue(arrayType->size());
+        return matchComptimeArgument(patternArguments[1], sizeValue,
+                                     parameters, arguments);
+      }
+
       auto aliasName = comptimeTypeAliasName(genericPattern->name());
       auto *structType = getStructType(actualType);
       auto *origin = structType ? structType->origin() : nullptr;
@@ -1252,7 +1279,7 @@ private:
 
     // Pointer reinterpretation stays explicit in source code through helpers
     // such as std.ptr.asUInt8<T>(). The helper's body returns Ptr<T>; MLIRGen
-    // materializes the declared Ptr<UInt8> return with mulberry.ptr.cast.
+    // materializes the declared Ptr<UInt8> return with mulberry_core.ptr.cast.
     return getPtrType(returnType) && getPtrType(actualType);
   }
 
@@ -1304,6 +1331,13 @@ private:
     return success();
   }
 
+  auto resolveSubstitutedType(const TypeNode *typeNode,
+                              const std::vector<TypeSubstitution> &substitutions)
+      -> const Type * {
+    auto substitutedTypeNode = substituteTypeNode(typeNode, substitutions);
+    return resolveType(substitutedTypeNode.get());
+  }
+
   auto functionPackageName(std::string_view name) const -> std::string {
     auto package = _instantiatedFunctionPackages.find(std::string(name));
     if (package != _instantiatedFunctionPackages.end())
@@ -1340,12 +1374,22 @@ private:
     return emitError(typeNode, diag::unexpected_unit_type);
   }
 
-  auto resolveType(const TensorTypeNode *typeNode) -> const Type * {
+  auto resolveType(const ArrayTypeNode *typeNode) -> const Type * {
     auto *elementType = resolveType(typeNode->elementTypeNode());
     if (!elementType)
       return nullptr;
 
-    return _typeContext.createTensorType(elementType, typeNode->shape());
+    auto &shape = typeNode->shape();
+    if (shape.size() == 1 && shape.front() >= 0) {
+      if (!isArrayElementType(elementType)) {
+        emitError(typeNode->elementTypeNode(), diag::mismatch_type);
+        return nullptr;
+      }
+      return _typeContext.createArrayType(elementType, shape.front());
+    }
+
+    emitError(typeNode, diag::mismatch_type);
+    return nullptr;
   }
 
   auto resolveType(const ListTypeNode *typeNode) -> const Type * {
@@ -1403,6 +1447,26 @@ private:
   }
 
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
+    if (typeNode->name() == "Array") {
+      auto &arguments = typeNode->arguments();
+      if (arguments.size() != 2 ||
+          arguments[0].kind() != ComptimeArg::Kind::Type ||
+          arguments[1].kind() != ComptimeArg::Kind::UInt64) {
+        emitError(typeNode, diag::mismatch_type);
+        return nullptr;
+      }
+
+      auto *elementType = resolveType(arguments[0].typeNode());
+      if (!elementType)
+        return nullptr;
+      if (!isArrayElementType(elementType)) {
+        emitError(arguments[0].typeNode(), diag::mismatch_type);
+        return nullptr;
+      }
+      return _typeContext.createArrayType(elementType,
+                                          arguments[1].uint64Value());
+    }
+
     auto aliasName = comptimeTypeAliasName(typeNode->name());
     auto *alias = aliasName.empty()
                       ? nullptr
@@ -1486,8 +1550,8 @@ private:
     if (auto *unitType = dyn_cast<UnitTypeNode>(typeNode))
       return resolveType(unitType);
 
-    if (auto *tensorType = dyn_cast<TensorTypeNode>(typeNode))
-      return resolveType(tensorType);
+    if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
+      return resolveType(arrayType);
 
     if (auto *listType = dyn_cast<ListTypeNode>(typeNode))
       return resolveType(listType);
@@ -1533,7 +1597,7 @@ private:
       return nullptr;
 
     auto *origin = structType->origin();
-    if (!origin || origin->aliasName() != "std.collections.List")
+    if (!origin || origin->aliasName() != "std.list.List")
       return nullptr;
 
     auto &fields = structType->fields();
@@ -1552,14 +1616,18 @@ private:
     return dataPtrType->pointeeType();
   }
 
-  auto tensorRecordType(const TensorType *type, llvm::SMLoc location)
+  auto tensorRecordType(const Type *elementType, llvm::SMLoc location)
       -> const Type * {
     std::vector<ComptimeArg> arguments;
-    arguments.push_back(ComptimeArg(typeToTypeNode(type->elementType(),
-                                                   location)));
+    arguments.push_back(ComptimeArg(typeToTypeNode(elementType, location)));
     auto typeNode = std::make_unique<GenericTypeNode>(
         location, "std.tensor.Tensor", std::move(arguments));
     return resolveType(typeNode.get());
+  }
+
+  auto tensorRecordType(const TensorType *type, llvm::SMLoc location)
+      -> const Type * {
+    return tensorRecordType(type->elementType(), location);
   }
 
   auto tensorElementType(const Type *type) -> const Type * {
@@ -1834,12 +1902,6 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<HeapAllocExpr>(node));
   case Expr::Expr_Deref:
     return sema(cast<DerefExpr>(node));
-  case Expr::Expr_ZeroInit:
-    return emitError(node, diag::mismatch_type);
-  case Expr::Expr_TensorPack:
-    return sema(cast<TensorPackExpr>(node));
-  case Expr::Expr_TensorView:
-    return sema(cast<TensorViewExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -1874,24 +1936,17 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
 auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   auto *arrayLiteral = dyn_cast<ArrayLiteralExpr>(node);
   if (arrayLiteral) {
-    // Source `[...]` is neutral syntax. Expected type decides whether it is a
-    // Tensor literal or a stdlib List alias; other expressions stay bottom-up.
-    if (auto *tensorType = mulberry::getTensorType(type))
-      return sema(arrayLiteral, tensorType);
-    if (auto *elementType = stdlibListElementType(type))
-      return semaStdlibListLiteral(arrayLiteral, type, elementType);
+    // Source `[...]` defaults to Array. Explicit Array annotations keep
+    // target-typed literal semantics.
+    if (auto *arrayType = mulberry::getArrayType(type))
+      return sema(arrayLiteral, arrayType);
   }
 
-  auto *zeroInit = dyn_cast<ZeroInitExpr>(node);
-  if (zeroInit) {
-    auto *tensorType = mulberry::getTensorType(type);
-    if (!tensorType)
-      return emitError(zeroInit, diag::mismatch_type);
-    return sema(zeroInit, tensorType);
+  auto *call = dyn_cast<CallExpr>(node);
+  if (call && !call->hasReceiver() && isTensorFromName(call->name())) {
+    call->setName("std.tensor.from");
+    return semaTensorFromArrayCall(call, type);
   }
-
-  if (auto *tensorView = dyn_cast<TensorViewExpr>(node))
-    return sema(tensorView, type);
 
   if (auto *ifExpr = dyn_cast<IfExpr>(node)) {
     if (!ifExpr->hasElseBlock() || isUnitType(type))
@@ -1918,7 +1973,6 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
     return success();
   }
 
-  auto *call = dyn_cast<CallExpr>(node);
   if (call && call->hasReceiver())
     return semaMethodCall(call, type);
 
@@ -1950,16 +2004,34 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     return emitError(node, diagnostic);
   }
 
-  for (auto &argument : expressions) {
-    if (sema(argument.get()))
-      return failure();
-  }
-
   auto &comptimeParameters = genericProto->comptimeParameters();
   auto inferredArguments =
       makeInferredComptimeArguments(comptimeParameters);
+  if (expectedType &&
+      !matchGenericType(genericProto->returnTypeNode(), expectedType,
+                        comptimeParameters, inferredArguments))
+    return emitError(node, diag::mismatch_type);
+
+  auto semaArgument = [&](Expr *argument, const TypeNode *parameterTypeNode)
+      -> MulberryResult {
+    auto knownArguments = true;
+    for (auto &inferredArgument : inferredArguments)
+      knownArguments = knownArguments && inferredArgument.isResolved();
+    if (!knownArguments)
+      return sema(argument);
+
+    auto *parameterType = resolveSubstitutedType(
+        parameterTypeNode,
+        comptimeSubstitutions(comptimeParameters, inferredArguments));
+    if (!parameterType)
+      return failure();
+    return sema(argument, parameterType);
+  };
+
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto *parameterTypeNode = parameters[i]->typeNode();
+    if (semaArgument(expressions[i].get(), parameterTypeNode))
+      return failure();
     auto matched =
         node->isLoweredMethodCall() && i == 0
             ? matchMethodReceiverType(parameterTypeNode, expressions[i]->type(),
@@ -1969,11 +2041,6 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (!matched)
       return emitError(expressions[i].get(), diag::mismatch_type);
   }
-
-  if (expectedType &&
-      !matchGenericType(genericProto->returnTypeNode(), expectedType,
-                        comptimeParameters, inferredArguments))
-    return emitError(node, diag::mismatch_type);
 
   for (auto &argument : inferredArguments)
     if (!argument.isResolved())
@@ -2055,6 +2122,9 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     return semaMethodCall(node);
 
   node->setName(canonicalizeImportedName(node->name()));
+  if (node->name() == "std.tensor.from")
+    return semaTensorFromArrayCall(node);
+
   auto name = node->name();
 
   auto *signature = lookupFunction(name);
@@ -2415,126 +2485,175 @@ auto SemaImpl::checkConstTensorBinding(const VariableStat *node,
   return checkConstTensorUseAsMutable(node->init().get());
 }
 
-auto SemaImpl::sema(ArrayLiteralExpr *expr) -> MulberryResult {
+auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
+    -> MulberryResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
 
-  if (sema(elements.front().get()))
+  auto semaElement = [&](Expr *element) -> MulberryResult {
+    if (auto *nestedLiteral = dyn_cast<ArrayLiteralExpr>(element))
+      return semaDefaultArrayLiteral(nestedLiteral);
+    return sema(element);
+  };
+
+  if (semaElement(elements.front().get()))
     return failure();
 
-  auto *firstElementType = elements.front()->type();
-  auto *elementType = firstElementType;
-  std::vector<int64_t> currentShape{static_cast<int64_t>(elements.size())};
-
-  if (auto *nestedTensorType = mulberry::getTensorType(elementType)) {
-    elementType = nestedTensorType->elementType();
-    currentShape.insert(currentShape.end(), nestedTensorType->shape().begin(),
-                        nestedTensorType->shape().end());
-  }
-
-  if (!elementType)
+  auto *elementType = elements.front()->type();
+  if (!isArrayElementType(elementType))
     return emitError(elements.front().get(), diag::mismatch_type);
 
-  for (size_t i = 1; i < elements.size(); ++i) {
-    auto &element = elements[i];
-    if (sema(element.get()))
-      return failure();
-    if (!sameType(firstElementType, element->type()))
-      return emitError(element.get(), diag::mismatch_type);
-  }
-
-  expr->setInferredShape(currentShape);
-  auto *tensorType =
-      _typeContext.createTensorType(elementType, std::move(currentShape));
-  expr->setTensorLiteral();
-  expr->setType(tensorType);
-  return success();
-}
-
-auto SemaImpl::semaStdlibListLiteral(ArrayLiteralExpr *expr,
-                                     const Type *type,
-                                     const Type *elementType)
-    -> MulberryResult {
-  auto &elements = expr->getElements();
-  for (auto &element : elements) {
-    if (sema(element.get(), elementType))
+  for (size_t index = 1; index < elements.size(); ++index) {
+    auto &element = elements[index];
+    if (semaElement(element.get()))
       return failure();
     if (!sameType(elementType, element->type()))
       return emitError(element.get(), diag::mismatch_type);
   }
 
-  // The literal lowers to normal stdlib calls. Pre-instantiating the generic
-  // helpers here keeps MLIRGen simple and avoids a separate list-literal IR op.
-  std::string withCapacityFunctionName;
-  std::string pushFunctionName;
-  if (instantiateGenericFunction(expr, "std.collections.withCapacity",
-                                 elementType, withCapacityFunctionName))
+  auto *arrayType =
+      _typeContext.createArrayType(elementType, elements.size());
+  std::vector<int64_t> inferredShape;
+  arrayLeafElementType(arrayType, inferredShape);
+  expr->setInferredShape(std::move(inferredShape));
+  expr->setArrayLiteral();
+  expr->setType(arrayType);
+  return success();
+}
+
+auto SemaImpl::semaTensorFromArrayCall(CallExpr *node,
+                                       const Type *expectedType)
+    -> MulberryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *argument = expressions.front().get();
+  if (auto *literal = dyn_cast<ArrayLiteralExpr>(argument)) {
+    auto *expectedElementType =
+        expectedType ? tensorElementType(expectedType) : nullptr;
+    std::vector<int64_t> expectedShape;
+    auto result = expectedElementType
+                      ? semaTensorSourceArrayLiteral(
+                            literal, expectedElementType, expectedShape)
+                      : semaDefaultArrayLiteral(literal);
+    if (result)
+      return failure();
+  } else if (sema(argument)) {
     return failure();
-  if (!elements.empty() &&
-      instantiateGenericFunction(expr, "std.collections.List.push",
-                                 elementType, pushFunctionName))
+  }
+
+  std::vector<int64_t> shape;
+  auto *elementType = arrayLeafElementType(argument->type(), shape);
+  if (shape.empty() || !elementType || !isNumericType(elementType))
+    return emitError(argument, diag::mismatch_type);
+
+  auto *recordType = tensorRecordType(elementType, node->location());
+  if (!recordType)
     return failure();
 
-  expr->setStdlibListLiteral(elementType, withCapacityFunctionName,
-                             pushFunctionName);
+  if (expectedType && !sameType(recordType, expectedType))
+    return emitError(node, diag::mismatch_type);
+
+  node->setName("std.tensor.from");
+  node->setType(recordType);
+  return success();
+}
+
+auto SemaImpl::sema(ArrayLiteralExpr *expr) -> MulberryResult {
+  return semaDefaultArrayLiteral(expr);
+}
+
+auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
+    -> MulberryResult {
+  auto &elements = expr->getElements();
+  if (elements.size() != type->size())
+    return emitError(expr, diag::mismatch_type);
+
+  for (auto &element : elements) {
+    if (semaArrayLiteralElement(element.get(), type->elementType()))
+      return failure();
+  }
+
+  expr->setInferredShape({static_cast<int64_t>(type->size())});
+  expr->setArrayLiteral();
   expr->setType(type);
   return success();
 }
 
-auto SemaImpl::sema(ArrayLiteralExpr *expr, const TensorType *type)
-    -> MulberryResult {
+auto SemaImpl::semaTensorSourceArrayLiteral(
+    ArrayLiteralExpr *expr,
+    const Type *leafElementType,
+    std::vector<int64_t> &inferredShape) -> MulberryResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
-
-  auto &shape = type->shape();
-  if (shape.empty())
+  if (!isArrayElementType(leafElementType))
     return emitError(expr, diag::mismatch_type);
 
-  auto dim = static_cast<int64_t>(elements.size());
-  if (shape.front() >= 0 && shape.front() != dim)
-    return emitError(expr, diag::mismatch_type);
-
-  std::vector<int64_t> inferredShape{dim};
-  if (shape.size() == 1) {
-    for (auto &element : elements)
-      if (semaTensorLiteralElement(element.get(), type->elementType()))
+  inferredShape = {static_cast<int64_t>(elements.size())};
+  auto *firstNested = dyn_cast<ArrayLiteralExpr>(elements.front().get());
+  if (!firstNested) {
+    for (auto &element : elements) {
+      if (llvm::isa<ArrayLiteralExpr>(element.get()))
+        return emitError(element.get(), diag::mismatch_type);
+      if (semaArrayLiteralElement(element.get(), leafElementType))
         return failure();
+    }
 
-    expr->setInferredShape(std::move(inferredShape));
-    expr->setTensorLiteral();
-    expr->setType(type);
+    auto *arrayType =
+        _typeContext.createArrayType(leafElementType, elements.size());
+    expr->setInferredShape(inferredShape);
+    expr->setArrayLiteral();
+    expr->setType(arrayType);
     return success();
   }
 
-  auto nestedShape = std::vector<int64_t>(shape.begin() + 1, shape.end());
-  auto *nestedType =
-      _typeContext.createTensorType(type->elementType(), nestedShape);
-  std::vector<int64_t> firstNestedShape;
+  std::vector<int64_t> nestedShape;
+  const Type *nestedType = nullptr;
   for (auto &element : elements) {
     auto *nestedLiteral = dyn_cast<ArrayLiteralExpr>(element.get());
     if (!nestedLiteral)
       return emitError(element.get(), diag::mismatch_type);
-    if (sema(nestedLiteral, nestedType))
+
+    std::vector<int64_t> currentNestedShape;
+    if (semaTensorSourceArrayLiteral(nestedLiteral, leafElementType,
+                                     currentNestedShape))
       return failure();
-    if (firstNestedShape.empty()) {
-      firstNestedShape = nestedLiteral->getInferredShape();
-    } else if (firstNestedShape != nestedLiteral->getInferredShape()) {
+    if (nestedShape.empty()) {
+      nestedShape = currentNestedShape;
+      nestedType = nestedLiteral->type();
+    } else if (nestedShape != currentNestedShape ||
+               !sameType(nestedType, nestedLiteral->type())) {
       return emitError(nestedLiteral, diag::mismatch_type);
     }
   }
 
-  inferredShape.insert(inferredShape.end(), firstNestedShape.begin(),
-                       firstNestedShape.end());
-  expr->setInferredShape(std::move(inferredShape));
-  expr->setTensorLiteral();
-  expr->setType(type);
+  inferredShape.insert(inferredShape.end(), nestedShape.begin(),
+                       nestedShape.end());
+  auto *arrayType = _typeContext.createArrayType(nestedType, elements.size());
+  expr->setInferredShape(inferredShape);
+  expr->setArrayLiteral();
+  expr->setType(arrayType);
   return success();
 }
 
-auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
+auto SemaImpl::semaArrayLiteralElement(Expr *expr, const Type *type)
     -> MulberryResult {
+  if (auto *arrayLiteral = llvm::dyn_cast<ArrayLiteralExpr>(expr)) {
+    auto *arrayType = mulberry::getArrayType(type);
+    if (!arrayType)
+      return emitError(expr, diag::mismatch_type);
+    return sema(arrayLiteral, arrayType);
+  }
+
+  if (mulberry::getArrayType(type))
+    return emitError(expr, diag::mismatch_type);
+
   if (auto *decimal = dyn_cast<DecimalLiteralExpr>(expr)) {
     if (isUInt8Type(type)) {
       if (decimal->value() > 255)
@@ -2556,23 +2675,26 @@ auto SemaImpl::semaTensorLiteralElement(Expr *expr, const Type *type)
   return success();
 }
 
-auto SemaImpl::sema(ZeroInitExpr *node, const TensorType *type)
-    -> MulberryResult {
-  // `{}` is target-typed so it can allocate a Tensor without a huge literal.
-  // Dynamic-shape zero fill needs loop-based initialization and is a separate
-  // operation from the static raw-file buffers needed by the current pipeline.
-  for (auto dim : type->shape()) {
-    if (dim < 0)
-      return emitError(node, diag::mismatch_type);
-  }
-
-  node->setType(type);
-  return success();
-}
-
 auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
   if (sema(expr->base().get()))
     return failure();
+
+  if (auto *elementType = tensorElementType(expr->base()->type())) {
+    if (expr->indices().empty())
+      return emitError(expr, diag::mismatch_type);
+
+    for (auto &index : expr->indices()) {
+      if (sema(index.get()))
+        return failure();
+      if (!isUInt64Type(index->type()))
+        return emitError(index.get(), diag::mismatch_type);
+    }
+
+    expr->setType(elementType);
+    expr->setLvalue(true);
+    expr->setStdlibTensorIndex();
+    return success();
+  }
 
   if (auto *elementType = stdlibListElementType(expr->base()->type())) {
     if (expr->indices().size() != 1)
@@ -2585,15 +2707,30 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
 
     std::string getFunctionName;
     std::string setFunctionName;
-    if (instantiateGenericFunction(expr, "std.collections.List.get",
+    if (instantiateGenericFunction(expr, "std.list.List.get",
                                    elementType, getFunctionName) ||
-        instantiateGenericFunction(expr, "std.collections.List.set",
+        instantiateGenericFunction(expr, "std.list.List.set",
                                    elementType, setFunctionName))
       return failure();
 
     expr->setType(elementType);
     expr->setLvalue(true);
     expr->setStdlibListIndex(getFunctionName, setFunctionName);
+    return success();
+  }
+
+  if (auto *arrayType = mulberry::getArrayType(expr->base()->type())) {
+    if (expr->indices().size() != 1)
+      return emitError(expr, diag::mismatch_type);
+    auto &index = expr->indices().front();
+    if (sema(index.get()))
+      return failure();
+    if (!isUInt64Type(index->type()))
+      return emitError(index.get(), diag::mismatch_type);
+
+    expr->setType(arrayType->elementType());
+    expr->setLvalue(true);
+    expr->setArrayIndex();
     return success();
   }
 
@@ -2613,54 +2750,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
     return success();
   }
 
-  auto *tensorType = mulberry::getTensorType(expr->base()->type());
-  if (!tensorType)
-    return emitError(expr, diag::mismatch_type);
-
-  auto tensorRank = tensorType->shape().size();
-  if (expr->indices().size() != tensorRank)
-    return emitError(expr, diag::mismatch_type);
-
-  for (auto &index : expr->indices()) {
-    if (sema(index.get()))
-      return failure();
-    if (!isUInt64Type(index->type()))
-      return emitError(index.get(), diag::mismatch_type);
-  }
-
-  expr->setType(tensorType->elementType());
-  expr->setLvalue(true);
-  expr->setTensorIndex();
-  return success();
-}
-
-auto SemaImpl::sema(TensorPackExpr *node) -> MulberryResult {
-  if (sema(node->tensor().get()))
-    return failure();
-
-  auto *tensorType = mulberry::getTensorType(node->tensor()->type());
-  if (!tensorType)
-    return emitError(node->tensor().get(), diag::mismatch_type);
-
-  auto *recordType = tensorRecordType(tensorType, node->location());
-  if (!recordType)
-    return failure();
-
-  node->setType(recordType);
-  return success();
-}
-
-auto SemaImpl::sema(TensorViewExpr *node, const Type *expectedType)
-    -> MulberryResult {
-  if (sema(node->tensorRecord().get()))
-    return failure();
-
-  auto *tensorType = tensorViewType(node->tensorRecord()->type(), expectedType);
-  if (!tensorType)
-    return emitError(node->tensorRecord().get(), diag::mismatch_type);
-
-  node->setType(tensorType);
-  return success();
+  return emitError(expr, diag::mismatch_type);
 }
 
 auto SemaImpl::sema(IfExpr *node) -> MulberryResult {

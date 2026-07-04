@@ -1,4 +1,4 @@
-//===--- MulberryTypes.td - Mulberry dialect types ---------*- tablegen -*-===//
+//===--- MulberryTypes.td - Mulberry core dialect types ---------*- tablegen -*-===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -47,9 +47,10 @@ def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
 }
 
 def Mulberry_TensorType : Mulberry_Type<"Tensor", "tensor"> {
-  let summary = "Mulberry tensor type";
+  let summary = "Mulberry internal tensor type";
   let description = [{
-    A writable shaped numeric data value in high-level Mulberry IR.
+    Compiler-owned internal Tensor IR type. It lowers to memref and is distinct
+    from the source-level stdlib Tensor<T> record header.
   }];
 
   let parameters = (ins

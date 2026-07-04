@@ -13,7 +13,7 @@ def PrepareMulberryNNCalls : Pass<"prepare-mulberry-nn-calls", "::mlir::ModuleOp
     Mulberry lowering must not know these package functions.
   }];
   let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
-                           "mulberry::MulberryDialect",
+                           "mulberry_core::MulberryDialect",
                            "memref::MemRefDialect",
                            "mulberry_nn::MulberryNNDialect"];
 }

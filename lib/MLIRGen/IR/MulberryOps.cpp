@@ -1,4 +1,4 @@
-//===--- MulberryOps.cpp - Mulberry dialect ops ---------------------------===//
+//===--- MulberryOps.cpp - Mulberry core dialect ops ---------------------------===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -12,7 +12,7 @@
 #include "mlir/IR/OpImplementation.h"
 
 using namespace mlir;
-using namespace mlir::mulberry;
+using namespace mlir::mulberry_core;
 
 #define GET_OP_CLASSES
 #include "mulberry/MLIRGen/IR/MulberryOps.cpp.inc"
@@ -23,8 +23,8 @@ static auto getPtrPointeeType(Type type) -> Type {
   return {};
 }
 
-static auto getTensorType(Type type) -> mlir::mulberry::TensorType {
-  return llvm::dyn_cast<mlir::mulberry::TensorType>(type);
+static auto getTensorType(Type type) -> mlir::mulberry_core::TensorType {
+  return llvm::dyn_cast<mlir::mulberry_core::TensorType>(type);
 }
 
 static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
@@ -129,7 +129,7 @@ auto TensorAllocOp::verify() -> LogicalResult {
 
 auto TensorDimOp::verify() -> LogicalResult {
   if (!getTensorType(getTensor().getType()))
-    return emitOpError("input must be a Mulberry tensor");
+    return emitOpError("input must be an internal tensor");
 
   return success();
 }
@@ -167,7 +167,7 @@ static auto verifyTensorMetadataList(Operation* op, Type type,
 }
 
 static auto verifyTensorRecord(Operation* op, RecordType recordType,
-                               mlir::mulberry::TensorType tensorType,
+                               mlir::mulberry_core::TensorType tensorType,
                                StringRef valueName) -> LogicalResult {
   if (!recordType)
     return op->emitOpError(valueName)

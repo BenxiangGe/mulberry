@@ -18,5 +18,5 @@ fn main(): UInt64 {
 # AST-SAME: type=Ptr<RankedBox<UInt64, 2>>
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc !mulberry.record<RankedBox__UInt64__2
-# MLIR: mulberry.record.get_field {{.*}}["value"]
+# MLIR: mulberry_core.heap.alloc !mulberry_core.record<RankedBox__UInt64__2
+# MLIR: mulberry_core.record.get_field {{.*}}["value"]

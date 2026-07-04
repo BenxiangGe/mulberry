@@ -11,6 +11,7 @@ fn main(): UInt64 {
   0
 }
 
+# CHECK: ArrayLiteralExpr {{.*}}type=Array<UInt64, 3>
 # CHECK: ForExpr
 # CHECK-SAME: type=Unit
 # CHECK-SAME: variable=i

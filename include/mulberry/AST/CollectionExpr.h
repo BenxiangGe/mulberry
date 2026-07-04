@@ -17,14 +17,12 @@
 
 namespace mulberry {
 
-// Source `[...]` is type-neutral. Sema classifies it as Tensor or List using
-// expected type where available.
+// Source `[...]` defaults to the plain language Array.
 class ArrayLiteralExpr final : public Expr {
 public:
   enum class LiteralKind {
     Unknown,
-    Tensor,
-    StdlibList,
+    Array,
   };
 
   ArrayLiteralExpr(llvm::SMLoc loc,
@@ -50,38 +48,14 @@ public:
 
   auto literalKind() const -> LiteralKind { return _literalKind; }
 
-  auto setTensorLiteral() -> void {
-    _literalKind = LiteralKind::Tensor;
-  }
-
-  auto setStdlibListLiteral(const Type *elementType,
-                            std::string_view withCapacityFunctionName,
-                            std::string_view pushFunctionName) -> void {
-    _literalKind = LiteralKind::StdlibList;
-    _stdlibListElementType = elementType;
-    _withCapacityFunctionName = withCapacityFunctionName;
-    _pushFunctionName = pushFunctionName;
-  }
-
-  auto stdlibListElementType() const -> const Type * {
-    return _stdlibListElementType;
-  }
-
-  auto withCapacityFunctionName() const -> std::string_view {
-    return _withCapacityFunctionName;
-  }
-
-  auto pushFunctionName() const -> std::string_view {
-    return _pushFunctionName;
+  auto setArrayLiteral() -> void {
+    _literalKind = LiteralKind::Array;
   }
 
 private:
   std::vector<std::unique_ptr<Expr>> _elements;
   std::vector<int64_t> _inferredShape;
   LiteralKind _literalKind = LiteralKind::Unknown;
-  const Type *_stdlibListElementType = nullptr;
-  std::string _withCapacityFunctionName;
-  std::string _pushFunctionName;
 };
 
 // Source `base[...]` is type-neutral. Sema classifies it by base type.
@@ -90,7 +64,8 @@ public:
   enum class IndexKind {
     Unknown,
     Ptr,
-    Tensor,
+    Array,
+    StdlibTensor,
     StdlibList,
   };
 
@@ -117,7 +92,11 @@ public:
 
   auto setPtrIndex() -> void { _indexKind = IndexKind::Ptr; }
 
-  auto setTensorIndex() -> void { _indexKind = IndexKind::Tensor; }
+  auto setArrayIndex() -> void { _indexKind = IndexKind::Array; }
+
+  auto setStdlibTensorIndex() -> void {
+    _indexKind = IndexKind::StdlibTensor;
+  }
 
   auto setStdlibListIndex(std::string_view getFunctionName,
                           std::string_view setFunctionName) -> void {

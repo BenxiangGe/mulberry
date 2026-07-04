@@ -16,11 +16,19 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 - Lexer / Parser / AST / Sema / Driver。
 - 结构化 semantic type system，不再使用旧的 string-based type system。
 - 基础类型：`Unit`、`Bool`、`UInt64`、`Float32`。
-- 复合类型：`struct` 和静态 shape 的 tensor，例如 `Float32[2, 3]`。
-- `const` tensor 绑定检查。
+- 复合类型：`struct`、`Array<T, N>`、`List<T>` 和 `Tensor<T>` header。
+- 下一阶段的类型分层已经确定：普通 `[]` literal 应默认是语言 `Array`；
+  `List<T>` 是 growable container；`Tensor<T>` 类似 NumPy `ndarray`，只在显式需要
+  dense numeric buffer、memref/linalg 或 `mulberry.nn` interop 时使用。
+- 当前一维静态 `T[N]` 已是 fixed-size Array；`Array<T, N>` 现在是
+  `{ length, data }` 风格的普通 header value，元素 buffer 由 heap 分配，支持函数
+  参数/返回、`struct` field、`Ptr<Array<...>>` 和 nested Array。多维/动态 `T[...]`
+  源码语法已经删除；ndarray-style value 统一写 `Tensor<T>`。
 - Struct literal 语法：`A { ... }`。
 - Struct member read/write 使用独立 AST node，不再伪装成普通 call/binary expr。
-- Tensor literal、tensor access，以及 `Tensor<T>.numel()` method。
+- `Tensor<T>` header、`tensor.zeros([shape])`、`tensor.from(array)`、直接
+  `tensor[i, j]` 元素访问，以及 `Tensor<T>.numel()` method；普通数组转 Tensor
+  已有显式入口。
 - 普通语言结构 codegen 到 `func`、`arith`、`scf` 和高层 `mulberry` dialect。
 - `mulberry.nn` 已经作为独立 NN package 从 core 拆出，相关 lit 测试已经删除或
   改写成 core Tensor/List 正向测试。
@@ -37,13 +45,19 @@ Mulberry source
   -> Sema / semantic type checking
   -> MLIRGen
        - func / arith / scf: functions, scalar values, control flow
-       - mulberry.record / mulberry.ptr: structs and addressable values
-       - mulberry.tensor: writable tensor values
+       - mulberry_core.record / mulberry_core.ptr: structs and addressable values
+       - mulberry_core.tensor: compiler-owned internal tensor lowering values
   -> optional lowering
-       - mulberry.tensor -> memref
-       - scalar and record storage -> LLVM dialect where currently supported
+      - mulberry_core.tensor -> memref
+      - scalar and record storage -> LLVM dialect where currently supported
   -> LLVM dialect / LLVM IR / JIT / object file / executable
 ```
+
+`mulberry_core` 是 compiler-owned core dialect boundary，不是外部 package。和
+`mulberry.nn` 不同，它承载 `PtrType`、`RecordType`、heap/record/ptr ops 以及
+internal Tensor lowering path，因此暂时仍随 compiler 一起构建。它不是
+长期 public ABI；如果未来 MLIR core 或 CIR-like reusable infrastructure 提供足够
+好的 record/ptr/object model，这些职责应该逐步迁过去。
 
 ## 语言快照
 
@@ -57,6 +71,7 @@ fn main(): UInt64 {
   var p: Point = Point { 10, 20 };
   var xs: UInt64[3] = [1, 2, 3];
 
+  xs[1] = 40;
   p.x = 3;
   p.x
 }
@@ -170,7 +185,8 @@ python3 tools/export_mnist_raw_tensors.py
 [Raw Tensor Files](docs/RawTensorFiles.md)。
 
 raw `.f32` 是 bootstrap/debug 格式。日常 MNIST 推理优先使用 safetensors：它用
-单个文件保存多个 tensor，并通过 `io.readTensor(file, name)` 按名字读取 Tensor header。
+单个文件保存多个 tensor，并通过 `safetensors.readTensor(file, name)` 按名字读取
+Tensor header。
 详细约定见 [Safetensors](docs/Safetensors.md)。
 
 导出 safetensors 单文件：
@@ -201,8 +217,8 @@ python3 tools/export_mnist_training_safetensors.py
 
 当前 training 导出是 bootstrap 布局：每个样本独立保存为
 `train_x_0`、`train_y_0`、...、`train_x_9`、`train_y_9` 这样的 named tensor。这样后续
-training script 可以继续使用已经跑通的 `io.readTensor(file, name)`，不需要先引入
-dataset iterator 或 tensor slice。
+training script 可以继续使用已经跑通的 `safetensors.readTensor(file, name)`，
+不需要先引入 dataset iterator 或 tensor slice。
 
 training smoke 走 Nielsen `network2.py` 默认的 CrossEntropy output delta：
 `delta = a - y`，用默认导出的 `10` 个 training 样本跑 `30` 个 epoch。训练后会读取

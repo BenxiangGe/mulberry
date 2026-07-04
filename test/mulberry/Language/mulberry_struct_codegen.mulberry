@@ -33,29 +33,29 @@ fn main(): UInt64 {
 
 # CHECK-LABEL: func.func @makePair
 # CHECK-SAME: (%arg0: i64)
-# CHECK-SAME: -> !mulberry.record<Pair
-# CHECK: mulberry.alloca !mulberry.record<Pair
+# CHECK-SAME: -> !mulberry_core.record<Pair
+# CHECK: mulberry_core.alloca !mulberry_core.record<Pair
 # CHECK: arith.addi
-# CHECK: return {{.*}} : !mulberry.record<Pair
+# CHECK: return {{.*}} : !mulberry_core.record<Pair
 
 # CHECK-LABEL: func.func @readX
-# CHECK-SAME: !mulberry.record<Box
-# CHECK: mulberry.store %arg0
-# CHECK: mulberry.record.get_field {{.*}}["pair"]
-# CHECK: mulberry.record.get_field {{.*}}["x"]
+# CHECK-SAME: !mulberry_core.record<Box
+# CHECK: mulberry_core.store %arg0
+# CHECK: mulberry_core.record.get_field {{.*}}["pair"]
+# CHECK: mulberry_core.record.get_field {{.*}}["x"]
 # CHECK: return {{.*}} : i64
 
 # CHECK-LABEL: func.func @update
-# CHECK-SAME: !mulberry.record<Box
-# CHECK-SAME: -> !mulberry.record<Box
-# CHECK: mulberry.record.get_field {{.*}}["pair"]
-# CHECK: mulberry.record.get_field {{.*}}["x"]
-# CHECK: mulberry.record.get_field {{.*}}["pair"]
-# CHECK: mulberry.record.get_field {{.*}}["y"]
-# CHECK: mulberry.store
-# CHECK: mulberry.record.get_field {{.*}}["ok"]
+# CHECK-SAME: !mulberry_core.record<Box
+# CHECK-SAME: -> !mulberry_core.record<Box
+# CHECK: mulberry_core.record.get_field {{.*}}["pair"]
+# CHECK: mulberry_core.record.get_field {{.*}}["x"]
+# CHECK: mulberry_core.record.get_field {{.*}}["pair"]
+# CHECK: mulberry_core.record.get_field {{.*}}["y"]
+# CHECK: mulberry_core.store
+# CHECK: mulberry_core.record.get_field {{.*}}["ok"]
 # CHECK: arith.constant false
-# CHECK: return {{.*}} : !mulberry.record<Box
+# CHECK: return {{.*}} : !mulberry_core.record<Box
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @makePair

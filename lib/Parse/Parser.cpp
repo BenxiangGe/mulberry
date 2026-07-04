@@ -12,23 +12,10 @@ using std::make_unique;
 using std::unique_ptr;
 
 namespace {
-constexpr std::string_view kTensorPack = "tensor.pack";
-constexpr std::string_view kStdTensorPack = "std.tensor.pack";
-constexpr std::string_view kTensorView = "tensor.view";
-constexpr std::string_view kStdTensorView = "std.tensor.view";
-
 auto isTypeLikeName(std::string_view name) -> bool {
   auto tail = name.substr(name.rfind('.') + 1);
   return !tail.empty() &&
          std::isupper(static_cast<unsigned char>(tail.front()));
-}
-
-auto isTensorPackName(std::string_view name) -> bool {
-  return name == kTensorPack || name == kStdTensorPack;
-}
-
-auto isTensorViewName(std::string_view name) -> bool {
-  return name == kTensorView || name == kStdTensorView;
 }
 
 auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
@@ -133,9 +120,9 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
   if (tokenIs(Token::l_square)) {
     std::vector<int64_t> shape;
-    if (parseTensorTypeSuffix(shape))
+    if (parseArrayTypeSuffix(shape))
       return failure();
-    typeNode = make_unique<TensorTypeNode>(
+    typeNode = make_unique<ArrayTypeNode>(
         std::move(elementTypeNode), std::move(shape), location);
     return success();
   }
@@ -553,28 +540,14 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
   return success();
 }
 
-auto Parser::parseTensorTypeSuffix(std::vector<int64_t> &shape)
+auto Parser::parseArrayTypeSuffix(std::vector<int64_t> &shape)
     -> MulberryResult {
   consume(Token::l_square);
-  while (!tokenIs(Token::r_square) && !tokenIs(Token::eof)) {
-    if (auto number = token().getUInt64IntegerValue()) {
-      shape.push_back(*number);
-      consume(Token::decimal);
-    } else if (tokenIs(Token::question)) {
-      shape.push_back(-1);
-      consume(Token::question);
-    } else {
-      return emitError(diag::expected_expr);
-    }
-
-    if (tokenIs(Token::r_square))
-      break;
-    if (parseToken(Token::comma, diag::expected_comma_or_r_square))
-      return failure();
-  }
-
-  if (shape.empty())
+  auto number = token().getUInt64IntegerValue();
+  if (!number)
     return emitError(diag::expected_expr);
+  shape.push_back(*number);
+  consume(Token::decimal);
   return parseToken(Token::r_square, diag::expected_r_square);
 }
 
@@ -671,8 +644,6 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
     return parseIdentifierExpr(expr);
   case Token::l_square:
     return parseArrayLiteral(expr);
-  case Token::l_brace:
-    return parseZeroInitExpr(tokenLoc(), expr);
   case Token::kw_if:
     return parseIfExpr(expr);
   case Token::kw_while:
@@ -884,10 +855,6 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
-    if (isTensorPackName(name))
-      return parseTensorPackExpr(location, name, expr);
-    if (isTensorViewName(name))
-      return parseTensorViewExpr(location, name, expr);
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
@@ -936,46 +903,6 @@ auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
 
   expr = make_unique<HeapAllocExpr>(location, std::move(typeNode),
                                     std::move(count));
-  return success();
-}
-
-auto Parser::parseZeroInitExpr(llvm::SMLoc location,
-                               unique_ptr<Expr> &expr) -> MulberryResult {
-  consume(Token::l_brace);
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
-    return failure();
-
-  expr = make_unique<ZeroInitExpr>(location);
-  return success();
-}
-
-auto Parser::parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> MulberryResult {
-  if (!isTensorPackName(name))
-    return emitError(diag::expected_expr);
-
-  consume(Token::l_paren);
-  unique_ptr<Expr> tensor;
-  if (parseExpression(tensor) ||
-      parseToken(Token::r_paren, diag::expected_r_paren))
-    return failure();
-
-  expr = make_unique<TensorPackExpr>(location, std::move(tensor));
-  return success();
-}
-
-auto Parser::parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> MulberryResult {
-  if (!isTensorViewName(name))
-    return emitError(diag::expected_expr);
-
-  consume(Token::l_paren);
-  unique_ptr<Expr> tensorRecord;
-  if (parseExpression(tensorRecord) ||
-      parseToken(Token::r_paren, diag::expected_r_paren))
-    return failure();
-
-  expr = make_unique<TensorViewExpr>(location, std::move(tensorRecord));
   return success();
 }
 

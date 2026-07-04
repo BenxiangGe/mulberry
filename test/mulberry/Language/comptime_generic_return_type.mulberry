@@ -18,6 +18,6 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @main()
 # MLIR: call @make__UInt64
-# MLIR-DAG: func.func @make__UInt64() -> !mulberry.ptr<i64>
+# MLIR-DAG: func.func @make__UInt64() -> !mulberry_core.ptr<i64>
 
 # JIT: 64

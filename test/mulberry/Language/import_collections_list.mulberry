@@ -3,6 +3,8 @@
 
 package std.imports;
 
+import list;
+import list.List;
 import collections;
 import collections.List;
 
@@ -11,11 +13,11 @@ fn id(xs: List<UInt64>): List<UInt64> {
 }
 
 fn main(): UInt64 {
-  var xs: collections.List<UInt64> = collections.withCapacity(1);
+  var xs: collections.List<UInt64> = list.withCapacity(1);
   id(xs).length
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}(name=std.collections.List parameter=T
+# AST: ComptimeTypeAliasDecl {{.*}}(name=std.list.List parameter=T
 # AST: FunctionDecl {{.*}}
 # AST: Prototype {{.*}}name=std.imports.id
 # AST: VariableStat {{.*}}id=xs{{.*}}type=List<UInt64>
@@ -24,9 +26,10 @@ fn main(): UInt64 {
 # AST: FunctionDecl {{.*}}
 # AST: Prototype {{.*}}name=std.imports.main
 # AST: VariableStat {{.*}}id=xs{{.*}}type=collections.List<UInt64>
-# AST: CallExpr {{.*}}callee=std_collections_withCapacity__UInt64
+# AST: CallExpr {{.*}}callee=std_list_withCapacity__UInt64
 # AST: MemberExpr {{.*}}field=length
 # AST: CallExpr {{.*}}callee=std.imports.id
-# MLIR-LABEL: func.func @std.imports.id(%arg0: !mulberry.record<std_collections_List__UInt64
-# MLIR-SAME: -> !mulberry.record<std_collections_List__UInt64
+# MLIR-LABEL: func.func @std.imports.id(%arg0: !mulberry_core.record<std_list_List__UInt64
+# MLIR-SAME: -> !mulberry_core.record<std_list_List__UInt64
+# MLIR: call @std_list_withCapacity__UInt64
 # MLIR: call @std.imports.id

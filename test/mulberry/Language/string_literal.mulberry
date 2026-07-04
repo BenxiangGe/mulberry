@@ -20,11 +20,11 @@ fn main(): UInt64 {
 # AST: StringLiteralExpr
 # AST-SAME: type=std.string.String
 
-# MLIR: func.func @id(%arg0: !mulberry.record<std.string.String {length: i64, data: !mulberry.ptr<i8>}>) -> !mulberry.record<std.string.String {length: i64, data: !mulberry.ptr<i8>}> {
-# MLIR: mulberry.heap.alloc i8
-# MLIR: mulberry.ptr.index
-# MLIR: mulberry.record.get_field {{.*}}["length"]
-# MLIR: mulberry.record.get_field {{.*}}["data"]
+# MLIR: func.func @id(%arg0: !mulberry_core.record<std.string.String {length: i64, data: !mulberry_core.ptr<i8>}>) -> !mulberry_core.record<std.string.String {length: i64, data: !mulberry_core.ptr<i8>}> {
+# MLIR: mulberry_core.heap.alloc i8
+# MLIR: mulberry_core.ptr.index
+# MLIR: mulberry_core.record.get_field {{.*}}["length"]
+# MLIR: mulberry_core.record.get_field {{.*}}["data"]
 # MLIR: call @id
 # MLIR-NOT: cir.
 

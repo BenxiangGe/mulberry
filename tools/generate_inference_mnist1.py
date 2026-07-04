@@ -134,11 +134,10 @@ def emitVariable(
     isConst: bool = False,
     typeAnnotation: str | None = None,
 ) -> str:
-    rows, cols = matrix.shape
     literal = formatMatrixLiteral(matrix)
     keyword = "const" if isConst else "var"
     if typeAnnotation is None:
-        typeAnnotation = f"Float32[{rows}, {cols}]"
+        typeAnnotation = "Tensor<Float32>"
     return f"  {keyword} {name}: {typeAnnotation} = {literal};"
 
 
@@ -164,23 +163,17 @@ def writeMulberrySource(
     output.parent.mkdir(parents=True, exist_ok=True)
     body = "\n\n".join(
         [
-            emitVariable("w1", w1),
-            emitVariable("b1", b1),
-            emitVariable("w2", w2),
-            emitVariable("b2", b2),
+            emitVariable("w1", w1, typeAnnotation="Tensor<Float32>"),
+            emitVariable("b1", b1, typeAnnotation="Tensor<Float32>"),
+            emitVariable("w2", w2, typeAnnotation="Tensor<Float32>"),
+            emitVariable("b2", b2, typeAnnotation="Tensor<Float32>"),
             "\n".join(
                 [
-                    "  var w1h: Tensor<Float32> = tensor.pack(w1);",
-                    "  var b1h: Tensor<Float32> = tensor.pack(b1);",
-                    "  var w2h: Tensor<Float32> = tensor.pack(w2);",
-                    "  var b2h: Tensor<Float32> = tensor.pack(b2);",
-                    "",
-                    "  var weights: List<Tensor<Float32>> = [w1h, w2h];",
-                    "  var biases: List<Tensor<Float32>> = [b1h, b2h];",
+                    "  var weights: List<Tensor<Float32>> = [w1, w2];",
+                    "  var biases: List<Tensor<Float32>> = [b1, b2];",
                 ]
             ),
-            emitVariable("activationValue", x, typeAnnotation="Float32[?, ?]"),
-            "  var activation: Tensor<Float32> = tensor.pack(activationValue);",
+            emitVariable("activation", x, typeAnnotation="Tensor<Float32>"),
             f"  const y: UInt64 = {y};",
             "\n".join(
                 [
@@ -241,11 +234,11 @@ def main() -> None:
         y,
     )
     print(f"wrote {args.output}")
-    print("w1: Float32[30, 784]")
-    print("b1: Float32[30, 1]")
-    print("w2: Float32[10, 30]")
-    print("b2: Float32[10, 1]")
-    print("activation: Float32[?, ?]")
+    print("w1: Tensor<Float32>")
+    print("b1: Tensor<Float32>")
+    print("w2: Tensor<Float32>")
+    print("b2: Tensor<Float32>")
+    print("activation: Tensor<Float32>")
     print(f"y: UInt64 = {y}")
 
 

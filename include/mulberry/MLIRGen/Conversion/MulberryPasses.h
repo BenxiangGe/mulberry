@@ -12,13 +12,13 @@
 #include <memory>
 
 namespace mlir {
-namespace mulberry {
+namespace mulberry_core {
 #define GEN_PASS_DECL
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
 
 #define GEN_PASS_REGISTRATION
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
-} // namespace mulberry
+} // namespace mulberry_core
 } // namespace mlir
 
 #endif // MULBERRY_PASSES_H

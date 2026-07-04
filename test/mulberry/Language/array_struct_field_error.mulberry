@@ -1,0 +1,15 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s
+
+struct Box {
+  data: UInt64[3]
+}
+
+fn main(): UInt64 {
+  var box: Box = Box { [1, 2, 3] };
+  box.data[1] = 40;
+  io.print(box.data[0] + box.data[1] + box.data[2]);
+  0
+}
+
+# CHECK: 44

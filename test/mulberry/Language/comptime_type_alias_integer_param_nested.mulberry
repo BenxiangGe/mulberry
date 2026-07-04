@@ -12,4 +12,4 @@ fn main(): UInt64 {
 }
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc !mulberry.record<Storage__Float32__2
+# MLIR: mulberry_core.heap.alloc !mulberry_core.record<Storage__Float32__2

@@ -12,9 +12,12 @@ fn main(): UInt64 {
   0
 }
 
+# CHECK: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# CHECK: mulberry_core.heap.alloc i64
 # CHECK: arith.constant 3 : i64
 # CHECK: scf.for unsigned
-# CHECK: mulberry.load
-# CHECK: mulberry.tensor.load
+# CHECK: mulberry_core.record.get_field {{.*}}["data"]
+# CHECK: mulberry_core.ptr.index
+# CHECK: mulberry_core.load
 # CHECK: arith.addi
 # CHECK-NOT: cir.

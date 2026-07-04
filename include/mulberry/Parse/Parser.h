@@ -146,7 +146,7 @@ private:
   auto parseComptimeAliasBody(std::unique_ptr<TypeNode> &typeNode)
       -> MulberryResult;
 
-  auto parseTensorTypeSuffix(std::vector<int64_t> &shape) -> MulberryResult;
+  auto parseArrayTypeSuffix(std::vector<int64_t> &shape) -> MulberryResult;
   auto parseArrayLiteral(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseIndex(std::unique_ptr<Expr> &expr) -> MulberryResult;
 
@@ -186,15 +186,6 @@ private:
 
   auto parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
                           std::unique_ptr<Expr> &expr) -> MulberryResult;
-
-  auto parseZeroInitExpr(llvm::SMLoc location,
-                         std::unique_ptr<Expr> &expr) -> MulberryResult;
-
-  auto parseTensorPackExpr(llvm::SMLoc location, std::string_view name,
-                           std::unique_ptr<Expr> &expr) -> MulberryResult;
-
-  auto parseTensorViewExpr(llvm::SMLoc location, std::string_view name,
-                           std::unique_ptr<Expr> &expr) -> MulberryResult;
 
   auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> MulberryResult;

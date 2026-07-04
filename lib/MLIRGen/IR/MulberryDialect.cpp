@@ -1,4 +1,4 @@
-//===--- MulberryDialect.cpp - Mulberry dialect ---------------------------===//
+//===--- MulberryDialect.cpp - Mulberry core dialect ---------------------------===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -10,7 +10,7 @@
 #include "mulberry/MLIRGen/IR/MulberryTypes.h"
 
 using namespace mlir;
-using namespace mlir::mulberry;
+using namespace mlir::mulberry_core;
 
 #include "mulberry/MLIRGen/IR/MulberryOpsDialect.cpp.inc"
 

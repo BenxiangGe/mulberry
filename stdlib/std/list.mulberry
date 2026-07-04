@@ -1,0 +1,59 @@
+package std.list;
+
+comptime List<T> = struct {
+  length: UInt64,
+  capacity: UInt64,
+  data: Ptr<T>,
+
+  pub fn size(self: Ptr<List<T>>): UInt64 {
+    self.length
+  }
+
+  pub fn get(self: Ptr<List<T>>, index: UInt64): T {
+    self.data[index]
+  }
+
+  pub fn set(self: Ptr<List<T>>, index: UInt64, value: T): UInt64 {
+    self.data[index] = value;
+    0
+  }
+
+  pub fn grow(self: Ptr<List<T>>, newCapacity: UInt64): UInt64 {
+    var newData: Ptr<T> = heap.alloc<T>(newCapacity);
+    var index: UInt64 = 0;
+    while index < self.length {
+      newData[index] = self.data[index];
+      index = index + 1;
+    }
+    self.data = newData;
+    self.capacity = newCapacity;
+    0
+  }
+
+  pub fn push(self: Ptr<List<T>>, value: T): UInt64 {
+    if self.length >= self.capacity {
+      var newCapacity: UInt64 = self.capacity * 2;
+      if self.capacity == 0 {
+        newCapacity = 1;
+      }
+      self.grow(newCapacity);
+    }
+    self.data[self.length] = value;
+    self.length = self.length + 1;
+    0
+  }
+};
+
+fn withCapacity<T>(capacity: UInt64): List<T> {
+  List<T> { 0, capacity, heap.alloc<T>(capacity) }
+}
+
+fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
+  var result: List<T> = withCapacity(N);
+  var index: UInt64 = 0;
+  while index < N {
+    result.push(array[index]);
+    index = index + 1;
+  }
+  result
+}

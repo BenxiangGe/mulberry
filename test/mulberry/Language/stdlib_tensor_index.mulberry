@@ -1,0 +1,32 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var bytes: Tensor<UInt8> = tensor.from([10, 20, 30, 40]);
+  var matrix: Tensor<Float32> =
+      tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  matrix[0, 1] = 9.0;
+
+  io.print(core.toUInt64(bytes[2]));
+  io.print(boolToUInt64(matrix[0, 1] > 8.5));
+  io.print(boolToUInt64(matrix[1, 0] > 2.5));
+  0
+}
+
+# AST: IndexExpr {{.*}}type=UInt8 kind=stdlibTensor
+# AST: IndexExpr {{.*}}type=Float32 kind=stdlibTensor
+
+# MLIR: mulberry_core.record.get_field %{{.*}}["data"]
+# MLIR: mulberry_core.record.get_field %{{.*}}["strides"]
+# MLIR: mulberry_core.record.extract
+# MLIR: mulberry_core.ptr.index
+
+# LOWERED-NOT: mulberry_core.tensor.load
+# LOWERED-NOT: mulberry_core.tensor.store
+
+# JIT: 30
+# JIT-NEXT: 1
+# JIT-NEXT: 1

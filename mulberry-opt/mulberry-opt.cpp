@@ -24,13 +24,13 @@
 
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
-  mlir::mulberry::registerMulberryConversionPasses();
+  mlir::mulberry_core::registerMulberryConversionPasses();
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::arith::ArithDialect, mlir::cf::ControlFlowDialect,
                   mlir::func::FuncDialect, mlir::linalg::LinalgDialect,
                   mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
-                  mlir::memref::MemRefDialect, mlir::mulberry::MulberryDialect,
+                  mlir::memref::MemRefDialect, mlir::mulberry_core::MulberryDialect,
                   mlir::ptr::PtrDialect,
                   mlir::scf::SCFDialect>();
   // Add the following to include *all* MLIR Core dialects, or selectively

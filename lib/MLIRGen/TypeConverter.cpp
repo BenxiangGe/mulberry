@@ -31,7 +31,9 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
 }
 
 auto MLIRTypeConverter::convert(const TensorType& type) const
-    -> mlir::mulberry::TensorType {
+    -> mlir::mulberry_core::TensorType {
+  // Source-level Tensor<T> lowers as a record header. This type is now only for
+  // internal/core tensor lowering values.
   auto *elementType = mulberry::getBuiltinType(type.elementType());
   if (!elementType || mulberry::isUnitType(elementType))
     return {};
@@ -40,8 +42,24 @@ auto MLIRTypeConverter::convert(const TensorType& type) const
   if (!mlirElementType)
     return {};
 
-  return mlir::mulberry::TensorType::get(_builder.getContext(), type.shape(),
-                                         mlirElementType);
+  return mlir::mulberry_core::TensorType::get(_builder.getContext(),
+                                              type.shape(), mlirElementType);
+}
+
+auto MLIRTypeConverter::convert(const ArrayType& type) const -> mlir::Type {
+  auto mlirElementType = convert(type.elementType());
+  if (!mlirElementType)
+    return {};
+
+  std::vector<mlir::mulberry_core::RecordType::Field> fields;
+  fields.push_back({"length", _builder.getI64Type()});
+  fields.push_back({
+      "data",
+      mlir::mulberry_core::PtrType::get(_builder.getContext(),
+                                        mlirElementType),
+  });
+  return mlir::mulberry_core::RecordType::get(_builder.getContext(), "array",
+                                              fields);
 }
 
 auto MLIRTypeConverter::convert(const PtrType& type) const
@@ -50,7 +68,7 @@ auto MLIRTypeConverter::convert(const PtrType& type) const
   if (!pointeeType)
     return {};
 
-  return mlir::mulberry::PtrType::get(_builder.getContext(), pointeeType);
+  return mlir::mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
 }
 
 auto MLIRTypeConverter::convertTensorToMemRefType(
@@ -63,16 +81,16 @@ auto MLIRTypeConverter::convertTensorToMemRefType(
   if (!mlirElementType)
     return {};
 
-  // This is only for runtime function signatures that must mention memref
-  // directly. Normal high-level codegen keeps Tensor as a Mulberry value and
-  // lets LowerMulberry decide the storage ABI.
+  // This is only for internal/core tensor signatures that must mention memref
+  // directly. Normal source-level Tensor<T> codegen keeps the stdlib header as
+  // a Mulberry record value.
   return mlir::MemRefType::get(convertMemRefShape(type.shape()),
                                mlirElementType);
 }
 
 auto MLIRTypeConverter::convert(const StructType& type) const
-    -> mlir::mulberry::RecordType {
-  std::vector<mlir::mulberry::RecordType::Field> fields;
+    -> mlir::mulberry_core::RecordType {
+  std::vector<mlir::mulberry_core::RecordType::Field> fields;
   for (const auto& field : type.fields()) {
     auto fieldType = convert(field.type());
     if (!fieldType)
@@ -80,7 +98,7 @@ auto MLIRTypeConverter::convert(const StructType& type) const
     fields.push_back({std::string(field.name()), fieldType});
   }
 
-  return mlir::mulberry::RecordType::get(_builder.getContext(), type.name(),
+  return mlir::mulberry_core::RecordType::get(_builder.getContext(), type.name(),
                                          fields);
 }
 
@@ -91,8 +109,11 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
   if (auto *tensorType = mulberry::getTensorType(type))
     return convert(*tensorType);
 
+  if (auto *arrayType = mulberry::getArrayType(type))
+    return convert(*arrayType);
+
   // Source-level List<T> should be a stdlib/comptime struct before MLIRGen.
-  // The old !mulberry.list IR path has been removed, so a remaining semantic
+  // The old !mulberry_core.list IR path has been removed, so a remaining semantic
   // ListType is not lowerable here.
   if (mulberry::getListType(type))
     return {};

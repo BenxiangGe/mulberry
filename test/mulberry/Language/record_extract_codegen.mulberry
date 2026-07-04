@@ -15,4 +15,4 @@ fn main(): UInt64 {
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @makePair
-# CHECK: mulberry.record.extract {{.*}}["y"] : !mulberry.record<Pair {x: i64, y: i64}> -> i64
+# CHECK: mulberry_core.record.extract {{.*}}["y"] : !mulberry_core.record<Pair {x: i64, y: i64}> -> i64

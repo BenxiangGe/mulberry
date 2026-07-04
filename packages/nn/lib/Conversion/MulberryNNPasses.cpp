@@ -119,11 +119,11 @@ static auto allocateTranspose(PatternRewriter& rewriter, Location loc,
 }
 
 static auto isTensorF32Record(Type type) -> bool {
-  auto recordType = llvm::dyn_cast<mlir::mulberry::RecordType>(type);
+  auto recordType = llvm::dyn_cast<mlir::mulberry_core::RecordType>(type);
   if (!recordType)
     return false;
 
-  auto ptrType = llvm::dyn_cast<mlir::mulberry::PtrType>(
+  auto ptrType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
       recordType.getFieldType("data"));
   if (!ptrType || !ptrType.getPointeeType().isF32())
     return false;
@@ -136,8 +136,8 @@ static auto isTensorF32Record(Type type) -> bool {
 }
 
 static auto getMatrixTensorType(MLIRContext* context)
-    -> mlir::mulberry::TensorType {
-  return mlir::mulberry::TensorType::get(
+    -> mlir::mulberry_core::TensorType {
+  return mlir::mulberry_core::TensorType::get(
       context, ArrayRef<int64_t>{ShapedType::kDynamic, ShapedType::kDynamic},
       Float32Type::get(context));
 }
@@ -145,8 +145,8 @@ static auto getMatrixTensorType(MLIRContext* context)
 static auto createTensorView(PatternRewriter& rewriter, Location loc,
                              Value tensorRecord) -> Value {
   auto tensorType = getMatrixTensorType(rewriter.getContext());
-  return mlir::mulberry::TensorViewOp::create(rewriter, loc, tensorType,
-                                              tensorRecord);
+  return mlir::mulberry_core::TensorViewOp::create(rewriter, loc, tensorType,
+                                                   tensorRecord);
 }
 
 static auto createTensorCall(PatternRewriter& rewriter, Location loc,
@@ -160,8 +160,8 @@ static auto createTensorCall(PatternRewriter& rewriter, Location loc,
 
 static auto packTensor(PatternRewriter& rewriter, Location loc, Value tensor,
                        Type recordType) -> Value {
-  return mlir::mulberry::TensorPackOp::create(rewriter, loc, recordType,
-                                              tensor);
+  return mlir::mulberry_core::TensorPackOp::create(rewriter, loc, recordType,
+                                                   tensor);
 }
 
 static auto rewriteBinaryCall(func::CallOp call, PatternRewriter& rewriter,
@@ -392,7 +392,7 @@ class MulberryNNTypeConverter : public TypeConverter {
 public:
   MulberryNNTypeConverter() {
     addConversion([](Type type) { return type; });
-    addConversion([](mlir::mulberry::TensorType type) -> Type {
+    addConversion([](mlir::mulberry_core::TensorType type) -> Type {
       return MemRefType::get(convertMemRefShape(type.getShape()),
                              type.getElementType());
     });

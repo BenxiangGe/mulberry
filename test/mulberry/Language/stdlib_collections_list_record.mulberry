@@ -9,27 +9,25 @@ struct Pair {
 }
 
 fn main(): UInt64 {
-  var xs: List<Pair> = [Pair { 10, 32 }, Pair { 4, 9 }];
+  var xs: List<Pair> = list.from([Pair { 10, 32 }, Pair { 4, 9 }]);
   io.print(xs.size());
   io.print(xs[0].x + xs[1].y);
   0
 }
 
 # AST: VariableStat (id=xs
-# AST-NEXT: ArrayLiteralExpr {{.*}} type=std_collections_List__Pair
+# AST: CallExpr {{.*}}callee=std_list_from__Pair__2
 # AST-DAG: IndexExpr {{.*}}type=Pair kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
-# MLIR: call @std_collections_withCapacity__Pair
-# MLIR: call @std_collections_List_push__Pair
-# MLIR-DAG: func.func @std_collections_List_push__Pair
-# MLIR-DAG: mulberry.ptr.index
-# MLIR-DAG: mulberry.record.extract
+# MLIR: call @std_list_from__Pair__2
+# MLIR-DAG: func.func @std_list_List_push__Pair
+# MLIR-DAG: mulberry_core.ptr.index
+# MLIR-DAG: mulberry_core.record.extract
 
 # LOWER-LABEL: func.func @main()
-# LOWER: call @std_collections_withCapacity__Pair
-# LOWER: call @std_collections_List_push__Pair
-# LOWER: call @std_collections_List_get__Pair
+# LOWER: call @std_list_from__Pair__2
+# LOWER: call @std_list_List_get__Pair
 # LOWER-DAG: llvm.getelementptr
 # LOWER-DAG: llvm.extractvalue
 

@@ -15,7 +15,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-namespace mlir::mulberry {
+namespace mlir::mulberry_core {
 
 #define GEN_PASS_DEF_CONVERTMULBERRYTOLLVM
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
@@ -65,4 +65,4 @@ struct ConvertMulberryToLLVM
 };
 
 } // namespace
-} // namespace mlir::mulberry
+} // namespace mlir::mulberry_core

@@ -13,8 +13,8 @@ fn transfer(input: File, output: File, bytes: Tensor<UInt8>): UInt64 {
 fn main(): UInt64 {
   const input: File = io.open("data/mnist.bin", "rb");
   const output: File = io.open("data/out.bin", "wb");
-  var bytes: UInt8[4] = [1, 2, 3, 4];
-  io.write(output, tensor.pack(bytes));
+  var bytes: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
+  io.write(output, bytes);
   io.close(input) + io.close(output)
 }
 
@@ -23,13 +23,13 @@ fn main(): UInt64 {
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
 # AST: CallExpr {{.*}}type=UInt64 callee=std_io_read__UInt8
 # AST: CallExpr {{.*}}type=UInt64 callee=std_io_write__UInt8
-# AST: VariableStat {{.*}}id=bytes{{.*}}type=UInt8[4]
+# AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
 
 # MLIR-DAG: func.func private @mulberry_file_open
 # MLIR-DAG: func.func private @mulberry_file_close
 # MLIR-LABEL: func.func @std.io.open
 # MLIR: call @mulberry_file_open
-# MLIR-SAME: -> !mulberry.ptr<i8>
+# MLIR-SAME: -> !mulberry_core.ptr<i8>
 # MLIR-LABEL: func.func @std.io.close
 # MLIR: call @mulberry_file_close
 # MLIR-LABEL: func.func @transfer
@@ -37,12 +37,12 @@ fn main(): UInt64 {
 # MLIR: call @std_io_write__UInt8
 # MLIR: call @std.io.close
 # MLIR-LABEL: func.func @main
-# MLIR: mulberry.heap.alloc i8
-# MLIR: mulberry.ptr.index
-# MLIR: mulberry.record.get_field {{.*}}["length"]
-# MLIR: mulberry.record.get_field {{.*}}["data"]
+# MLIR: mulberry_core.heap.alloc i8
+# MLIR: mulberry_core.ptr.index
+# MLIR: mulberry_core.record.get_field {{.*}}["length"]
+# MLIR: mulberry_core.record.get_field {{.*}}["data"]
 # MLIR: call @std.io.open
-# MLIR: mulberry.tensor.alloc() : !mulberry.tensor<4xi8>
+# MLIR: mulberry_core.record.get_field {{.*}}["numel"]
 # MLIR: call @std_io_write__UInt8
 # MLIR-NOT: cir.
 
