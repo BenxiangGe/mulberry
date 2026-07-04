@@ -4,7 +4,7 @@
 
 fn main(): UInt64 {
   var data: Ptr<UInt64> = heap.alloc<UInt64>(2);
-  var xs: List<UInt64> = collections.withCapacity(2);
+  var xs: List<UInt64> = list.withCapacity(2);
   xs.length = 2;
   xs.data = data;
   xs[0] = 42;
@@ -14,18 +14,18 @@ fn main(): UInt64 {
   0
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.collections.List parameter=T
-# AST-DAG: CallExpr {{.*}}callee=std_collections_List_size__UInt64
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.list.List parameter=T
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_size__UInt64
 # AST-DAG: IndexExpr {{.*}}type=UInt64 kind=stdlibList
 
 # MLIR-LABEL: func.func @main()
-# MLIR: call @std_collections_withCapacity__UInt64
-# MLIR: call @std_collections_List_set__UInt64
-# MLIR: call @std_collections_List_size__UInt64
-# MLIR: call @std_collections_List_get__UInt64
-# MLIR-DAG: func.func @std_collections_List_set__UInt64
-# MLIR-DAG: func.func @std_collections_List_size__UInt64
-# MLIR-DAG: func.func @std_collections_List_get__UInt64
+# MLIR: call @std_list_withCapacity__UInt64
+# MLIR: call @std_list_List_set__UInt64
+# MLIR: call @std_list_List_size__UInt64
+# MLIR: call @std_list_List_get__UInt64
+# MLIR-DAG: func.func @std_list_List_set__UInt64
+# MLIR-DAG: func.func @std_list_List_size__UInt64
+# MLIR-DAG: func.func @std_list_List_get__UInt64
 
 # JIT: 2
 # JIT-NEXT: 100

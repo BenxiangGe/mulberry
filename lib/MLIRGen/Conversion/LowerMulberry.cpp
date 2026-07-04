@@ -27,7 +27,7 @@
 #include <optional>
 #include <string>
 
-namespace mlir::mulberry {
+namespace mlir::mulberry_core {
 
 #define GEN_PASS_DEF_LOWERMULBERRY
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
@@ -50,9 +50,9 @@ static auto isScalarStorageType(Type type) -> bool {
   return type.isIndex() || llvm::isa<IntegerType, FloatType>(type);
 }
 
-static auto convertRecordToBackendType(mulberry::RecordType type)
+static auto convertRecordToBackendType(mulberry_core::RecordType type)
     -> std::optional<Type>;
-static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type>;
+static auto convertPtrType(mulberry_core::PtrType type) -> std::optional<Type>;
 
 static auto convertMemRefShape(ArrayRef<int64_t> shape)
     -> std::vector<int64_t> {
@@ -63,12 +63,15 @@ static auto convertMemRefShape(ArrayRef<int64_t> shape)
   return memrefShape;
 }
 
-static auto convertTensorToMemRefType(mulberry::TensorType type) -> MemRefType {
+// mulberry_core.tensor is the compiler-owned internal tensor IR. It lowers to
+// memref; source-level Tensor<T> is a stdlib record header.
+static auto convertTensorToMemRefType(mulberry_core::TensorType type)
+    -> MemRefType {
   return MemRefType::get(convertMemRefShape(type.getShape()),
                          type.getElementType());
 }
 
-static auto convertTensorToDataMemRefType(mulberry::TensorType type)
+static auto convertTensorToDataMemRefType(mulberry_core::TensorType type)
     -> MemRefType {
   auto layout = MemRefLayoutAttrInterface{};
   return MemRefType::get(convertMemRefShape(type.getShape()),
@@ -77,14 +80,14 @@ static auto convertTensorToDataMemRefType(mulberry::TensorType type)
 }
 
 // This pass is a transitional storage lowering, not the final
-// Mulberry-to-LLVM ABI lowering. Tensor values become memrefs while
+// Mulberry-to-LLVM ABI lowering. Internal tensor values become memrefs while
 // scalar/record stack storage still uses LLVM dialect. Domain packages such as
 // mulberry.nn are intentionally not lowered here; they live outside core.
 static auto convertToBackendType(Type type) -> std::optional<Type> {
-  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
+  if (auto recordType = llvm::dyn_cast<mulberry_core::RecordType>(type))
     return convertRecordToBackendType(recordType);
 
-  if (auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type))
+  if (auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(type))
     return convertPtrType(ptrType);
 
   if (isScalarStorageType(type))
@@ -94,7 +97,7 @@ static auto convertToBackendType(Type type) -> std::optional<Type> {
 }
 
 static auto convertAllocaElementType(Type type) -> std::optional<Type> {
-  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(type))
+  if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(type))
     return convertTensorToMemRefType(tensorType);
 
   return convertToBackendType(type);
@@ -102,6 +105,9 @@ static auto convertAllocaElementType(Type type) -> std::optional<Type> {
 
 using TensorABIDescriptorType = LLVM::LLVMStructType;
 
+// Lowering-only descriptor for moving internal tensor/memref values across
+// temporary boundaries. This is not the source-level Tensor<T> header layout.
+//
 // Tensor ABI descriptor layout:
 //
 //   { data: ptr,
@@ -128,18 +134,18 @@ static auto convertToTensorABILayout(MLIRContext* context, size_t rank)
   return TensorABILayout{descriptorType};
 }
 
-static auto convertToTensorABILayout(mulberry::TensorType type)
+static auto convertToTensorABILayout(mulberry_core::TensorType type)
     -> TensorABILayout {
   return convertToTensorABILayout(type.getContext(), type.getShape().size());
 }
 
-static auto convertTensorToABIDescriptorType(mulberry::TensorType type)
+static auto convertTensorToABIDescriptorType(mulberry_core::TensorType type)
     -> TensorABIDescriptorType {
   return convertToTensorABILayout(type).descriptorType;
 }
 
 static auto convertPointerElementType(Type type) -> std::optional<Type> {
-  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(type))
+  if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(type))
     return convertTensorToABIDescriptorType(tensorType);
 
   return convertToBackendType(type);
@@ -190,14 +196,12 @@ static auto createTensorByteSize(Location location,
   for (int64_t dim = 0; dim < memRefType.getRank(); ++dim) {
     auto index = arith::ConstantIndexOp::create(rewriter, location, dim);
     auto size = memref::DimOp::create(rewriter, location, tensor, index);
-    auto sizeI64 = arith::IndexCastOp::create(rewriter, location, i64Type,
-                                              size.getResult());
+    auto sizeI64 = arith::IndexCastOp::create(
+        rewriter, location, i64Type, size.getResult());
     elementCount = arith::MulIOp::create(rewriter, location, elementCount,
                                          sizeI64.getResult());
   }
 
-  // File IO uses raw bytes. Compute the element ABI size through LLVM
-  // datalayout instead of hardcoding language type sizes here.
   auto elementBytes = createSizeOf(location, rewriter,
                                    memRefType.getElementType());
   auto byteSize = arith::MulIOp::create(rewriter, location, elementCount,
@@ -224,7 +228,8 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
 
 static auto extractRecordField(Location location,
                                ConversionPatternRewriter& rewriter,
-                               Value record, mulberry::RecordType recordType,
+                               Value record,
+                               mulberry_core::RecordType recordType,
                                StringRef field) -> FailureOr<Value> {
   auto sourceFieldType = recordType.getFieldType(field);
   if (!sourceFieldType)
@@ -235,8 +240,8 @@ static auto extractRecordField(Location location,
     return failure();
 
   auto fieldIndex = static_cast<int64_t>(recordType.getFieldIndex(field));
-  return LLVM::ExtractValueOp::create(rewriter, location, *fieldType,
-                                      record, ArrayRef<int64_t>{fieldIndex})
+  return LLVM::ExtractValueOp::create(rewriter, location, *fieldType, record,
+                                      ArrayRef<int64_t>{fieldIndex})
       .getResult();
 }
 
@@ -282,7 +287,7 @@ static auto createHeapArray(Location location,
 
 static auto createListRecordValue(Location location,
                                   ConversionPatternRewriter& rewriter,
-                                  mulberry::RecordType listType,
+                                  mulberry_core::RecordType listType,
                                   Value length, Value data)
     -> FailureOr<Value> {
   auto listBackendType = convertRecordToBackendType(listType);
@@ -307,7 +312,7 @@ static auto createListRecordValue(Location location,
 static auto extractListDataPointer(Location location,
                                    ConversionPatternRewriter& rewriter,
                                    Value list,
-                                   mulberry::RecordType listType)
+                                   mulberry_core::RecordType listType)
     -> FailureOr<Value> {
   auto data = extractRecordField(location, rewriter, list, listType, "data");
   if (failed(data))
@@ -317,7 +322,7 @@ static auto extractListDataPointer(Location location,
 
 static auto createTensorABIDesc(
     Location location, ConversionPatternRewriter& rewriter,
-    const TensorABILayout& layout, Value tensor, mulberry::TensorType type)
+    const TensorABILayout& layout, Value tensor, mulberry_core::TensorType type)
     -> Value {
   auto desc = LLVM::UndefOp::create(rewriter, location,
                                     layout.descriptorType);
@@ -360,7 +365,7 @@ static auto createTensorABIDesc(
 static auto createTensorABIDescFromStorage(
     Location location, ConversionPatternRewriter& rewriter,
     const TensorABILayout& layout, Value tensorRecord,
-    mulberry::RecordType storageType, mulberry::TensorType tensorType)
+    mulberry_core::RecordType storageType, mulberry_core::TensorType tensorType)
     -> FailureOr<Value> {
   auto data =
       extractRecordField(location, rewriter, tensorRecord, storageType, "data");
@@ -372,10 +377,10 @@ static auto createTensorABIDescFromStorage(
   if (failed(data) || failed(sizes) || failed(strides))
     return failure();
 
-  auto sizesType =
-      llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("sizes"));
-  auto stridesType =
-      llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("strides"));
+  auto sizesType = llvm::dyn_cast<mulberry_core::RecordType>(
+      storageType.getFieldType("sizes"));
+  auto stridesType = llvm::dyn_cast<mulberry_core::RecordType>(
+      storageType.getFieldType("strides"));
   if (!sizesType || !stridesType)
     return failure();
   auto sizesData =
@@ -434,7 +439,7 @@ static auto createScalarMemRefFromDataPointer(
 
 static auto createTensorFromABIDesc(
     Location location, ConversionPatternRewriter& rewriter, Value desc,
-    mulberry::TensorType type) -> Value {
+    mulberry_core::TensorType type) -> Value {
   auto context = rewriter.getContext();
   auto dataMemRefType = convertTensorToDataMemRefType(type);
   auto resultMemRefType = convertTensorToMemRefType(type);
@@ -490,7 +495,7 @@ static auto createTensorFromABIDesc(
   return result.getResult();
 }
 
-static auto convertRecordToBackendType(mulberry::RecordType type)
+static auto convertRecordToBackendType(mulberry_core::RecordType type)
     -> std::optional<Type> {
   std::vector<Type> fieldTypes;
   for (auto field : type.getFields()) {
@@ -505,9 +510,9 @@ static auto convertRecordToBackendType(mulberry::RecordType type)
   return LLVM::LLVMStructType::getLiteral(type.getContext(), fieldTypes);
 }
 
-static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type> {
+static auto convertPtrType(mulberry_core::PtrType type) -> std::optional<Type> {
   auto pointeeType = type.getPointeeType();
-  if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(pointeeType)) {
+  if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(pointeeType)) {
     // Ptr<Tensor> follows the same C/C++ pointer model as scalar and record
     // pointers. The pointee storage is a Tensor ABI descriptor; load/store
     // pack and unpack that descriptor to/from the memref value used by linalg.
@@ -525,11 +530,11 @@ static auto convertPtrType(mulberry::PtrType type) -> std::optional<Type> {
 // conversion after their specific lowering conversion fails.
 static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
     -> std::optional<LogicalResult> {
-  if (auto recordType = llvm::dyn_cast<mulberry::RecordType>(type))
+  if (auto recordType = llvm::dyn_cast<mulberry_core::RecordType>(type))
     if (!convertRecordToBackendType(recordType))
       return failure();
 
-  if (auto ptrType = llvm::dyn_cast<mulberry::PtrType>(type))
+  if (auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(type))
     if (!convertPtrType(ptrType))
       return failure();
 
@@ -549,14 +554,14 @@ public:
   }
 };
 
-class AllocaOpLowering : public OpConversionPattern<mulberry::AllocaOp> {
+class AllocaOpLowering : public OpConversionPattern<mulberry_core::AllocaOp> {
 public:
-  using OpConversionPattern<mulberry::AllocaOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::AllocaOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::AllocaOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::AllocaOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
+    if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(
             op.getElementType())) {
       auto elementType = convertTensorToABIDescriptorType(tensorType);
       auto elementCount = arith::ConstantIntOp::create(
@@ -591,11 +596,11 @@ public:
 };
 
 class HeapAllocOpLowering
-    : public OpConversionPattern<mulberry::HeapAllocOp> {
+    : public OpConversionPattern<mulberry_core::HeapAllocOp> {
 public:
-  using OpConversionPattern<mulberry::HeapAllocOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::HeapAllocOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::HeapAllocOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::HeapAllocOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto elementType = convertPointerElementType(op.getElementType());
@@ -620,14 +625,14 @@ public:
 };
 
 class PtrIndexOpLowering
-    : public OpConversionPattern<mulberry::PtrIndexOp> {
+    : public OpConversionPattern<mulberry_core::PtrIndexOp> {
 public:
-  using OpConversionPattern<mulberry::PtrIndexOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::PtrIndexOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::PtrIndexOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::PtrIndexOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto ptrType = llvm::cast<mulberry::PtrType>(op.getPtr().getType());
+    auto ptrType = llvm::cast<mulberry_core::PtrType>(op.getPtr().getType());
     auto elementType = convertPointerElementType(ptrType.getPointeeType());
     if (!elementType)
       return rewriter.notifyMatchFailure(
@@ -644,11 +649,11 @@ public:
   }
 };
 
-class PtrCastOpLowering : public OpConversionPattern<mulberry::PtrCastOp> {
+class PtrCastOpLowering : public OpConversionPattern<mulberry_core::PtrCastOp> {
 public:
-  using OpConversionPattern<mulberry::PtrCastOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::PtrCastOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::PtrCastOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::PtrCastOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     rewriter.replaceOp(op, adaptor.getPtr());
@@ -656,15 +661,15 @@ public:
   }
 };
 
-class LoadOpLowering : public OpConversionPattern<mulberry::LoadOp> {
+class LoadOpLowering : public OpConversionPattern<mulberry_core::LoadOp> {
 public:
-  using OpConversionPattern<mulberry::LoadOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::LoadOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::LoadOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::LoadOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto ptrType = llvm::cast<mulberry::PtrType>(op.getPtr().getType());
-    if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
+    auto ptrType = llvm::cast<mulberry_core::PtrType>(op.getPtr().getType());
+    if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(
             ptrType.getPointeeType())) {
       auto layout = convertToTensorABILayout(tensorType);
       auto desc = LLVM::LoadOp::create(rewriter, op.getLoc(),
@@ -695,19 +700,19 @@ public:
   }
 };
 
-class StoreOpLowering : public OpConversionPattern<mulberry::StoreOp> {
+class StoreOpLowering : public OpConversionPattern<mulberry_core::StoreOp> {
 public:
-  using OpConversionPattern<mulberry::StoreOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::StoreOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::StoreOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::StoreOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto ptrType = llvm::dyn_cast<mulberry::PtrType>(op.getPtr().getType());
+    auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(op.getPtr().getType());
     if (!ptrType)
       return rewriter.notifyMatchFailure(
           op, "store target must be a Mulberry pointer");
 
-    if (auto tensorType = llvm::dyn_cast<mulberry::TensorType>(
+    if (auto tensorType = llvm::dyn_cast<mulberry_core::TensorType>(
             ptrType.getPointeeType())) {
       if (!llvm::isa<MemRefType>(adaptor.getValue().getType()))
         return rewriter.notifyMatchFailure(
@@ -741,20 +746,20 @@ public:
 };
 
 class RecordGetFieldOpLowering
-    : public OpConversionPattern<mulberry::RecordGetFieldOp> {
+    : public OpConversionPattern<mulberry_core::RecordGetFieldOp> {
 public:
-  using OpConversionPattern<mulberry::RecordGetFieldOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::RecordGetFieldOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::RecordGetFieldOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::RecordGetFieldOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto ptrType = llvm::dyn_cast<mulberry::PtrType>(op.getRecord().getType());
+    auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(op.getRecord().getType());
     if (!ptrType)
       return rewriter.notifyMatchFailure(
           op, "field address needs a pointer to a record");
 
     auto recordType =
-        llvm::dyn_cast<mulberry::RecordType>(ptrType.getPointeeType());
+        llvm::dyn_cast<mulberry_core::RecordType>(ptrType.getPointeeType());
     if (!recordType)
       return rewriter.notifyMatchFailure(
           op, "field address needs a pointer to a record");
@@ -777,14 +782,14 @@ public:
 };
 
 class RecordExtractOpLowering
-    : public OpConversionPattern<mulberry::RecordExtractOp> {
+    : public OpConversionPattern<mulberry_core::RecordExtractOp> {
 public:
-  using OpConversionPattern<mulberry::RecordExtractOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::RecordExtractOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::RecordExtractOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::RecordExtractOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto recordType = llvm::dyn_cast<mulberry::RecordType>(
+    auto recordType = llvm::dyn_cast<mulberry_core::RecordType>(
         op.getRecord().getType());
     if (!recordType)
       return rewriter.notifyMatchFailure(
@@ -806,14 +811,14 @@ public:
 };
 
 class TensorAllocOpLowering
-    : public OpConversionPattern<mulberry::TensorAllocOp> {
+    : public OpConversionPattern<mulberry_core::TensorAllocOp> {
 public:
-  using OpConversionPattern<mulberry::TensorAllocOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorAllocOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorAllocOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorAllocOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto tensorType = llvm::cast<mulberry::TensorType>(
+    auto tensorType = llvm::cast<mulberry_core::TensorType>(
         op.getResult().getType());
     auto resultType = convertTensorToMemRefType(tensorType);
 
@@ -824,11 +829,11 @@ public:
   }
 };
 
-class TensorDimOpLowering : public OpConversionPattern<mulberry::TensorDimOp> {
+class TensorDimOpLowering : public OpConversionPattern<mulberry_core::TensorDimOp> {
 public:
-  using OpConversionPattern<mulberry::TensorDimOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorDimOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorDimOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorDimOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto dim = memref::DimOp::create(rewriter, op.getLoc(),
@@ -839,15 +844,15 @@ public:
 };
 
 class TensorCastOpLowering
-    : public OpConversionPattern<mulberry::TensorCastOp> {
+    : public OpConversionPattern<mulberry_core::TensorCastOp> {
 public:
-  using OpConversionPattern<mulberry::TensorCastOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorCastOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorCastOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorCastOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto destType = convertTensorToMemRefType(
-        llvm::cast<mulberry::TensorType>(op.getDest().getType()));
+        llvm::cast<mulberry_core::TensorType>(op.getDest().getType()));
 
     auto cast = memref::CastOp::create(rewriter, op.getLoc(), destType,
                                        adaptor.getSource());
@@ -857,20 +862,20 @@ public:
 };
 
 class TensorViewOpLowering
-    : public OpConversionPattern<mulberry::TensorViewOp> {
+    : public OpConversionPattern<mulberry_core::TensorViewOp> {
 public:
-  using OpConversionPattern<mulberry::TensorViewOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorViewOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorViewOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorViewOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto storageType = llvm::dyn_cast<mulberry::RecordType>(
+    auto storageType = llvm::dyn_cast<mulberry_core::RecordType>(
         op.getTensor().getType());
     if (!storageType)
       return rewriter.notifyMatchFailure(
           op, "tensor view needs a Tensor record");
 
-    auto tensorType = llvm::cast<mulberry::TensorType>(
+    auto tensorType = llvm::cast<mulberry_core::TensorType>(
         op.getResult().getType());
     auto layout = convertToTensorABILayout(tensorType);
     auto desc = createTensorABIDescFromStorage(
@@ -888,14 +893,14 @@ public:
 };
 
 class TensorPackOpLowering
-    : public OpConversionPattern<mulberry::TensorPackOp> {
+    : public OpConversionPattern<mulberry_core::TensorPackOp> {
 public:
-  using OpConversionPattern<mulberry::TensorPackOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorPackOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorPackOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorPackOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto storageType = llvm::dyn_cast<mulberry::RecordType>(
+    auto storageType = llvm::dyn_cast<mulberry_core::RecordType>(
         op.getResult().getType());
     if (!storageType)
       return rewriter.notifyMatchFailure(
@@ -906,7 +911,7 @@ public:
       return rewriter.notifyMatchFailure(
           op, "tensor pack needs a lowerable Tensor record");
 
-    auto tensorType = llvm::cast<mulberry::TensorType>(
+    auto tensorType = llvm::cast<mulberry_core::TensorType>(
         op.getTensor().getType());
     auto tensor = adaptor.getTensor();
     if (!llvm::isa<MemRefType>(tensor.getType()))
@@ -927,14 +932,13 @@ public:
     auto payloadBytes = createTensorByteSize(op.getLoc(), rewriter, tensor);
     if (failed(sizes) || failed(strides) || failed(payloadBytes))
       return failure();
-    auto payload = callBoehmMalloc(op.getLoc(), rewriter, op,
-                                   *payloadBytes);
+    auto payload = callBoehmMalloc(op.getLoc(), rewriter, op, *payloadBytes);
     if (failed(payload))
       return failure();
 
-    auto sizesType =
-        llvm::dyn_cast<mulberry::RecordType>(storageType.getFieldType("sizes"));
-    auto stridesType = llvm::dyn_cast<mulberry::RecordType>(
+    auto sizesType = llvm::dyn_cast<mulberry_core::RecordType>(
+        storageType.getFieldType("sizes"));
+    auto stridesType = llvm::dyn_cast<mulberry_core::RecordType>(
         storageType.getFieldType("strides"));
     if (!sizesType || !stridesType)
       return rewriter.notifyMatchFailure(
@@ -957,14 +961,12 @@ public:
                           stride.getResult());
     }
 
-    // Pack creates an owning Tensor header. Copy the payload into a Boehm heap
-    // buffer, then store that heap pointer in Tensor.data; otherwise a returned
-    // header could point at a short-lived memref allocation.
+    // NN ops allocate temporary memrefs. The returned stdlib Tensor header must
+    // own a Boehm heap payload, not point at temporary memref storage.
     auto heapDesc = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), sourceDesc, *payload,
-        ArrayRef<int64_t>{0});
-    auto heapTensor = createTensorFromABIDesc(
-        op.getLoc(), rewriter, heapDesc.getResult(), tensorType);
+        rewriter, op.getLoc(), sourceDesc, *payload, ArrayRef<int64_t>{0});
+    auto heapTensor = createTensorFromABIDesc(op.getLoc(), rewriter,
+                                              heapDesc.getResult(), tensorType);
     memref::CopyOp::create(rewriter, op.getLoc(), tensor, heapTensor);
 
     auto sizesList = createListRecordValue(
@@ -1011,11 +1013,11 @@ public:
 };
 
 class TensorLoadOpLowering
-    : public OpConversionPattern<mulberry::TensorLoadOp> {
+    : public OpConversionPattern<mulberry_core::TensorLoadOp> {
 public:
-  using OpConversionPattern<mulberry::TensorLoadOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorLoadOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorLoadOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorLoadOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto load = memref::LoadOp::create(rewriter, op.getLoc(),
@@ -1027,11 +1029,11 @@ public:
 };
 
 class TensorStoreOpLowering
-    : public OpConversionPattern<mulberry::TensorStoreOp> {
+    : public OpConversionPattern<mulberry_core::TensorStoreOp> {
 public:
-  using OpConversionPattern<mulberry::TensorStoreOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorStoreOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry::TensorStoreOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorStoreOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     memref::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
@@ -1053,7 +1055,7 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                            math::MathDialect, memref::MemRefDialect,
                            scf::SCFDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
-    target.addIllegalDialect<mulberry::MulberryDialect>();
+    target.addIllegalDialect<mulberry_core::MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
           return typeConverter.isSignatureLegal(op.getFunctionType());
@@ -1068,9 +1070,9 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
                  StoreOpLowering, TensorAllocOpLowering, TensorCastOpLowering,
-                 TensorDimOpLowering, TensorPackOpLowering,
-                 TensorViewOpLowering,
-                 TensorLoadOpLowering, TensorStoreOpLowering>(
+                 TensorDimOpLowering, TensorLoadOpLowering,
+                 TensorPackOpLowering, TensorStoreOpLowering,
+                 TensorViewOpLowering>(
         typeConverter, &getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
@@ -1088,4 +1090,4 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
 };
 
 } // namespace
-} // namespace mlir::mulberry
+} // namespace mlir::mulberry_core

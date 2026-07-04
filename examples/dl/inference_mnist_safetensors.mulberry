@@ -15,8 +15,8 @@ fn main(): UInt64 {
 
   io.close(file);
 
-  var weights: List<Tensor<Float32>> = [w1, w2];
-  var biases: List<Tensor<Float32>> = [b1, b2];
+  var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var biases: List<Tensor<Float32>> = list.from([b1, b2]);
   var activation: Tensor<Float32> = x;
 
   for layer in 0 .. weights.size() {

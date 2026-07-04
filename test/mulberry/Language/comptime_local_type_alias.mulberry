@@ -8,10 +8,10 @@ fn first(xs: LocalVector<UInt64>): UInt64 {
 }
 
 fn main(): UInt64 {
-  var xs: LocalVector<UInt64> = [9, 8];
+  var xs: LocalVector<UInt64> = list.from([9, 8]);
   first(xs)
 }
 
-# CHECK: func.func @first(%arg0: !mulberry.record<std_collections_List__UInt64
+# CHECK: func.func @first(%arg0: !mulberry_core.record<std_list_List__UInt64
 # CHECK-SAME: -> i64
-# CHECK: call @std_collections_List_get__UInt64
+# CHECK: call @std_list_List_get__UInt64

@@ -102,8 +102,9 @@ def writeFloat32Tensor(path: Path, value: np.ndarray) -> int:
     return tensor.nbytes
 
 
-def report(path: Path, typeName: str, byteCount: int) -> None:
-    print(f"{path}: {typeName}, {byteCount} bytes")
+def report(path: Path, dtype: str, shape: tuple[int, ...], byteCount: int) -> None:
+    shapeText = ", ".join(str(dim) for dim in shape)
+    print(f"{path}: Tensor<{dtype}>, shape [{shapeText}], {byteCount} bytes")
 
 
 def main() -> None:
@@ -114,17 +115,17 @@ def main() -> None:
     x, label = loadTestSample(args.mnist_data, args.sample_index)
 
     outputs = [
-        ("w1.f32", "Float32[30, 784]", w1),
-        ("b1.f32", "Float32[30, 1]", b1),
-        ("w2.f32", "Float32[10, 30]", w2),
-        ("b2.f32", "Float32[10, 1]", b2),
-        ("x.f32", "Float32[784, 1]", x),
+        ("w1.f32", w1),
+        ("b1.f32", b1),
+        ("w2.f32", w2),
+        ("b2.f32", b2),
+        ("x.f32", x),
     ]
 
-    for fileName, typeName, value in outputs:
+    for fileName, value in outputs:
         path = outputDir / fileName
         byteCount = writeFloat32Tensor(path, value)
-        report(path, typeName, byteCount)
+        report(path, "Float32", value.shape, byteCount)
 
     labelPath = outputDir / "label.txt"
     labelPath.write_text(f"{label}\n", encoding="utf-8")

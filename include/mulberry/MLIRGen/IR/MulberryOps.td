@@ -1,4 +1,4 @@
-//===--- MulberryOps.td - Mulberry dialect ops -------------*- tablegen -*-===//
+//===--- MulberryOps.td - Mulberry core dialect ops -------------*- tablegen -*-===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -13,15 +13,15 @@ include "mulberry/MLIRGen/IR/MulberryTypes.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def Mulberry_AnyPtrType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::PtrType>($_self)">,
+    CPred<"::llvm::isa<::mlir::mulberry_core::PtrType>($_self)">,
     "Mulberry pointer type">;
 
 def Mulberry_AnyTensorType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
-    "Mulberry tensor type">;
+    CPred<"::llvm::isa<::mlir::mulberry_core::TensorType>($_self)">,
+    "Mulberry internal tensor type">;
 
 def Mulberry_AnyRecordType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::RecordType>($_self)">,
+    CPred<"::llvm::isa<::mlir::mulberry_core::RecordType>($_self)">,
     "Mulberry record type">;
 
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
@@ -120,7 +120,7 @@ def Mulberry_RecordExtractOp : Mulberry_Op<"record.extract"> {
 }
 
 def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {
-  let summary = "Allocate a Mulberry tensor";
+  let summary = "Allocate an internal tensor";
 
   let arguments = (ins Variadic<Index>:$dynamicSizes);
   let results = (outs Mulberry_AnyTensorType:$result);
@@ -131,7 +131,7 @@ def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {
 }
 
 def Mulberry_TensorDimOp : Mulberry_Op<"tensor.dim"> {
-  let summary = "Get a Mulberry tensor dimension";
+  let summary = "Get an internal tensor dimension";
 
   let arguments = (ins Mulberry_AnyTensorType:$tensor, Index:$index);
   let results = (outs Index:$result);
@@ -142,7 +142,7 @@ def Mulberry_TensorDimOp : Mulberry_Op<"tensor.dim"> {
 }
 
 def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
-  let summary = "Cast a Mulberry tensor shape";
+  let summary = "Cast an internal tensor shape";
 
   let arguments = (ins Mulberry_AnyTensorType:$source);
   let results = (outs Mulberry_AnyTensorType:$dest);
@@ -153,7 +153,7 @@ def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
 }
 
 def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
-  let summary = "View a stdlib Tensor value as a Mulberry tensor";
+  let summary = "View a stdlib Tensor value as an internal tensor";
 
   let arguments = (ins Mulberry_AnyRecordType:$tensor);
   let results = (outs Mulberry_AnyTensorType:$result);
@@ -165,7 +165,7 @@ def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
 }
 
 def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
-  let summary = "Pack a Mulberry tensor into a stdlib Tensor value";
+  let summary = "Pack an internal tensor into a stdlib Tensor value";
 
   let arguments = (ins Mulberry_AnyTensorType:$tensor);
   let results = (outs Mulberry_AnyRecordType:$result);
@@ -177,7 +177,7 @@ def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
 }
 
 def Mulberry_TensorLoadOp : Mulberry_Op<"tensor.load"> {
-  let summary = "Load a Mulberry tensor element";
+  let summary = "Load an internal tensor element";
 
   let arguments = (ins Mulberry_AnyTensorType:$tensor, Variadic<Index>:$indices);
   let results = (outs AnyType:$result);
@@ -189,7 +189,7 @@ def Mulberry_TensorLoadOp : Mulberry_Op<"tensor.load"> {
 }
 
 def Mulberry_TensorStoreOp : Mulberry_Op<"tensor.store"> {
-  let summary = "Store a Mulberry tensor element";
+  let summary = "Store an internal tensor element";
 
   let arguments = (ins AnyType:$value, Mulberry_AnyTensorType:$tensor,
                        Variadic<Index>:$indices);

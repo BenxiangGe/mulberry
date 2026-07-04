@@ -1,0 +1,20 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var bytes: Tensor<UInt8> = tensor.zeros([4]);
+  var matrix: Tensor<Float32> = tensor.zeros([2, 2]);
+  io.print(bytes.numel());
+  io.print(core.toUInt64(bytes[2]));
+  io.print(boolToUInt64(matrix[1, 1] == 0.0));
+  0
+}
+
+# MLIR: call @std_tensor_zeros__UInt8
+# MLIR: call @std_tensor_zeros__Float32
+# MLIR: call @mulberry_zero_memory
+
+# JIT: 4
+# JIT-NEXT: 0
+# JIT-NEXT: 1

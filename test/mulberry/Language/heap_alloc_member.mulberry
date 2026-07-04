@@ -22,17 +22,17 @@ fn main(): UInt64 {
 
 # CHECK-LABEL: func.func @direct()
 # CHECK: %[[ONE:.*]] = arith.constant 1 : index
-# CHECK: %[[DIRECT:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
-# CHECK: %[[DIRECT_X:.*]] = mulberry.record.get_field %[[DIRECT]]["x"]
-# CHECK: mulberry.store
+# CHECK: %[[DIRECT:.*]] = mulberry_core.heap.alloc !mulberry_core.record<Pair{{.*}}, %[[ONE]]
+# CHECK: %[[DIRECT_X:.*]] = mulberry_core.record.get_field %[[DIRECT]]["x"]
+# CHECK: mulberry_core.store
 
 # CHECK-LABEL: func.func @viaVariable()
 # CHECK: %[[ONE:.*]] = arith.constant 1 : index
-# CHECK: %[[PAIR:.*]] = mulberry.heap.alloc !mulberry.record<Pair{{.*}}, %[[ONE]]
-# CHECK: mulberry.store %[[PAIR]]
-# CHECK: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
-# CHECK: %[[X:.*]] = mulberry.record.get_field %[[CURRENT]]["x"]
-# CHECK: mulberry.store
-# CHECK: %[[CURRENT2:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
-# CHECK: %[[X2:.*]] = mulberry.record.get_field %[[CURRENT2]]["x"]
-# CHECK: mulberry.load %[[X2]]
+# CHECK: %[[PAIR:.*]] = mulberry_core.heap.alloc !mulberry_core.record<Pair{{.*}}, %[[ONE]]
+# CHECK: mulberry_core.store %[[PAIR]]
+# CHECK: %[[CURRENT:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<!mulberry_core.record<Pair{{.*}}> -> !mulberry_core.ptr<!mulberry_core.record<Pair
+# CHECK: %[[X:.*]] = mulberry_core.record.get_field %[[CURRENT]]["x"]
+# CHECK: mulberry_core.store
+# CHECK: %[[CURRENT2:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<!mulberry_core.record<Pair{{.*}}> -> !mulberry_core.ptr<!mulberry_core.record<Pair
+# CHECK: %[[X2:.*]] = mulberry_core.record.get_field %[[CURRENT2]]["x"]
+# CHECK: mulberry_core.load %[[X2]]

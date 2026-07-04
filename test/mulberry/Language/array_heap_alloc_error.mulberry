@@ -1,0 +1,12 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  var array: Ptr<UInt64[3]> = heap.alloc<UInt64[3]>();
+  array[0] = [7, 8, 9];
+  array[0][1] = 40;
+  io.print(array[0][0] + array[0][1] + array[0][2]);
+  0
+}
+
+# CHECK: 56

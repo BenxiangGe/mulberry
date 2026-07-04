@@ -1,4 +1,4 @@
-//===--- MulberryTypes.h - Mulberry dialect types --------------*- C++ -*-===//
+//===--- MulberryTypes.h - Mulberry core dialect types --------------*- C++ -*-===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -18,7 +18,7 @@
 #define GET_TYPEDEF_CLASSES
 #include "mulberry/MLIRGen/IR/MulberryOpsTypes.h.inc"
 
-namespace mlir::mulberry {
+namespace mlir::mulberry_core {
 
 inline bool operator==(const RecordType::Field& lhs,
                        const RecordType::Field& rhs) {
@@ -29,6 +29,6 @@ inline llvm::hash_code hash_value(const RecordType::Field& field) {
   return llvm::hash_combine(field.name, field.type);
 }
 
-} // namespace mlir::mulberry
+} // namespace mlir::mulberry_core
 
 #endif // MULBERRY_MULBERRYTYPES_H

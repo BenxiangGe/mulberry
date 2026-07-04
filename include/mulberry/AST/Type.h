@@ -39,7 +39,7 @@ public:
   enum class Kind {
     Unit,
     Named,
-    Tensor,
+    Array,
     List,
     Ptr,
     Generic,
@@ -82,16 +82,18 @@ private:
   std::string _name;
 };
 
-// Tensor type node. e.g. `Float32[10, 20]`
-class TensorTypeNode final : public TypeNode {
+// Bracket-shaped Array type node, e.g. `Float32[10]`.
+// Multi-dimensional or dynamic `T[...]` source spelling has been removed; use
+// Tensor<T> plus explicit tensor construction for ndarray-style values.
+class ArrayTypeNode final : public TypeNode {
 public:
-  TensorTypeNode(std::unique_ptr<TypeNode> elementType,
-                 std::vector<int64_t> shape, llvm::SMLoc location)
-      : TypeNode(location, TypeNode::Kind::Tensor),
+  ArrayTypeNode(std::unique_ptr<TypeNode> elementType,
+                std::vector<int64_t> shape, llvm::SMLoc location)
+      : TypeNode(location, TypeNode::Kind::Array),
         _elementType(std::move(elementType)), _shape(std::move(shape)) {}
 
   static auto classof(const TypeNode *node) -> bool {
-    return node->kind() == TypeNode::Kind::Tensor;
+    return node->kind() == TypeNode::Kind::Array;
   }
 
   auto elementTypeNode() const -> const TypeNode * {
@@ -175,7 +177,7 @@ private:
   uint64_t _uint64Value = 0;
 };
 
-// Generic type application node. e.g. `Vector<UInt64>` or `Matrix<Float32>`.
+// Generic type application node. e.g. `List<UInt64>` or `Tensor<Float32>`.
 class GenericTypeNode final : public TypeNode {
 public:
   GenericTypeNode(llvm::SMLoc location, std::string_view name,

@@ -28,13 +28,13 @@ fn main(): UInt64 {
 # AST-SAME: type=Ptr<Buffer<UInt64>>
 
 # MLIR-LABEL: func.func @fill(
-# MLIR-SAME: !mulberry.ptr<!mulberry.record<Buffer__UInt64
-# MLIR-SAME: !mulberry.ptr<i64>
-# MLIR: mulberry.record.get_field {{.*}}["length"]
-# MLIR: mulberry.record.get_field {{.*}}["capacity"]
-# MLIR: mulberry.record.get_field {{.*}}["data"]
-# MLIR: mulberry.ptr.index
+# MLIR-SAME: !mulberry_core.ptr<!mulberry_core.record<Buffer__UInt64
+# MLIR-SAME: !mulberry_core.ptr<i64>
+# MLIR: mulberry_core.record.get_field {{.*}}["length"]
+# MLIR: mulberry_core.record.get_field {{.*}}["capacity"]
+# MLIR: mulberry_core.record.get_field {{.*}}["data"]
+# MLIR: mulberry_core.ptr.index
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc i64
-# MLIR: mulberry.heap.alloc !mulberry.record<Buffer__UInt64
+# MLIR: mulberry_core.heap.alloc i64
+# MLIR: mulberry_core.heap.alloc !mulberry_core.record<Buffer__UInt64

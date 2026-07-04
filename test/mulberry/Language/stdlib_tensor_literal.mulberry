@@ -1,0 +1,33 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var bytes: Tensor<UInt8> = tensor.from([10, 20, 30, 40]);
+  var matrix: Tensor<Float32> =
+      tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  io.print(bytes.numel());
+  io.print(core.toUInt64(bytes[2]));
+  io.print(boolToUInt64(matrix[1, 1] > 3.5));
+  0
+}
+
+# AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
+# AST: CallExpr {{.*}}type=std_tensor_Tensor__UInt8 callee=std.tensor.from
+# AST: ArrayLiteralExpr {{.*}}type=Array<UInt8, 4>
+# AST: VariableStat {{.*}}id=matrix{{.*}}type=Tensor<Float32>
+# AST: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std.tensor.from
+# AST: ArrayLiteralExpr {{.*}}type=Array<Array<Float32, 2>, 2>
+
+# MLIR: mulberry_core.heap.alloc i8
+# MLIR: mulberry_core.heap.alloc f32
+# MLIR: mulberry_core.record.get_field {{.*}}["rank"]
+# MLIR: mulberry_core.record.get_field {{.*}}["strides"]
+
+# LOWERED-LABEL: func.func @main
+
+# JIT: 4
+# JIT-NEXT: 30
+# JIT-NEXT: 1

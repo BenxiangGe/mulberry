@@ -1,6 +1,5 @@
 package std.types;
 
-import collections.List;
+import list.List;
 
-comptime Vector<T> = collections.List<T>;
-comptime Matrix<T> = T[?, ?];
+comptime Vector<T> = List<T>;

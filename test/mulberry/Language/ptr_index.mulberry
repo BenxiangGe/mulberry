@@ -29,29 +29,29 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @scalar()
 # MLIR: %[[COUNT:.*]] = arith.constant 3 : index
-# MLIR: %[[PTR:.*]] = mulberry.heap.alloc i64, %[[COUNT]] : !mulberry.ptr<i64>
-# MLIR: mulberry.store %[[PTR]]
-# MLIR: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<i64>> -> !mulberry.ptr<i64>
-# MLIR: %[[P0:.*]] = mulberry.ptr.index %[[CURRENT]]
-# MLIR-SAME: -> !mulberry.ptr<i64>
-# MLIR: mulberry.store {{.*}}, %[[P0]] : i64, !mulberry.ptr<i64>
-# MLIR: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<i64>> -> !mulberry.ptr<i64>
-# MLIR: %[[P1:.*]] = mulberry.ptr.index %[[CURRENT]]
-# MLIR-SAME: -> !mulberry.ptr<i64>
-# MLIR: mulberry.store {{.*}}, %[[P1]] : i64, !mulberry.ptr<i64>
-# MLIR: mulberry.load
+# MLIR: %[[PTR:.*]] = mulberry_core.heap.alloc i64, %[[COUNT]] : !mulberry_core.ptr<i64>
+# MLIR: mulberry_core.store %[[PTR]]
+# MLIR: %[[CURRENT:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<i64>> -> !mulberry_core.ptr<i64>
+# MLIR: %[[P0:.*]] = mulberry_core.ptr.index %[[CURRENT]]
+# MLIR-SAME: -> !mulberry_core.ptr<i64>
+# MLIR: mulberry_core.store {{.*}}, %[[P0]] : i64, !mulberry_core.ptr<i64>
+# MLIR: %[[CURRENT:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<i64>> -> !mulberry_core.ptr<i64>
+# MLIR: %[[P1:.*]] = mulberry_core.ptr.index %[[CURRENT]]
+# MLIR-SAME: -> !mulberry_core.ptr<i64>
+# MLIR: mulberry_core.store {{.*}}, %[[P1]] : i64, !mulberry_core.ptr<i64>
+# MLIR: mulberry_core.load
 
 # MLIR-LABEL: func.func @record()
 # MLIR: %[[COUNT:.*]] = arith.constant 2 : index
-# MLIR: %[[PTR:.*]] = mulberry.heap.alloc !mulberry.record<Pair
+# MLIR: %[[PTR:.*]] = mulberry_core.heap.alloc !mulberry_core.record<Pair
 # MLIR-SAME: , %[[COUNT]]
-# MLIR: mulberry.store %[[PTR]]
-# MLIR: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
-# MLIR: %[[P0:.*]] = mulberry.ptr.index %[[CURRENT]]
-# MLIR: mulberry.record.get_field %[[P0]]["x"]
-# MLIR: %[[CURRENT:.*]] = mulberry.load {{.*}} : !mulberry.ptr<!mulberry.ptr<!mulberry.record<Pair{{.*}}> -> !mulberry.ptr<!mulberry.record<Pair
-# MLIR: %[[P1:.*]] = mulberry.ptr.index %[[CURRENT]]
-# MLIR: mulberry.record.get_field %[[P1]]["x"]
+# MLIR: mulberry_core.store %[[PTR]]
+# MLIR: %[[CURRENT:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<!mulberry_core.record<Pair{{.*}}> -> !mulberry_core.ptr<!mulberry_core.record<Pair
+# MLIR: %[[P0:.*]] = mulberry_core.ptr.index %[[CURRENT]]
+# MLIR: mulberry_core.record.get_field %[[P0]]["x"]
+# MLIR: %[[CURRENT:.*]] = mulberry_core.load {{.*}} : !mulberry_core.ptr<!mulberry_core.ptr<!mulberry_core.record<Pair{{.*}}> -> !mulberry_core.ptr<!mulberry_core.record<Pair
+# MLIR: %[[P1:.*]] = mulberry_core.ptr.index %[[CURRENT]]
+# MLIR: mulberry_core.record.get_field %[[P1]]["x"]
 
 # LOWER-LABEL: func.func @scalar()
 # LOWER: %[[COUNT_INDEX:.*]] = arith.constant 3 : index

@@ -1,0 +1,34 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var left: Tensor<Float32> = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  var right: Tensor<Float32> = tensor.from([[0.25], [0.5]]);
+  var bias: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+
+  var product: Tensor<Float32> = nn.matmul(left, right);
+  var shifted: Tensor<Float32> = nn.matadd(product, bias);
+  var activated: Tensor<Float32> = nn.sigmoid(shifted);
+  io.print(nn.argmax(activated));
+
+  var restored: Tensor<Float32> = nn.matsub(shifted, bias);
+  var squared: Tensor<Float32> = nn.hadamard(restored, product);
+  io.print(nn.argmax(squared));
+
+  var transposed: Tensor<Float32> = nn.transpose(right);
+  var scaled: Tensor<Float32> = nn.matscale(transposed, 2.0);
+  var exponentials: Tensor<Float32> = nn.exp(scaled);
+  io.print(nn.argmax(exponentials));
+
+  var primeInput: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
+  var prime: Tensor<Float32> = nn.sigmoidPrime(primeInput);
+  io.print(nn.argmax(prime));
+
+  0
+}
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 0

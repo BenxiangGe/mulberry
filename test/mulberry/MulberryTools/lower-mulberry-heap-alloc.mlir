@@ -1,17 +1,17 @@
 // RUN: mulberry-opt --lower-mulberry %s | FileCheck %s
 
 module {
-  func.func @alloc_scalar() -> !mulberry.ptr<i64> {
+  func.func @alloc_scalar() -> !mulberry_core.ptr<i64> {
     %count = arith.constant 1 : index
-    %ptr = mulberry.heap.alloc i64, %count : !mulberry.ptr<i64>
-    return %ptr : !mulberry.ptr<i64>
+    %ptr = mulberry_core.heap.alloc i64, %count : !mulberry_core.ptr<i64>
+    return %ptr : !mulberry_core.ptr<i64>
   }
 
   func.func @alloc_record(%count: index)
-      -> !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>> {
-    %ptr = mulberry.heap.alloc !mulberry.record<Person {age: i64, active: i1}>, %count
-        : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>>
-    return %ptr : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>>
+      -> !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>> {
+    %ptr = mulberry_core.heap.alloc !mulberry_core.record<Person {age: i64, active: i1}>, %count
+        : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>>
+    return %ptr : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>>
   }
 }
 

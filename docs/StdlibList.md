@@ -4,8 +4,9 @@
 `mulberry.list` 路径已经删除；`List<T>` 现在走 stdlib/comptime
 `List<T>` header struct 模型。
 
-本文档建立在 `docs/PtrAndHeapObjectModel.md` 的统一模型上：`Ptr<T>` 按 C/C++
-typed pointer 理解；需要共享的 runtime storage 用 Boehm GC 管理。
+本文档建立在 `docs/PtrAndHeapObjectModel.md` 的统一模型上：目标 source 语义是
+`Scalar = value`、`Object = reference`。`Ptr<T>` 仍按 C/C++ typed pointer 理解，
+但主要服务于 stdlib/runtime/FFI 和底层库实现。
 
 ## 目标
 
@@ -14,7 +15,11 @@ typed pointer 理解；需要共享的 runtime storage 用 Boehm GC 管理。
 
 - 元素类型 `T` 可以是 builtin、struct、Tensor、其它未来支持的类型。
 - `List<T>` 有运行时 `length` 和 `capacity`。
-- `List<T>` 是 public list handle；可变共享语义通过浅拷贝 header + 共享 data buffer 表达。
+- `List<T>` 是 growable dynamic container，不是普通 `[]` literal 的默认目标。
+  普通 `[]` literal 后续默认是语言 `Array`；如果需要把 Array 变成 List，应使用显式
+  helper，例如未来的 `list.from(array)`。
+- `List<T>` 是 public list object。目标语义下，赋值、传参和返回复制 reference；
+  可变共享由 `const` / `mut` 这类修饰符约束。
 - `push`、`get`、`set`、`size` 这类操作应该优先用 Mulberry 标准库源码表达，
   并在用户层暴露成 `xs.push(...)`、`xs.size()` 这种 method call。
 - `mulberry.list.*` 不再是实现路径。
@@ -35,8 +40,8 @@ fn sum(xs: List<UInt64>): UInt64 {
 }
 ```
 
-长期目标不是让用户写很长的 `collections.List<T>`。标准库实现可以放在
-`std.collections`，但 prelude 应该把 `collections.List` 直接引进来，使普通用户继续写
+长期目标不是让用户写很长的 package-qualified type。标准库实现放在
+`std.list`，prelude 把 `list.List` 直接引进来，使普通用户继续写
 裸 `List<T>`。
 
 ## 目标源码形态
@@ -44,7 +49,7 @@ fn sum(xs: List<UInt64>): UInt64 {
 下面是目标方向，不是当前 Mulberry 已经支持的语法。
 
 ```mulberry
-package std.collections;
+package std.list;
 
 comptime List<T> = struct {
   length: UInt64,
@@ -53,14 +58,16 @@ comptime List<T> = struct {
 };
 ```
 
-这里 `List<T>` 自己就是 public header struct，包含 `length/capacity/data`。`data` 指向 element buffer。复制 `List<T>` 是浅拷贝：header 会复制一份，但 `data` buffer 共享。
+这里的 struct 描述 `List<T>` 的 object layout，包含 `length/capacity/data`。`data`
+指向 element buffer。目标 source 语义下，`List<T>` 变量保存 reference；复制
+`List<T>` 不复制 header，也不复制 element buffer。
 
 ## M1：method-in-struct 目标 API
 
 `List<T>` 后续应该优先暴露为 method API：
 
 ```mulberry
-var xs: List<UInt64> = [1, 2, 3];
+var xs: List<UInt64> = list.from([1, 2, 3]);
 xs.push(4);
 io.print(xs.size());
 io.print(xs[0]);
@@ -70,10 +77,10 @@ io.print(xs[0]);
 `obj.method(a, b)` 只是 receiver-first 的普通函数调用糖：
 
 ```text
-xs.size()       -> std.collections.List.size(xs)
-xs.push(value)  -> std.collections.List.push(xs, value)
-xs[index]       -> std.collections.List.get(xs, index)
-xs[index] = v   -> std.collections.List.set(xs, index, v)
+xs.size()       -> std.list.List.size(xs)
+xs.push(value)  -> std.list.List.push(xs, value)
+xs[index]       -> std.list.List.get(xs, index)
+xs[index] = v   -> std.list.List.set(xs, index, v)
 ```
 
 实际内部 symbol 名字由 Sema 的 generic monomorphization 和 mangling 决定。用户源码不应
@@ -87,10 +94,11 @@ xs[index] = v   -> std.collections.List.set(xs, index, v)
 - MLIRGen 不认识 method；Sema 在进入 MLIRGen 前已经把 dot call 解析成普通
   function call。
 
-在当前浅拷贝 header 模型下，method 声明在 `List<T>` 内，receiver 显式写成 `Ptr<List<T>>`，这样 `push` 可以修改调用者的 header：
+当前实现仍有浅拷贝 header 的过渡路径，所以 method 声明在 `List<T>` 内，receiver
+显式写成 `Ptr<List<T>>`，这样 `push` 可以修改调用者的 header：
 
 ```mulberry
-package std.collections;
+package std.list;
 
 comptime List<T> = struct {
   length: UInt64,
@@ -111,17 +119,17 @@ comptime List<T> = struct {
 };
 ```
 
-这样 `var xs: List<UInt64>` 的运行时语义是一个 by-value header struct。`xs.size()`
-和 `xs.push(value)` 会把 `xs` 的地址作为 receiver 传给 method，所以 `push` 能修改
-`xs.length/capacity/data`。如果把 `xs` 赋值给另一个变量，header 会浅拷贝，两个
-header 仍共享同一个 `data` buffer。
+这是过渡实现，不是最终 source 语义。目标模型里 `var xs: List<UInt64>` 是 object
+reference；`xs.size()` 和 `xs.push(value)` 直接以 receiver reference 操作同一个
+List object。如果把 `xs` 赋值给另一个变量，复制的是 reference，两个变量指向同一个
+List object。
 
 ## 当前 API
 
 第一批标准库 API 应保持很小：
 
 ```mulberry
-package std.collections;
+package std.list;
 
 fn withCapacity<T>(capacity: UInt64): List<T>;
 
@@ -133,10 +141,12 @@ comptime List<T> = struct {
 };
 ```
 
-`withCapacity` 是没有 receiver 的 factory function。空 list 直接使用 `[]`：
+`withCapacity` 是没有 receiver 的 factory function。普通 `[]` 现在默认是 `Array`，
+所以 `List<T>` 必须通过显式 factory 创建：
 
 ```mulberry
-var xs: List<UInt64> = [];
+var empty: List<UInt64> = list.withCapacity(0);
+var xs: List<UInt64> = list.from([1, 2, 3]);
 ```
 
 `size/push`
@@ -156,7 +166,7 @@ xs[i]
 xs.push(42)
 ```
 
-`collections.withCapacity(capacity)` 依赖 expected type 推断 `T`，适合需要预分配
+`list.withCapacity(capacity)` 依赖 expected type 推断 `T`，适合需要预分配
 capacity 的场景。普通空 list 不需要额外 factory。
 
 ## 需要补齐的语言能力
@@ -170,7 +180,7 @@ capacity 的场景。普通空 list 不需要额外 factory。
 - heap allocation primitive：基于当前 Boehm GC 路线，已经有单对象
   `heap.alloc<T>()` 和连续元素 storage `heap.alloc<T>(count)`。
 - `sizeof(T)` / `alignof(T)`：用于计算 element storage 大小和对齐。
-- package re-export：prelude 能把标准库里的 `collections.List<T>` 作为裸 `List<T>` 暴露。
+- package re-export：prelude 能把标准库里的 `list.List<T>` 作为裸 `List<T>` 暴露。
 
 ## Heap primitive
 
@@ -234,7 +244,7 @@ source List<T>
 
 ```text
 source List<T>
-  -> prelude import collections.List
+  -> prelude import list.List
   -> generic struct/function monomorphization
   -> heap object pointer: Ptr<record { length, capacity, data }>
   -> lowering
@@ -263,7 +273,7 @@ C4.4  实现 Boehm-backed heap.alloc<T>()
 C4.5  实现 `heap.alloc<T>(count)` 和 `p[i]` 指针索引
 C4.6  支持 generic struct，用 Mulberry 表达 List<T>
 C4.7  支持 generic function，用 Mulberry 表达 List<T> API
-C4.8  把 List<T> 迁到 std.collections
+C4.8  把 List<T> 迁到 std.list
 C4.9  删除 mulberry.list 相关 Dialect/op/lowering
 ```
 
@@ -272,7 +282,7 @@ C4.9  删除 mulberry.list 相关 Dialect/op/lowering
 当前 C4.7 已经支持最小 generic function 单态化。函数可以写成：
 
 ```mulberry
-fn push<T>(xs: collections.List<T>, value: T): UInt64 {
+fn push<T>(xs: List<T>, value: T): UInt64 {
   ...
 }
 ```
@@ -281,7 +291,7 @@ fn push<T>(xs: collections.List<T>, value: T): UInt64 {
 函数，例如 `push__UInt64`。这一步仍然只发生在 Parser/Sema 层；MLIRGen 只处理普通
 函数和普通 `func.call`。
 
-当前 `std.collections` 已经实现最小 `List<T>` layout，以及 public
+当前 `std.list` 已经实现最小 `List<T>` layout，以及 public
 `List<T>` alias，和 `new<T>()`、`withCapacity<T>()`、`size<T>()`、`get<T>()`、
 `set<T>()`、`push<T>()`。其中 `withCapacity<T>()` 会分配 list header 和 element
 buffer；`push<T>()` 在容量不足时会按 `0 -> 1 -> 2x` 策略分配新 buffer 并复制旧元素。

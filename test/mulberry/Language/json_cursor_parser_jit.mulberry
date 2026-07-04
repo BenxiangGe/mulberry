@@ -1,3 +1,4 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s
 
 import json;
@@ -6,11 +7,10 @@ import tensor.Tensor;
 import io;
 
 fn main(): UInt64 {
-  var bytes: UInt8[25] = [
+  var text: Tensor<UInt8> = tensor.from([
       '{', '"', 'a', '"', ':', '[', '1', '2', ',', '3', '4', ']', ',',
       '"', 'b', '"', ':', '{', '"', 'c', '"', ':', '5', '}', '}'
-  ];
-  var text: Tensor<UInt8> = tensor.pack(bytes);
+  ]);
   var parser: json.Parser = json.Parser { text, 0, 25 };
   parser.consumeChar('{');
   io.print(boolToUInt64(parser.stringEquals("a")));
@@ -26,6 +26,10 @@ fn main(): UInt64 {
   io.print(parser.position);
   0
 }
+
+# MLIR-LABEL: func.func @std.json.Parser.peekChar
+# MLIR: mulberry_core.ptr.index
+# MLIR-LABEL: func.func @std.json.Parser.isDigit
 
 # CHECK: 1
 # CHECK-NEXT: 2

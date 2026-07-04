@@ -1,10 +1,10 @@
 package std.json;
 
-import collections.List;
+import list;
+import list.List;
 import core;
 import core.Char;
 import string.String;
-import tensor;
 import tensor.Tensor;
 
 # Cursor-style JSON parser for small structured metadata.  It intentionally
@@ -23,8 +23,7 @@ struct Parser {
   length: UInt64,
 
   pub fn peekChar(self: Ptr<Parser>): Char {
-    var view: UInt8[?] = tensor.view(self.text);
-    view[self.position]
+    self.text[self.position]
   }
 
   pub fn isDigit(self: Ptr<Parser>): Bool {
@@ -120,7 +119,7 @@ struct Parser {
   }
 
   pub fn parseIntegerArray(self: Ptr<Parser>): List<UInt64> {
-    var values: List<UInt64> = [];
+    var values: List<UInt64> = list.withCapacity(0);
     if self.consumeChar('[') {
       while true {
         self.skipSpaces();

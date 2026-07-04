@@ -1,10 +1,10 @@
 import core;
 import core.Char;
 import core.boolToUInt64;
-import collections;
-import collections.List;
 import io;
 import io.File;
+import list;
+import list.List;
 import ptr;
 import string.String;
 import tensor;

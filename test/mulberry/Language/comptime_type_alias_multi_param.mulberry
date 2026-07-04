@@ -20,6 +20,6 @@ fn main(): UInt64 {
 # AST-SAME: type=Ptr<Pair<UInt64, Float32>>
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry.heap.alloc !mulberry.record<Pair__UInt64__Float32
-# MLIR: mulberry.record.get_field {{.*}}["first"]
-# MLIR: mulberry.record.get_field {{.*}}["second"]
+# MLIR: mulberry_core.heap.alloc !mulberry_core.record<Pair__UInt64__Float32
+# MLIR: mulberry_core.record.get_field {{.*}}["first"]
+# MLIR: mulberry_core.record.get_field {{.*}}["second"]

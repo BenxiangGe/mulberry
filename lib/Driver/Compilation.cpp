@@ -558,7 +558,7 @@ Compilation::Compilation() : _mlirContext{makeContext()} {}
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::mulberry::MulberryDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mlir::mulberry_core::MulberryDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();
@@ -809,7 +809,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     return failure();
 
   if (lowering >= Lowering::Mulberry)
-    pm.addPass(mlir::mulberry::createLowerMulberry());
+    pm.addPass(mlir::mulberry_core::createLowerMulberry());
 
   if (lowering >= Lowering::Mulberry &&
       addBundledPackagePostCorePipelines(pm))
@@ -821,7 +821,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::LLVM::createLLVMRequestCWrappersPass());
-    pm.addPass(mlir::mulberry::createConvertMulberryToLLVM());
+    pm.addPass(mlir::mulberry_core::createConvertMulberryToLLVM());
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
   }
 

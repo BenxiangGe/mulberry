@@ -1,0 +1,33 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var xs: Array<UInt64, 3> = [1, 2, 3];
+  xs[1] = 40;
+  io.print(xs[0] + xs[1] + xs[2]);
+
+  var values: Float32[2] = [1.25, 2.5];
+  values[1] = 3.5;
+  io.print(boolToUInt64(values[1] > 3.0));
+  0
+}
+
+# AST: VariableStat {{.*}}id=xs{{.*}}type=Array<UInt64, 3>
+# AST: ArrayLiteralExpr {{.*}}type=Array<UInt64, 3>
+# AST: IndexExpr {{.*}}type=UInt64 kind=array
+# AST: VariableStat (id=values
+# AST-SAME: type=Float32[2]
+# AST: ArrayLiteralExpr {{.*}}type=Array<Float32, 2>
+# AST: VariableExpr {{.*}}type=Array<Float32, 2> name=values
+
+# MLIR-DAG: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# MLIR-DAG: mulberry_core.heap.alloc i64
+# MLIR-DAG: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<f32>}>
+# MLIR-DAG: mulberry_core.heap.alloc f32
+# MLIR: mulberry_core.record.get_field {{.*}}["data"]
+# MLIR: mulberry_core.ptr.index
+
+# JIT: 44
+# JIT-NEXT: 1

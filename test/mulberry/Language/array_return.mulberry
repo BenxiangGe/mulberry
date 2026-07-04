@@ -1,0 +1,48 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn makeLiteral(): UInt64[3] {
+  [4, 5, 6]
+}
+
+fn makeLocal(): UInt64[3] {
+  var xs: UInt64[3] = [7, 8, 9];
+  xs[1] = 40;
+  xs
+}
+
+fn sum(xs: UInt64[3]): UInt64 {
+  xs[0] + xs[1] + xs[2]
+}
+
+fn main(): UInt64 {
+  var literal: UInt64[3] = makeLiteral();
+  io.print(sum(literal));
+
+  var local: UInt64[3] = makeLocal();
+  io.print(sum(local));
+
+  io.print(sum(makeLiteral()));
+  0
+}
+
+# MLIR: func.func @makeLiteral() -> !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# MLIR: mulberry_core.heap.alloc i64
+# MLIR: return {{.*}} : !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# MLIR: func.func @makeLocal() -> !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# MLIR: mulberry_core.store {{.*}} : i64, !mulberry_core.ptr<i64>
+# MLIR: return {{.*}} : !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>
+# MLIR: call @sum({{.*}}) : (!mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>) -> i64
+
+# LOWERED: func.func @makeLiteral() -> !llvm.struct<(i64, ptr)>
+# LOWERED: llvm.call @mulberry_boehm_malloc
+# LOWERED: return {{.*}} : !llvm.struct<(i64, ptr)>
+# LOWERED: func.func @makeLocal() -> !llvm.struct<(i64, ptr)>
+# LOWERED: llvm.store {{.*}} : i64, !llvm.ptr
+# LOWERED: return {{.*}} : !llvm.struct<(i64, ptr)>
+
+# JIT: 15
+# JIT-NEXT: 56
+# JIT-NEXT: 15

@@ -1,0 +1,38 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn sum(xs: UInt64[3]): UInt64 {
+  xs[0] + xs[1] + xs[2]
+}
+
+fn bumpSecond(xs: UInt64[3]): UInt64 {
+  xs[1] = 40;
+  xs[1]
+}
+
+fn main(): UInt64 {
+  var xs: UInt64[3] = [7, 8, 9];
+  io.print(sum(xs));
+  io.print(bumpSecond(xs));
+  io.print(xs[1]);
+  0
+}
+
+# MLIR: func.func @sum(%arg0: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>) -> i64
+# MLIR: mulberry_core.record.get_field {{.*}}["data"]
+# MLIR: mulberry_core.ptr.index
+# MLIR: func.func @bumpSecond(%arg0: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>) -> i64
+# MLIR: mulberry_core.store {{.*}} : i64, !mulberry_core.ptr<i64>
+# MLIR: call @sum({{.*}}) : (!mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>) -> i64
+
+# LOWERED: func.func @sum(%arg0: !llvm.struct<(i64, ptr)>) -> i64
+# LOWERED: llvm.getelementptr {{.*}}[0, 1]
+# LOWERED: llvm.load
+# LOWERED: func.func @bumpSecond(%arg0: !llvm.struct<(i64, ptr)>) -> i64
+# LOWERED: llvm.store {{.*}} : i64, !llvm.ptr
+
+# JIT: 24
+# JIT-NEXT: 40
+# JIT-NEXT: 40

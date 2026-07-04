@@ -3,33 +3,25 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var w1v: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
-  var w2v: Float32[?, ?] = [[1.0, 0.0], [0.0, 1.0]];
-  var b1v: Float32[?, ?] = [[0.0], [0.0]];
-  var b2v: Float32[?, ?] = [[0.0], [0.0]];
-  var w1: Tensor<Float32> = tensor.pack(w1v);
-  var w2: Tensor<Float32> = tensor.pack(w2v);
-  var b1: Tensor<Float32> = tensor.pack(b1v);
-  var b2: Tensor<Float32> = tensor.pack(b2v);
+  var w1: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var w2: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var b1: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var b2: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
 
-  var x0v: Float32[?, ?] = [[1.0], [0.0]];
-  var x1v: Float32[?, ?] = [[0.0], [1.0]];
-  var y0v: Float32[?, ?] = [[1.0], [0.0]];
-  var y1v: Float32[?, ?] = [[0.0], [1.0]];
-  var x0: Tensor<Float32> = tensor.pack(x0v);
-  var x1: Tensor<Float32> = tensor.pack(x1v);
-  var y0: Tensor<Float32> = tensor.pack(y0v);
-  var y1: Tensor<Float32> = tensor.pack(y1v);
-  var xs: List<Tensor<Float32>> = [x0, x1];
-  var ys: List<Tensor<Float32>> = [y0, y1];
+  var x0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var x1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
+  var y0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var y1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
+  var xs: List<Tensor<Float32>> = list.from([x0, x1]);
+  var ys: List<Tensor<Float32>> = list.from([y0, y1]);
   const eta: Float32 = 0.8;
 
   for epoch in 0 .. 4 {
     for sample in 0 .. xs.size() {
       const x: Tensor<Float32> = xs[sample];
       const y: Tensor<Float32> = ys[sample];
-      var weights: List<Tensor<Float32>> = [w1, w2];
-      var biases: List<Tensor<Float32>> = [b1, b2];
+      var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+      var biases: List<Tensor<Float32>> = list.from([b1, b2]);
 
       var z1: Tensor<Float32> = nn.matadd(
           nn.matmul(weights[0], x),
@@ -56,8 +48,8 @@ fn main(): UInt64 {
     }
   }
 
-  var finalWeights: List<Tensor<Float32>> = [w1, w2];
-  var finalBiases: List<Tensor<Float32>> = [b1, b2];
+  var finalWeights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var finalBiases: List<Tensor<Float32>> = list.from([b1, b2]);
 
   var activation0: Tensor<Float32> = xs[0];
   for layer in 0 .. finalWeights.size() {

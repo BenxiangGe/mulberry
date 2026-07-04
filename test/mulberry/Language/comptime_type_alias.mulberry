@@ -2,23 +2,20 @@
 # RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
-fn use(xs: types.Vector<UInt64>, ys: types.Matrix<Float32>): UInt64 {
+fn use(xs: types.Vector<UInt64>): UInt64 {
   xs.size()
 }
 
 fn main(): UInt64 {
-  var xs: types.Vector<UInt64> = [1, 2, 3];
-  var ys: types.Matrix<Float32> = [[1.0, 2.0], [3.0, 4.0]];
-  use(xs, ys)
+  var xs: types.Vector<UInt64> = list.from([1, 2, 3]);
+  use(xs)
 }
 
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Vector parameter=T type=collections.List<T>
-# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Matrix parameter=T type=T[?, ?]
+# AST: ComptimeTypeAliasDecl {{.*}}name=std.types.Vector parameter=T type=List<T>
 # AST: Prototype
 # AST-SAME: name=use
 # AST: VariableStat (id=xs
 # AST-SAME: type=types.Vector<UInt64>
-# AST: VariableStat (id=ys
-# AST-SAME: type=types.Matrix<Float32>
-# MLIR: func.func @use(%arg0: !mulberry.record<std_collections_List__UInt64
-# MLIR-SAME: %arg1: !mulberry.tensor<?x?xf32>) -> i64
+# AST: CallExpr {{.*}}callee=std_list_from__UInt64__3
+# MLIR: func.func @use(%arg0: !mulberry_core.record<std_list_List__UInt64
+# MLIR-SAME: -> i64

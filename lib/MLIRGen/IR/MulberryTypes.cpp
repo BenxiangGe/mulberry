@@ -1,4 +1,4 @@
-//===--- MulberryTypes.cpp - Mulberry dialect types -----------------------===//
+//===--- MulberryTypes.cpp - Mulberry core dialect types -----------------------===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -14,7 +14,7 @@
 #include <set>
 
 using namespace mlir;
-using namespace mlir::mulberry;
+using namespace mlir::mulberry_core;
 
 #define GET_TYPEDEF_CLASSES
 #include "mulberry/MLIRGen/IR/MulberryOpsTypes.cpp.inc"
@@ -92,17 +92,17 @@ static void printShapedElementType(AsmPrinter& printer,
   printer << ">";
 }
 
-Type mlir::mulberry::TensorType::parse(AsmParser& parser) {
+Type mlir::mulberry_core::TensorType::parse(AsmParser& parser) {
   SmallVector<int64_t> shape;
   Type elementType;
   if (parseShapedElementType(parser, shape, elementType))
     return {};
 
-  return mlir::mulberry::TensorType::get(parser.getContext(), shape,
+  return mlir::mulberry_core::TensorType::get(parser.getContext(), shape,
                                          elementType);
 }
 
-void mlir::mulberry::TensorType::print(AsmPrinter& printer) const {
+void mlir::mulberry_core::TensorType::print(AsmPrinter& printer) const {
   printShapedElementType(printer, getShape(), getElementType());
 }
 

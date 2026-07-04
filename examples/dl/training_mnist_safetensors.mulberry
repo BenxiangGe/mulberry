@@ -35,17 +35,17 @@ fn main(): UInt64 {
   io.close(file);
 
   var xs: List<Tensor<Float32>> =
-      [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9];
+      list.from([x0, x1, x2, x3, x4, x5, x6, x7, x8, x9]);
   var ys: List<Tensor<Float32>> =
-      [y0, y1, y2, y3, y4, y5, y6, y7, y8, y9];
+      list.from([y0, y1, y2, y3, y4, y5, y6, y7, y8, y9]);
   const eta: Float32 = 0.1;
 
   for epoch in 0 .. 30 {
     for sample in 0 .. xs.size() {
       const x: Tensor<Float32> = xs[sample];
       const y: Tensor<Float32> = ys[sample];
-      var weights: List<Tensor<Float32>> = [w1, w2];
-      var biases: List<Tensor<Float32>> = [b1, b2];
+      var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+      var biases: List<Tensor<Float32>> = list.from([b1, b2]);
 
       var z1: Tensor<Float32> = nn.matadd(
           nn.matmul(weights[0], x),
@@ -87,14 +87,10 @@ fn main(): UInt64 {
   io.write(b2Output, b2);
   io.close(b2Output);
 
-  var savedW1: Float32[30, 784] = {};
-  var savedB1: Float32[30, 1] = {};
-  var savedW2: Float32[10, 30] = {};
-  var savedB2: Float32[10, 1] = {};
-  var savedW1Tensor: Tensor<Float32> = tensor.pack(savedW1);
-  var savedB1Tensor: Tensor<Float32> = tensor.pack(savedB1);
-  var savedW2Tensor: Tensor<Float32> = tensor.pack(savedW2);
-  var savedB2Tensor: Tensor<Float32> = tensor.pack(savedB2);
+  var savedW1Tensor: Tensor<Float32> = tensor.zeros([30, 784]);
+  var savedB1Tensor: Tensor<Float32> = tensor.zeros([30, 1]);
+  var savedW2Tensor: Tensor<Float32> = tensor.zeros([10, 30]);
+  var savedB2Tensor: Tensor<Float32> = tensor.zeros([10, 1]);
 
   const w1Input: File = io.open("/tmp/mulberry_mnist_trained_w1.f32", "rb");
   io.read(w1Input, savedW1Tensor);
@@ -113,9 +109,9 @@ fn main(): UInt64 {
   io.close(b2Input);
 
   var finalWeights: List<Tensor<Float32>> =
-      [savedW1Tensor, savedW2Tensor];
+      list.from([savedW1Tensor, savedW2Tensor]);
   var finalBiases: List<Tensor<Float32>> =
-      [savedB1Tensor, savedB2Tensor];
+      list.from([savedB1Tensor, savedB2Tensor]);
 
   const inferenceFile: File = io.open("data/mnist-784-30-10.safetensors", "rb");
   var x: Tensor<Float32> = safetensors.readTensor(inferenceFile, "x");

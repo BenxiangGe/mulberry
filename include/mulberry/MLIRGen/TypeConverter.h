@@ -17,14 +17,17 @@ public:
   explicit MLIRTypeConverter(mlir::OpBuilder& builder) : _builder(builder) {}
 
   auto convert(const Type *type) const -> mlir::Type;
+  // Converts the internal/core tensor type to the memref type consumed by
+  // current lowerings. Source-level Tensor<T> is a record header.
   auto convertTensorToMemRefType(const TensorType& type) const
       -> mlir::MemRefType;
 
 private:
   auto convert(const BuiltinType& type) const -> mlir::Type;
-  auto convert(const TensorType& type) const -> mlir::mulberry::TensorType;
+  auto convert(const TensorType& type) const -> mlir::mulberry_core::TensorType;
+  auto convert(const ArrayType& type) const -> mlir::Type;
   auto convert(const PtrType& type) const -> mlir::Type;
-  auto convert(const StructType& type) const -> mlir::mulberry::RecordType;
+  auto convert(const StructType& type) const -> mlir::mulberry_core::RecordType;
 
   mlir::OpBuilder& _builder;
 };

@@ -1,4 +1,4 @@
-//===--- MulberryOps.h - Mulberry dialect ops ------------------*- C++ -*-===//
+//===--- MulberryOps.h - Mulberry core dialect ops ------------------*- C++ -*-===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information

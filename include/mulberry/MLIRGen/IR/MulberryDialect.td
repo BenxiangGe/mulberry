@@ -1,4 +1,4 @@
-//===--- MulberryDialect.td - Mulberry dialect -------------*- tablegen -*-===//
+//===--- MulberryDialect.td - Mulberry core dialect -------------*- tablegen -*-===//
 //
 // This source file is part of the Mulberry open source project
 // See LICENSE.txt for license information
@@ -11,9 +11,9 @@
 include "mlir/IR/OpBase.td"
 
 def Mulberry_Dialect : Dialect {
-  let name = "mulberry";
+  let name = "mulberry_core";
   let summary = "Mulberry core MLIR dialect.";
-  let cppNamespace = "::mlir::mulberry";
+  let cppNamespace = "::mlir::mulberry_core";
 
   let useDefaultTypePrinterParser = 1;
   let extraClassDeclaration = [{

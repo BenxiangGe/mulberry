@@ -2,12 +2,12 @@
 
 module {
   func.func @main() -> i1 {
-    %record = mulberry.alloca !mulberry.record<Person {age: i64, active: i1}> : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>>
-    %age = mulberry.record.get_field %record["age"] : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>> -> !mulberry.ptr<i64>
+    %record = mulberry_core.alloca !mulberry_core.record<Person {age: i64, active: i1}> : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>>
+    %age = mulberry_core.record.get_field %record["age"] : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>> -> !mulberry_core.ptr<i64>
     %value = arith.constant 42 : i64
-    mulberry.store %value, %age : i64, !mulberry.ptr<i64>
-    %recordValue = mulberry.load %record : !mulberry.ptr<!mulberry.record<Person {age: i64, active: i1}>> -> !mulberry.record<Person {age: i64, active: i1}>
-    %active = mulberry.record.extract %recordValue["active"] : !mulberry.record<Person {age: i64, active: i1}> -> i1
+    mulberry_core.store %value, %age : i64, !mulberry_core.ptr<i64>
+    %recordValue = mulberry_core.load %record : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>> -> !mulberry_core.record<Person {age: i64, active: i1}>
+    %active = mulberry_core.record.extract %recordValue["active"] : !mulberry_core.record<Person {age: i64, active: i1}> -> i1
     return %active : i1
   }
 }

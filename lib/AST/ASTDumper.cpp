@@ -27,8 +27,10 @@ auto indexKindName(IndexExpr::IndexKind kind) -> std::string_view {
     return "unknown";
   case IndexExpr::IndexKind::Ptr:
     return "ptr";
-  case IndexExpr::IndexKind::Tensor:
-    return "tensor";
+  case IndexExpr::IndexKind::Array:
+    return "array";
+  case IndexExpr::IndexKind::StdlibTensor:
+    return "stdlibTensor";
   case IndexExpr::IndexKind::StdlibList:
     return "stdlibList";
   }
@@ -71,9 +73,6 @@ private:
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const DerefExpr *node) -> void;
-  auto dump(const ZeroInitExpr *node) -> void;
-  auto dump(const TensorPackExpr *node) -> void;
-  auto dump(const TensorViewExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
   auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
@@ -103,11 +102,11 @@ private:
     if (dyn_cast<UnitTypeNode>(node))
       return "()";
 
-    if (auto *tensorType = dyn_cast<TensorTypeNode>(node)) {
-      std::string result = formatTypeNode(tensorType->elementTypeNode());
+    if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
+      std::string result = formatTypeNode(arrayType->elementTypeNode());
       result += "[";
       std::string separator;
-      for (auto dim : tensorType->shape()) {
+      for (auto dim : arrayType->shape()) {
         result += separator;
         result += dim < 0 ? "?" : std::to_string(dim);
         separator = ", ";
@@ -287,9 +286,8 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr, ZeroInitExpr,
-            TensorPackExpr, TensorViewExpr, ArrayLiteralExpr, IndexExpr,
-            VariableExpr, MemberExpr,
+            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr,
+            ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
             AssignExpr, IfExpr, WhileExpr, BreakExpr, ContinueExpr, ForExpr,
             BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -321,26 +319,6 @@ auto Dumper::dump(const CallExpr *node) -> void {
     dump(node->receiver().get());
   for (auto &expr : *node)
     dump(expr.get());
-}
-
-auto Dumper::dump(const ZeroInitExpr *node) -> void {
-  INDENT();
-  errs() << "ZeroInitExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-}
-
-auto Dumper::dump(const TensorPackExpr *node) -> void {
-  INDENT();
-  errs() << "TensorPackExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-  dump(node->tensor().get());
-}
-
-auto Dumper::dump(const TensorViewExpr *node) -> void {
-  INDENT();
-  errs() << "TensorViewExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-  dump(node->tensorRecord().get());
 }
 
 auto Dumper::dump(const StructLiteralExpr *node) -> void {

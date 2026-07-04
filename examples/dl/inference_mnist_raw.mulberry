@@ -4,16 +4,11 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var w1: Float32[30, 784] = {};
-  var b1: Float32[30, 1] = {};
-  var w2: Float32[10, 30] = {};
-  var b2: Float32[10, 1] = {};
-  var x: Float32[784, 1] = {};
-  var w1h: Tensor<Float32> = tensor.pack(w1);
-  var b1h: Tensor<Float32> = tensor.pack(b1);
-  var w2h: Tensor<Float32> = tensor.pack(w2);
-  var b2h: Tensor<Float32> = tensor.pack(b2);
-  var xh: Tensor<Float32> = tensor.pack(x);
+  var w1h: Tensor<Float32> = tensor.zeros([30, 784]);
+  var b1h: Tensor<Float32> = tensor.zeros([30, 1]);
+  var w2h: Tensor<Float32> = tensor.zeros([10, 30]);
+  var b2h: Tensor<Float32> = tensor.zeros([10, 1]);
+  var xh: Tensor<Float32> = tensor.zeros([784, 1]);
 
   const w1File: File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb");
   io.read(w1File, w1h);
@@ -35,8 +30,8 @@ fn main(): UInt64 {
   io.read(xFile, xh);
   io.close(xFile);
 
-  var weights: List<Tensor<Float32>> = [w1h, w2h];
-  var biases: List<Tensor<Float32>> = [b1h, b2h];
+  var weights: List<Tensor<Float32>> = list.from([w1h, w2h]);
+  var biases: List<Tensor<Float32>> = list.from([b1h, b2h]);
   var activation: Tensor<Float32> = xh;
 
   for layer in 0 .. weights.size() {

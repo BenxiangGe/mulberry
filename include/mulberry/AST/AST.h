@@ -20,7 +20,6 @@
 #include "mulberry/AST/NameExpr.h"
 #include "mulberry/AST/Stat.h"
 #include "mulberry/AST/StructLiteralExpr.h"
-#include "mulberry/AST/TensorExpr.h"
 #include "mulberry/AST/CollectionExpr.h"
 #include "mulberry/AST/Type.h"
 #include "mulberry/AST/TypeLayoutExpr.h"

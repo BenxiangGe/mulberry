@@ -20,5 +20,5 @@ fn main(): UInt64 {
 # AST-SAME: type=Buffer2D<Float32>
 
 # MLIR-LABEL: func.func @main()
-# MLIR: !mulberry.record<ShapedBuffer__Float32__2
-# MLIR: mulberry.record.get_field {{.*}}["rank"]
+# MLIR: !mulberry_core.record<ShapedBuffer__Float32__2
+# MLIR: mulberry_core.record.get_field {{.*}}["rank"]

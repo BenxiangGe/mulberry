@@ -2,10 +2,9 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var xs: UInt64[3] = [1, 2, 3];
-  var ys: UInt64[2, 3] = [[1, 2, 3], [4, 5, 6]];
-  var xsTensor: Tensor<UInt64> = tensor.pack(xs);
-  var ysTensor: Tensor<UInt64> = tensor.pack(ys);
+  var xsTensor: Tensor<UInt64> = tensor.from([1, 2, 3]);
+  var ysTensor: Tensor<UInt64> =
+      tensor.from([[1, 2, 3], [4, 5, 6]]);
 
   io.print(xsTensor.numel());
   io.print(ysTensor.numel());

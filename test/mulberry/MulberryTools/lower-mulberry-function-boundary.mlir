@@ -1,17 +1,17 @@
 // RUN: mulberry-opt --lower-mulberry %s | FileCheck %s
 
 module {
-  func.func @identity(%ptr: !mulberry.ptr<i64>) -> !mulberry.ptr<i64> {
-    return %ptr : !mulberry.ptr<i64>
+  func.func @identity(%ptr: !mulberry_core.ptr<i64>) -> !mulberry_core.ptr<i64> {
+    return %ptr : !mulberry_core.ptr<i64>
   }
 
   func.func @main() -> i64 {
-    %ptr = mulberry.alloca i64 : !mulberry.ptr<i64>
+    %ptr = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
     %value = arith.constant 42 : i64
-    mulberry.store %value, %ptr : i64, !mulberry.ptr<i64>
+    mulberry_core.store %value, %ptr : i64, !mulberry_core.ptr<i64>
     %same = call @identity(%ptr)
-        : (!mulberry.ptr<i64>) -> !mulberry.ptr<i64>
-    %loaded = mulberry.load %same : !mulberry.ptr<i64> -> i64
+        : (!mulberry_core.ptr<i64>) -> !mulberry_core.ptr<i64>
+    %loaded = mulberry_core.load %same : !mulberry_core.ptr<i64> -> i64
     return %loaded : i64
   }
 }

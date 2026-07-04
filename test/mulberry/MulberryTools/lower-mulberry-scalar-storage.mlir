@@ -2,10 +2,10 @@
 
 module {
   func.func @main() -> i64 {
-    %ptr = mulberry.alloca i64 : !mulberry.ptr<i64>
+    %ptr = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
     %value = arith.constant 42 : i64
-    mulberry.store %value, %ptr : i64, !mulberry.ptr<i64>
-    %loaded = mulberry.load %ptr : !mulberry.ptr<i64> -> i64
+    mulberry_core.store %value, %ptr : i64, !mulberry_core.ptr<i64>
+    %loaded = mulberry_core.load %ptr : !mulberry_core.ptr<i64> -> i64
     return %loaded : i64
   }
 }

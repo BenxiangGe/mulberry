@@ -13,6 +13,7 @@ enum class TypeKind {
   Builtin,
   Struct,
   Tensor,
+  Array,
   List,
   Ptr,
 };
@@ -121,6 +122,9 @@ private:
   std::optional<ComptimeAliasOrigin> _origin;
 };
 
+// Internal/core tensor type. Source-level `Tensor<T>` is now a stdlib/comptime
+// record header and appears here as StructType with an alias origin, not as
+// this type.
 class TensorType final : public Type {
 public:
   TensorType(const Type *elementType, std::vector<int64_t> shape);
@@ -134,6 +138,21 @@ public:
 private:
   const Type *_elementType;
   std::vector<int64_t> _shape;
+};
+
+class ArrayType final : public Type {
+public:
+  ArrayType(const Type *elementType, uint64_t size);
+
+  static auto classof(const Type *type) -> bool;
+
+  auto elementType() const -> const Type *;
+
+  auto size() const -> uint64_t;
+
+private:
+  const Type *_elementType;
+  uint64_t _size = 0;
 };
 
 class ListType final : public Type {
@@ -163,6 +182,7 @@ private:
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getTensorType(const Type *type) -> const TensorType *;
+auto getArrayType(const Type *type) -> const ArrayType *;
 auto getStructType(const Type *type) -> const StructType *;
 auto getListType(const Type *type) -> const ListType *;
 auto getPtrType(const Type *type) -> const PtrType *;
@@ -175,11 +195,15 @@ auto isFloat32Type(const Type *type) -> bool;
 auto isFileType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
+auto isArrayElementType(const Type *type) -> bool;
 auto isTensorType(const Type *type) -> bool;
+auto isArrayType(const Type *type) -> bool;
 auto isListType(const Type *type) -> bool;
 auto isPtrType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
+auto arrayLeafElementType(const Type *type, std::vector<int64_t> &shape)
+    -> const Type *;
 // Display-only formatter for diagnostics and dumps; not for type identity.
 auto formatType(const Type *type) -> std::string;
 auto sizeOfType(const Type *type) -> std::optional<uint64_t>;
@@ -201,6 +225,9 @@ public:
   auto createTensorType(const Type *elementType,
                         std::vector<int64_t> shape) const
       -> const TensorType *;
+
+  auto createArrayType(const Type *elementType, uint64_t size) const
+      -> const ArrayType *;
 
   auto createListType(const Type *elementType) const -> const ListType *;
 

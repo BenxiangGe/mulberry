@@ -6,7 +6,6 @@ add_library(mulberryAST STATIC
         ${LIB_HEADERS}/Module.h
         ${LIB_HEADERS}/Decl.h
         ${LIB_HEADERS}/Expr.h
-        ${LIB_HEADERS}/TensorExpr.h
         ${LIB_HEADERS}/Stat.h
         ASTDumper.cpp
 )

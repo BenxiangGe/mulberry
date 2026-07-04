@@ -16,15 +16,15 @@ fn main(): UInt64 {
 }
 
 # CHECK-LABEL: func.func @main
-# CHECK: %[[OUTER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: %[[OUTER:.*]] = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
 # CHECK: arith.constant 3 : i64
-# CHECK: mulberry.store {{.*}}, %[[OUTER]] : i64, !mulberry.ptr<i64>
+# CHECK: mulberry_core.store {{.*}}, %[[OUTER]] : i64, !mulberry_core.ptr<i64>
 # CHECK: %[[TRUE:.*]] = arith.constant true
-# CHECK: mulberry.store %[[TRUE]], %[[KEEP_GOING:.*]] : i1, !mulberry.ptr<i1>
+# CHECK: mulberry_core.store %[[TRUE]], %[[KEEP_GOING:.*]] : i1, !mulberry_core.ptr<i1>
 # CHECK: scf.while
-# CHECK: %[[INNER:.*]] = mulberry.alloca i64 : !mulberry.ptr<i64>
+# CHECK: %[[INNER:.*]] = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
 # CHECK: arith.constant 4 : i64
-# CHECK: mulberry.store {{.*}}, %[[INNER]] : i64, !mulberry.ptr<i64>
-# CHECK: mulberry.store {{.*}}, %[[KEEP_GOING]] : i1, !mulberry.ptr<i1>
-# CHECK: mulberry.load %[[OUTER]] : !mulberry.ptr<i64> -> i64
+# CHECK: mulberry_core.store {{.*}}, %[[INNER]] : i64, !mulberry_core.ptr<i64>
+# CHECK: mulberry_core.store {{.*}}, %[[KEEP_GOING]] : i1, !mulberry_core.ptr<i1>
+# CHECK: mulberry_core.load %[[OUTER]] : !mulberry_core.ptr<i64> -> i64
 # CHECK-NOT: cir.

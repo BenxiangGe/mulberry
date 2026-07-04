@@ -8,11 +8,11 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def MulberryNN_AnyTensorType : Type<
-    CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
+    CPred<"::llvm::isa<::mlir::mulberry_core::TensorType>($_self)">,
     "Mulberry tensor type">;
 
 def MulberryNN_AnyTensorStorageType : Type<
-    Or<[CPred<"::llvm::isa<::mlir::mulberry::TensorType>($_self)">,
+    Or<[CPred<"::llvm::isa<::mlir::mulberry_core::TensorType>($_self)">,
         IsMemRefTypePred]>,
     "Mulberry tensor or lowered memref tensor storage">;
 
