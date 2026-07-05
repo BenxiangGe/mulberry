@@ -1,0 +1,23 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var xs: Tensor<Float32> =
+      tensor.from([[[1.0], [2.0]], [[3.0], [4.0]], [[5.0], [6.0]]]);
+  var ys: Tensor<Float32> =
+      tensor.from([[[1.0], [0.0]], [[0.0], [1.0]], [[1.0], [0.0]]]);
+  var dataset: nn.TensorDataset = nn.datasetFromBatches(xs, ys);
+
+  io.print(dataset.size());
+  io.print(dataset.input(0).numel());
+  io.print(nn.argmax(dataset.label(1)));
+  dataset.shuffle(123);
+  io.print(dataset.size());
+  0
+}
+
+# JIT: 3
+# JIT-NEXT: 2
+# JIT-NEXT: 1
+# JIT-NEXT: 3

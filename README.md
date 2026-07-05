@@ -167,6 +167,8 @@ cmake --build build/release --target check-mulberry
 - safetensors 文件推理源码：`examples/dl/inference_mnist_safetensors.mulberry`
 - raw 文件推理源码：`examples/dl/inference_mnist_raw.mulberry`
 - safetensors training smoke 源码：`examples/dl/training_mnist_safetensors.mulberry`
+- safetensors mini-batch training smoke 源码：
+  `examples/dl/training_mnist_minibatch_safetensors.mulberry`
 
 重新生成示例：
 
@@ -185,8 +187,8 @@ python3 tools/export_mnist_raw_tensors.py
 [Raw Tensor Files](docs/RawTensorFiles.md)。
 
 raw `.f32` 是 bootstrap/debug 格式。日常 MNIST 推理优先使用 safetensors：它用
-单个文件保存多个 tensor，并通过 `safetensors.readTensor(file, name)` 按名字读取
-Tensor header。
+单个文件保存多个 tensor，并通过 `safetensors.open(path)` / `safetensors.read(file, name)`
+按名字读取 Tensor header。
 详细约定见 [Safetensors](docs/Safetensors.md)。
 
 导出 safetensors 单文件：
@@ -215,18 +217,30 @@ python3 tools/export_mnist_safetensors.py
 python3 tools/export_mnist_training_safetensors.py
 ```
 
-当前 training 导出是 bootstrap 布局：每个样本独立保存为
-`train_x_0`、`train_y_0`、...、`train_x_9`、`train_y_9` 这样的 named tensor。这样后续
-training script 可以继续使用已经跑通的 `safetensors.readTensor(file, name)`，
-不需要先引入 dataset iterator 或 tensor slice。
+当前 training 导出是 batch tensor 布局：`train_x` / `test_x` 的 shape 是
+`[N, 784, 1]`，`train_y` / `test_y` 的 shape 是 `[N, 10, 1]`。training script
+先用 `safetensors.TensorFile` cache 读取整个 batch，再通过 `nn.TensorDataset`
+把 batch tensor 转成成对的样本 view；这样暂时不需要先引入完整 dataset iterator。
 
 training smoke 走 Nielsen `network2.py` 默认的 CrossEntropy output delta：
 `delta = a - y`，用默认导出的 `10` 个 training 样本跑 `30` 个 epoch。训练后会读取
-`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
-mini-batch、shuffle、L2 regularization 和保存训练结果还没实现。
+`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference。training 示例会先输出
+bootstrap training/test 的 `correct`、`total` 和 `accuracyBasisPoints`，最后输出
+inference label，当前期望是 `10`、`10`、`10000`、`9`、`10`、`9000` 和 `7`。
+per-sample 和 mini-batch 示例当前复用 `mulberry.nn` 里的 `nn.twoLayerGradient()`，
+把 2-layer FCN 的 backprop 从示例代码里收进 stdlib helper；它仍然只是当前
+Nielsen 784-30-10 正向路径需要的普通 helper，不是通用 autograd。
+当前已接入固定小 lambda 的 L2 regularization 正向路径，并会把训练后的权重写成一个
+safetensors checkpoint 再读回验证。per-sample 和 mini-batch 示例都会在每个 epoch
+前调用 `TensorDataset.shuffle()` 做 deterministic paired shuffle。mini-batch 示例从
+`dataset.size()` 和 `batchSize` 派生 batch 数，最后一个不满 batch 也会按实际大小更新；
+lit 里有一个 `--sample-count 11` 的 safetensors tail-batch 回归专门覆盖这条路径。
+`TensorDataset` 只是当前 `Tensor<Float32>` input/label pair 的轻量视图，完整 dataset
+iterator 仍是后续任务。
 
 ```sh
 ./build/release/bin/mulberry-driver examples/dl/training_mnist_safetensors.mulberry
+./build/release/bin/mulberry-driver examples/dl/training_mnist_minibatch_safetensors.mulberry
 ./build/release/bin/mulberry-driver --dump=mlir examples/dl/inference_mnist1.mulberry
 ./build/release/bin/mulberry-driver --dump=lowered-mlir examples/dl/inference_mnist1.mulberry
 ./build/release/bin/mulberry-driver examples/dl/inference_mnist1.mulberry

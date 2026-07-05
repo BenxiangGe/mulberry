@@ -72,3 +72,30 @@ fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
 fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
   zerosDynamic(list.from(shape))
 }
+
+fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
+  var sizes: List<UInt64> = list.withCapacity(0);
+  var strides: List<UInt64> = list.withCapacity(0);
+
+  var dimension: UInt64 = 1;
+  while dimension < value.rank {
+    sizes.push(value.sizes[dimension]);
+    strides.push(value.strides[dimension]);
+    dimension = dimension + 1;
+  }
+
+  const offset: UInt64 = index * value.strides[0];
+  const count: UInt64 = value.numel / value.sizes[0];
+  Tensor<T> { ptr.offset(value.data, offset), value.rank - 1, count, sizes, strides }
+}
+
+fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {
+  var result: List<Tensor<T>> = list.withCapacity(value.sizes[0]);
+  var index: UInt64 = 0;
+  while index < value.sizes[0] {
+    var sample: Tensor<T> = std.tensor.sliceFirst(value, index);
+    result.push(sample);
+    index = index + 1;
+  }
+  result
+}

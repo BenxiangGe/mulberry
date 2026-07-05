@@ -1,0 +1,31 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_mnist_safetensors.py --output /tmp/mulberry_safetensors_tensor_file_jit.safetensors > %t.export.log && mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_safetensors_tensor_file_jit.safetensors");
+
+  var x: Tensor<Float32> = safetensors.read(file, "x");
+  var w1: Tensor<Float32> = safetensors.read(file, "w1");
+  safetensors.close(file);
+
+  io.print(x.numel());
+  io.print(x.ndim());
+  io.print(x.dim(0));
+  io.print(x.dim(1));
+  io.print(w1.numel());
+  io.print(w1.ndim());
+  io.print(w1.dim(0));
+  io.print(w1.dim(1));
+  0
+}
+
+# JIT: 784
+# JIT-NEXT: 2
+# JIT-NEXT: 784
+# JIT-NEXT: 1
+# JIT-NEXT: 23520
+# JIT-NEXT: 2
+# JIT-NEXT: 30
+# JIT-NEXT: 784

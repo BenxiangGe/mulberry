@@ -1,0 +1,65 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var w1: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var w2: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var b1: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var b2: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+
+  var x0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var x1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
+  var y0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var y1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
+  var xs: List<Tensor<Float32>> = list.from([x0, x1]);
+  var ys: List<Tensor<Float32>> = list.from([y0, y1]);
+  var dataset: nn.TensorDataset = nn.datasetFromLists(xs, ys);
+  const eta: Float32 = 0.8;
+  const batchSize: UInt64 = dataset.size();
+  const batchScale: Float32 = eta / core.toFloat32(batchSize);
+  const regularization: Float32 = 0.01;
+  const weightScale: Float32 =
+      nn.l2WeightScale(eta, regularization, batchSize);
+
+  for epoch in 0 .. 8 {
+    var sumW1: Tensor<Float32> = tensor.zeros([2, 2]);
+    var sumB1: Tensor<Float32> = tensor.zeros([2, 1]);
+    var sumW2: Tensor<Float32> = tensor.zeros([2, 2]);
+    var sumB2: Tensor<Float32> = tensor.zeros([2, 1]);
+
+    for sample in 0 .. batchSize {
+      const x: Tensor<Float32> = dataset.input(sample);
+      const y: Tensor<Float32> = dataset.label(sample);
+      var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+      var biases: List<Tensor<Float32>> = list.from([b1, b2]);
+      const gradient: nn.TwoLayerGradient =
+          nn.twoLayerGradient(weights, biases, x, y);
+
+      sumW1 = nn.matadd(sumW1, gradient.w1);
+      sumB1 = nn.matadd(sumB1, gradient.b1);
+      sumW2 = nn.matadd(sumW2, gradient.w2);
+      sumB2 = nn.matadd(sumB2, gradient.b2);
+    }
+
+    w1 = nn.updateWeight(w1, sumW1, batchScale, weightScale);
+    b1 = nn.matsub(b1, nn.matscale(sumB1, batchScale));
+    w2 = nn.updateWeight(w2, sumW2, batchScale, weightScale);
+    b2 = nn.matsub(b2, nn.matscale(sumB2, batchScale));
+  }
+
+  var finalWeights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var finalBiases: List<Tensor<Float32>> = list.from([b1, b2]);
+  const evaluation: nn.Evaluation =
+      nn.evaluateDataset(finalWeights, finalBiases, dataset);
+
+  io.print(nn.predict(finalWeights, finalBiases, dataset.input(0)));
+  io.print(nn.predict(finalWeights, finalBiases, dataset.input(1)));
+  io.print(evaluation.correct);
+
+  0
+}
+
+# JIT: 0
+# JIT-NEXT: 1
+# JIT-NEXT: 2

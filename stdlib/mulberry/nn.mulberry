@@ -1,5 +1,9 @@
 package mulberry.nn;
 
+import list.List;
+import list;
+import core;
+import tensor;
 import tensor.Tensor;
 
 # mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
@@ -14,3 +18,146 @@ extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;
+
+struct Evaluation {
+  correct: UInt64,
+  total: UInt64,
+  accuracyBasisPoints: UInt64
+}
+
+struct TwoLayerGradient {
+  w1: Tensor<Float32>,
+  b1: Tensor<Float32>,
+  w2: Tensor<Float32>,
+  b2: Tensor<Float32>
+}
+
+struct TensorDataset {
+  xs: List<Tensor<Float32>>,
+  ys: List<Tensor<Float32>>,
+
+  pub fn size(self: Ptr<TensorDataset>): UInt64 {
+    self.xs.size()
+  }
+
+  pub fn input(self: Ptr<TensorDataset>, index: UInt64): Tensor<Float32> {
+    self.xs[index]
+  }
+
+  pub fn label(self: Ptr<TensorDataset>, index: UInt64): Tensor<Float32> {
+    self.ys[index]
+  }
+
+  pub fn shuffle(self: Ptr<TensorDataset>, seed: UInt64): UInt64 {
+    list.shufflePair(self.xs, self.ys, seed)
+  }
+}
+
+fn datasetFromLists(xs: List<Tensor<Float32>>,
+                    ys: List<Tensor<Float32>>): TensorDataset {
+  TensorDataset { xs, ys }
+}
+
+fn datasetFromBatches(inputs: Tensor<Float32>,
+                      labels: Tensor<Float32>): TensorDataset {
+  datasetFromLists(tensor.slicesFirst(inputs), tensor.slicesFirst(labels))
+}
+
+fn forward(weights: List<Tensor<Float32>>, biases: List<Tensor<Float32>>,
+           input: Tensor<Float32>): Tensor<Float32> {
+  var activation: Tensor<Float32> = input;
+  for layer in 0 .. weights.size() {
+    activation = sigmoid(matadd(matmul(weights[layer], activation),
+                                biases[layer]));
+  }
+  activation
+}
+
+fn predict(weights: List<Tensor<Float32>>, biases: List<Tensor<Float32>>,
+           input: Tensor<Float32>): UInt64 {
+  argmax(forward(weights, biases, input))
+}
+
+fn countCorrect(weights: List<Tensor<Float32>>, biases: List<Tensor<Float32>>,
+                xs: List<Tensor<Float32>>,
+                ys: List<Tensor<Float32>>): UInt64 {
+  var correct: UInt64 = 0;
+  for sample in 0 .. xs.size() {
+    if predict(weights, biases, xs[sample]) == argmax(ys[sample]) {
+      correct = correct + 1;
+    }
+  }
+  correct
+}
+
+fn accuracyBasisPoints(correct: UInt64, total: UInt64): UInt64 {
+  var result: UInt64 = 0;
+  if total > 0 {
+    const scaled: UInt64 = correct * 10000;
+    result = scaled / total;
+  }
+  result
+}
+
+fn evaluate(weights: List<Tensor<Float32>>, biases: List<Tensor<Float32>>,
+            xs: List<Tensor<Float32>>,
+            ys: List<Tensor<Float32>>): Evaluation {
+  const correct: UInt64 = countCorrect(weights, biases, xs, ys);
+  const total: UInt64 = xs.size();
+  Evaluation { correct, total, accuracyBasisPoints(correct, total) }
+}
+
+fn evaluateDataset(weights: List<Tensor<Float32>>,
+                   biases: List<Tensor<Float32>>,
+                   dataset: TensorDataset): Evaluation {
+  evaluate(weights, biases, dataset.xs, dataset.ys)
+}
+
+fn batchCount(sampleCount: UInt64, batchSize: UInt64): UInt64 {
+  var result: UInt64 = 0;
+  if batchSize > 0 {
+    const adjustedSampleCount: UInt64 = sampleCount + batchSize - 1;
+    result = adjustedSampleCount / batchSize;
+  }
+  result
+}
+
+fn batchEnd(batchStart: UInt64, batchSize: UInt64,
+            sampleCount: UInt64): UInt64 {
+  var result: UInt64 = batchStart + batchSize;
+  if result > sampleCount {
+    result = sampleCount;
+  }
+  result
+}
+
+fn twoLayerGradient(weights: List<Tensor<Float32>>,
+                   biases: List<Tensor<Float32>>,
+                   input: Tensor<Float32>,
+                   expected: Tensor<Float32>): TwoLayerGradient {
+  var z1: Tensor<Float32> = matadd(matmul(weights[0], input), biases[0]);
+  var a1: Tensor<Float32> = sigmoid(z1);
+  var z2: Tensor<Float32> = matadd(matmul(weights[1], a1), biases[1]);
+  var a2: Tensor<Float32> = sigmoid(z2);
+
+  var delta2: Tensor<Float32> = matsub(a2, expected);
+  var nablaW2: Tensor<Float32> = matmul(delta2, transpose(a1));
+
+  var delta1: Tensor<Float32> =
+    hadamard(matmul(transpose(weights[1]), delta2), sigmoidPrime(z1));
+  var nablaW1: Tensor<Float32> = matmul(delta1, transpose(input));
+
+  TwoLayerGradient { nablaW1, delta1, nablaW2, delta2 }
+}
+
+# Nielsen network2 L2 update: w = (1 - eta * lambda / n) * w - scale * grad.
+# See http://neuralnetworksanddeeplearning.com/chap3.html#overfitting_and_regularization
+fn l2WeightScale(eta: Float32, regularization: Float32,
+                 trainingSize: UInt64): Float32 {
+  1.0 - eta * regularization / core.toFloat32(trainingSize)
+}
+
+fn updateWeight(weight: Tensor<Float32>, gradient: Tensor<Float32>,
+                gradientScale: Float32, weightScale: Float32): Tensor<Float32> {
+  matsub(matscale(weight, weightScale), matscale(gradient, gradientScale))
+}

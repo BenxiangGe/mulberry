@@ -1,8 +1,8 @@
 """Export a small Nielsen MNIST training subset as one safetensors file.
 
-The current Mulberry runtime reads named tensors by expected type. Until the
-language has tensor slicing or a dataset iterator, each sample is exported as
-its own pair of tensors: train_x_0, train_y_0, train_x_1, train_y_1, ...
+The current Mulberry runtime reads named tensors by expected type. Training and
+test subsets are exported as batch tensors and Mulberry uses tensor.sliceFirst()
+to view individual samples until a real dataset iterator exists.
 """
 
 from __future__ import annotations
@@ -50,6 +50,12 @@ def parseArgs() -> argparse.Namespace:
         help="Number of training samples to export.",
     )
     parser.add_argument(
+        "--test-count",
+        type=int,
+        default=10,
+        help="Number of test samples to export.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
@@ -58,36 +64,47 @@ def parseArgs() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def loadTrainingData(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def loadMnistData(
+    path: Path,
+) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
     numpyExceptions = getattr(np, "exceptions", np)
     warningClass = getattr(numpyExceptions, "VisibleDeprecationWarning", Warning)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", warningClass)
         with gzip.open(path, "rb") as file:
-            trainingData, _validationData, _testData = pickle.load(
+            trainingData, _validationData, testData = pickle.load(
                 file, encoding="latin1"
             )
 
-    return trainingData
+    return trainingData, testData
 
 
-def oneHotLabel(label: int) -> np.ndarray:
-    value = np.zeros((10, 1), dtype=np.float32)
-    value[label, 0] = 1.0
-    return value
+def oneHotLabels(labels: np.ndarray, count: int) -> np.ndarray:
+    values = np.zeros((count, 10, 1), dtype=np.float32)
+    for index in range(count):
+        values[index, int(labels[index]), 0] = 1.0
+    return values
 
 
 def main() -> None:
     args = parseArgs()
     if args.sample_count <= 0:
         raise ValueError("--sample-count must be positive")
+    if args.test_count <= 0:
+        raise ValueError("--test-count must be positive")
 
     w1, b1, w2, b2 = loadNetwork(args.network_json)
-    trainingInputs, trainingLabels = loadTrainingData(args.mnist_data)
+    (trainingInputs, trainingLabels), (testInputs, testLabels) = loadMnistData(
+        args.mnist_data
+    )
     if args.sample_count > len(trainingLabels):
         raise ValueError(
             f"--sample-count {args.sample_count} exceeds "
             f"{len(trainingLabels)} training samples"
+        )
+    if args.test_count > len(testLabels):
+        raise ValueError(
+            f"--test-count {args.test_count} exceeds {len(testLabels)} test samples"
         )
 
     tensors = [
@@ -96,11 +113,18 @@ def main() -> None:
         ("w2", w2),
         ("b2", b2),
     ]
-    for index in range(args.sample_count):
-        x = np.asarray(trainingInputs[index], dtype=np.float32).reshape((784, 1))
-        y = oneHotLabel(int(trainingLabels[index]))
-        tensors.append((f"train_x_{index}", x))
-        tensors.append((f"train_y_{index}", y))
+    trainX = np.asarray(trainingInputs[: args.sample_count], dtype=np.float32)
+    trainX = trainX.reshape((args.sample_count, 784, 1))
+    trainY = oneHotLabels(trainingLabels, args.sample_count)
+    testX = np.asarray(testInputs[: args.test_count], dtype=np.float32)
+    testX = testX.reshape((args.test_count, 784, 1))
+    testY = oneHotLabels(testLabels, args.test_count)
+    tensors.extend([
+        ("train_x", trainX),
+        ("train_y", trainY),
+        ("test_x", testX),
+        ("test_y", testY),
+    ])
 
     byteCount = writeSafetensors(args.output, tensors)
 

@@ -1,0 +1,30 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var w1: Tensor<Float32> = tensor.from([[0.0, 0.0], [0.0, 0.0]]);
+  var b1: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var w2: Tensor<Float32> = tensor.from([[0.0, 0.0], [0.0, 0.0]]);
+  var b2: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var x: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var y: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+
+  var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var biases: List<Tensor<Float32>> = list.from([b1, b2]);
+  const gradient: nn.TwoLayerGradient =
+      nn.twoLayerGradient(weights, biases, x, y);
+
+  io.print(gradient.w1.numel());
+  io.print(core.boolToUInt64(gradient.w2[0, 0] < 0.0));
+  io.print(core.boolToUInt64(gradient.w2[1, 1] > 0.0));
+  io.print(core.boolToUInt64(gradient.b2[0, 0] < 0.0));
+  io.print(core.boolToUInt64(gradient.b2[1, 0] > 0.0));
+  0
+}
+
+# JIT: 4
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1

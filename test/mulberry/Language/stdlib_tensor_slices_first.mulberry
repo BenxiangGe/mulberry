@@ -1,0 +1,21 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var batch: Tensor<Float32> =
+      tensor.from([[[1.0], [2.0]], [[3.0], [4.0]], [[5.0], [6.0]]]);
+  var samples: List<Tensor<Float32>> = tensor.slicesFirst(batch);
+  const first: Tensor<Float32> = samples[0];
+  const second: Tensor<Float32> = samples[1];
+  const third: Tensor<Float32> = samples[2];
+
+  io.print(samples.size());
+  io.print(first.numel());
+  io.print(core.boolToUInt64(second[1, 0] > 3.5));
+  io.print(core.boolToUInt64(third[0, 0] > 4.5));
+  0
+}
+
+# JIT: 3
+# JIT-NEXT: 2
+# JIT-NEXT: 1
+# JIT-NEXT: 1
