@@ -1,0 +1,84 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_mnist_training_safetensors.py --sample-count 11 --test-count 10 --output /tmp/mulberry_nn_minibatch_tail_safetensors_jit.safetensors > %t.export.log && mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_nn_minibatch_tail_safetensors_jit.safetensors");
+
+  var w1: Tensor<Float32> = safetensors.read(file, "w1");
+  var b1: Tensor<Float32> = safetensors.read(file, "b1");
+  var w2: Tensor<Float32> = safetensors.read(file, "w2");
+  var b2: Tensor<Float32> = safetensors.read(file, "b2");
+  var trainX: Tensor<Float32> = safetensors.read(file, "train_x");
+  var trainY: Tensor<Float32> = safetensors.read(file, "train_y");
+  safetensors.close(file);
+
+  var train: nn.TensorDataset = nn.datasetFromBatches(trainX, trainY);
+
+  const eta: Float32 = 0.1;
+  const batchSize: UInt64 = 5;
+  const trainingSize: UInt64 = train.size();
+  const batchCount: UInt64 = nn.batchCount(trainingSize, batchSize);
+  const lastBatchIndex: UInt64 = batchCount - 1;
+  const lastBatchStart: UInt64 = lastBatchIndex * batchSize;
+  const lastBatchEnd: UInt64 =
+      nn.batchEnd(lastBatchStart, batchSize, trainingSize);
+  const regularization: Float32 = 0.01;
+  const weightScale: Float32 =
+      nn.l2WeightScale(eta, regularization, trainingSize);
+  var processedSamples: UInt64 = 0;
+
+  train.shuffle(12345);
+  for batch in 0 .. batchCount {
+    const batchStart: UInt64 = batch * batchSize;
+    const batchEnd: UInt64 = nn.batchEnd(batchStart, batchSize,
+                                         trainingSize);
+    const currentBatchSize: UInt64 = batchEnd - batchStart;
+    const batchScale: Float32 = eta / core.toFloat32(currentBatchSize);
+
+    var sumW1: Tensor<Float32> = tensor.zeros([30, 784]);
+    var sumB1: Tensor<Float32> = tensor.zeros([30, 1]);
+    var sumW2: Tensor<Float32> = tensor.zeros([10, 30]);
+    var sumB2: Tensor<Float32> = tensor.zeros([10, 1]);
+
+    for sample in batchStart .. batchEnd {
+      processedSamples = processedSamples + 1;
+      const x: Tensor<Float32> = train.input(sample);
+      const y: Tensor<Float32> = train.label(sample);
+      var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+      var biases: List<Tensor<Float32>> = list.from([b1, b2]);
+      const gradient: nn.TwoLayerGradient =
+          nn.twoLayerGradient(weights, biases, x, y);
+
+      sumW1 = nn.matadd(sumW1, gradient.w1);
+      sumB1 = nn.matadd(sumB1, gradient.b1);
+      sumW2 = nn.matadd(sumW2, gradient.w2);
+      sumB2 = nn.matadd(sumB2, gradient.b2);
+    }
+
+    w1 = nn.updateWeight(w1, sumW1, batchScale, weightScale);
+    b1 = nn.matsub(b1, nn.matscale(sumB1, batchScale));
+    w2 = nn.updateWeight(w2, sumW2, batchScale, weightScale);
+    b2 = nn.matsub(b2, nn.matscale(sumB2, batchScale));
+  }
+
+  var finalWeights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var finalBiases: List<Tensor<Float32>> = list.from([b1, b2]);
+  const evaluation: nn.Evaluation =
+      nn.evaluateDataset(finalWeights, finalBiases, train);
+
+  io.print(trainingSize);
+  io.print(batchCount);
+  io.print(lastBatchEnd);
+  io.print(processedSamples);
+  io.print(evaluation.total);
+  0
+}
+
+# JIT: 11
+# JIT-NEXT: 3
+# JIT-NEXT: 11
+# JIT-NEXT: 11
+# JIT-NEXT: 11

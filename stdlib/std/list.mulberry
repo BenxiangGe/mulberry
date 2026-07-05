@@ -1,5 +1,7 @@
 package std.list;
 
+import random;
+
 comptime List<T> = struct {
   length: UInt64,
   capacity: UInt64,
@@ -15,6 +17,13 @@ comptime List<T> = struct {
 
   pub fn set(self: Ptr<List<T>>, index: UInt64, value: T): UInt64 {
     self.data[index] = value;
+    0
+  }
+
+  pub fn swap(self: Ptr<List<T>>, first: UInt64, second: UInt64): UInt64 {
+    const value: T = self.data[first];
+    self.data[first] = self.data[second];
+    self.data[second] = value;
     0
   }
 
@@ -56,4 +65,17 @@ fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
     index = index + 1;
   }
   result
+}
+
+fn shufflePair<T, U>(first: List<T>, second: List<U>, seed: UInt64): UInt64 {
+  var rng: random.Rng = random.seed(seed);
+  var index: UInt64 = first.size();
+  while index > 1 {
+    const target: UInt64 = index - 1;
+    const swapIndex: UInt64 = rng.nextBelow(index);
+    first.swap(target, swapIndex);
+    second.swap(target, swapIndex);
+    index = index - 1;
+  }
+  0
 }

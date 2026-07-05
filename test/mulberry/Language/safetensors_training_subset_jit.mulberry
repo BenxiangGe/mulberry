@@ -1,0 +1,37 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_mnist_training_safetensors.py --sample-count 1 --test-count 2 --output /tmp/mulberry_safetensors_training_subset_jit.safetensors > %t.export.log && mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_safetensors_training_subset_jit.safetensors");
+
+  var trainX: Tensor<Float32> = safetensors.read(file, "train_x");
+  var trainY: Tensor<Float32> = safetensors.read(file, "train_y");
+  var testX: Tensor<Float32> = safetensors.read(file, "test_x");
+  var testY: Tensor<Float32> = safetensors.read(file, "test_y");
+  safetensors.close(file);
+
+  var train: nn.TensorDataset = nn.datasetFromBatches(trainX, trainY);
+  var test: nn.TensorDataset = nn.datasetFromBatches(testX, testY);
+
+  var trainX0: Tensor<Float32> = train.input(0);
+  var trainY0: Tensor<Float32> = train.label(0);
+  var testX0: Tensor<Float32> = test.input(0);
+  var testY0: Tensor<Float32> = test.label(0);
+  var testY1: Tensor<Float32> = test.label(1);
+
+  io.print(trainX0.numel());
+  io.print(testX0.numel());
+  io.print(nn.argmax(trainY0));
+  io.print(nn.argmax(testY0));
+  io.print(nn.argmax(testY1));
+  0
+}
+
+# JIT: 784
+# JIT-NEXT: 784
+# JIT-NEXT: 5
+# JIT-NEXT: 7
+# JIT-NEXT: 2

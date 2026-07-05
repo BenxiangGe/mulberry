@@ -102,31 +102,38 @@ python3 tools/export_mnist_training_safetensors.py
 data/mnist-784-30-10-training.safetensors
 ```
 
-文件包含初始网络参数，以及按名字展开的 training 样本：
+文件包含初始网络参数，以及 batch 形式的 training / test 样本：
 
 ```text
 w1         F32[30, 784]
 b1         F32[30, 1]
 w2         F32[10, 30]
 b2         F32[10, 1]
-train_x_0  F32[784, 1]
-train_y_0  F32[10, 1]
-train_x_1  F32[784, 1]
-train_y_1  F32[10, 1]
-...
-train_x_9  F32[784, 1]
-train_y_9  F32[10, 1]
+train_x    F32[10, 784, 1]
+train_y    F32[10, 10, 1]
+test_x     F32[10, 784, 1]
+test_y     F32[10, 10, 1]
 ```
 
-`train_y_N` 是 one-hot label。当前 Mulberry 还没有 tensor slice 或 dataset
-iterator，所以 training bootstrap 先把每个样本导成独立 named tensor。后续如果
-语言补齐 dataset 抽象，可以改成单个 `Tensor<Float32>` 批量 tensor，例如 shape 为
-`[?, 784, 1]` 的 `train_x` 和 shape 为 `[?, 10, 1]` 的 `train_y`。
+`train_y` 和 `test_y` 是 one-hot label batch。当前 Mulberry 还没有完整 dataset
+iterator，所以 training bootstrap 先用 `nn.TensorDataset` 从 batch tensor 生成
+成对的样本 view。后续如果语言补齐 dataset 抽象，可以把这层 lightweight view
+收进去。
 
-这个 smoke 使用默认导出的 `10` 个 training 样本跑 `30` 个 epoch 的 per-sample SGD，然后读取
-`data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference，期望输出是 `7`。
+这个 smoke 使用默认导出的 `10` 个 training 样本跑 `30` 个 epoch 的 per-sample SGD，
+然后先输出 bootstrap training/test 的 `correct`、`total` 和 `accuracyBasisPoints`，
+最后读取 `data/mnist-784-30-10.safetensors` 里的 `x` 做一次 inference。训练后的权重
+会写成 safetensors checkpoint 再读回验证。当前期望输出是 `10`、`10`、`10000`、`9`、
+`10`、`9000` 和 `7`。
 输出层 delta 采用 Nielsen `network2.py` 默认的 CrossEntropy 形式：
-`delta = a - y`。mini-batch、shuffle、L2 regularization 和保存训练结果后续再补。
+`delta = a - y`。当前已接入固定小 lambda 的 L2 regularization 正向路径，并会写出
+safetensors checkpoint。per-sample 和 mini-batch 示例复用 `nn.twoLayerGradient()`
+计算当前 2-layer FCN 的梯度，避免示例里重复手写 backprop。这个 helper 只覆盖当前
+Nielsen-style 两层网络，不是通用训练框架。per-sample 和 mini-batch 示例都会在
+每个 epoch 前调用 `TensorDataset.shuffle()` 同步打乱 input/label。mini-batch 示例从
+`dataset.size()` 和 `batchSize` 派生 batch 数，最后一个不满 batch 也会按实际大小更新；
+完整 dataset iterator 后续再补。`nn_minibatch_tail_safetensors_jit.mulberry` 会导出
+11 个 training 样本来覆盖非整除 batch 的正向路径。
 
 ```sh
 ./build/release/bin/mulberry-driver examples/dl/training_mnist_safetensors.mulberry
@@ -137,22 +144,23 @@ iterator，所以 training bootstrap 先把每个样本导成独立 named tensor
 第一版固定返回 `Tensor<Float32>`，不做裸类型推断：
 
 ```mulberry
-const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
+const file: safetensors.TensorFile =
+    safetensors.open("data/mnist-784-30-10.safetensors");
 
-var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
-var b1: Tensor<Float32> = safetensors.readTensor(file, "b1");
-var w2: Tensor<Float32> = safetensors.readTensor(file, "w2");
-var b2: Tensor<Float32> = safetensors.readTensor(file, "b2");
-var x: Tensor<Float32> = safetensors.readTensor(file, "x");
+var w1: Tensor<Float32> = safetensors.read(file, "w1");
+var b1: Tensor<Float32> = safetensors.read(file, "b1");
+var w2: Tensor<Float32> = safetensors.read(file, "w2");
+var b2: Tensor<Float32> = safetensors.read(file, "b2");
+var x: Tensor<Float32> = safetensors.read(file, "x");
 
-io.close(file);
+safetensors.close(file);
 ```
 
 safetensors header 提供 dtype、concrete shape 和 payload offset。当前推荐直接使用
 `Tensor<Float32>` header：
 
 ```mulberry
-var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
+var w1: Tensor<Float32> = safetensors.read(file, "w1");
 ```
 
 含义是：
@@ -164,27 +172,27 @@ var w1: Tensor<Float32> = safetensors.readTensor(file, "w1");
 
 ## 分层设计
 
-`safetensors.readTensor()` 现在由 Mulberry stdlib 中的 cursor JSON parser 解析
+`safetensors.read()` 现在由 Mulberry stdlib 中的 cursor JSON parser 解析
 safetensors header。当前阶段的分层是：
 
 ```text
 Mulberry source
-  -> stdlib: safetensors.readTensor(file, name)
+  -> stdlib: safetensors.open(path) / safetensors.read(file, name)
   -> stdlib json parser: parse header / shape / offsets
   -> stdlib tensor.zeros/metadata helpers: build Tensor<Float32> header
   -> stdlib io.read: read payload bytes
   -> Runtime: file seek/read and byte zeroing helpers only
 ```
 
-当前 `safetensors.readTensor(file, name)` 每次都会 parse 一次 header。MNIST 推理只会
-读 `w1`、`b1`、`w2`、`b2`、`x`，重复 parse header 的开销可以接受。
-这样可以避免提前引入 `TensorFile` handle、cache 和 lifetime 设计。
-
-后续如果需要优化，再增加：
+`safetensors.open(path)` 返回 `TensorFile`，其中缓存了 header bytes 和 header length。
+后续多次 `safetensors.read(file, name)` 会复用这个缓存，只重新创建 cursor parser。
+旧的 `safetensors.readTensor(File, name)` 仍作为兼容入口保留，但每次调用都会重新读
+header。
 
 ```mulberry
-const tensors: TensorFile = openTensorFile("data/mnist-784-30-10.safetensors");
-var w1: Tensor<Float32> = safetensors.readTensor(tensors, "w1");
+const tensors: safetensors.TensorFile =
+    safetensors.open("data/mnist-784-30-10.safetensors");
+var w1: Tensor<Float32> = safetensors.read(tensors, "w1");
 ```
 
 ## Runtime Helper 责任
@@ -210,13 +218,14 @@ compiler/lowering 不再插入 safetensors-specific 隐藏调用。
 
 - 只支持 `Float32` / safetensors `F32`。
 - 只支持 Tensor，不支持 List 或 struct 直接从 safetensors 读取。
-- `safetensors.readTensor()` 统一返回 `Tensor<Float32>` header。
-- 不支持 `var w = safetensors.readTensor(file, "w1");` 这种裸推断。
-- training 数据当前使用 `train_x_N` / `train_y_N` named tensor bootstrap 布局，
-  还不是最终 dataset API。
+- `safetensors.read()` / `safetensors.readTensor()` 统一返回 `Tensor<Float32>` header。
+- 不支持 `var w = safetensors.read(file, "w1");` 这种裸推断。
+- training 数据当前使用 `train_x` / `train_y` / `test_x` / `test_y` batch tensor
+  bootstrap 布局，还不是最终 dataset API。
 - shape mismatch、dtype mismatch、找不到 tensor 先 fail-fast。
-- header 每次读取都会重复 parse，不做 cache。
-- 暂不支持写 safetensors。
+- `TensorFile` 已缓存 header bytes；还没有 Map/dataset iterator 级别的索引缓存。
+- 支持把 `List<String>` + `List<Tensor<Float32>>` 写成 safetensors checkpoint；当前
+  writer 只覆盖可信 ASCII tensor name 和 `Float32` tensor 正向路径。
 
 ## 后续方向
 

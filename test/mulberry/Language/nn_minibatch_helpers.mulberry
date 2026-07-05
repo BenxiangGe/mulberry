@@ -1,0 +1,18 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  io.print(nn.batchCount(10, 5));
+  io.print(nn.batchCount(11, 5));
+  io.print(nn.batchCount(0, 5));
+  io.print(nn.batchEnd(5, 5, 12));
+  io.print(nn.batchEnd(10, 5, 12));
+  0
+}
+
+# JIT: 2
+# JIT-NEXT: 3
+# JIT-NEXT: 0
+# JIT-NEXT: 10
+# JIT-NEXT: 12

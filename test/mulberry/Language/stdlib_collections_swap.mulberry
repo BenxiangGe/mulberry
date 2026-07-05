@@ -1,0 +1,15 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  var values: List<UInt64> = list.from([10, 20, 30]);
+  values.swap(0, 2);
+
+  io.print(values[0]);
+  io.print(values[1]);
+  io.print(values[2]);
+  0
+}
+
+# JIT: 30
+# JIT-NEXT: 20
+# JIT-NEXT: 10

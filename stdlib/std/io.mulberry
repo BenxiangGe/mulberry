@@ -1,5 +1,6 @@
 package std.io;
 
+import list.List;
 import ptr;
 import string.String;
 import tensor.Tensor;
@@ -47,4 +48,8 @@ fn read<T>(file: File, buffer: Tensor<T>): UInt64 {
 fn write<T>(file: File, buffer: Tensor<T>): UInt64 {
   mulberry_file_write(file.handle, ptr.asUInt8(buffer.data),
                       buffer.numel * sizeof(T))
+}
+
+fn writeBytes(file: File, bytes: List<UInt8>): UInt64 {
+  mulberry_file_write(file.handle, ptr.asUInt8(bytes.data), bytes.length)
 }

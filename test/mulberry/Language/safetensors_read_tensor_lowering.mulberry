@@ -13,6 +13,9 @@ fn main(): UInt64 {
 # MLIR: call @std.safetensors.readTensor
 
 # LOWERED-NOT: mulberry_safetensor_read_tensor_f32
-# LOWERED: func.func @std.safetensors.readTensor
-# LOWERED: call @std.safetensors.findTensor
+# LOWERED: func.func @std.safetensors.read
+# LOWERED: call @std.safetensors.find
 # LOWERED: call @std_io_read__Float32
+# LOWERED: func.func @std.safetensors.readTensor
+# LOWERED: call @std.safetensors.loadTensorFile
+# LOWERED: call @std.safetensors.read
