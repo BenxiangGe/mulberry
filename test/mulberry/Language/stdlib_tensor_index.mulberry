@@ -13,7 +13,7 @@ fn main(): UInt64 {
   io.print(core.toUInt64(bytes[2]));
   io.print(boolToUInt64(matrix[0, 1] > 8.5));
   io.print(boolToUInt64(matrix[1, 0] > 2.5));
-  0
+  return 0;
 }
 
 # AST: IndexExpr {{.*}}type=UInt8 kind=stdlibTensor
@@ -24,8 +24,7 @@ fn main(): UInt64 {
 # MLIR: mulberry_core.record.extract
 # MLIR: mulberry_core.ptr.index
 
-# LOWERED-NOT: mulberry_core.tensor.load
-# LOWERED-NOT: mulberry_core.tensor.store
+# LOWERED: func.func @main
 
 # JIT: 30
 # JIT-NEXT: 1

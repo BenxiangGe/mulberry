@@ -32,6 +32,7 @@ struct VariableSymbol {
 
 struct FunctionSymbol {
   std::vector<const Type *> parameterTypes;
+  std::vector<bool> parameterIsConst;
   const Type *returnType = nullptr;
 };
 
@@ -52,11 +53,13 @@ class Symbols {
 public:
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
+                       std::vector<bool> parameterIsConst,
                        const Type *returnType)
       -> MulberryResult {
     return declareSymbol(
         _functionsByName, name,
-        FunctionSymbol{std::move(parameterTypes), returnType});
+        FunctionSymbol{std::move(parameterTypes), std::move(parameterIsConst),
+                       returnType});
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {

@@ -27,29 +27,6 @@ static auto getTensorType(Type type) -> mlir::mulberry_core::TensorType {
   return llvm::dyn_cast<mlir::mulberry_core::TensorType>(type);
 }
 
-static auto countDynamicDims(ArrayRef<int64_t> shape) -> size_t {
-  size_t count = 0;
-  for (auto dim : shape)
-    if (dim < 0)
-      ++count;
-  return count;
-}
-
-static auto compatibleTensorShape(ArrayRef<int64_t> sourceShape,
-                                  ArrayRef<int64_t> destShape) -> bool {
-  if (sourceShape.size() != destShape.size())
-    return false;
-
-  for (size_t i = 0; i < sourceShape.size(); ++i) {
-    auto sourceDim = sourceShape[i];
-    auto destDim = destShape[i];
-    if (sourceDim >= 0 && destDim >= 0 && sourceDim != destDim)
-      return false;
-  }
-
-  return true;
-}
-
 auto AllocaOp::verify() -> LogicalResult {
   auto resultPointeeType = getPtrPointeeType(getResult().getType());
   if (resultPointeeType != getElementType())
@@ -118,35 +95,6 @@ auto RecordExtractOp::verify() -> LogicalResult {
   return success();
 }
 
-auto TensorAllocOp::verify() -> LogicalResult {
-  auto tensorType = getTensorType(getResult().getType());
-  auto expectedDynamicSizeCount = countDynamicDims(tensorType.getShape());
-  if (expectedDynamicSizeCount != getDynamicSizes().size())
-    return emitOpError("dynamic size count must match dynamic tensor dims");
-
-  return success();
-}
-
-auto TensorDimOp::verify() -> LogicalResult {
-  if (!getTensorType(getTensor().getType()))
-    return emitOpError("input must be an internal tensor");
-
-  return success();
-}
-
-auto TensorCastOp::verify() -> LogicalResult {
-  auto sourceType = getTensorType(getSource().getType());
-  auto destType = getTensorType(getDest().getType());
-
-  if (sourceType.getElementType() != destType.getElementType())
-    return emitOpError("source and destination element types must match");
-
-  if (!compatibleTensorShape(sourceType.getShape(), destType.getShape()))
-    return emitOpError("source and destination shapes are incompatible");
-
-  return success();
-}
-
 static auto verifyTensorMetadataList(Operation* op, Type type,
                                      StringRef fieldName) -> LogicalResult {
   auto listType = llvm::dyn_cast<RecordType>(type);
@@ -207,26 +155,4 @@ auto TensorPackOp::verify() -> LogicalResult {
   auto recordType = llvm::dyn_cast<RecordType>(getResult().getType());
   auto tensorType = getTensorType(getTensor().getType());
   return verifyTensorRecord(getOperation(), recordType, tensorType, "result");
-}
-
-auto TensorLoadOp::verify() -> LogicalResult {
-  auto tensorType = getTensorType(getTensor().getType());
-  if (tensorType.getShape().size() != getIndices().size())
-    return emitOpError("index count must match tensor rank");
-
-  if (tensorType.getElementType() != getResult().getType())
-    return emitOpError("result type must match tensor element type");
-
-  return success();
-}
-
-auto TensorStoreOp::verify() -> LogicalResult {
-  auto tensorType = getTensorType(getTensor().getType());
-  if (tensorType.getShape().size() != getIndices().size())
-    return emitOpError("index count must match tensor rank");
-
-  if (tensorType.getElementType() != getValue().getType())
-    return emitOpError("value type must match tensor element type");
-
-  return success();
 }

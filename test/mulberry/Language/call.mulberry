@@ -1,11 +1,11 @@
 # RUN: mulberry-driver %s -typecheck
 
 fn foo(k: UInt64): UInt64 {
-  k + 1
+  return k + 1;
 }
 
 fn main(): UInt64 {
-  foo(10)
+  return foo(10);
 }
 
 # CHECK: 10

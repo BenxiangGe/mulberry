@@ -8,7 +8,7 @@ fn main(): UInt64 {
   io.print(core.boolToUInt64(five == 5.0));
   io.print(core.boolToUInt64(half == 2.5));
   io.print(core.toUInt64(byte));
-  0
+  return 0;
 }
 
 # JIT: 1

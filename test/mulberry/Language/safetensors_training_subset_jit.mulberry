@@ -27,7 +27,7 @@ fn main(): UInt64 {
   io.print(nn.argmax(trainY0));
   io.print(nn.argmax(testY0));
   io.print(nn.argmax(testY1));
-  0
+  return 0;
 }
 
 # JIT: 784

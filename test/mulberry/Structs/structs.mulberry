@@ -21,7 +21,7 @@ fn main(): UInt64 {
   io.print(c.b.y);
   c.b.y = 22;
   io.print(c.b.y);
-  0
+  return 0;
 }
 
 # CHECK: !mulberry_core.record<C

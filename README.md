@@ -16,13 +16,14 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 - Lexer / Parser / AST / Sema / Driver。
 - 结构化 semantic type system，不再使用旧的 string-based type system。
 - 基础类型：`Unit`、`Bool`、`UInt64`、`Float32`。
-- 复合类型：`struct`、`Array<T, N>`、`List<T>` 和 `Tensor<T>` header。
+- 复合类型：`struct`、`Array<T, N>`、`List<T>` 和 `Tensor<T>` object。
 - 下一阶段的类型分层已经确定：普通 `[]` literal 应默认是语言 `Array`；
   `List<T>` 是 growable container；`Tensor<T>` 类似 NumPy `ndarray`，只在显式需要
   dense numeric buffer、memref/linalg 或 `mulberry.nn` interop 时使用。
 - 当前一维静态 `T[N]` 已是 fixed-size Array；`Array<T, N>` 现在是
-  `{ length, data }` 风格的普通 header value，元素 buffer 由 heap 分配，支持函数
-  参数/返回、`struct` field、`Ptr<Array<...>>` 和 nested Array。多维/动态 `T[...]`
+  `{ length, data }` 风格的普通 object，元素 buffer 由 heap 分配，支持函数
+  参数/返回、`struct` field 和 nested Array。底层 storage 是 compiler/stdlib
+  内部实现细节，不是用户语法。多维/动态 `T[...]`
   源码语法已经删除；ndarray-style value 统一写 `Tensor<T>`。
 - Struct literal 语法：`A { ... }`。
 - Struct member read/write 使用独立 AST node，不再伪装成普通 call/binary expr。
@@ -43,21 +44,14 @@ Mulberry 目前已经具备一个可工作的前端和高层 MLIR pipeline：
 Mulberry source
   -> Lexer / Parser / AST
   -> Sema / semantic type checking
-  -> MLIRGen
-       - func / arith / scf: functions, scalar values, control flow
-       - mulberry_core.record / mulberry_core.ptr: structs and addressable values
-       - mulberry_core.tensor: compiler-owned internal tensor lowering values
-  -> optional lowering
-      - mulberry_core.tensor -> memref
-      - scalar and record storage -> LLVM dialect where currently supported
+  -> MLIRGen / high-level MLIR
+  -> optional storage lowering
   -> LLVM dialect / LLVM IR / JIT / object file / executable
 ```
 
-`mulberry_core` 是 compiler-owned core dialect boundary，不是外部 package。和
-`mulberry.nn` 不同，它承载 `PtrType`、`RecordType`、heap/record/ptr ops 以及
-internal Tensor lowering path，因此暂时仍随 compiler 一起构建。它不是
-长期 public ABI；如果未来 MLIR core 或 CIR-like reusable infrastructure 提供足够
-好的 record/ptr/object model，这些职责应该逐步迁过去。
+用户层只需要理解 Mulberry source、stdlib API、`mulberry.nn` package 和 driver
+输出层级。compiler-owned core dialect、storage object layout 和 lowering ABI 都是
+实现细节，集中记录在 [Mulberry Lowering](docs/MulberryLowering.md)。
 
 ## 语言快照
 

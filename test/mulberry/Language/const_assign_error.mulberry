@@ -4,7 +4,7 @@ fn main(): UInt64 {
   const answer: UInt64 = 42;
   answer = 43;
 
-  answer
+  return answer;
 }
 
 # CHECK: error: cannot assign to const variable

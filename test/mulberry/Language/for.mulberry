@@ -9,7 +9,7 @@ fn main(): UInt64 {
   }
 
   io.print(sum);
-  0
+  return 0;
 }
 
 # CHECK: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>

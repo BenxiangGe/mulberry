@@ -1,0 +1,28 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+struct Counter {
+  value: UInt64
+}
+
+fn makeCounter(): Counter {
+  return Counter { 1 };
+}
+
+fn alias(counter: Counter): Counter {
+  return counter;
+}
+
+fn main(): UInt64 {
+  var original: Counter = makeCounter();
+  var returned: Counter = alias(original);
+  returned.value = 42;
+  io.print(original.value);
+  return 0;
+}
+
+# JIT: 42
+
+# MLIR: func.func @makeCounter() -> !mulberry_core.ptr<!mulberry_core.record<Counter
+# MLIR: func.func @alias(%arg0: !mulberry_core.ptr<!mulberry_core.record<Counter
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Counter

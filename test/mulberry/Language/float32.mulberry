@@ -3,7 +3,7 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn add(x: Float32, y: Float32): Float32 {
-  x + y
+  return x + y;
 }
 
 fn main(): UInt64 {
@@ -11,7 +11,7 @@ fn main(): UInt64 {
   var y: Float32 = add(x, 2.5e1);
   y < 30.0;
 
-  0
+  return 0;
 }
 
 # TOKENS: float_literal '1.25'

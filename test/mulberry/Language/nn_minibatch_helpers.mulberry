@@ -8,7 +8,7 @@ fn main(): UInt64 {
   io.print(nn.batchCount(0, 5));
   io.print(nn.batchEnd(5, 5, 12));
   io.print(nn.batchEnd(10, 5, 12));
-  0
+  return 0;
 }
 
 # JIT: 2

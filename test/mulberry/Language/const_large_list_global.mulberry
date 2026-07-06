@@ -15,7 +15,7 @@ fn main(): UInt64 {
 
   var last: Float32 = values[7, 7];
   io.print(boolToUInt64(last > 62.5));
-  0
+  return 0;
 }
 
 # MLIR: mulberry_core.heap.alloc f32

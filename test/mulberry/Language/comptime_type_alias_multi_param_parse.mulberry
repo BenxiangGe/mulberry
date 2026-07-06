@@ -6,7 +6,7 @@ comptime Pair<T, U> = struct {
 };
 
 fn main(): UInt64 {
-  0
+  return 0;
 }
 
 # AST: ComptimeTypeAliasDecl {{.*}}name=Pair parameter=T, U type=struct {first: T, second: U}

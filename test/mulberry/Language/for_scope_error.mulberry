@@ -4,7 +4,7 @@ fn main(): UInt64 {
   for i in 0 .. 3 {
   }
 
-  i
+  return i;
 }
 
 # CHECK: error: undefined variable

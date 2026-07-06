@@ -3,7 +3,7 @@
 fn main(): UInt64 {
   var k: UInt64 = 12345;
 
-  k
+  return k;
 }
 
 # CHECK: 10

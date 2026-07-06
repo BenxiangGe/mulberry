@@ -6,7 +6,7 @@ fn main(): UInt64 {
   } else {
   }
 
-  scopedValue
+  return scopedValue;
 }
 
 # CHECK: error: undefined variable

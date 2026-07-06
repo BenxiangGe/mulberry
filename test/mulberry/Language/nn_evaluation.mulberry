@@ -25,7 +25,7 @@ fn main(): UInt64 {
   io.print(evaluation.total);
   io.print(evaluation.accuracyBasisPoints);
   io.print(nn.accuracyBasisPoints(1, 4));
-  0
+  return 0;
 }
 
 # JIT: 1

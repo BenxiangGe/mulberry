@@ -5,7 +5,7 @@
 fn main(): UInt64 {
   var xs: List<UInt64> = list.from([10, 20, 30]);
   io.print(xs[1]);
-  xs.size()
+  return xs.size();
 }
 
 # CHECK-LABEL: func.func @main()

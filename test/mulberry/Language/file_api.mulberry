@@ -7,7 +7,7 @@ fn transfer(input: File, output: File, bytes: Tensor<UInt8>): UInt64 {
   const writeCount: UInt64 = io.write(output, bytes);
   io.close(input);
   io.close(output);
-  readCount + writeCount
+  return readCount + writeCount;
 }
 
 fn main(): UInt64 {
@@ -15,7 +15,7 @@ fn main(): UInt64 {
   const output: File = io.open("data/out.bin", "wb");
   var bytes: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
   io.write(output, bytes);
-  io.close(input) + io.close(output)
+  return io.close(input) + io.close(output);
 }
 
 # AST: Prototype {{.*}}name=transfer{{.*}}type=UInt64

@@ -13,7 +13,7 @@ fn main(): UInt64 {
   var activation: Tensor<Float32> = w1;
   activation = w2;
 
-  weights.size() + 1
+  return weights.size() + 1;
 }
 
 # CHECK-LABEL: func.func @main()

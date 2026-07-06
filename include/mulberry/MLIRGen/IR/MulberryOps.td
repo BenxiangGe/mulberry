@@ -119,39 +119,6 @@ def Mulberry_RecordExtractOp : Mulberry_Op<"record.extract"> {
   let hasVerifier = 1;
 }
 
-def Mulberry_TensorAllocOp : Mulberry_Op<"tensor.alloc"> {
-  let summary = "Allocate an internal tensor";
-
-  let arguments = (ins Variadic<Index>:$dynamicSizes);
-  let results = (outs Mulberry_AnyTensorType:$result);
-
-  let assemblyFormat = "`(` $dynamicSizes `)` attr-dict `:` type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorDimOp : Mulberry_Op<"tensor.dim"> {
-  let summary = "Get an internal tensor dimension";
-
-  let arguments = (ins Mulberry_AnyTensorType:$tensor, Index:$index);
-  let results = (outs Index:$result);
-
-  let assemblyFormat = "$tensor `,` $index attr-dict `:` type($tensor)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorCastOp : Mulberry_Op<"tensor.cast"> {
-  let summary = "Cast an internal tensor shape";
-
-  let arguments = (ins Mulberry_AnyTensorType:$source);
-  let results = (outs Mulberry_AnyTensorType:$dest);
-
-  let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
-
-  let hasVerifier = 1;
-}
-
 def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
   let summary = "View a stdlib Tensor value as an internal tensor";
 
@@ -172,30 +139,6 @@ def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
 
   let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
                        "type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorLoadOp : Mulberry_Op<"tensor.load"> {
-  let summary = "Load an internal tensor element";
-
-  let arguments = (ins Mulberry_AnyTensorType:$tensor, Variadic<Index>:$indices);
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$tensor `[` $indices `]` attr-dict `:` type($tensor) "
-                       "`->` type($result)";
-
-  let hasVerifier = 1;
-}
-
-def Mulberry_TensorStoreOp : Mulberry_Op<"tensor.store"> {
-  let summary = "Store an internal tensor element";
-
-  let arguments = (ins AnyType:$value, Mulberry_AnyTensorType:$tensor,
-                       Variadic<Index>:$indices);
-
-  let assemblyFormat = "$value `,` $tensor `[` $indices `]` attr-dict `:` "
-                       "type($value) `,` type($tensor)";
 
   let hasVerifier = 1;
 }

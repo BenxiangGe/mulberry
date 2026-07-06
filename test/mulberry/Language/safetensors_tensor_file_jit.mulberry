@@ -18,7 +18,7 @@ fn main(): UInt64 {
   io.print(w1.ndim());
   io.print(w1.dim(0));
   io.print(w1.dim(1));
-  0
+  return 0;
 }
 
 # JIT: 784

@@ -111,7 +111,7 @@ auto Lexer::lexToken() -> Token {
     case '-':
       return formToken(Token::diff, tokStart);
     case '*':
-      return formToken(Token::mul, tokStart);
+      return formToken(Token::star, tokStart);
     case '/':
       return formToken(Token::div, tokStart);
     case '%':

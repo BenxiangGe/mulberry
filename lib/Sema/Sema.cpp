@@ -58,6 +58,8 @@ auto substituteBlockExpr(const BlockExpr *node,
                          const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<BlockExpr>;
 
+auto containsReturnStat(const BlockExpr *node) -> bool;
+
 auto toComptimeTypeValues(const std::vector<ComptimeArgument> &arguments)
     -> std::vector<ComptimeTypeValue> {
   std::vector<ComptimeTypeValue> values;
@@ -118,12 +120,56 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
   return expr;
 }
 
+auto containsReturnStat(const Expr *node) -> bool {
+  if (auto *block = dyn_cast<BlockExpr>(node))
+    return containsReturnStat(block);
+  return false;
+}
+
+auto containsReturnStat(const Stat *node) -> bool {
+  if (dyn_cast<ReturnStat>(node))
+    return true;
+  if (auto *ifStat = dyn_cast<IfStat>(node)) {
+    if (containsReturnStat(ifStat->thenBlock().get()))
+      return true;
+    return ifStat->hasElseBlock() &&
+           containsReturnStat(ifStat->elseBlock().get());
+  }
+  if (auto *whileStat = dyn_cast<WhileStat>(node))
+    return containsReturnStat(whileStat->bodyBlock().get());
+  if (auto *forStat = dyn_cast<ForStat>(node))
+    return containsReturnStat(forStat->bodyBlock().get());
+  if (auto *exprStat = dyn_cast<ExprStat>(node))
+    return containsReturnStat(exprStat->expression().get());
+  return false;
+}
+
+auto containsReturnStat(const BlockExpr *node) -> bool {
+  for (auto &statement : node->statements())
+    if (containsReturnStat(statement.get()))
+      return true;
+  return false;
+}
+
 auto methodFunctionName(std::string_view ownerName,
                         std::string_view methodName) -> std::string {
   std::string name(ownerName);
   name += ".";
   name += methodName;
   return name;
+}
+
+auto isMethodReceiverParameter(const Prototype *prototype,
+                               const VariableStat *parameter,
+                               size_t index) -> bool {
+  return prototype->isMethod() && index == 0 &&
+         parameter->variable()->name() == "self";
+}
+
+auto isSourceObjectType(const Type *type) -> bool {
+  if (auto *ptrType = getPtrType(type))
+    type = ptrType->pointeeType();
+  return getStructType(type) || getArrayType(type);
 }
 
 auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
@@ -138,11 +184,6 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
     return std::make_unique<ArrayTypeNode>(
         cloneTypeNode(arrayType->elementTypeNode()), arrayType->shape(),
         arrayType->location());
-  }
-
-  if (auto *listType = dyn_cast<ListTypeNode>(node)) {
-    return std::make_unique<ListTypeNode>(
-        cloneTypeNode(listType->elementTypeNode()), listType->location());
   }
 
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node)) {
@@ -171,7 +212,7 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
         field->variable()->location(), field->variable()->name());
     fields.push_back(std::make_unique<VariableStat>(
         field->location(), std::move(variable),
-        cloneTypeNode(field->typeNode()), nullptr));
+        cloneTypeNode(field->typeNode()), nullptr, field->isConst()));
   }
   VectorUniquePtr<FunctionDecl> methods;
   for (auto &method : structType->methods()) {
@@ -183,7 +224,8 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
           parameter->variable()->location(), parameter->variable()->name());
       parameters.push_back(std::make_unique<VariableStat>(
           parameter->location(), std::move(variable),
-          cloneTypeNode(parameter->typeNode()), nullptr));
+          cloneTypeNode(parameter->typeNode()), nullptr,
+          parameter->isConst()));
     }
     auto prototype = std::make_unique<Prototype>(
         method->proto()->location(), std::move(functionName),
@@ -224,12 +266,6 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
     return std::make_unique<NamedTypeNode>(location, structType->name());
   }
 
-  if (auto *tensorType = getTensorType(type)) {
-    return std::make_unique<ArrayTypeNode>(
-        typeToTypeNode(tensorType->elementType(), location),
-        tensorType->shape(), location);
-  }
-
   if (auto *arrayType = getArrayType(type)) {
     std::vector<ComptimeArg> arguments;
     arguments.push_back(ComptimeArg(
@@ -237,11 +273,6 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
     arguments.push_back(ComptimeArg(location, arrayType->size()));
     return std::make_unique<GenericTypeNode>(
         location, "Array", std::move(arguments));
-  }
-
-  if (auto *listType = getListType(type)) {
-    return std::make_unique<ListTypeNode>(
-        typeToTypeNode(listType->elementType(), location), location);
   }
 
   auto *ptrType = cast<PtrType>(type);
@@ -266,12 +297,6 @@ auto substituteTypeNode(const TypeNode *node,
     return std::make_unique<ArrayTypeNode>(
         substituteTypeNode(arrayType->elementTypeNode(), substitution),
         arrayType->shape(), arrayType->location());
-  }
-
-  if (auto *listType = dyn_cast<ListTypeNode>(node)) {
-    return std::make_unique<ListTypeNode>(
-        substituteTypeNode(listType->elementTypeNode(), substitution),
-        listType->location());
   }
 
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node)) {
@@ -366,9 +391,6 @@ auto containsComptimeParameter(const TypeNode *node,
     return containsComptimeParameter(arrayType->elementTypeNode(),
                                      parameters);
 
-  if (auto *listType = dyn_cast<ListTypeNode>(node))
-    return containsComptimeParameter(listType->elementTypeNode(), parameters);
-
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
     return containsComptimeParameter(ptrType->pointeeTypeNode(), parameters);
 
@@ -409,15 +431,65 @@ auto substituteBlockExpr(const BlockExpr *node,
       continue;
     }
 
+    if (auto *ifStat = dyn_cast<IfStat>(statement.get())) {
+      auto elseBlock = ifStat->hasElseBlock()
+                           ? substituteBlockExpr(ifStat->elseBlock().get(),
+                                                 substitutions)
+                           : nullptr;
+      statements.push_back(std::make_unique<IfStat>(
+          ifStat->location(),
+          substituteExpr(ifStat->conditionExpr().get(), substitutions),
+          substituteBlockExpr(ifStat->thenBlock().get(), substitutions),
+          std::move(elseBlock)));
+      continue;
+    }
+
+    if (auto *whileStat = dyn_cast<WhileStat>(statement.get())) {
+      statements.push_back(std::make_unique<WhileStat>(
+          whileStat->location(),
+          substituteExpr(whileStat->conditionExpr().get(), substitutions),
+          substituteBlockExpr(whileStat->bodyBlock().get(), substitutions)));
+      continue;
+    }
+
+    if (auto *forStat = dyn_cast<ForStat>(statement.get())) {
+      statements.push_back(std::make_unique<ForStat>(
+          forStat->location(), forStat->variableName(),
+          substituteExpr(forStat->startExpr().get(), substitutions),
+          substituteExpr(forStat->endExpr().get(), substitutions),
+          substituteBlockExpr(forStat->bodyBlock().get(), substitutions)));
+      continue;
+    }
+
+    if (auto *breakStat = dyn_cast<BreakStat>(statement.get())) {
+      statements.push_back(std::make_unique<BreakStat>(
+          breakStat->location()));
+      continue;
+    }
+
+    if (auto *continueStat = dyn_cast<ContinueStat>(statement.get())) {
+      statements.push_back(std::make_unique<ContinueStat>(
+          continueStat->location()));
+      continue;
+    }
+
+    if (auto *returnStat = dyn_cast<ReturnStat>(statement.get())) {
+      auto expression = returnStat->hasExpression()
+                            ? substituteExpr(returnStat->expression().get(),
+                                             substitutions)
+                            : nullptr;
+      statements.push_back(std::make_unique<ReturnStat>(
+          returnStat->location(), std::move(expression)));
+      continue;
+    }
+
     auto *exprStat = cast<ExprStat>(statement.get());
     statements.push_back(std::make_unique<ExprStat>(
         exprStat->location(),
         substituteExpr(exprStat->expression().get(), substitutions)));
   }
 
-  return std::make_unique<BlockExpr>(
-      node->location(), std::move(statements),
-      substituteExpr(node->expression().get(), substitutions));
+  return std::make_unique<BlockExpr>(node->location(), std::move(statements));
 }
 
 auto substituteExpr(const Expr *node,
@@ -499,37 +571,6 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Block:
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
-  case Expr::Expr_If: {
-    auto *expr = cast<IfExpr>(node);
-    auto elseBlock = expr->hasElseBlock()
-                         ? substituteBlockExpr(expr->elseBlock().get(),
-                                               substitutions)
-                         : nullptr;
-    return std::make_unique<IfExpr>(
-        expr->location(),
-        substituteExpr(expr->conditionExpr().get(), substitutions),
-        substituteBlockExpr(expr->thenBlock().get(), substitutions),
-        std::move(elseBlock));
-  }
-  case Expr::Expr_While: {
-    auto *expr = cast<WhileExpr>(node);
-    return std::make_unique<WhileExpr>(
-        expr->location(),
-        substituteExpr(expr->conditionExpr().get(), substitutions),
-        substituteBlockExpr(expr->bodyBlock().get(), substitutions));
-  }
-  case Expr::Expr_Break:
-    return std::make_unique<BreakExpr>(node->location());
-  case Expr::Expr_Continue:
-    return std::make_unique<ContinueExpr>(node->location());
-  case Expr::Expr_For: {
-    auto *expr = cast<ForExpr>(node);
-    return std::make_unique<ForExpr>(
-        expr->location(), expr->variableName(),
-        substituteExpr(expr->startExpr().get(), substitutions),
-        substituteExpr(expr->endExpr().get(), substitutions),
-        substituteBlockExpr(expr->bodyBlock().get(), substitutions));
-  }
   case Expr::Expr_TypeLayout: {
     auto *expr = cast<TypeLayoutExpr>(node);
     return std::make_unique<TypeLayoutExpr>(
@@ -544,11 +585,6 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<HeapAllocExpr>(
         expr->location(), substituteTypeNode(expr->typeNode(), substitutions),
         std::move(count));
-  }
-  case Expr::Expr_Deref: {
-    auto *expr = cast<DerefExpr>(node);
-    return std::make_unique<DerefExpr>(
-        expr->location(), substituteExpr(expr->pointer().get(), substitutions));
   }
   case Expr::Expr_Call: {
     auto *expr = cast<CallExpr>(node);
@@ -588,7 +624,8 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
         parameter->variable()->location(), parameter->variable()->name());
     parameters.push_back(std::make_unique<VariableStat>(
         parameter->location(), std::move(variable),
-        substituteTypeNode(parameter->typeNode(), substitutions), nullptr));
+        substituteTypeNode(parameter->typeNode(), substitutions), nullptr,
+        parameter->isConst()));
   }
 
   auto functionName =
@@ -598,6 +635,7 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
       node->proto()->location(), std::move(functionName),
       std::move(parameters),
       substituteTypeNode(node->proto()->returnTypeNode(), substitutions));
+  prototype->setIsMethod(node->proto()->isMethod());
   return std::make_unique<FunctionDecl>(
       node->location(), std::move(prototype),
       substituteBlockExpr(node->body().get(), substitutions));
@@ -655,6 +693,7 @@ private:
   const std::map<std::string, std::string> &_importAliases =
       emptyImportAliases();
   std::string _currentPackageName;
+  const Type *_currentFunctionReturnType = nullptr;
   int _whileDepth = 0;
 
   enum class UnitPolicy {
@@ -668,7 +707,8 @@ private:
   auto sema(Decl *node) -> MulberryResult;
   auto sema(Prototype *node) -> MulberryResult;
   auto semaFunctionParameters(Prototype *node,
-                              std::vector<const Type *> &parameterTypes)
+                              std::vector<const Type *> &parameterTypes,
+                              std::vector<bool> &parameterIsConst)
       -> MulberryResult;
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
@@ -683,7 +723,6 @@ private:
   auto sema(Expr *node, const Type *type) -> MulberryResult;
   auto sema(UnitExpr *node) -> MulberryResult;
   auto sema(BlockExpr *node) -> MulberryResult;
-  auto sema(BlockExpr *node, const Type *returnType) -> MulberryResult;
   auto sema(CallExpr *node) -> MulberryResult;
   auto sema(StructLiteralExpr *node) -> MulberryResult;
   auto sema(VariableExpr *node) -> MulberryResult;
@@ -696,13 +735,12 @@ private:
   auto sema(CharLiteralExpr *node) -> MulberryResult;
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
-  auto sema(DerefExpr *node) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
-  auto checkConstTensorUseAsMutable(const Expr *expr) -> MulberryResult;
-  auto checkConstTensorBinding(const VariableStat *node,
-                               const Type *type) -> MulberryResult;
+  auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
+  auto checkMutableObjectArgument(const FunctionSymbol *signature, size_t index,
+                                  const Expr *arg) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> MulberryResult;
   auto semaTensorSourceArrayLiteral(ArrayLiteralExpr *expr,
@@ -714,11 +752,6 @@ private:
                                const Type *expectedType = nullptr)
       -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
-  auto sema(IfExpr *node) -> MulberryResult;
-  auto sema(WhileExpr *node) -> MulberryResult;
-  auto sema(BreakExpr *node) -> MulberryResult;
-  auto sema(ContinueExpr *node) -> MulberryResult;
-  auto sema(ForExpr *node) -> MulberryResult;
   auto semaArrayLiteralElement(Expr *expr, const Type *type)
       -> MulberryResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
@@ -737,6 +770,12 @@ private:
   auto sema(Stat *node) -> MulberryResult;
   auto sema(VariableStat *node) -> MulberryResult;
   auto sema(ExprStat *node) -> MulberryResult;
+  auto sema(IfStat *node) -> MulberryResult;
+  auto sema(WhileStat *node) -> MulberryResult;
+  auto sema(ForStat *node) -> MulberryResult;
+  auto sema(BreakStat *node) -> MulberryResult;
+  auto sema(ContinueStat *node) -> MulberryResult;
+  auto sema(ReturnStat *node) -> MulberryResult;
 
   // Errors
   auto emitError(const Node *node, const llvm::Twine &msg) -> MulberryResult {
@@ -748,6 +787,28 @@ private:
   auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> MulberryResult {
     _sourceManager.PrintMessage(loc, llvm::SourceMgr::DiagKind::DK_Error, msg);
     return failure();
+  }
+
+  auto isInternalSourceLocation(llvm::SMLoc location) const -> bool {
+    if (!location.isValid())
+      return false;
+
+    // Imported stdlib declarations keep their own source buffer locations, so
+    // this allows internal storage code while rejecting the user's file.
+    auto bufferId = _sourceManager.FindBufferContainingLoc(location);
+    if (bufferId == 0)
+      return false;
+
+    auto path = std::string(
+        _sourceManager.getMemoryBuffer(bufferId)->getBufferIdentifier());
+    return path.rfind("stdlib/", 0) == 0 ||
+           path.find("/stdlib/") != std::string::npos;
+  }
+
+  auto checkInternalFeature(llvm::SMLoc location) -> MulberryResult {
+    if (isInternalSourceLocation(location))
+      return success();
+    return emitError(location, diag::internal_only);
   }
 
   auto lookupVariable(std::string_view name) -> const VariableSymbol * {
@@ -937,8 +998,27 @@ private:
     int &_whileDepth;
   };
 
+  class FunctionReturnTypeScope {
+  public:
+    FunctionReturnTypeScope(const Type *&currentFunctionReturnType,
+                            const Type *returnType)
+        : _currentFunctionReturnType(currentFunctionReturnType),
+          _oldFunctionReturnType(currentFunctionReturnType) {
+      _currentFunctionReturnType = returnType;
+    }
+
+    ~FunctionReturnTypeScope() {
+      _currentFunctionReturnType = _oldFunctionReturnType;
+    }
+
+  private:
+    const Type *&_currentFunctionReturnType;
+    const Type *_oldFunctionReturnType;
+  };
+
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
+                       std::vector<bool> parameterIsConst,
                        const Type *returnType,
                        std::string_view packageName = {})
       -> MulberryResult {
@@ -946,7 +1026,7 @@ private:
       packageName = _currentPackageName;
     _functionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareFunction(name, std::move(parameterTypes),
-                                    returnType);
+                                    std::move(parameterIsConst), returnType);
   }
 
   auto declareGenericFunction(std::string_view name,
@@ -1136,14 +1216,6 @@ private:
                               arguments);
     }
 
-    if (auto *listPattern = dyn_cast<ListTypeNode>(pattern)) {
-      auto *listType = getListType(actualType);
-      return listType &&
-             matchGenericType(listPattern->elementTypeNode(),
-                              listType->elementType(), parameters,
-                              arguments);
-    }
-
     if (auto *ptrPattern = dyn_cast<PtrTypeNode>(pattern)) {
       auto *ptrType = getPtrType(actualType);
       return ptrType &&
@@ -1259,6 +1331,10 @@ private:
       return matchGenericType(ptrPattern->pointeeTypeNode(), actualType,
                               parameters, arguments);
     }
+    if (auto *ptrType = getPtrType(actualType))
+      if (matchGenericType(pattern, ptrType->pointeeType(), parameters,
+                           arguments))
+        return true;
     return matchGenericType(pattern, actualType, parameters, arguments);
   }
 
@@ -1277,9 +1353,10 @@ private:
     if (sameType(returnType, actualType))
       return true;
 
-    // Pointer reinterpretation stays explicit in source code through helpers
-    // such as std.ptr.asUInt8<T>(). The helper's body returns Ptr<T>; MLIRGen
-    // materializes the declared Ptr<UInt8> return with mulberry_core.ptr.cast.
+    // Pointer reinterpretation stays explicit in stdlib/internal source
+    // through helpers such as std.internal.ptr.asUInt8<T>(). The helper's body
+    // returns Ptr<T>; MLIRGen materializes the declared Ptr<UInt8> return with
+    // mulberry_core.ptr.cast.
     return getPtrType(returnType) && getPtrType(actualType);
   }
 
@@ -1392,15 +1469,10 @@ private:
     return nullptr;
   }
 
-  auto resolveType(const ListTypeNode *typeNode) -> const Type * {
-    auto *elementType = resolveType(typeNode->elementTypeNode());
-    if (!elementType)
+  auto resolveType(const PtrTypeNode *typeNode) -> const Type * {
+    if (checkInternalFeature(typeNode->location()))
       return nullptr;
 
-    return _typeContext.createListType(elementType);
-  }
-
-  auto resolveType(const PtrTypeNode *typeNode) -> const Type * {
     auto *pointeeType = resolveType(typeNode->pointeeTypeNode());
     if (!pointeeType)
       return nullptr;
@@ -1553,9 +1625,6 @@ private:
     if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
       return resolveType(arrayType);
 
-    if (auto *listType = dyn_cast<ListTypeNode>(typeNode))
-      return resolveType(listType);
-
     if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
       return resolveType(ptrType);
 
@@ -1578,13 +1647,6 @@ private:
     if (rejectUnitElementType(typeNode, type))
       return nullptr;
     return type;
-  }
-
-  auto isTensorParameter(const FunctionSymbol *signature, size_t index) -> bool {
-    auto *parameterType = signature->parameterTypes[index];
-    if (parameterType)
-      return mulberry::isTensorType(parameterType);
-    return false;
   }
 
   auto setBuiltinType(Expr *expr, BuiltinTypeKind kind) -> void {
@@ -1625,11 +1687,6 @@ private:
     return resolveType(typeNode.get());
   }
 
-  auto tensorRecordType(const TensorType *type, llvm::SMLoc location)
-      -> const Type * {
-    return tensorRecordType(type->elementType(), location);
-  }
-
   auto tensorElementType(const Type *type) -> const Type * {
     auto *structType = mulberry::getStructType(type);
     if (!structType)
@@ -1645,17 +1702,6 @@ private:
     if (arguments[0].kind() != ComptimeTypeValue::Kind::Type)
       return nullptr;
     return arguments[0].type();
-  }
-
-  auto tensorViewType(const Type *type, const Type *expectedType)
-      -> const TensorType * {
-    auto *elementType = tensorElementType(type);
-    auto *expectedTensorType = mulberry::getTensorType(expectedType);
-    if (!elementType || !expectedTensorType)
-      return nullptr;
-    if (!sameType(expectedTensorType->elementType(), elementType))
-      return nullptr;
-    return expectedTensorType;
   }
 
 };
@@ -1683,16 +1729,23 @@ auto SemaImpl::sema(Prototype *node) -> MulberryResult {
 }
 
 auto SemaImpl::semaFunctionParameters(
-    Prototype *node, std::vector<const Type *> &parameterTypes)
+    Prototype *node, std::vector<const Type *> &parameterTypes,
+    std::vector<bool> &parameterIsConst)
     -> MulberryResult {
-  for (auto &par : node->parameters()) {
+  for (const auto &indexedParameter : llvm::enumerate(node->parameters())) {
+    auto &par = indexedParameter.value();
     auto *parameterType = checkType(par->typeNode(), UnitPolicy::Reject);
     if (!parameterType)
       return failure();
+    if (isMethodReceiverParameter(node, par.get(), indexedParameter.index()) &&
+        !getPtrType(parameterType) && getStructType(parameterType))
+      parameterType = _typeContext.createPtrType(parameterType);
     par->setType(parameterType);
-    if (declareVariable(par->variable()->name(), parameterType))
+    if (declareVariable(par->variable()->name(), parameterType,
+                        par->isConst()))
       return emitError(par->variable().get(), diag::redefinition_var);
     parameterTypes.push_back(parameterType);
+    parameterIsConst.push_back(par->isConst());
   }
   return success();
 }
@@ -1705,7 +1758,8 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
     auto &parameter = parameters[i];
     auto *parameterType = signature->parameterTypes[i];
     parameter->setType(parameterType);
-    if (declareVariable(parameter->variable()->name(), parameterType))
+    if (declareVariable(parameter->variable()->name(), parameterType,
+                        signature->parameterIsConst[i]))
       return emitError(parameter->variable().get(), diag::redefinition_var);
   }
   node->setType(signature->returnType);
@@ -1714,7 +1768,8 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
 
 auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
   std::vector<const Type *> parameterTypes;
-  if (semaFunctionParameters(node, parameterTypes))
+  std::vector<bool> parameterIsConst;
+  if (semaFunctionParameters(node, parameterTypes, parameterIsConst))
     return failure();
 
   auto *returnType = resolveType(node->returnTypeNode());
@@ -1723,7 +1778,8 @@ auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
   node->setType(returnType);
 
   auto name = node->id()->name();
-  if (declareFunction(name, std::move(parameterTypes), returnType)) {
+  if (declareFunction(name, std::move(parameterTypes),
+                      std::move(parameterIsConst), returnType)) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return emitError(node->id().get(), diagnostic);
   }
@@ -1769,12 +1825,14 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
     if (!signature)
       return failure();
   }
-  if (sema(node->body().get(), signature->returnType))
+  FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
+                                          signature->returnType);
+  auto hasReturn = containsReturnStat(node->body().get());
+  if (sema(node->body().get()))
     return failure();
 
-  auto expression = node->body()->expression().get();
-  if (!sameReturnType(signature->returnType, expression->type()))
-    return emitError(expression, diag::wrong_return_type);
+  if (!isUnitType(signature->returnType) && !hasReturn)
+    return emitError(node->proto()->id().get(), diag::wrong_return_type);
 
   return success();
 }
@@ -1796,6 +1854,7 @@ auto SemaImpl::declareStructMethods(
 
     auto fullName = methodFunctionName(ownerName, methodName);
     prototype->id()->setName(fullName);
+    prototype->setIsMethod(true);
     if (!prototype->isGeneric() && !typeParameters.empty())
       prototype->setComptimeParameters(
           std::vector<ComptimeParam>(typeParameters.begin(),
@@ -1900,8 +1959,6 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
     return sema(cast<HeapAllocExpr>(node));
-  case Expr::Expr_Deref:
-    return sema(cast<DerefExpr>(node));
   case Expr::Expr_Call:
     return sema(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -1918,16 +1975,6 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<IndexExpr>(node));
   case Expr::Expr_Binary:
     return sema(cast<BinaryExpr>(node));
-  case Expr::Expr_If:
-    return sema(cast<IfExpr>(node));
-  case Expr::Expr_While:
-    return sema(cast<WhileExpr>(node));
-  case Expr::Expr_Break:
-    return sema(cast<BreakExpr>(node));
-  case Expr::Expr_Continue:
-    return sema(cast<ContinueExpr>(node));
-  case Expr::Expr_For:
-    return sema(cast<ForExpr>(node));
   default:
     llvm_unreachable("Unexpected expression");
   }
@@ -1946,31 +1993,6 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   if (call && !call->hasReceiver() && isTensorFromName(call->name())) {
     call->setName("std.tensor.from");
     return semaTensorFromArrayCall(call, type);
-  }
-
-  if (auto *ifExpr = dyn_cast<IfExpr>(node)) {
-    if (!ifExpr->hasElseBlock() || isUnitType(type))
-      return sema(ifExpr);
-
-    auto conditionExpr = ifExpr->conditionExpr().get();
-    if (sema(conditionExpr))
-      return failure();
-    if (!isBoolType(conditionExpr->type()))
-      return emitError(conditionExpr, diag::expected_bool);
-
-    if (sema(ifExpr->thenBlock().get(), type) ||
-        sema(ifExpr->elseBlock().get(), type))
-      return failure();
-
-    auto *thenType = ifExpr->thenBlock()->expression()->type();
-    auto *elseType = ifExpr->elseBlock()->expression()->type();
-    if (!sameType(thenType, elseType))
-      return emitError(ifExpr->elseBlock()->expression().get(),
-                       diag::mismatch_type_then_else);
-    if (!sameType(type, elseType))
-      return emitError(ifExpr, diag::mismatch_type);
-    ifExpr->setType(type);
-    return success();
   }
 
   if (call && call->hasReceiver())
@@ -2076,8 +2098,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (isTensorParameter(signature, i) &&
-        checkConstTensorUseAsMutable(arg.get()))
+    if (checkMutableObjectArgument(signature, i, arg.get()))
       return failure();
   }
 
@@ -2098,22 +2119,7 @@ auto SemaImpl::sema(BlockExpr *node) -> MulberryResult {
     if (sema(expr.get()))
       return failure();
 
-  if (sema(node->expression().get()))
-    return failure();
-  node->setType(node->expression()->type());
-  return success();
-}
-
-auto SemaImpl::sema(BlockExpr *node, const Type *returnType)
-    -> MulberryResult {
-  VariableScope blockScope(_symbols);
-  for (auto &expr : *node)
-    if (sema(expr.get()))
-      return failure();
-
-  if (sema(node->expression().get(), returnType))
-    return failure();
-  node->setType(node->expression()->type());
+  node->setType(_typeContext.getBuiltinType(BuiltinTypeKind::Unit));
   return success();
 }
 
@@ -2122,6 +2128,10 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     return semaMethodCall(node);
 
   node->setName(canonicalizeImportedName(node->name()));
+  if (node->name().rfind("std.internal.", 0) == 0 &&
+      checkInternalFeature(node->location()))
+    return failure();
+
   if (node->name() == "std.tensor.from")
     return semaTensorFromArrayCall(node);
 
@@ -2158,8 +2168,7 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (isTensorParameter(signature, i) &&
-        checkConstTensorUseAsMutable(arg.get()))
+    if (checkMutableObjectArgument(signature, i, arg.get()))
       return failure();
   }
 
@@ -2275,6 +2284,9 @@ auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
     return emitError(node, diag::undefined_field);
   if (!field->type())
     return emitError(node, diag::mismatch_type);
+  if (mulberry::isPtrType(field->type()) &&
+      checkInternalFeature(node->location()))
+    return failure();
 
   auto *baseIndex = llvm::dyn_cast<IndexExpr>(node->base().get());
   auto isStdlibListElement =
@@ -2337,6 +2349,9 @@ auto SemaImpl::sema(TypeLayoutExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
+  if (checkInternalFeature(node->location()))
+    return failure();
+
   auto *allocatedType = checkType(node->typeNode(), UnitPolicy::Reject);
   if (!allocatedType)
     return failure();
@@ -2353,18 +2368,6 @@ auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(DerefExpr *node) -> MulberryResult {
-  if (sema(node->pointer().get()))
-    return failure();
-
-  auto *ptrType = mulberry::getPtrType(node->pointer()->type());
-  if (!ptrType)
-    return emitError(node->pointer().get(), diag::mismatch_type);
-
-  node->setType(ptrType->pointeeType());
-  return success();
-}
-
 auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
   if (sema(node->lhs().get()) ||
       sema(node->rhs().get(), node->lhs()->type()))
@@ -2374,9 +2377,6 @@ auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
   if (!node->lhs()->isLvalue())
     return emitError(node->lhs().get(), diag::expected_lvalue);
   if (checkAssignable(node->lhs().get()))
-    return failure();
-  if (mulberry::isTensorType(node->lhs()->type()) &&
-      checkConstTensorUseAsMutable(node->rhs().get()))
     return failure();
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
@@ -2464,7 +2464,14 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> MulberryResult {
+auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
+    -> MulberryResult {
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
+    return checkConstObjectUseAsMutable(index->base().get());
+
+  if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr))
+    return checkConstObjectUseAsMutable(memberAccess->base().get());
+
   auto *var = llvm::dyn_cast<VariableExpr>(expr);
   if (!var)
     return success();
@@ -2477,12 +2484,14 @@ auto SemaImpl::checkConstTensorUseAsMutable(const Expr *expr) -> MulberryResult 
   return success();
 }
 
-auto SemaImpl::checkConstTensorBinding(const VariableStat *node,
-                                       const Type *type)
+auto SemaImpl::checkMutableObjectArgument(const FunctionSymbol *signature,
+                                          size_t index, const Expr *arg)
     -> MulberryResult {
-  if (node->isConst() || !mulberry::isTensorType(type))
+  if (signature->parameterIsConst[index])
     return success();
-  return checkConstTensorUseAsMutable(node->init().get());
+  if (!isSourceObjectType(signature->parameterTypes[index]))
+    return success();
+  return checkConstObjectUseAsMutable(arg);
 }
 
 auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
@@ -2753,7 +2762,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
   return emitError(expr, diag::mismatch_type);
 }
 
-auto SemaImpl::sema(IfExpr *node) -> MulberryResult {
+auto SemaImpl::sema(IfStat *node) -> MulberryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
     return failure();
@@ -2765,7 +2774,6 @@ auto SemaImpl::sema(IfExpr *node) -> MulberryResult {
     return failure();
 
   if (!node->hasElseBlock()) {
-    setBuiltinType(node, BuiltinTypeKind::Unit);
     return success();
   }
 
@@ -2773,16 +2781,10 @@ auto SemaImpl::sema(IfExpr *node) -> MulberryResult {
   if (sema(elseBlock))
     return failure();
 
-  auto elseExpr = elseBlock->expression().get();
-  if (!sameType(thenBlock->expression()->type(), elseExpr->type()))
-    return emitError(elseExpr, diag::mismatch_type_then_else);
-
-  if (auto *elseType = elseExpr->type())
-    node->setType(elseType);
   return success();
 }
 
-auto SemaImpl::sema(WhileExpr *node) -> MulberryResult {
+auto SemaImpl::sema(WhileStat *node) -> MulberryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
     return failure();
@@ -2794,28 +2796,22 @@ auto SemaImpl::sema(WhileExpr *node) -> MulberryResult {
   if (sema(bodyBlock))
     return failure();
 
-  if (!isUnitType(bodyBlock->expression()->type()))
-    return emitError(bodyBlock->expression().get(), diag::mismatch_type);
-
-  setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(BreakExpr *node) -> MulberryResult {
+auto SemaImpl::sema(BreakStat *node) -> MulberryResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
-  setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(ContinueExpr *node) -> MulberryResult {
+auto SemaImpl::sema(ContinueStat *node) -> MulberryResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
-  setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(ForExpr *node) -> MulberryResult {
+auto SemaImpl::sema(ForStat *node) -> MulberryResult {
   if (sema(node->startExpr().get()) || sema(node->endExpr().get()))
     return failure();
 
@@ -2833,10 +2829,6 @@ auto SemaImpl::sema(ForExpr *node) -> MulberryResult {
   if (sema(bodyBlock))
     return failure();
 
-  if (!isUnitType(bodyBlock->expression()->type()))
-    return emitError(bodyBlock->expression().get(), diag::mismatch_type);
-
-  setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
@@ -2846,6 +2838,18 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
     return sema(cast<VariableStat>(node));
   case Stat::Stat_Expression:
     return sema(cast<ExprStat>(node));
+  case Stat::Stat_If:
+    return sema(cast<IfStat>(node));
+  case Stat::Stat_While:
+    return sema(cast<WhileStat>(node));
+  case Stat::Stat_For:
+    return sema(cast<ForStat>(node));
+  case Stat::Stat_Break:
+    return sema(cast<BreakStat>(node));
+  case Stat::Stat_Continue:
+    return sema(cast<ContinueStat>(node));
+  case Stat::Stat_Return:
+    return sema(cast<ReturnStat>(node));
   }
 }
 
@@ -2863,13 +2867,29 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
     return failure();
   if (!sameType(varType, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
-  if (checkConstTensorBinding(node, varType))
-    return failure();
   return success();
 }
 
 auto SemaImpl::sema(ExprStat *node) -> MulberryResult {
   return sema(node->expression().get());
+}
+
+auto SemaImpl::sema(ReturnStat *node) -> MulberryResult {
+  if (!_currentFunctionReturnType)
+    return emitError(node, diag::return_outside_function);
+
+  if (!node->hasExpression()) {
+    if (!isUnitType(_currentFunctionReturnType))
+      return emitError(node, diag::wrong_return_type);
+    return success();
+  }
+
+  auto expression = node->expression().get();
+  if (sema(expression, _currentFunctionReturnType))
+    return failure();
+  if (!sameReturnType(_currentFunctionReturnType, expression->type()))
+    return emitError(expression, diag::wrong_return_type);
+  return success();
 }
 
 namespace mulberry {

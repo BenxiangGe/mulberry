@@ -1,15 +1,15 @@
-package std.ptr;
+package std.internal.ptr;
 
 extern fn mulberry_ptr_offset(data: Ptr<UInt8>, byteOffset: UInt64): Ptr<UInt8>;
 
 fn __module(): UInt64 {
-  0
+  return 0;
 }
 
 fn asUInt8<T>(value: Ptr<T>): Ptr<UInt8> {
-  value
+  return value;
 }
 
 fn offset<T>(value: Ptr<T>, count: UInt64): Ptr<T> {
-  mulberry_ptr_offset(asUInt8(value), count * sizeof(T))
+  return mulberry_ptr_offset(asUInt8(value), count * sizeof(T));
 }

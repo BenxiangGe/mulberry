@@ -111,8 +111,6 @@ private:
       -> MulberryResult;
   auto parseComptimeParams(std::vector<ComptimeParam> &parameters)
       -> MulberryResult;
-  auto parseListType(std::unique_ptr<TypeNode> &typeNode,
-                     llvm::SMLoc location) -> MulberryResult;
   auto parsePtrType(std::unique_ptr<TypeNode> &typeNode,
                     llvm::SMLoc location) -> MulberryResult;
 
@@ -165,19 +163,11 @@ private:
   auto parseVariableExpr(std::unique_ptr<VariableExpr> &identifier)
       -> MulberryResult;
 
-  auto parseIfExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
-
-  auto parseWhileExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
-  auto parseBreakExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
-  auto parseContinueExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
-  auto parseForExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
-
   auto parseDecimal(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseString(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseChar(std::unique_ptr<Expr> &expr) -> MulberryResult;
-  auto parseDerefExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
 
   auto parseIdentifierExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
 
@@ -209,6 +199,12 @@ private:
 
   auto parseVarDecl(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseConstDecl(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseWhileStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseBreakStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseContinueStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseReturnStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseVariableDecl(std::unique_ptr<Stat> &stat, bool isConst)
       -> MulberryResult;
 };

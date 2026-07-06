@@ -51,6 +51,7 @@ struct VariableBinding {
   // Function parameters and const bindings may still be SSA value-bound.
   enum Kind {
     Address,
+    ObjectReference,
     Value,
     Unit,
   };
@@ -63,11 +64,17 @@ struct VariableBinding {
     return {Value, value};
   }
 
+  static auto objectReference(mlir::Value value) -> VariableBinding {
+    return {ObjectReference, value};
+  }
+
   static auto unit() -> VariableBinding {
     return {Unit, nullptr};
   }
 
   auto isAddress() const -> bool { return kind == Address; }
+
+  auto isObjectReference() const -> bool { return kind == ObjectReference; }
 
   auto isValue() const -> bool { return kind == Value; }
 
@@ -80,9 +87,60 @@ struct WhileControl {
   mlir::Value continueFlag;
 };
 
+struct FunctionReturnControl {
+  const Type *sourceReturnType;
+  mlir::Type returnType;
+  mlir::Value returnedFlag;
+  mlir::Value returnSlot;
+};
+
+auto containsReturnStat(const BlockExpr *node) -> bool;
+
+auto containsReturnStat(const Expr *node) -> bool {
+  if (auto *block = llvm::dyn_cast<BlockExpr>(node))
+    return containsReturnStat(block);
+  return false;
+}
+
+auto containsReturnStat(const Stat *node) -> bool {
+  if (llvm::dyn_cast<ReturnStat>(node))
+    return true;
+  if (auto *ifStat = llvm::dyn_cast<IfStat>(node)) {
+    if (containsReturnStat(ifStat->thenBlock().get()))
+      return true;
+    return ifStat->hasElseBlock() &&
+           containsReturnStat(ifStat->elseBlock().get());
+  }
+  if (auto *whileStat = llvm::dyn_cast<WhileStat>(node))
+    return containsReturnStat(whileStat->bodyBlock().get());
+  if (auto *forStat = llvm::dyn_cast<ForStat>(node))
+    return containsReturnStat(forStat->bodyBlock().get());
+  if (auto *exprStat = llvm::dyn_cast<ExprStat>(node))
+    return containsReturnStat(exprStat->expression().get());
+  return false;
+}
+
+auto containsReturnStat(const BlockExpr *node) -> bool {
+  for (auto &statement : node->statements())
+    if (containsReturnStat(statement.get()))
+      return true;
+  return false;
+}
+
 auto isParameterValueType(const Type *type) -> bool {
-  return mulberry::isTensorType(type) || mulberry::isArrayType(type) ||
-         mulberry::isPtrType(type);
+  return mulberry::isPtrType(type);
+}
+
+auto isObjectReferenceType(const Type *type) -> bool {
+  return mulberry::getStructType(type) || mulberry::getArrayType(type);
+}
+
+auto isObjectReferenceParameter(const Type *type, bool isExtern) -> bool {
+  return !isExtern && isObjectReferenceType(type);
+}
+
+auto isObjectReferenceReturn(const Type *type, bool isExtern) -> bool {
+  return !isExtern && isObjectReferenceType(type);
 }
 
 class MLIRGenImpl {
@@ -102,13 +160,14 @@ private:
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<VariableBinding>> _variableScopes;
   std::vector<WhileControl> _whileControls;
+  std::vector<FunctionReturnControl> _functionReturnControls;
   NameMap<mlir::func::FuncOp> _functionsByName;
   llvm::StringRef _fileNameIdentifier;
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
   auto declareFunction(const FunctionDecl *node) -> mlir::func::FuncOp;
-  auto gen(const Prototype *node) -> mlir::func::FuncOp;
+  auto gen(const Prototype *node, bool isExtern) -> mlir::func::FuncOp;
   auto gen(const FunctionDecl *node) -> mlir::func::FuncOp;
   auto gen(const StructDecl *node) -> void;
 
@@ -116,11 +175,6 @@ private:
   auto gen(const Expr *node) -> mlir::Value;
   auto gen(const UnitExpr *node) -> mlir::Value;
   auto gen(const BlockExpr *node) -> mlir::Value;
-  auto gen(const IfExpr *node) -> mlir::Value;
-  auto gen(const WhileExpr *node) -> mlir::Value;
-  auto gen(const BreakExpr *node) -> mlir::Value;
-  auto gen(const ContinueExpr *node) -> mlir::Value;
-  auto gen(const ForExpr *node) -> mlir::Value;
   auto genDeclaredCall(std::string_view name, llvm::ArrayRef<const Expr *> args,
                        mlir::Location location) -> mlir::func::CallOp;
   auto genDeclaredCall(std::string_view name, mlir::ValueRange args,
@@ -134,10 +188,12 @@ private:
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
+  auto genStringLiteralPtr(const StringLiteralExpr *node,
+                           mlir::mulberry_core::RecordType storageType)
+      -> mlir::Value;
   auto gen(const CharLiteralExpr *node) -> mlir::Value;
   auto gen(const TypeLayoutExpr *node) -> mlir::Value;
   auto gen(const HeapAllocExpr *node) -> mlir::Value;
-  auto gen(const DerefExpr *node) -> mlir::Value;
   auto gen(const AssignExpr *node) -> mlir::Value;
   auto gen(const BinaryExpr *node) -> mlir::Value;
 
@@ -145,11 +201,19 @@ private:
   auto gen(const Stat *node) -> void;
   auto gen(const VariableStat *node) -> void;
   auto gen(const ExprStat *node) -> void;
+  auto gen(const IfStat *node) -> void;
+  auto gen(const WhileStat *node) -> void;
+  auto gen(const ForStat *node) -> void;
+  auto gen(const BreakStat *node) -> void;
+  auto gen(const ContinueStat *node) -> void;
+  auto gen(const ReturnStat *node) -> void;
   auto declareLocalVariableSlot(const VariableStat *node) -> void;
   auto genStatements(const VectorUniquePtr<Stat> &statements) -> void;
-  auto genGuardedWhileStatement(const Stat *node) -> void;
-  auto genGuardedWhileExpression(const Expr *node) -> mlir::Value;
-  auto currentWhileContinueAllowed() -> mlir::Value;
+  auto genGuardedStatement(const Stat *node) -> void;
+  auto currentExecutionAllowed() -> mlir::Value;
+  auto currentFunctionReturnAllowed(mlir::Location location) -> mlir::Value;
+  auto createTrueValue(mlir::Location location) -> mlir::Value;
+  auto createFalseValue(mlir::Location location) -> mlir::Value;
 
   template <typename T>
   void setSymbol(NameMap<T> &symbols, std::string_view name, T value) {
@@ -175,6 +239,11 @@ private:
     setVariable(name, VariableBinding::address(address));
   }
 
+  void setVariableObjectReference(std::string_view name,
+                                  mlir::Value referenceSlot) {
+    setVariable(name, VariableBinding::objectReference(referenceSlot));
+  }
+
   void setVariableValue(std::string_view name, mlir::Value value) {
     setVariable(name, VariableBinding::value(value));
   }
@@ -191,10 +260,17 @@ private:
     return _variableScopes.lookupCurrent(name);
   }
 
-  auto getVariableAddress(std::string_view name) -> mlir::Value {
+  auto getVariableAddress(std::string_view name,
+                          mlir::Location location) -> mlir::Value {
     auto *binding = getVariableBinding(name);
     if (!binding)
       llvm_unreachable("unknown variable");
+    if (binding->isObjectReference()) {
+      auto referenceSlotType =
+          llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
+      auto objectPtrType = referenceSlotType.getPointeeType();
+      return createLoad(binding->mlirValue, objectPtrType, location);
+    }
     if (!binding->isAddress())
       llvm_unreachable("variable is not address-bound");
     return binding->mlirValue;
@@ -205,6 +281,15 @@ private:
     auto *binding = getVariableBinding(name);
     if (!binding)
       llvm_unreachable("unknown variable");
+    if (binding->isObjectReference()) {
+      auto referenceSlotType =
+          llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
+      auto objectPtrType = referenceSlotType.getPointeeType();
+      auto objectPtr = createLoad(binding->mlirValue, objectPtrType, location);
+      auto ptrType =
+          llvm::cast<mlir::mulberry_core::PtrType>(objectPtr.getType());
+      return createLoad(objectPtr, ptrType.getPointeeType(), location);
+    }
     if (binding->isAddress()) {
       auto ptrType =
           llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
@@ -234,6 +319,8 @@ private:
       -> mlir::Value;
   auto createAlloca(mlir::Type mlirType, mlir::Location location)
       -> mlir::Value;
+  auto createHeapObject(mlir::Type mlirType, mlir::Location location)
+      -> mlir::Value;
   auto createLoad(mlir::Value ptr, mlir::Type type, mlir::Location location)
       -> mlir::Value;
   void createStore(mlir::Value value, mlir::Value ptr,
@@ -243,6 +330,9 @@ private:
   auto gen(const ArrayLiteralExpr *expr) -> mlir::Value;
   auto genArrayLiteral(const ArrayLiteralExpr *expr,
                        mlir::mulberry_core::RecordType arrayType)
+      -> mlir::Value;
+  auto genArrayLiteralPtr(const ArrayLiteralExpr *expr,
+                          mlir::mulberry_core::RecordType arrayType)
       -> mlir::Value;
   auto genTensorFromArray(const CallExpr *expr) -> mlir::Value;
   auto createTensorObject(mlir::mulberry_core::RecordType resultType,
@@ -274,10 +364,17 @@ private:
   auto genStdlibListGet(const IndexExpr *expr) -> mlir::Value;
   auto genAddressableValue(const Expr *expr, mlir::Type valueType)
       -> mlir::Value;
+  auto genObjectReferenceValue(const Expr *expr, mlir::Type valueType)
+      -> mlir::Value;
   auto genArgumentValue(const Expr *expr, mlir::Type parameterType)
       -> mlir::Value;
+  auto materializeValueForType(mlir::Value value, mlir::Type type,
+                               mlir::Location location) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
+  auto getParameterMLIRType(const Type *type, bool isExtern) const
+      -> mlir::Type;
+  auto getReturnMLIRType(const Type *type, bool isExtern) const -> mlir::Type;
   auto getMLIRType(const Type *type) const -> mlir::Type;
   auto getMLIRType(const Expr *expr) const -> mlir::Type;
   // Utility
@@ -342,18 +439,19 @@ auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
   return success();
 }
 
-auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
+auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
+    -> mlir::func::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
-    argTypes.push_back(getMLIRType(paramType));
+    argTypes.push_back(getParameterMLIRType(paramType, isExtern));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
   llvm::SmallVector<mlir::Type, 1> resultTypes;
   if (!mulberry::isUnitType(returnType))
-    resultTypes.push_back(getMLIRType(returnType));
+    resultTypes.push_back(getReturnMLIRType(returnType, isExtern));
   auto funcType = _builder.getFunctionType(argTypes, resultTypes);
   mlir::OperationState state(loc(node), mlir::func::FuncOp::getOperationName());
   mlir::func::FuncOp::build(_builder, state, funcName, funcType);
@@ -368,7 +466,7 @@ auto MLIRGenImpl::gen(const Prototype *node) -> mlir::func::FuncOp {
 
 auto MLIRGenImpl::declareFunction(const FunctionDecl *node)
     -> mlir::func::FuncOp {
-  auto func = gen(node->proto().get());
+  auto func = gen(node->proto().get(), node->isExtern());
   if (node->isExtern()) {
     mlir::SymbolTable::setSymbolVisibility(
         func, mlir::SymbolTable::Visibility::Private);
@@ -397,6 +495,12 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
     auto varName = var->variable()->name();
     auto value = std::get<1>(varValue);
     auto *paramType = var->type();
+    if (isObjectReferenceParameter(paramType, node->isExtern())) {
+      auto referenceSlot = createAlloca(value.getType(), loc(node));
+      createStore(value, referenceSlot, loc(node));
+      setVariableObjectReference(varName, referenceSlot);
+      continue;
+    }
     if (isParameterValueType(paramType)) {
       setVariableValue(varName, value);
       continue;
@@ -411,17 +515,44 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
     createStore(value, alloca, loc(node));
   }
 
-  auto value = gen(node->body().get());
+  auto body = node->body().get();
+  auto location = loc(node);
+  auto *returnType = node->proto()->type();
+  auto hasExplicitReturn = containsReturnStat(body);
+  if (hasExplicitReturn) {
+    auto flagType = _builder.getI1Type();
+    auto returnedFlag = createAlloca(flagType, loc(node));
+    createStore(createFalseValue(loc(node)), returnedFlag, loc(node));
 
-  auto location = loc(node->body()->expression().get());
-  if (value) {
-    auto *returnType = node->proto()->type();
-    value = castToType(value, getMLIRType(returnType), location);
-    llvm::SmallVector<mlir::Value, 1> returnValues{value};
-    mlir::func::ReturnOp::create(_builder, location, returnValues);
-  } else {
-    mlir::func::ReturnOp::create(_builder, location);
+    mlir::Value returnSlot = nullptr;
+    mlir::Type returnMLIRType = nullptr;
+    if (!mulberry::isUnitType(returnType)) {
+      returnMLIRType = getReturnMLIRType(returnType, node->isExtern());
+      returnSlot = createAlloca(returnMLIRType, loc(node));
+    }
+
+    _functionReturnControls.push_back(
+        {returnType, returnMLIRType, returnedFlag, returnSlot});
+
+    enterVariableScope();
+    genStatements(body->statements());
+    leaveVariableScope();
+
+    auto returnControl = _functionReturnControls.back();
+    _functionReturnControls.pop_back();
+    if (!mulberry::isUnitType(returnType)) {
+      auto value = createLoad(returnControl.returnSlot,
+                              returnControl.returnType, location);
+      llvm::SmallVector<mlir::Value, 1> returnValues{value};
+      mlir::func::ReturnOp::create(_builder, location, returnValues);
+    } else {
+      mlir::func::ReturnOp::create(_builder, location);
+    }
+    return func;
   }
+
+  gen(node->body().get());
+  mlir::func::ReturnOp::create(_builder, location);
 
   return func;
 }
@@ -453,8 +584,6 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
     return gen(cast<HeapAllocExpr>(node));
-  case Expr::Expr_Deref:
-    return gen(cast<DerefExpr>(node));
   case Expr::Expr_Call:
     return gen(cast<CallExpr>(node));
   case Expr::Expr_StructLiteral:
@@ -471,16 +600,6 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     return gen(cast<AssignExpr>(node));
   case Expr::Expr_Binary:
     return gen(cast<BinaryExpr>(node));
-  case Expr::Expr_If:
-    return gen(cast<IfExpr>(node));
-  case Expr::Expr_While:
-    return gen(cast<WhileExpr>(node));
-  case Expr::Expr_Break:
-    return gen(cast<BreakExpr>(node));
-  case Expr::Expr_Continue:
-    return gen(cast<ContinueExpr>(node));
-  case Expr::Expr_For:
-    return gen(cast<ForExpr>(node));
   default:
     llvm_unreachable("Unexpected expression");
   }
@@ -491,62 +610,30 @@ auto MLIRGenImpl::gen(const UnitExpr *node) -> mlir::Value { return nullptr; }
 auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
   enterVariableScope();
   genStatements(node->statements());
-  auto *expression = node->expression().get();
-  mlir::Value value = nullptr;
-  if (mulberry::isUnitType(node->type())) {
-    if (!_whileControls.empty())
-      genGuardedWhileExpression(expression);
-    else
-      gen(expression);
-  } else {
-    value = gen(expression);
-  }
   leaveVariableScope();
-  return value;
+  return nullptr;
 }
 
-auto MLIRGenImpl::gen(const IfExpr *node) -> mlir::Value {
-  DBG("IfExpr Mulberry type: {0}, then type: {1}, else type: {2}",
-      formatType(node->type()),
-      formatType(node->thenBlock()->type()),
-      node->hasElseBlock() ? formatType(node->elseBlock()->type()) : "none");
+auto MLIRGenImpl::gen(const IfStat *node) -> void {
+  DBG("IfStat");
   auto cond = gen(node->conditionExpr().get());
 
-  if (mulberry::isUnitType(node->type())) {
-    auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), cond,
-                                        node->hasElseBlock());
-    _builder.setInsertionPointToStart(ifOp.thenBlock());
-    gen(node->thenBlock().get());
-
-    if (node->hasElseBlock()) {
-      _builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
-      gen(node->elseBlock().get());
-    }
-    _builder.setInsertionPointAfter(ifOp);
-    return nullptr;
-  }
-
-  auto resultType = getMLIRType(node);
-  auto ifOp = mlir::scf::IfOp::create(
-      _builder, loc(node), mlir::TypeRange{resultType}, cond,
-      /*withElseRegion=*/true);
+  auto ifOp =
+      mlir::scf::IfOp::create(_builder, loc(node), cond,
+                              node->hasElseBlock());
 
   _builder.setInsertionPointToStart(ifOp.thenBlock());
-  auto thenValue = gen(node->thenBlock().get());
-  mlir::scf::YieldOp::create(_builder, loc(node->thenBlock().get()),
-                             thenValue);
+  gen(node->thenBlock().get());
 
-  _builder.setInsertionPointToStart(ifOp.elseBlock());
-  auto elseValue = gen(node->elseBlock().get());
-  mlir::scf::YieldOp::create(_builder, loc(node->elseBlock().get()),
-                             elseValue);
+  if (node->hasElseBlock()) {
+    _builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    gen(node->elseBlock().get());
+  }
 
   _builder.setInsertionPointAfter(ifOp);
-
-  return ifOp.getResult(0);
 }
 
-auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const WhileStat *node) -> void {
   auto bodyBlock = node->bodyBlock().get();
   auto location = loc(node);
   auto flagType = _builder.getI1Type();
@@ -566,10 +653,17 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
         createStore(falseValue, continueFlag, location);
         auto cond = gen(node->conditionExpr().get());
         auto shouldBreak = createLoad(breakFlag, flagType, location);
-        auto notBreak = mlir::arith::XOrIOp::create(builder, location,
-                                                    shouldBreak, trueValue);
+        auto stopped = shouldBreak;
+        if (!_functionReturnControls.empty()) {
+          auto returned = createLoad(_functionReturnControls.back().returnedFlag,
+                                     flagType, location);
+          stopped = mlir::arith::OrIOp::create(builder, location, stopped,
+                                               returned);
+        }
+        auto notStopped = mlir::arith::XOrIOp::create(builder, location,
+                                                      stopped, trueValue);
         auto loopCond =
-            mlir::arith::AndIOp::create(builder, location, cond, notBreak);
+            mlir::arith::AndIOp::create(builder, location, cond, notStopped);
         mlir::scf::ConditionOp::create(builder, location, loopCond,
                                        mlir::ValueRange{});
       },
@@ -580,27 +674,43 @@ auto MLIRGenImpl::gen(const WhileExpr *node) -> mlir::Value {
         _whileControls.pop_back();
         mlir::scf::YieldOp::create(builder, location);
       });
-
-  return nullptr;
 }
 
-auto MLIRGenImpl::gen(const BreakExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const BreakStat *node) -> void {
   auto control = _whileControls.back();
   auto trueValue =
       mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
   createStore(trueValue, control.breakFlag, loc(node));
-  return nullptr;
 }
 
-auto MLIRGenImpl::gen(const ContinueExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const ContinueStat *node) -> void {
   auto control = _whileControls.back();
   auto trueValue =
       mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
   createStore(trueValue, control.continueFlag, loc(node));
-  return nullptr;
 }
 
-auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const ReturnStat *node) -> void {
+  auto &control = _functionReturnControls.back();
+  if (node->hasExpression()) {
+    auto *expression = node->expression().get();
+    if (mulberry::isUnitType(control.sourceReturnType)) {
+      gen(expression);
+    } else {
+      auto value = isObjectReferenceReturn(control.sourceReturnType,
+                                           /*isExtern=*/false)
+                       ? genObjectReferenceValue(expression,
+                                                 getMLIRType(
+                                                     control.sourceReturnType))
+                       : gen(expression);
+      value = castToType(value, control.returnType, loc(node));
+      createStore(value, control.returnSlot, loc(node));
+    }
+  }
+  createStore(createTrueValue(loc(node)), control.returnedFlag, loc(node));
+}
+
+auto MLIRGenImpl::gen(const ForStat *node) -> void {
   auto forLocation = loc(node);
   auto inductionType = getMLIRType(node->startExpr().get());
   auto inductionPtr = createAlloca(inductionType, forLocation);
@@ -628,7 +738,6 @@ auto MLIRGenImpl::gen(const ForExpr *node) -> mlir::Value {
       },
       /*unsignedCmp=*/true);
   leaveVariableScope();
-  return nullptr;
 }
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
@@ -651,8 +760,8 @@ auto MLIRGenImpl::genDeclaredCall(std::string_view name,
 
   llvm::SmallVector<mlir::Value, 4> operands;
   for (const auto &indexedArg : llvm::enumerate(args)) {
-    auto value = castToType(indexedArg.value(),
-                            calleeType.getInput(indexedArg.index()), location);
+    auto value = materializeValueForType(
+        indexedArg.value(), calleeType.getInput(indexedArg.index()), location);
     DBG("genDeclaredCall. value: {0}", value);
     operands.push_back(value);
   }
@@ -715,11 +824,6 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
   return getVariableValue(node->name(), loc(node));
 }
 
-auto MLIRGenImpl::gen(const DerefExpr *node) -> mlir::Value {
-  auto ptr = gen(node->pointer().get());
-  return createLoad(ptr, getMLIRType(node), loc(node));
-}
-
 auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   auto *field = getStructField(node);
   if (!field) {
@@ -733,6 +837,13 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   }
 
   auto record = gen(node->base().get());
+  if (auto ptrType =
+          llvm::dyn_cast<mlir::mulberry_core::PtrType>(record.getType())) {
+    if (ptrType.getPointeeType() == getMLIRType(node->base().get())) {
+      auto fieldPtr = createStructFieldPtr(record, *field, loc(node));
+      return createLoad(fieldPtr, getMLIRType(node), loc(node));
+    }
+  }
   return mlir::mulberry_core::RecordExtractOp::create(
       _builder, loc(node), getMLIRType(node), record,
       std::string(field->name()));
@@ -766,10 +877,17 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   auto location = loc(node);
   auto storageType = llvm::cast<mlir::mulberry_core::RecordType>(
       getMLIRType(node));
+  auto storage = genStringLiteralPtr(node, storageType);
+  return createLoad(storage, storageType, location);
+}
 
-  // Materialize the literal bytes as a normal heap buffer, then wrap that
-  // buffer in the stdlib String value. String is a plain record wrapper around
-  // `{length, data}`, so there is no second heap object around the byte buffer.
+auto MLIRGenImpl::genStringLiteralPtr(
+    const StringLiteralExpr *node,
+    mlir::mulberry_core::RecordType storageType) -> mlir::Value {
+  auto location = loc(node);
+
+  // String is a source object reference: the header lives on the GC heap, and
+  // the bytes live in a separate NUL-terminated heap buffer for runtime/FFI.
   auto bytes = node->value();
   auto byteCount = mlir::arith::ConstantIndexOp::create(
       _builder, location, bytes.size() + 1);
@@ -798,7 +916,7 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   auto nulValue = mlir::arith::ConstantIntOp::create(_builder, location, 0, 8);
   createStore(nulValue, nulPtr, location);
 
-  auto storage = createAlloca(storageType, location);
+  auto storage = createHeapObject(storageType, location);
   auto lengthPtr = mlir::mulberry_core::RecordGetFieldOp::create(
       _builder, location, getPtrType(_builder.getI64Type()),
       storage, "length");
@@ -811,7 +929,7 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
       getPtrType(getPtrType(_builder.getI8Type())), storage, "data");
   createStore(dataBuffer, dataPtr, location);
 
-  return createLoad(storage, storageType, location);
+  return storage;
 }
 
 auto MLIRGenImpl::gen(const TypeLayoutExpr *node) -> mlir::Value {
@@ -833,7 +951,7 @@ auto MLIRGenImpl::gen(const HeapAllocExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
   if (auto varExpr = llvm::dyn_cast<VariableExpr>(node)) {
     DBG("varExpr->name(): {0}", varExpr->name());
-    auto parentAddress = getVariableAddress(varExpr->name());
+    auto parentAddress = getVariableAddress(varExpr->name(), loc(node));
     return parentAddress;
   }
 
@@ -847,9 +965,6 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
     ERR("struct member access has no Mulberry field information");
     return nullptr;
   }
-
-  if (auto *derefExpr = llvm::dyn_cast<DerefExpr>(node))
-    return gen(derefExpr->pointer().get());
 
   if (auto *indexExpr = llvm::dyn_cast<IndexExpr>(node)) {
     if (indexExpr->indexKind() == IndexExpr::IndexKind::Array)
@@ -997,35 +1112,34 @@ auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
   llvm::TypeSwitch<const Expr *>(node->lhs().get())
       .Case<VariableExpr>([&](const auto *var) {
         auto name = var->name();
-        auto rhs = gen(node->rhs().get());
-        if (mulberry::isTensorType(var->type()) ||
-            mulberry::isArrayType(var->type())) {
-          rhs = castToType(rhs, getMLIRType(var), loc(node));
+        if (isObjectReferenceType(var->type())) {
+          auto objectType = getMLIRType(var->type());
+          auto rhsObjectPtr =
+              genObjectReferenceValue(node->rhs().get(), objectType);
           auto *binding = getVariableBinding(name);
-          if (binding && binding->isAddress())
-            createStore(rhs, binding->mlirValue, loc(node));
-          else
-            setVariableValue(name, rhs);
+          if (binding && binding->isObjectReference()) {
+            createStore(rhsObjectPtr, binding->mlirValue, loc(node));
+            return;
+          }
+
+          auto referenceSlot = createAlloca(rhsObjectPtr.getType(), loc(node));
+          createStore(rhsObjectPtr, referenceSlot, loc(node));
+          setVariableObjectReference(name, referenceSlot);
           return;
         }
 
-        auto address = getVariableAddress(name);
+        auto rhs = gen(node->rhs().get());
+        auto address = getVariableAddress(name, loc(node));
         if (!mulberry::isUnitType(node->lhs()->type())) {
-          rhs = castToType(rhs, getMLIRType(node->lhs().get()), loc(node));
+          rhs = materializeValueForType(rhs, getMLIRType(node->lhs().get()),
+                                        loc(node));
           createStore(rhs, address, loc(node));
         }
       })
       .Case<MemberExpr>([&](const auto *member) {
         mlir::Value lhsPtr = genLValue(member);
-        auto rhs = castToType(gen(node->rhs().get()),
-                              getMLIRType(member), loc(node));
-
-        createStore(rhs, lhsPtr, loc(node));
-      })
-      .Case<DerefExpr>([&](const auto *deref) {
-        mlir::Value lhsPtr = genLValue(deref);
-        auto rhs = castToType(gen(node->rhs().get()),
-                              getMLIRType(deref), loc(node));
+        auto rhs = materializeValueForType(
+            gen(node->rhs().get()), getMLIRType(member), loc(node));
 
         createStore(rhs, lhsPtr, loc(node));
       })
@@ -1043,37 +1157,77 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
     return gen(cast<VariableStat>(node));
   case Stat::Stat_Expression:
     return gen(cast<ExprStat>(node));
+  case Stat::Stat_If:
+    return gen(cast<IfStat>(node));
+  case Stat::Stat_While:
+    return gen(cast<WhileStat>(node));
+  case Stat::Stat_For:
+    return gen(cast<ForStat>(node));
+  case Stat::Stat_Break:
+    return gen(cast<BreakStat>(node));
+  case Stat::Stat_Continue:
+    return gen(cast<ContinueStat>(node));
+  case Stat::Stat_Return:
+    return gen(cast<ReturnStat>(node));
   }
 }
 
 auto MLIRGenImpl::genStatements(const VectorUniquePtr<Stat> &statements)
     -> void {
   for (auto &statement : statements) {
-    if (_whileControls.empty())
+    if (_whileControls.empty() && _functionReturnControls.empty())
       gen(statement.get());
     else
-      genGuardedWhileStatement(statement.get());
+      genGuardedStatement(statement.get());
   }
 }
 
-auto MLIRGenImpl::currentWhileContinueAllowed() -> mlir::Value {
-  auto location = _builder.getUnknownLoc();
-  auto trueValue =
-      mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
-  auto flagType = _builder.getI1Type();
-  auto control = _whileControls.back();
-  auto shouldBreak = createLoad(control.breakFlag, flagType, location);
-  auto shouldContinue = createLoad(control.continueFlag, flagType, location);
-  auto stopped = mlir::arith::OrIOp::create(
-      _builder, location, shouldBreak, shouldContinue);
-  return mlir::arith::XOrIOp::create(_builder, location, stopped, trueValue);
+auto MLIRGenImpl::createTrueValue(mlir::Location location) -> mlir::Value {
+  return mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
 }
 
-auto MLIRGenImpl::genGuardedWhileStatement(const Stat *node) -> void {
+auto MLIRGenImpl::createFalseValue(mlir::Location location) -> mlir::Value {
+  return mlir::arith::ConstantIntOp::create(_builder, location, 0, 1);
+}
+
+auto MLIRGenImpl::currentFunctionReturnAllowed(mlir::Location location)
+    -> mlir::Value {
+  auto trueValue = createTrueValue(location);
+  if (_functionReturnControls.empty())
+    return trueValue;
+
+  auto flagType = _builder.getI1Type();
+  auto returned = createLoad(_functionReturnControls.back().returnedFlag,
+                             flagType, location);
+  return mlir::arith::XOrIOp::create(_builder, location, returned, trueValue);
+}
+
+auto MLIRGenImpl::currentExecutionAllowed() -> mlir::Value {
+  auto location = _builder.getUnknownLoc();
+  auto trueValue = createTrueValue(location);
+  auto allowed = currentFunctionReturnAllowed(location);
+
+  auto flagType = _builder.getI1Type();
+  if (!_whileControls.empty()) {
+    auto control = _whileControls.back();
+    auto shouldBreak = createLoad(control.breakFlag, flagType, location);
+    auto shouldContinue = createLoad(control.continueFlag, flagType, location);
+    auto stopped = mlir::arith::OrIOp::create(
+        _builder, location, shouldBreak, shouldContinue);
+    auto loopAllowed =
+        mlir::arith::XOrIOp::create(_builder, location, stopped, trueValue);
+    allowed = mlir::arith::AndIOp::create(_builder, location, allowed,
+                                          loopAllowed);
+  }
+
+  return allowed;
+}
+
+auto MLIRGenImpl::genGuardedStatement(const Stat *node) -> void {
   if (auto *variable = llvm::dyn_cast<VariableStat>(node))
     declareLocalVariableSlot(variable);
 
-  auto condition = currentWhileContinueAllowed();
+  auto condition = currentExecutionAllowed();
   auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), condition,
                                       /*withElseRegion=*/false);
   _builder.setInsertionPointToStart(ifOp.thenBlock());
@@ -1088,28 +1242,16 @@ auto MLIRGenImpl::declareLocalVariableSlot(const VariableStat *node) -> void {
     return;
   }
 
-  if (auto *structType = mulberry::getStructType(varType)) {
-    auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
-    if (structLiteral) {
-      auto ptr = genStructLiteral(structLiteral, structType, nullptr);
-      setVariableAddress(node->variable()->name(), ptr);
-      return;
-    }
+  if (isObjectReferenceType(varType)) {
+    auto mlirType = getMLIRType(varType);
+    auto referenceSlot = createAlloca(getPtrType(mlirType), loc(node));
+    setVariableObjectReference(node->variable()->name(), referenceSlot);
+    return;
   }
 
   auto mlirType = getMLIRType(varType);
   auto alloca = createAlloca(mlirType, loc(node));
   setVariableAddress(node->variable()->name(), alloca);
-}
-
-auto MLIRGenImpl::genGuardedWhileExpression(const Expr *node) -> mlir::Value {
-  auto condition = currentWhileContinueAllowed();
-  auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), condition,
-                                      /*withElseRegion=*/false);
-  _builder.setInsertionPointToStart(ifOp.thenBlock());
-  gen(node);
-  _builder.setInsertionPointAfter(ifOp);
-  return nullptr;
 }
 
 auto MLIRGenImpl::getPtrType(mlir::Type pointeeType) const
@@ -1134,6 +1276,14 @@ auto MLIRGenImpl::createAlloca(mlir::Type mlirType,
   auto *parentBlock = alloca.getOperation()->getBlock();
   alloca.getOperation()->moveBefore(&parentBlock->front());
   return alloca;
+}
+
+auto MLIRGenImpl::createHeapObject(mlir::Type mlirType,
+                                   mlir::Location location) -> mlir::Value {
+  return mlir::mulberry_core::HeapAllocOp::create(
+             _builder, location, getPtrType(mlirType), mlirType,
+             createIndexConstant(1, location))
+      .getResult();
 }
 
 auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
@@ -1187,11 +1337,11 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
 
   mlir::Value varPtrOp;
   if (!targetPtr) {
-    auto alloca = createAlloca(recordType, loc(structLiteral));
-    DBG("structType: {0}, alloca: {1}", formatType(structType),
-        alloca);
+    auto heapObject = createHeapObject(recordType, loc(structLiteral));
+    DBG("structType: {0}, heapObject: {1}", formatType(structType),
+        heapObject);
 
-    varPtrOp = alloca;
+    varPtrOp = heapObject;
   } else {
     varPtrOp = targetPtr;
   }
@@ -1220,8 +1370,8 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
         return nullptr;
       }
     } else {
-      mlir::Value val = castToType(gen(expr.get()), getMLIRType(field.type()),
-                                   loc(expr.get()));
+      mlir::Value val = materializeValueForType(
+          gen(expr.get()), getMLIRType(field.type()), loc(expr.get()));
       createStore(val, memberPtr, loc(structLiteral));
     }
 
@@ -1239,6 +1389,22 @@ auto MLIRGenImpl::getMLIRType(const Type *type) const -> mlir::Type {
   return _typeConverter.convert(type);
 }
 
+auto MLIRGenImpl::getParameterMLIRType(const Type *type,
+                                       bool isExtern) const -> mlir::Type {
+  auto mlirType = getMLIRType(type);
+  if (isObjectReferenceParameter(type, isExtern))
+    return getPtrType(mlirType);
+  return mlirType;
+}
+
+auto MLIRGenImpl::getReturnMLIRType(const Type *type,
+                                    bool isExtern) const -> mlir::Type {
+  auto mlirType = getMLIRType(type);
+  if (isObjectReferenceReturn(type, isExtern))
+    return getPtrType(mlirType);
+  return mlirType;
+}
+
 auto MLIRGenImpl::getMLIRType(const Expr *expr) const -> mlir::Type {
   return getMLIRType(expr->type());
 }
@@ -1247,11 +1413,6 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
   if (!value || value.getType() == type)
     return value;
-
-  if (llvm::isa<mlir::mulberry_core::TensorType>(value.getType()) &&
-      llvm::isa<mlir::mulberry_core::TensorType>(type))
-    return mlir::mulberry_core::TensorCastOp::create(_builder, location, type,
-                                                value);
 
   if (llvm::isa<mlir::mulberry_core::PtrType>(value.getType()) &&
       llvm::isa<mlir::mulberry_core::PtrType>(type))
@@ -1271,6 +1432,24 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
   }
 
   return nullptr;
+}
+
+auto MLIRGenImpl::materializeValueForType(mlir::Value value, mlir::Type type,
+                                          mlir::Location location)
+    -> mlir::Value {
+  if (!value || value.getType() == type)
+    return value;
+
+  if (auto ptrType =
+          llvm::dyn_cast<mlir::mulberry_core::PtrType>(value.getType())) {
+    // Source object references stay as Ptr<T>, but a few explicit value
+    // boundaries still need the materialized record header: extern/package
+    // value ABI and record fields that store object headers.
+    if (ptrType.getPointeeType() == type)
+      return createLoad(value, type, location);
+  }
+
+  return castToType(value, type, location);
 }
 
 auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
@@ -1366,36 +1545,96 @@ auto MLIRGenImpl::genStdlibListGet(const IndexExpr *expr) -> mlir::Value {
 
 auto MLIRGenImpl::genAddressableValue(const Expr *expr,
                                       mlir::Type valueType) -> mlir::Value {
+  bool shouldSpill = true;
   if (auto *variable = llvm::dyn_cast<VariableExpr>(expr)) {
     auto *binding = getVariableBinding(variable->name());
     if (binding && binding->isAddress())
       return binding->mlirValue;
+    if (binding && binding->isObjectReference())
+      return getVariableAddress(variable->name(), loc(expr));
   } else if (expr->isLvalue()) {
-    return genLValue(expr);
+    shouldSpill = false;
+    if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
+      // List elements are settable through List.set, but List.get returns a
+      // value, so passing one by reference needs a temporary slot.
+      shouldSpill = index->indexKind() == IndexExpr::IndexKind::StdlibList;
+    if (!shouldSpill)
+      return genLValue(expr);
   }
 
   auto ptr = createAlloca(valueType, loc(expr));
-  createStore(castToType(gen(expr), valueType, loc(expr)), ptr, loc(expr));
+  auto value = gen(expr);
+  if (auto ptrType =
+          llvm::dyn_cast<mlir::mulberry_core::PtrType>(value.getType())) {
+    if (ptrType.getPointeeType() == valueType)
+      return value;
+  }
+  createStore(materializeValueForType(value, valueType, loc(expr)), ptr,
+              loc(expr));
   return ptr;
+}
+
+auto MLIRGenImpl::genObjectReferenceValue(const Expr *expr,
+                                          mlir::Type valueType) -> mlir::Value {
+  if (llvm::isa<BlockExpr>(expr))
+    llvm_unreachable("Block expression cannot produce an object reference");
+
+  if (auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(expr))
+    return genStructLiteral(structLiteral, structLiteral->structType(), nullptr);
+
+  if (auto *arrayLiteral = llvm::dyn_cast<ArrayLiteralExpr>(expr)) {
+    auto arrayType =
+        llvm::cast<mlir::mulberry_core::RecordType>(getMLIRType(arrayLiteral));
+    return genArrayLiteralPtr(arrayLiteral, arrayType);
+  }
+
+  if (auto *stringLiteral = llvm::dyn_cast<StringLiteralExpr>(expr)) {
+    auto stringType = llvm::cast<mlir::mulberry_core::RecordType>(
+        getMLIRType(stringLiteral));
+    return genStringLiteralPtr(stringLiteral, stringType);
+  }
+
+  if (auto *variable = llvm::dyn_cast<VariableExpr>(expr)) {
+    auto *binding = getVariableBinding(variable->name());
+    if (binding && binding->isObjectReference())
+      return getVariableAddress(variable->name(), loc(expr));
+  }
+
+  bool canUseLvalueAddress = expr->isLvalue();
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
+    canUseLvalueAddress =
+        index->indexKind() != IndexExpr::IndexKind::StdlibList;
+  if (canUseLvalueAddress)
+    return genLValue(expr);
+
+  auto value = gen(expr);
+  if (auto ptrType =
+          llvm::dyn_cast<mlir::mulberry_core::PtrType>(value.getType())) {
+    if (ptrType.getPointeeType() == valueType)
+      return value;
+  }
+
+  auto objectPtr = createHeapObject(valueType, loc(expr));
+  createStore(materializeValueForType(value, valueType, loc(expr)), objectPtr,
+              loc(expr));
+  return objectPtr;
 }
 
 auto MLIRGenImpl::genArgumentValue(const Expr *expr,
                                    mlir::Type parameterType) -> mlir::Value {
   auto exprType = getMLIRType(expr);
-  if (exprType == parameterType)
-    return gen(expr);
-
   if (auto ptrType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(parameterType)) {
     auto pointeeType = ptrType.getPointeeType();
     if (exprType == pointeeType) {
-      // Methods such as List<T>.push take Ptr<List<T>> receivers.  Passing the
-      // lvalue address keeps receiver mutation visible to the caller while
-      // normal struct values still use shallow C-style copies elsewhere.
+      // Source object types stay as `T`, while non-extern call ABI can use
+      // `Ptr<T>` so field mutation is visible through the shared object.
+      if (llvm::isa<mlir::mulberry_core::RecordType>(pointeeType))
+        return genObjectReferenceValue(expr, pointeeType);
       return genAddressableValue(expr, pointeeType);
     }
   }
 
-  return castToType(gen(expr), parameterType, loc(expr));
+  return materializeValueForType(gen(expr), parameterType, loc(expr));
 }
 
 auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
@@ -1419,6 +1658,13 @@ auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
 auto MLIRGenImpl::genArrayLiteral(
     const ArrayLiteralExpr *expr,
     mlir::mulberry_core::RecordType arrayType) -> mlir::Value {
+  auto arrayPtr = genArrayLiteralPtr(expr, arrayType);
+  return createLoad(arrayPtr, arrayType, loc(expr));
+}
+
+auto MLIRGenImpl::genArrayLiteralPtr(
+    const ArrayLiteralExpr *expr,
+    mlir::mulberry_core::RecordType arrayType) -> mlir::Value {
   auto location = loc(expr);
   auto elementCount = static_cast<int64_t>(expr->getElements().size());
   auto dataFieldType = arrayType.getFieldType("data");
@@ -1430,7 +1676,9 @@ auto MLIRGenImpl::genArrayLiteral(
                   .getResult();
   storeArrayElements(expr, data, dataPtrType.getPointeeType());
 
-  auto arrayPtr = createAlloca(arrayType, location);
+  // Source Arrays are objects. Put the header itself on the GC heap so
+  // binding, assignment, call, and return copy the reference, not the header.
+  auto arrayPtr = createHeapObject(arrayType, location);
   auto lengthFieldType = arrayType.getFieldType("length");
   auto lengthPtr = mlir::mulberry_core::RecordGetFieldOp::create(
       _builder, location, getPtrType(lengthFieldType), arrayPtr, "length");
@@ -1440,7 +1688,7 @@ auto MLIRGenImpl::genArrayLiteral(
   auto dataPtr = mlir::mulberry_core::RecordGetFieldOp::create(
       _builder, location, getPtrType(dataFieldType), arrayPtr, "data");
   createStore(data, dataPtr, location);
-  return createLoad(arrayPtr, arrayType, location);
+  return arrayPtr;
 }
 
 auto MLIRGenImpl::genTensorFromArray(const CallExpr *expr) -> mlir::Value {
@@ -1464,7 +1712,7 @@ auto MLIRGenImpl::genTensorFromArray(const CallExpr *expr) -> mlir::Value {
                   .getResult();
 
   auto *arrayType = llvm::cast<ArrayType>(argument->type());
-  auto arrayPtr = genAddressableValue(argument, getMLIRType(argument));
+  auto arrayPtr = genObjectReferenceValue(argument, getMLIRType(argument));
   int64_t linearIndex = 0;
   storeTensorFromArrayPayload(arrayType, arrayPtr, data, linearIndex,
                               location);
@@ -1573,7 +1821,8 @@ void MLIRGenImpl::storeArrayElements(const ArrayLiteralExpr *expr,
     auto elementPtr = mlir::mulberry_core::PtrIndexOp::create(
         _builder, loc(element), ptrType, dataPtr,
         createIndexConstant(index, loc(element)));
-    auto value = castToType(gen(element), elementType, loc(element));
+    auto value = materializeValueForType(gen(element), elementType,
+                                         loc(element));
     createStore(value, elementPtr, loc(element));
   }
 }
@@ -1650,14 +1899,16 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
 void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
   if (lhs->indexKind() == IndexExpr::IndexKind::Array) {
     auto ptr = genArrayElementPtr(lhs);
-    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    auto rhsValue =
+        materializeValueForType(gen(rhs), getMLIRType(lhs), loc(lhs));
     createStore(rhsValue, ptr, loc(lhs));
     return;
   }
 
   if (lhs->indexKind() == IndexExpr::IndexKind::StdlibTensor) {
     auto ptr = genStdlibTensorElementPtr(lhs);
-    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    auto rhsValue =
+        materializeValueForType(gen(rhs), getMLIRType(lhs), loc(lhs));
     createStore(rhsValue, ptr, loc(lhs));
     return;
   }
@@ -1667,7 +1918,8 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
                                     getMLIRType(lhs->base().get()));
     auto index = castToType(gen(lhs->indices().front().get()),
                             _builder.getI64Type(), loc(lhs));
-    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    auto rhsValue =
+        materializeValueForType(gen(rhs), getMLIRType(lhs), loc(lhs));
     genDeclaredCall(lhs->setFunctionName(),
                     mlir::ValueRange{list, index, rhsValue}, loc(lhs));
     return;
@@ -1676,7 +1928,8 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
   mlir::Value source = gen(lhs->base().get());
   if (llvm::isa<mlir::mulberry_core::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(lhs, source);
-    auto rhsValue = castToType(gen(rhs), getMLIRType(lhs), loc(lhs));
+    auto rhsValue =
+        materializeValueForType(gen(rhs), getMLIRType(lhs), loc(lhs));
     createStore(rhsValue, ptr, loc(lhs));
     return;
   }
@@ -1686,33 +1939,15 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
 
 auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto *varType = node->type();
-  auto *arrayType = mulberry::getArrayType(varType);
   auto *ptrType = mulberry::getPtrType(varType);
-  auto *structType = mulberry::getStructType(varType);
   auto varName = node->variable()->name();
   auto *predeclaredBinding = getCurrentVariableBinding(varName);
-
-  if (arrayType) {
-    DBG("use Mulberry variable array type `{0}`", formatType(arrayType));
-    auto targetType =
-        llvm::cast<mlir::mulberry_core::RecordType>(getMLIRType(varType));
-    mlir::Value value;
-    if (auto *literal =
-            llvm::dyn_cast<ArrayLiteralExpr>(node->init().get())) {
-      value = genArrayLiteral(literal, targetType);
-    } else {
-      value = castToType(gen(node->init().get()), targetType, loc(node));
-    }
-
-    setVariableValue(varName, value);
-    return;
-  }
 
   if (ptrType) {
     DBG("use Mulberry variable ptr type `{0}`", formatType(ptrType));
     auto targetType = getMLIRType(varType);
     auto value = gen(node->init().get());
-    value = castToType(value, targetType, loc(node));
+    value = materializeValueForType(value, targetType, loc(node));
 
     if (predeclaredBinding && predeclaredBinding->isAddress()) {
       createStore(value, predeclaredBinding->mlirValue, loc(node));
@@ -1730,34 +1965,19 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
     return;
   }
 
-  if (structType) {
-    auto *structLiteral = llvm::dyn_cast<StructLiteralExpr>(node->init().get());
-    if (structLiteral) {
-      if (predeclaredBinding && predeclaredBinding->isAddress()) {
-        genStructLiteral(structLiteral, structType,
-                         predeclaredBinding->mlirValue);
-        return;
-      }
-      DBG("use Mulberry variable struct literal `{0}`",
-          formatType(structType));
-      setVariableAddress(varName,
-                         genStructLiteral(structLiteral, structType, nullptr));
+  if (isObjectReferenceType(varType)) {
+    DBG("use Mulberry object reference `{0}`", formatType(varType));
+    auto objectType = getMLIRType(varType);
+    auto objectPtr =
+        genObjectReferenceValue(node->init().get(), objectType);
+    if (predeclaredBinding && predeclaredBinding->isObjectReference()) {
+      createStore(objectPtr, predeclaredBinding->mlirValue, loc(node));
       return;
     }
 
-    DBG("use Mulberry variable struct value `{0}`",
-        formatType(structType));
-    auto mlirType = getMLIRType(varType);
-    if (predeclaredBinding && predeclaredBinding->isAddress()) {
-      auto initValue = gen(node->init().get());
-      createStore(initValue, predeclaredBinding->mlirValue, loc(node));
-      return;
-    }
-
-    auto alloca = createAlloca(mlirType, loc(node));
-    setVariableAddress(varName, alloca);
-    auto initValue = gen(node->init().get());
-    createStore(initValue, alloca, loc(node));
+    auto referenceSlot = createAlloca(objectPtr.getType(), loc(node));
+    createStore(objectPtr, referenceSlot, loc(node));
+    setVariableObjectReference(varName, referenceSlot);
     return;
   }
 
@@ -1770,7 +1990,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
   auto mlirType = getMLIRType(varType);
   if (predeclaredBinding && predeclaredBinding->isAddress()) {
     auto initValue = gen(node->init().get());
-    initValue = castToType(initValue, mlirType, loc(node));
+    initValue = materializeValueForType(initValue, mlirType, loc(node));
     createStore(initValue, predeclaredBinding->mlirValue, loc(node));
     return;
   }
@@ -1780,7 +2000,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
 
   auto initValue = gen(node->init().get());
 
-  initValue = castToType(initValue, mlirType, loc(node));
+  initValue = materializeValueForType(initValue, mlirType, loc(node));
   createStore(initValue, alloca, loc(node));
 }
 

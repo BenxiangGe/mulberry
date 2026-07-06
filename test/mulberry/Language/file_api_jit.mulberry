@@ -16,7 +16,7 @@ fn main(): UInt64 {
   io.print(boolToUInt64(inputTensor[1] == outputBytes[1]));
   io.print(boolToUInt64(inputTensor[2] == outputBytes[2]));
   io.print(boolToUInt64(inputTensor[3] == outputBytes[3]));
-  0
+  return 0;
 }
 
 # JIT: 4

@@ -11,7 +11,7 @@ fn main(): UInt64 {
   var values: Float32[2] = [1.25, 2.5];
   values[1] = 3.5;
   io.print(boolToUInt64(values[1] > 3.0));
-  0
+  return 0;
 }
 
 # AST: VariableStat {{.*}}id=xs{{.*}}type=Array<UInt64, 3>

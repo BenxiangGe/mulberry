@@ -1,0 +1,19 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+struct Counter {
+  value: UInt64
+}
+
+fn main(): UInt64 {
+  var a: Counter = Counter { 1 };
+  var b: Counter = a;
+  b.value = 42;
+  io.print(a.value);
+  return 0;
+}
+
+# JIT: 42
+
+# MLIR: mulberry_core.heap.alloc !mulberry_core.record<Counter
+# MLIR: mulberry_core.record.get_field

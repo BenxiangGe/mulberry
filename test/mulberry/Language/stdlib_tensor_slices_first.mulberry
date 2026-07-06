@@ -12,7 +12,7 @@ fn main(): UInt64 {
   io.print(first.numel());
   io.print(core.boolToUInt64(second[1, 0] > 3.5));
   io.print(core.boolToUInt64(third[0, 0] > 4.5));
-  0
+  return 0;
 }
 
 # JIT: 3

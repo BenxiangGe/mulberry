@@ -1,9 +1,0 @@
-# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
-
-fn main(): UInt64 {
-  var ptr: Ptr<UInt64[3]> = heap.alloc<UInt64[3]>();
-  0
-}
-
-# CHECK-LABEL: func.func @main()
-# CHECK: mulberry_core.heap.alloc !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<i64>}>

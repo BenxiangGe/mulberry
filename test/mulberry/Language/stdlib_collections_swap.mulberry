@@ -7,7 +7,7 @@ fn main(): UInt64 {
   io.print(values[0]);
   io.print(values[1]);
   io.print(values[2]);
-  0
+  return 0;
 }
 
 # JIT: 30
