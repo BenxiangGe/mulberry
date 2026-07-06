@@ -11,43 +11,42 @@ struct Box {
 }
 
 fn makePair(x: UInt64): Pair {
-  Pair { x, x + 1 }
+  return Pair { x, x + 1 };
 }
 
 fn readX(box: Box): UInt64 {
-  box.pair.x
+  return box.pair.x;
 }
 
 fn update(box: Box): Box {
   var copy: Box = box;
   copy.pair.x = copy.pair.y;
   copy.ok = false;
-  copy
+  return copy;
 }
 
 fn main(): UInt64 {
   var box: Box = Box { makePair(4), true };
   var changed: Box = update(box);
-  readX(changed)
+  return readX(changed);
 }
 
 # CHECK-LABEL: func.func @makePair
 # CHECK-SAME: (%arg0: i64)
-# CHECK-SAME: -> !mulberry_core.record<Pair
-# CHECK: mulberry_core.alloca !mulberry_core.record<Pair
+# CHECK-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Pair
+# CHECK: mulberry_core.heap.alloc !mulberry_core.record<Pair
 # CHECK: arith.addi
-# CHECK: return {{.*}} : !mulberry_core.record<Pair
+# CHECK: return {{.*}} : !mulberry_core.ptr<!mulberry_core.record<Pair
 
 # CHECK-LABEL: func.func @readX
-# CHECK-SAME: !mulberry_core.record<Box
-# CHECK: mulberry_core.store %arg0
+# CHECK-SAME: !mulberry_core.ptr<!mulberry_core.record<Box
 # CHECK: mulberry_core.record.get_field {{.*}}["pair"]
 # CHECK: mulberry_core.record.get_field {{.*}}["x"]
 # CHECK: return {{.*}} : i64
 
 # CHECK-LABEL: func.func @update
-# CHECK-SAME: !mulberry_core.record<Box
-# CHECK-SAME: -> !mulberry_core.record<Box
+# CHECK-SAME: !mulberry_core.ptr<!mulberry_core.record<Box
+# CHECK-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Box
 # CHECK: mulberry_core.record.get_field {{.*}}["pair"]
 # CHECK: mulberry_core.record.get_field {{.*}}["x"]
 # CHECK: mulberry_core.record.get_field {{.*}}["pair"]
@@ -55,7 +54,7 @@ fn main(): UInt64 {
 # CHECK: mulberry_core.store
 # CHECK: mulberry_core.record.get_field {{.*}}["ok"]
 # CHECK: arith.constant false
-# CHECK: return {{.*}} : !mulberry_core.record<Box
+# CHECK: return {{.*}} : !mulberry_core.ptr<!mulberry_core.record<Box
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @makePair

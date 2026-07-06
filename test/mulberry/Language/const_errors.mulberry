@@ -4,7 +4,7 @@ fn main(): UInt64 {
   const values: Tensor<Float32> = tensor.from([1.0, 2.0]);
   values[0] = 3.0;
 
-  0
+  return 0;
 }
 
 # CHECK: error: cannot assign to const variable

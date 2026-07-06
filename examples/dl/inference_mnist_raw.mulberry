@@ -41,5 +41,5 @@ fn main(): UInt64 {
   }
 
   io.print(nn.argmax(activation));
-  0
+  return 0;
 }

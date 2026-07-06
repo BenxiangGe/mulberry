@@ -1,147 +1,191 @@
 # Mulberry Grammar
 
-## Lexical Structure  
+本文档描述当前用户可见 Mulberry source 语法。compiler/stdlib internal 语法不在这里列出。
 
-**GRAMMAR OF AN IDENTIFIER**  
-identifier → identifier-head identifier-characters<sub>opt</sub>  
-identifier-head → `Upper or lowercase letter A through Z`  
-identifier-characters → identifier-character identifier-characters<sub>opt</sub>  
-identifier-character → identifier-head  
-identifier-character → `Digit 0 through 9`  
+## Lexical Structure
 
-**GRAMMAR OF A LITERAL**  
-literal → unit-literal  
-literal → boolean-literal  
-literal → decimal-literal   
+```text
+identifier                -> identifier-head identifier-character*
+identifier-head           -> `A` ... `Z` | `a` ... `z` | `_`
+identifier-character      -> identifier-head | `0` ... `9`
 
-unit-literal  → `(` `)`   
-boolean-literal → `true`  
-boolean-literal → `false`   
-decimal-literal → decimal-digit decimal-digits<sub>opt</sub>    
-decimal-digit → `Digit 0 through 9`  
-decimal-digits → decimal-digit decimal-digits<sub>opt</sub>    
+unit-literal              -> `(` `)`
+boolean-literal           -> `true` | `false`
+integer-literal           -> decimal-digit+
+float-literal             -> decimal-digit+ `.` decimal-digit+
+string-literal            -> `"` ... `"`
+char-literal              -> `'` ... `'`
+```
+
+## Module
+
+```text
+module                    -> package-declaration? declaration*
+package-declaration       -> `package` qualified-name `;`
+qualified-name            -> identifier (`.` identifier)*
+```
+
+## Declarations
+
+```text
+declaration               -> import-declaration
+declaration               -> function-declaration
+declaration               -> extern-function-declaration
+declaration               -> struct-declaration
+declaration               -> comptime-type-alias-declaration
+
+import-declaration        -> `import` qualified-name `;`
+extern-function-declaration
+                           -> `extern` function-prototype `;`
+function-declaration      -> function-prototype block
+function-prototype        -> `fn` function-name comptime-parameter-clause?
+                              function-signature
+function-name             -> identifier
+function-signature        -> `(` parameter-list? `)` `:` type
+parameter-list            -> parameter (`,` parameter)* `,`?
+parameter                 -> `const`? identifier `:` type
+
+struct-declaration        -> `struct` identifier `{` struct-member-list? `}`
+struct-member-list        -> struct-member (`,` struct-member)* `,`?
+struct-member             -> field-declaration
+struct-member             -> method-declaration
+field-declaration         -> identifier `:` type
+method-declaration        -> `pub`? function-declaration
+
+comptime-type-alias-declaration
+                           -> `comptime` identifier comptime-parameter-clause?
+                              `=` comptime-alias-body `;`
+comptime-alias-body       -> type
+comptime-alias-body       -> `struct` `{` struct-member-list? `}`
+```
+
+## Comptime Parameters
+
+```text
+comptime-parameter-clause -> `<` comptime-parameter-list `>`
+comptime-parameter-list   -> comptime-parameter (`,` comptime-parameter)*
+comptime-parameter        -> identifier
+comptime-parameter        -> identifier `:` `UInt64`
+
+generic-argument-clause   -> `<` generic-argument-list `>`
+generic-argument-list     -> generic-argument (`,` generic-argument)*
+generic-argument          -> type
+generic-argument          -> integer-literal
+```
+
+没有 `: UInt64` 的 comptime 参数默认是类型参数：
+
+```mulberry
+comptime Pair<T, U> = struct { first: T, second: U };
+comptime Buffer<T, N: UInt64> = Array<T, N>;
+```
+
+## Types
+
+```text
+type                      -> `(` `)`
+type                      -> identifier
+type                      -> identifier generic-argument-clause
+type                      -> type array-type-suffix
+array-type-suffix         -> `[` integer-literal `]`
+```
+
+`T[N]` 是固定长度 `Array<T, N>` 的 source sugar。多维或动态 ranked tensor spelling
+已删除；需要 numeric buffer 时使用 `Tensor<T>`。
 
 ## Expressions
-expression → lvalue  
-expression → rvalue   
 
-**GRAMMAR OF A LVALUE EXPRESSION**  
-lvalue → variable-expression  
-lvalue → struct-access  
+```text
+expression                -> assignment-expression
+assignment-expression     -> binary-expression
+assignment-expression     -> lvalue `=` expression
+lvalue                    -> identifier
+lvalue                    -> postfix-expression `.` identifier
+lvalue                    -> postfix-expression `[` expression-list `]`
 
-**GRAMMAR OF A RVALUE EXPRESSION**  
-rvalue → literal-expression  
-rvalue → function-call-expression  
-rvalue → method-call-expression
-rvalue → assign-expression  
-rvalue → if-expression    
-rvalue → while-expression      
-rvalue → for-expression      
-rvalue → binary-expression        
+binary-expression         -> postfix-expression
+binary-expression         -> binary-expression operator binary-expression
+operator                  -> `+` | `-` | `*` | `/` | `%`
+operator                  -> `and` | `or`
+operator                  -> `==` | `!=` | `<` | `<=` | `>` | `>=`
 
-**GRAMMAR OF A LITERAL EXPRESSION**  
-literal-expression → literal  
+postfix-expression        -> primary-expression
+postfix-expression        -> postfix-expression `.` identifier
+postfix-expression        -> postfix-expression `.` identifier call-argument-clause
+postfix-expression        -> postfix-expression `[` expression-list `]`
 
-**GRAMMAR OF A CALL EXPRESSION**  
-function-call-expression → identifier function-call-argument-clause  
-function-call-argument-clause → `(` `)`  
-function-call-argument-clause → `(` function-call-argument-list `)`  
-function-call-argument-list → function-call-argument  
-function-call-argument-list → function-call-argument `,` function-call-argument-list  
-function-call-argument → expression  
+primary-expression        -> literal-expression
+primary-expression        -> identifier
+primary-expression        -> call-expression
+primary-expression        -> struct-literal-expression
+primary-expression        -> array-literal-expression
+primary-expression        -> block
 
-**GRAMMAR OF A METHOD CALL EXPRESSION**
-method-call-expression → expression `.` identifier function-call-argument-clause
+literal-expression        -> unit-literal
+literal-expression        -> boolean-literal
+literal-expression        -> integer-literal
+literal-expression        -> float-literal
+literal-expression        -> string-literal
+literal-expression        -> char-literal
 
-method call 不是 OOP dispatch。它只是 receiver-first 的函数调用糖，由 Sema 解析：
+call-expression           -> qualified-name call-argument-clause
+call-argument-clause      -> `(` expression-list? `)`
+expression-list           -> expression (`,` expression)* `,`?
+
+struct-literal-expression -> type `{` expression-list? `}`
+array-literal-expression  -> `[` expression-list? `]`
+```
+
+Method call 不是 OOP dispatch。它只是 receiver-first 的普通函数调用糖，由 Sema 解析：
 
 ```text
 receiver.method(args...) -> method(receiver, args...)
 ```
 
-**GRAMMAR OF A VARIABLE EXPRESSION**  
-variable-expression → identifier  
+## Blocks And Statements
 
-**GRAMMAR OF A STRUCT ACCESS EXPRESSION**   
-struct-access → lvalue `.` identifier    
-struct-access → struct-access `.` identifier  
+```text
+block                     -> `{` statement* expression? `}`
 
-**GRAMMAR OF AN ASSIGN EXPRESSION**     
-assign-expression → lvalue `=` rvalue  
-  
-**GRAMMAR OF A IF EXPRESSION**    
-if-expression → `if` expression block-expression `else` block-expression
+statement                 -> variable-declaration `;`
+statement                 -> expression `;`
+statement                 -> if-statement
+statement                 -> while-statement
+statement                 -> for-statement
+statement                 -> `break` `;`?
+statement                 -> `continue` `;`?
+statement                 -> return-statement
 
-**GRAMMAR OF A WHIle EXPRESSION**    
-while-expression → `while` expression block-expression  
+variable-declaration      -> `var` identifier `:` type `=` expression
+variable-declaration      -> `const` identifier `:` type `=` expression
+return-statement          -> `return` expression? `;`
+```
 
-**GRAMMAR OF A FOR EXPRESSION**    
-for-expression → `for` identifier `in` expression `..` expression block-expression
+block 的最后一个 expression 可以省略；省略时 block 的值是 `()`。函数返回推荐使用
+`return` statement；函数 body 的最后一个 expression 作为返回值仍暂时兼容。
 
-**GRAMMAR OF A BLOCK EXPRESSION**    
-block-expression → `{` statement-list<sub>opt</sub> expression `}`    
+## Control Flow
 
-**GRAMMAR OF A BINARY EXPRESSION**      
-binary-expression → expression operator expression      
-operator → `+`    
-operator → `-`     
-operator → `*`     
-operator → `/`      
-operator → `%`  
-operator → `and`  
-operator → `or`   
-operator → `eq`  
-operator → `neq`   
-operator → `lt`  
-operator → `le`    
-operator → `gt`  
-operator → `ge`  
+```text
+if-statement              -> `if` condition block
+if-statement              -> `if` condition block `else` block
+while-statement           -> `while` condition block
+for-statement             -> `for` identifier `in` expression `..` expression block
+condition                 -> expression
+```
 
-## Declarations  
-declaration → function-declaration  
-declaration → struct-declaration  
-declarations → declaration declarations<sub>opt</sub>  
+示例：
 
-**GRAMMAR OF A TOP-LEVEL DECLARATION**  
-top-level-declaration → declarations  
+```mulberry
+if value > 0 {
+  io.print(value);
+}
 
-**GRAMMAR OF A FUNCTION DECLARATION**  
-function-declaration → `fn` function-name function-signature  function-body  
-function-name → identifier  
-function-signature → `(` parameter-list<sub>opt</sub>  `)` `:` type  
-parameter-list → parameter `,`<sub>opt</sub>  
-parameter-list → parameter `,` parameter-list  
-parameter → parameter-name type-annotation  
-parameter-name → identifier  
-type-annotation → `:` type  
-type → identifier
-type → identifier list-type-suffix
+while index < values.size() {
+  index = index + 1;
+}
 
-function-body → block-expression  
-
-**GRAMMAR OF A LIST DECLARATION**  
-list-type-suffix → `[` list-dimension-list `]`
-list-dimension-list → list-dimension
-list-dimension-list → list-dimension `,` list-dimension-list
-list-dimension → decimal-literal
-list-dimension → `?`
-
-**GRAMMAR OF A STRUCT DECLARATION**  
-struct-declaration → `struct` type `{`  struct-members<sub>opt</sub> `}`  
-struct-members → struct-member `,`<sub>opt</sub>  
-struct-members → struct-member `,` struct-members  
-struct-member → field-declaration
-struct-member → method-declaration
-field-declaration → identifier type-annotation
-method-declaration → `pub`<sub>opt</sub> `fn` function-name function-signature function-body
-
-**GRAMMAR OF A VARIABLE DECLARATION**  
-var-declaration → `var` variable-expression type-annotation `=` rvalue  
-
-## Statements  
-statement-list → statement  
-statement-list → statement-list statement  
-
-**GRAMMAR OF A STATEMENT**  
-statement = expression `;`  
-statement = var-declaration `;`  
+for i in 0 .. values.size() {
+  io.print(values[i]);
+}
+```

@@ -4,7 +4,7 @@ fn main(): UInt64 {
   12345;
   false;
   true;
-  54321
+  return 54321;
 }
 
 # CHECK: 10

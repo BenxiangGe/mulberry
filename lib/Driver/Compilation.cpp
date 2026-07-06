@@ -166,6 +166,26 @@ auto normalizeBundledImportName(std::string_view importName) -> std::string {
   return normalizedName;
 }
 
+auto isInternalBundledImport(std::string_view importName) -> bool {
+  return importName == "std.internal" ||
+         importName.rfind("std.internal.", 0) == 0;
+}
+
+auto isInternalSourceLocation(const llvm::SourceMgr &sourceManager,
+                              llvm::SMLoc location) -> bool {
+  if (!location.isValid())
+    return false;
+
+  auto bufferId = sourceManager.FindBufferContainingLoc(location);
+  if (bufferId == 0)
+    return false;
+
+  auto path = std::string(
+      sourceManager.getMemoryBuffer(bufferId)->getBufferIdentifier());
+  return path.rfind("stdlib/", 0) == 0 ||
+         path.find("/stdlib/") != std::string::npos;
+}
+
 struct BundledPackageSpec {
   std::string moduleName;
   std::string libraryPath;
@@ -650,6 +670,14 @@ auto Compilation::loadImports(Module &module) -> MulberryResult {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
       auto importName =
           normalizeBundledImportName(importDecl->moduleName());
+      if (isInternalBundledImport(importName) &&
+          !isInternalSourceLocation(_sourceManager, importDecl->location())) {
+        _sourceManager.PrintMessage(
+            importDecl->location(), llvm::SourceMgr::DiagKind::DK_Error,
+            "internal package is not available to user code");
+        return failure();
+      }
+
       auto segments = splitQualifiedName(importName);
       std::string moduleName;
       std::string importPath;

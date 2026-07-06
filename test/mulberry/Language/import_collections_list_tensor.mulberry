@@ -9,7 +9,7 @@ import tensor;
 import tensor.Tensor;
 
 fn first(xs: List<Tensor<Float32>>): Tensor<Float32> {
-  xs[0]
+  return xs[0];
 }
 
 fn main(): UInt64 {
@@ -19,12 +19,12 @@ fn main(): UInt64 {
 
   io.print(xs.size());
   io.print(first(xs).numel());
-  0
+  return 0;
 }
 
 # MLIR-LABEL: func.func @first
-# MLIR-SAME: !mulberry_core.record<std_list_List__
-# MLIR-SAME: -> !mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: !mulberry_core.ptr<!mulberry_core.record<std_list_List__
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
 # MLIR: call @std_list_List_get__
 # MLIR-LABEL: func.func @main
 # MLIR: mulberry_core.heap.alloc f32
@@ -36,7 +36,7 @@ fn main(): UInt64 {
 # MLIR: call @std.io.print
 
 # LOWER-LABEL: func.func @first
-# LOWER-SAME: -> !llvm.struct
+# LOWER-SAME: -> !llvm.ptr
 # LOWER: call @std_list_List_get__
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_list_from__std_tensor_Tensor__Float32__2

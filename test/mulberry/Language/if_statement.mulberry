@@ -13,7 +13,7 @@ fn main(): UInt64 {
     value = value + 4;
   }
   io.print(value);
-  0
+  return 0;
 }
 
 # CHECK: 6

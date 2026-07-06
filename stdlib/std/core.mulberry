@@ -7,19 +7,19 @@ extern fn mulberry_u64_to_u8(value: UInt64): UInt8;
 extern fn mulberry_u64_to_f32(value: UInt64): Float32;
 
 fn identity(value: UInt64): UInt64 {
-  value
+  return value;
 }
 
 fn toUInt64(value: UInt8): UInt64 {
-  mulberry_u8_to_u64(value)
+  return mulberry_u8_to_u64(value);
 }
 
 fn toUInt8(value: UInt64): UInt8 {
-  mulberry_u64_to_u8(value)
+  return mulberry_u64_to_u8(value);
 }
 
 fn toFloat32(value: UInt64): Float32 {
-  mulberry_u64_to_f32(value)
+  return mulberry_u64_to_f32(value);
 }
 
 fn boolToUInt64(value: Bool): UInt64 {
@@ -27,5 +27,5 @@ fn boolToUInt64(value: Bool): UInt64 {
   if value {
     result = 1;
   }
-  result
+  return result;
 }

@@ -14,7 +14,7 @@ fn main(): UInt64 {
   io.print(nn.argmax(dataset.label(1)));
   dataset.shuffle(123);
   io.print(dataset.size());
-  0
+  return 0;
 }
 
 # JIT: 3

@@ -4,11 +4,11 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn idTensor(value: Tensor<Float32>): Tensor<Float32> {
-  value
+  return value;
 }
 
 fn checkTensor(value: Tensor<Float32>): UInt64 {
-  boolToUInt64(value[1, 1] > 3.5)
+  return boolToUInt64(value[1, 1] > 3.5);
 }
 
 fn main(): UInt64 {
@@ -16,25 +16,25 @@ fn main(): UInt64 {
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   var returned: Tensor<Float32> = idTensor(tensor2d);
   io.print(checkTensor(returned));
-  0
+  return 0;
 }
 
 # MLIR-LABEL: func.func @idTensor
-# MLIR-SAME: %arg0: !mulberry_core.record<std_tensor_Tensor__Float32
-# MLIR-SAME: -> !mulberry_core.record<std_tensor_Tensor__Float32
-# MLIR: return %{{.*}} : !mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
 
 # MLIR-LABEL: func.func @checkTensor
-# MLIR-SAME: %arg0: !mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
 # MLIR: mulberry_core.record.get_field %{{.*}}["data"]
 # MLIR: mulberry_core.record.get_field %{{.*}}["strides"]
 # MLIR: mulberry_core.ptr.index
 
 # LOWERED-LABEL: func.func @idTensor
-# LOWERED-SAME: %arg0: !llvm.struct
-# LOWERED-SAME: -> !llvm.struct
-# LOWERED: return %{{.*}} : !llvm.struct
+# LOWERED-SAME: %arg0: !llvm.ptr
+# LOWERED-SAME: -> !llvm.ptr
+# LOWERED: return %{{.*}} : !llvm.ptr
 # LOWERED-LABEL: func.func @checkTensor
-# LOWERED-SAME: %arg0: !llvm.struct
+# LOWERED-SAME: %arg0: !llvm.ptr
 
 # JIT: 1

@@ -14,7 +14,7 @@ fn main(): UInt64 {
   io.print(writeCount);
   io.print(readCount);
   io.print(boolToUInt64(inputTensor[1] > 6.5));
-  0
+  return 0;
 }
 
 # JIT: 16

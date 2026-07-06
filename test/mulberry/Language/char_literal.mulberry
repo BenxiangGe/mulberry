@@ -4,7 +4,7 @@ import core;
 import io;
 
 fn id(value: Char): Char {
-  value
+  return value;
 }
 
 fn main(): UInt64 {
@@ -14,7 +14,7 @@ fn main(): UInt64 {
   io.print(core.toUInt64('\''));
   io.print(core.toUInt64('"'));
   io.print(core.toUInt64('\\'));
-  0
+  return 0;
 }
 
 # CHECK: 65

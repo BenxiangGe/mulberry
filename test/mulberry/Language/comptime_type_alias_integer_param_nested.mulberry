@@ -1,15 +1,17 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 comptime Storage<T, Rank: UInt64> = struct {
-  data: Ptr<T>
+  value: T,
+  rank: UInt64
 };
 
-comptime Handle<T, Rank: UInt64> = Ptr<Storage<T, Rank>>;
+comptime Handle<T, Rank: UInt64> = Storage<T, Rank>;
 
 fn main(): UInt64 {
-  var handle: Handle<Float32, 2> = heap.alloc<Storage<Float32, 2>>();
-  0
+  var handle: Handle<Float32, 2> = Storage<Float32, 2> { 1.5, 2 };
+  return handle.rank;
 }
 
 # MLIR-LABEL: func.func @main()
-# MLIR: mulberry_core.heap.alloc !mulberry_core.record<Storage__Float32__2
+# MLIR: !mulberry_core.record<Storage__Float32__2
+# MLIR: mulberry_core.record.get_field {{.*}}["rank"]

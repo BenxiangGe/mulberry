@@ -4,14 +4,14 @@
 comptime LocalVector<T> = List<T>;
 
 fn first(xs: LocalVector<UInt64>): UInt64 {
-  xs[0]
+  return xs[0];
 }
 
 fn main(): UInt64 {
   var xs: LocalVector<UInt64> = list.from([9, 8]);
-  first(xs)
+  return first(xs);
 }
 
-# CHECK: func.func @first(%arg0: !mulberry_core.record<std_list_List__UInt64
+# CHECK: func.func @first(%arg0: !mulberry_core.ptr<!mulberry_core.record<std_list_List__UInt64
 # CHECK-SAME: -> i64
 # CHECK: call @std_list_List_get__UInt64

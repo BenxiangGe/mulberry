@@ -2,7 +2,7 @@
 
 fn main(): UInt64 {
   io.print(10);
-  0
+  return 0;
 }
 
 # CHECK: call @std.io.print

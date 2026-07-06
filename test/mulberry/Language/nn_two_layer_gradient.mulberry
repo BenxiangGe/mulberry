@@ -20,7 +20,7 @@ fn main(): UInt64 {
   io.print(core.boolToUInt64(gradient.w2[1, 1] > 0.0));
   io.print(core.boolToUInt64(gradient.b2[0, 0] < 0.0));
   io.print(core.boolToUInt64(gradient.b2[1, 0] > 0.0));
-  0
+  return 0;
 }
 
 # JIT: 4

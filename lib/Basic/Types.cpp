@@ -124,22 +124,6 @@ auto StructType::origin() const -> const ComptimeAliasOrigin * {
   return &*_origin;
 }
 
-TensorType::TensorType(const Type *elementType, std::vector<int64_t> shape)
-    : Type(TypeKind::Tensor), _elementType(elementType),
-      _shape(std::move(shape)) {}
-
-auto TensorType::classof(const Type *type) -> bool {
-  return type && type->kind() == TypeKind::Tensor;
-}
-
-auto TensorType::elementType() const -> const Type * {
-  return _elementType;
-}
-
-auto TensorType::shape() const -> const std::vector<int64_t> & {
-  return _shape;
-}
-
 ArrayType::ArrayType(const Type *elementType, uint64_t size)
     : Type(TypeKind::Array), _elementType(elementType), _size(size) {}
 
@@ -153,17 +137,6 @@ auto ArrayType::elementType() const -> const Type * {
 
 auto ArrayType::size() const -> uint64_t {
   return _size;
-}
-
-ListType::ListType(const Type *elementType)
-    : Type(TypeKind::List), _elementType(elementType) {}
-
-auto ListType::classof(const Type *type) -> bool {
-  return type && type->kind() == TypeKind::List;
-}
-
-auto ListType::elementType() const -> const Type * {
-  return _elementType;
 }
 
 PtrType::PtrType(const Type *pointeeType)
@@ -183,26 +156,9 @@ auto formatBuiltinType(const BuiltinType& type) -> std::string {
   return std::string(type.name());
 }
 
-auto formatTensorType(const TensorType& type) -> std::string {
-  std::string result = formatType(type.elementType());
-  result += "[";
-  std::string separator;
-  for (auto dim : type.shape()) {
-    result += separator;
-    result += dim < 0 ? "?" : std::to_string(dim);
-    separator = ", ";
-  }
-  result += "]";
-  return result;
-}
-
 auto formatArrayType(const ArrayType& type) -> std::string {
   return "Array<" + formatType(type.elementType()) + ", " +
          std::to_string(type.size()) + ">";
-}
-
-auto formatListType(const ListType& type) -> std::string {
-  return "List<" + formatType(type.elementType()) + ">";
 }
 
 auto formatPtrType(const PtrType& type) -> std::string {
@@ -278,32 +234,9 @@ auto sameBuiltinType(const BuiltinType& lhs, const BuiltinType& rhs)
   return lhs.builtinKind() == rhs.builtinKind();
 }
 
-auto sameTensorShape(const std::vector<int64_t> &lhsShape,
-                     const std::vector<int64_t> &rhsShape) -> bool {
-  if (lhsShape.size() != rhsShape.size())
-    return false;
-
-  for (size_t i = 0; i < lhsShape.size(); ++i) {
-    auto lhsDim = lhsShape[i];
-    auto rhsDim = rhsShape[i];
-    if (lhsDim >= 0 && rhsDim >= 0 && lhsDim != rhsDim)
-      return false;
-  }
-  return true;
-}
-
-auto sameTensorType(const TensorType& lhs, const TensorType& rhs) -> bool {
-  return sameType(lhs.elementType(), rhs.elementType()) &&
-         sameTensorShape(lhs.shape(), rhs.shape());
-}
-
 auto sameArrayType(const ArrayType& lhs, const ArrayType& rhs) -> bool {
   return sameType(lhs.elementType(), rhs.elementType()) &&
          lhs.size() == rhs.size();
-}
-
-auto sameListType(const ListType& lhs, const ListType& rhs) -> bool {
-  return sameType(lhs.elementType(), rhs.elementType());
 }
 
 auto samePtrType(const PtrType& lhs, const PtrType& rhs) -> bool {
@@ -316,21 +249,9 @@ auto structTypeStorage()
   return types;
 }
 
-auto tensorTypeStorage()
-    -> std::vector<std::unique_ptr<TensorType>> & {
-  static auto &types = *new std::vector<std::unique_ptr<TensorType>>();
-  return types;
-}
-
 auto arrayTypeStorage()
     -> std::vector<std::unique_ptr<ArrayType>> & {
   static auto &types = *new std::vector<std::unique_ptr<ArrayType>>();
-  return types;
-}
-
-auto listTypeStorage()
-    -> std::vector<std::unique_ptr<ListType>> & {
-  static auto &types = *new std::vector<std::unique_ptr<ListType>>();
   return types;
 }
 
@@ -340,25 +261,10 @@ auto ptrTypeStorage()
   return types;
 }
 
-auto findTensorType(const Type *elementType, const std::vector<int64_t> &shape)
-    -> const TensorType * {
-  for (const auto &type : tensorTypeStorage())
-    if (type->elementType() == elementType && type->shape() == shape)
-      return type.get();
-  return nullptr;
-}
-
 auto findArrayType(const Type *elementType, uint64_t size)
     -> const ArrayType * {
   for (const auto &type : arrayTypeStorage())
     if (type->elementType() == elementType && type->size() == size)
-      return type.get();
-  return nullptr;
-}
-
-auto findListType(const Type *elementType) -> const ListType * {
-  for (const auto &type : listTypeStorage())
-    if (type->elementType() == elementType)
       return type.get();
   return nullptr;
 }
@@ -410,15 +316,9 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
                            *llvm::cast<BuiltinType>(rhs));
   case TypeKind::Struct:
     return lhs == rhs;
-  case TypeKind::Tensor:
-    return sameTensorType(*llvm::cast<TensorType>(lhs),
-                          *llvm::cast<TensorType>(rhs));
   case TypeKind::Array:
     return sameArrayType(*llvm::cast<ArrayType>(lhs),
                          *llvm::cast<ArrayType>(rhs));
-  case TypeKind::List:
-    return sameListType(*llvm::cast<ListType>(lhs),
-                        *llvm::cast<ListType>(rhs));
   case TypeKind::Ptr:
     return samePtrType(*llvm::cast<PtrType>(lhs),
                        *llvm::cast<PtrType>(rhs));
@@ -431,20 +331,12 @@ auto getBuiltinType(const Type *type) -> const BuiltinType * {
   return llvm::dyn_cast_if_present<BuiltinType>(type);
 }
 
-auto getTensorType(const Type *type) -> const TensorType * {
-  return llvm::dyn_cast_if_present<TensorType>(type);
-}
-
 auto getArrayType(const Type *type) -> const ArrayType * {
   return llvm::dyn_cast_if_present<ArrayType>(type);
 }
 
 auto getStructType(const Type *type) -> const StructType * {
   return llvm::dyn_cast_if_present<StructType>(type);
-}
-
-auto getListType(const Type *type) -> const ListType * {
-  return llvm::dyn_cast_if_present<ListType>(type);
 }
 
 auto getPtrType(const Type *type) -> const PtrType * {
@@ -498,20 +390,11 @@ auto isEquatableType(const Type *type) -> bool {
 }
 
 auto isArrayElementType(const Type *type) -> bool {
-  return type && !hasUnitType(type) && !getTensorType(type) &&
-         !getListType(type);
-}
-
-auto isTensorType(const Type *type) -> bool {
-  return getTensorType(type) != nullptr;
+  return type && !hasUnitType(type);
 }
 
 auto isArrayType(const Type *type) -> bool {
   return getArrayType(type) != nullptr;
-}
-
-auto isListType(const Type *type) -> bool {
-  return getListType(type) != nullptr;
 }
 
 auto isPtrType(const Type *type) -> bool {
@@ -522,17 +405,9 @@ auto hasUnitType(const Type *type) -> bool {
   if (isUnitType(type))
     return true;
 
-  auto *tensorType = getTensorType(type);
-  if (tensorType)
-    return hasUnitType(tensorType->elementType());
-
   auto *arrayType = getArrayType(type);
   if (arrayType)
     return hasUnitType(arrayType->elementType());
-
-  auto *listType = getListType(type);
-  if (listType)
-    return hasUnitType(listType->elementType());
 
   auto *ptrType = getPtrType(type);
   if (ptrType)
@@ -542,17 +417,9 @@ auto hasUnitType(const Type *type) -> bool {
 }
 
 auto hasUnitElementType(const Type *type) -> bool {
-  auto *tensorType = getTensorType(type);
-  if (tensorType)
-    return hasUnitType(tensorType->elementType());
-
   auto *arrayType = getArrayType(type);
   if (arrayType)
     return hasUnitType(arrayType->elementType());
-
-  auto *listType = getListType(type);
-  if (listType)
-    return hasUnitType(listType->elementType());
 
   auto *ptrType = getPtrType(type);
   if (ptrType)
@@ -580,12 +447,8 @@ auto formatType(const Type *type) -> std::string {
     return formatBuiltinType(*llvm::cast<BuiltinType>(type));
   case TypeKind::Struct:
     return std::string(llvm::cast<StructType>(type)->name());
-  case TypeKind::Tensor:
-    return formatTensorType(*llvm::cast<TensorType>(type));
   case TypeKind::Array:
     return formatArrayType(*llvm::cast<ArrayType>(type));
-  case TypeKind::List:
-    return formatListType(*llvm::cast<ListType>(type));
   case TypeKind::Ptr:
     return formatPtrType(*llvm::cast<PtrType>(type));
   }
@@ -653,18 +516,6 @@ auto TypeContext::createStructType(std::string_view name,
   return structTypes.back().get();
 }
 
-auto TypeContext::createTensorType(const Type *elementType,
-                                   std::vector<int64_t> shape) const
-    -> const TensorType * {
-  if (auto *type = findTensorType(elementType, shape))
-    return type;
-
-  auto &tensorTypes = tensorTypeStorage();
-  tensorTypes.push_back(
-      std::make_unique<TensorType>(elementType, std::move(shape)));
-  return tensorTypes.back().get();
-}
-
 auto TypeContext::createArrayType(const Type *elementType,
                                   uint64_t size) const -> const ArrayType * {
   if (auto *type = findArrayType(elementType, size))
@@ -673,16 +524,6 @@ auto TypeContext::createArrayType(const Type *elementType,
   auto &arrayTypes = arrayTypeStorage();
   arrayTypes.push_back(std::make_unique<ArrayType>(elementType, size));
   return arrayTypes.back().get();
-}
-
-auto TypeContext::createListType(const Type *elementType) const
-    -> const ListType * {
-  if (auto *type = findListType(elementType))
-    return type;
-
-  auto &listTypes = listTypeStorage();
-  listTypes.push_back(std::make_unique<ListType>(elementType));
-  return listTypes.back().get();
 }
 
 auto TypeContext::createPtrType(const Type *pointeeType) const

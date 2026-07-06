@@ -12,7 +12,7 @@ fn main(): UInt64 {
   const scalarAlign: UInt64 = alignof(UInt64);
   const pairSize: UInt64 = sizeof(Pair);
   const pairAlign: UInt64 = alignof(Pair);
-  byteSize + scalarAlign + pairSize + pairAlign
+  return byteSize + scalarAlign + pairSize + pairAlign;
 }
 
 # AST: Prototype {{.*}}name=main

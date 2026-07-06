@@ -1,5 +1,6 @@
 package std.list;
 
+import internal.ptr;
 import random;
 
 comptime List<T> = struct {
@@ -7,27 +8,27 @@ comptime List<T> = struct {
   capacity: UInt64,
   data: Ptr<T>,
 
-  pub fn size(self: Ptr<List<T>>): UInt64 {
-    self.length
+  pub fn size(const self: List<T>): UInt64 {
+    return self.length;
   }
 
-  pub fn get(self: Ptr<List<T>>, index: UInt64): T {
-    self.data[index]
+  pub fn get(const self: List<T>, index: UInt64): T {
+    return self.data[index];
   }
 
-  pub fn set(self: Ptr<List<T>>, index: UInt64, value: T): UInt64 {
+  pub fn set(self: List<T>, index: UInt64, const value: T): UInt64 {
     self.data[index] = value;
-    0
+    return 0;
   }
 
-  pub fn swap(self: Ptr<List<T>>, first: UInt64, second: UInt64): UInt64 {
+  pub fn swap(self: List<T>, first: UInt64, second: UInt64): UInt64 {
     const value: T = self.data[first];
     self.data[first] = self.data[second];
     self.data[second] = value;
-    0
+    return 0;
   }
 
-  pub fn grow(self: Ptr<List<T>>, newCapacity: UInt64): UInt64 {
+  pub fn grow(self: List<T>, newCapacity: UInt64): UInt64 {
     var newData: Ptr<T> = heap.alloc<T>(newCapacity);
     var index: UInt64 = 0;
     while index < self.length {
@@ -36,10 +37,10 @@ comptime List<T> = struct {
     }
     self.data = newData;
     self.capacity = newCapacity;
-    0
+    return 0;
   }
 
-  pub fn push(self: Ptr<List<T>>, value: T): UInt64 {
+  pub fn push(self: List<T>, const value: T): UInt64 {
     if self.length >= self.capacity {
       var newCapacity: UInt64 = self.capacity * 2;
       if self.capacity == 0 {
@@ -49,22 +50,22 @@ comptime List<T> = struct {
     }
     self.data[self.length] = value;
     self.length = self.length + 1;
-    0
+    return 0;
   }
 };
 
 fn withCapacity<T>(capacity: UInt64): List<T> {
-  List<T> { 0, capacity, heap.alloc<T>(capacity) }
+  return List<T> { 0, capacity, heap.alloc<T>(capacity) };
 }
 
-fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
+fn from<T, N: UInt64>(const array: Array<T, N>): List<T> {
   var result: List<T> = withCapacity(N);
   var index: UInt64 = 0;
   while index < N {
     result.push(array[index]);
     index = index + 1;
   }
-  result
+  return result;
 }
 
 fn shufflePair<T, U>(first: List<T>, second: List<U>, seed: UInt64): UInt64 {
@@ -77,5 +78,5 @@ fn shufflePair<T, U>(first: List<T>, second: List<U>, seed: UInt64): UInt64 {
     second.swap(target, swapIndex);
     index = index - 1;
   }
-  0
+  return 0;
 }

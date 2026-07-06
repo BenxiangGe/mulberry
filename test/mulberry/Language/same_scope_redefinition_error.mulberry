@@ -3,7 +3,7 @@
 fn main(): UInt64 {
   var value: UInt64 = 1;
   var value: UInt64 = 2;
-  value
+  return value;
 }
 
 # CHECK: error: redefinition of variable

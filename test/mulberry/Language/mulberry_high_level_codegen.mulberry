@@ -6,22 +6,24 @@ struct A {
 }
 
 fn add(x: UInt64): UInt64 {
-  x + 1
+  return x + 1;
 }
 
 fn main(): UInt64 {
   var a: A = A { 1, true };
   var sum: UInt64 = 0;
+  var result: UInt64 = 0;
 
   for i in 0 .. 2 {
     sum = sum + i;
   }
 
   if a.flag {
-    add(sum)
+    result = add(sum);
   } else {
-    0
+    result = 0;
   }
+  return result;
 }
 
 # CHECK-LABEL: module {
@@ -30,11 +32,12 @@ fn main(): UInt64 {
 # CHECK: arith.addi
 # CHECK: return
 # CHECK-LABEL: func.func @main
-# CHECK: mulberry_core.alloca !mulberry_core.record<A
+# CHECK: mulberry_core.alloca !mulberry_core.ptr<!mulberry_core.record<A
+# CHECK: mulberry_core.heap.alloc !mulberry_core.record<A
 # CHECK: mulberry_core.record.get_field
 # CHECK: mulberry_core.store
 # CHECK: scf.for unsigned
 # CHECK: arith.addi
-# CHECK: scf.if {{.*}} -> (i64)
+# CHECK: scf.if
 # CHECK: call @add
 # CHECK-NOT: cir.

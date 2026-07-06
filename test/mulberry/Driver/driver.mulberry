@@ -25,23 +25,23 @@ struct B {
 fn bar(x: UInt64, y: Bool): B {
   var k: Bool = y;
   
-  k = if k {
+  if k {
     io.print(18446744073709551615);
-    false
+    k = false;
   } else {
     io.print(1);
-    true
-  };
+    k = true;
+  }
 
   while k {
     k = false;
   }
 
-  B { k, A {} }
+  return B { k, A {} };
 }
 
 fn baz(): () {
-  ()
+  return;
 }
 
 fn main(): UInt64 {
@@ -52,7 +52,7 @@ fn main(): UInt64 {
   var structValue: B = bar(18446744073709551615, false);
   io.print(boolToUInt64(structValue.x));
   baz();
-  0
+  return 0;
 }
 
 # JIT: 1

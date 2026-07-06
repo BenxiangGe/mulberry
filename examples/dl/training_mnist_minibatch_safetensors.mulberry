@@ -101,5 +101,5 @@ fn main(): UInt64 {
   io.print(testEvaluation.accuracyBasisPoints);
   io.print(nn.predict(finalWeights, finalBiases, x));
 
-  0
+  return 0;
 }

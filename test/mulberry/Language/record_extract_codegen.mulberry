@@ -6,13 +6,14 @@ struct Pair {
 }
 
 fn makePair(x: UInt64): Pair {
-  Pair { x, x + 1 }
+  return Pair { x, x + 1 };
 }
 
 fn main(): UInt64 {
-  makePair(41).y
+  return makePair(41).y;
 }
 
 # CHECK-LABEL: func.func @main
 # CHECK: call @makePair
-# CHECK: mulberry_core.record.extract {{.*}}["y"] : !mulberry_core.record<Pair {x: i64, y: i64}> -> i64
+# CHECK: mulberry_core.record.get_field {{.*}}["y"] : !mulberry_core.ptr<!mulberry_core.record<Pair
+# CHECK: mulberry_core.load {{.*}} : !mulberry_core.ptr<i64> -> i64

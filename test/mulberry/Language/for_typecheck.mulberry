@@ -8,12 +8,11 @@ fn main(): UInt64 {
     io.print(i);
   }
 
-  0
+  return 0;
 }
 
 # CHECK: ArrayLiteralExpr {{.*}}type=Array<UInt64, 3>
-# CHECK: ForExpr
-# CHECK-SAME: type=Unit
+# CHECK: ForStat
 # CHECK-SAME: variable=i
 # CHECK: bodyBlock:
 # CHECK-NEXT: CallExpr

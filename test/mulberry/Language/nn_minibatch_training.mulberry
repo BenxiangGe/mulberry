@@ -57,7 +57,7 @@ fn main(): UInt64 {
   io.print(nn.predict(finalWeights, finalBiases, dataset.input(1)));
   io.print(evaluation.correct);
 
-  0
+  return 0;
 }
 
 # JIT: 0

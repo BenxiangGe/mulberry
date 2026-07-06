@@ -5,7 +5,7 @@ struct A[2] {
 }
 
 fn main(): UInt64 {
-  0
+  return 0;
 }
 
 # CHECK: error: expected

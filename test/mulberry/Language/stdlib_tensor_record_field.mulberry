@@ -8,11 +8,11 @@ struct Layer {
 }
 
 fn makeLayer(weight: Tensor<Float32>): Layer {
-  Layer { weight }
+  return Layer { weight };
 }
 
 fn useLayer(layer: Layer): UInt64 {
-  boolToUInt64(layer.weight[0, 1] > 1.5)
+  return boolToUInt64(layer.weight[0, 1] > 1.5);
 }
 
 fn main(): UInt64 {
@@ -20,17 +20,17 @@ fn main(): UInt64 {
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   var layer: Layer = makeLayer(tensor2d);
   io.print(useLayer(layer));
-  0
+  return 0;
 }
 
 # MLIR-LABEL: func.func @makeLayer
-# MLIR-SAME: %arg0: !mulberry_core.record<std_tensor_Tensor__Float32
-# MLIR-SAME: -> !mulberry_core.record<Layer
+# MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Layer
 # MLIR: mulberry_core.record.get_field
 # MLIR: mulberry_core.store
 
 # MLIR-LABEL: func.func @useLayer
-# MLIR-SAME: %arg0: !mulberry_core.record<Layer
+# MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<Layer
 # MLIR: mulberry_core.record.get_field
 # MLIR-SAME: ["weight"]
 # MLIR: mulberry_core.load
@@ -38,13 +38,10 @@ fn main(): UInt64 {
 # MLIR: mulberry_core.ptr.index
 
 # LOWERED-LABEL: func.func @makeLayer
-# LOWERED-SAME: %arg0: !llvm.struct
-# LOWERED-SAME: -> !llvm.struct
-# LOWERED: llvm.store %arg0
-
+# LOWERED-SAME: %arg0: !llvm.ptr
+# LOWERED-SAME: -> !llvm.ptr
 # LOWERED-LABEL: func.func @useLayer
-# LOWERED-SAME: %arg0: !llvm.struct
-# LOWERED: llvm.store %arg0
+# LOWERED-SAME: %arg0: !llvm.ptr
 # LOWERED: llvm.getelementptr
 # LOWERED: llvm.load
 # LOWERED: llvm.getelementptr

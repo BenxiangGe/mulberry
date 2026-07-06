@@ -20,7 +20,7 @@ fn main(): UInt64 {
   io.print(x.begin);
   io.print(x.end);
   io.close(file);
-  0
+  return 0;
 }
 
 # JIT: 1

@@ -1,0 +1,19 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Counter {
+  value: UInt64
+}
+
+fn main(): UInt64 {
+  var a: Counter = Counter { 1 };
+  var b: Counter = Counter { 2 };
+  var c: Counter = a;
+  c = b;
+  c.value = 99;
+  io.print(a.value);
+  io.print(b.value);
+  return 0;
+}
+
+# JIT: 1
+# JIT-NEXT: 99

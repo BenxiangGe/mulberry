@@ -1,18 +1,8 @@
 #include "mulberry/MLIRGen/TypeConverter.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mulberry {
-
-static auto convertMemRefShape(const std::vector<int64_t>& shape)
-    -> std::vector<int64_t> {
-  std::vector<int64_t> memrefShape;
-  for (auto dim : shape) {
-    memrefShape.push_back(dim < 0 ? mlir::ShapedType::kDynamic : dim);
-  }
-  return memrefShape;
-}
 
 auto MLIRTypeConverter::convert(const BuiltinType& type) const
     -> mlir::Type {
@@ -28,22 +18,6 @@ auto MLIRTypeConverter::convert(const BuiltinType& type) const
   case BuiltinTypeKind::Bool:
     return _builder.getI1Type();
   }
-}
-
-auto MLIRTypeConverter::convert(const TensorType& type) const
-    -> mlir::mulberry_core::TensorType {
-  // Source-level Tensor<T> lowers as a record header. This type is now only for
-  // internal/core tensor lowering values.
-  auto *elementType = mulberry::getBuiltinType(type.elementType());
-  if (!elementType || mulberry::isUnitType(elementType))
-    return {};
-
-  auto mlirElementType = convert(*elementType);
-  if (!mlirElementType)
-    return {};
-
-  return mlir::mulberry_core::TensorType::get(_builder.getContext(),
-                                              type.shape(), mlirElementType);
 }
 
 auto MLIRTypeConverter::convert(const ArrayType& type) const -> mlir::Type {
@@ -71,23 +45,6 @@ auto MLIRTypeConverter::convert(const PtrType& type) const
   return mlir::mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
 }
 
-auto MLIRTypeConverter::convertTensorToMemRefType(
-    const TensorType& type) const -> mlir::MemRefType {
-  auto *elementType = mulberry::getBuiltinType(type.elementType());
-  if (!elementType || mulberry::isUnitType(elementType))
-    return {};
-
-  auto mlirElementType = convert(*elementType);
-  if (!mlirElementType)
-    return {};
-
-  // This is only for internal/core tensor signatures that must mention memref
-  // directly. Normal source-level Tensor<T> codegen keeps the stdlib header as
-  // a Mulberry record value.
-  return mlir::MemRefType::get(convertMemRefShape(type.shape()),
-                               mlirElementType);
-}
-
 auto MLIRTypeConverter::convert(const StructType& type) const
     -> mlir::mulberry_core::RecordType {
   std::vector<mlir::mulberry_core::RecordType::Field> fields;
@@ -106,17 +63,8 @@ auto MLIRTypeConverter::convert(const Type *type) const -> mlir::Type {
   if (auto *builtinType = mulberry::getBuiltinType(type))
     return convert(*builtinType);
 
-  if (auto *tensorType = mulberry::getTensorType(type))
-    return convert(*tensorType);
-
   if (auto *arrayType = mulberry::getArrayType(type))
     return convert(*arrayType);
-
-  // Source-level List<T> should be a stdlib/comptime struct before MLIRGen.
-  // The old !mulberry_core.list IR path has been removed, so a remaining semantic
-  // ListType is not lowerable here.
-  if (mulberry::getListType(type))
-    return {};
 
   if (auto *ptrType = mulberry::getPtrType(type))
     return convert(*ptrType);

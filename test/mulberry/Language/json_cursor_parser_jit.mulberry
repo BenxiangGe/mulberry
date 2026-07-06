@@ -24,7 +24,7 @@ fn main(): UInt64 {
   parser.consumeChar(':');
   parser.skipValue();
   io.print(parser.position);
-  0
+  return 0;
 }
 
 # MLIR-LABEL: func.func @std.json.Parser.peekChar

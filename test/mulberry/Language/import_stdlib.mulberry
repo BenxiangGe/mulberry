@@ -4,7 +4,7 @@
 import std.core;
 
 fn main(): UInt64 {
-  core.identity(7)
+  return core.identity(7);
 }
 
 # AST: Prototype {{.*}}name=std.core.identity

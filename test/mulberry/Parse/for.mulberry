@@ -6,7 +6,7 @@ fn main(): UInt64 {
     io.print(i);
   }
 
-  0
+  return 0;
 }
 
 # TOKENS: kw_for 'for'
@@ -14,7 +14,7 @@ fn main(): UInt64 {
 # TOKENS: kw_in 'in'
 # TOKENS: dot_dot '..'
 
-# PARSE: ForExpr
+# PARSE: ForStat
 # PARSE-SAME: variable=i
 # PARSE: DecimalExpr
 # PARSE-SAME: value=0

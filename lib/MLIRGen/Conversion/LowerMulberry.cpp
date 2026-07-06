@@ -810,57 +810,6 @@ public:
   }
 };
 
-class TensorAllocOpLowering
-    : public OpConversionPattern<mulberry_core::TensorAllocOp> {
-public:
-  using OpConversionPattern<mulberry_core::TensorAllocOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry_core::TensorAllocOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto tensorType = llvm::cast<mulberry_core::TensorType>(
-        op.getResult().getType());
-    auto resultType = convertTensorToMemRefType(tensorType);
-
-    auto alloc = memref::AllocOp::create(rewriter, op.getLoc(), resultType,
-                                         adaptor.getDynamicSizes());
-    rewriter.replaceOp(op, alloc.getResult());
-    return success();
-  }
-};
-
-class TensorDimOpLowering : public OpConversionPattern<mulberry_core::TensorDimOp> {
-public:
-  using OpConversionPattern<mulberry_core::TensorDimOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry_core::TensorDimOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto dim = memref::DimOp::create(rewriter, op.getLoc(),
-                                     adaptor.getTensor(), adaptor.getIndex());
-    rewriter.replaceOp(op, dim.getResult());
-    return success();
-  }
-};
-
-class TensorCastOpLowering
-    : public OpConversionPattern<mulberry_core::TensorCastOp> {
-public:
-  using OpConversionPattern<mulberry_core::TensorCastOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry_core::TensorCastOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto destType = convertTensorToMemRefType(
-        llvm::cast<mulberry_core::TensorType>(op.getDest().getType()));
-
-    auto cast = memref::CastOp::create(rewriter, op.getLoc(), destType,
-                                       adaptor.getSource());
-    rewriter.replaceOp(op, cast.getResult());
-    return success();
-  }
-};
-
 class TensorViewOpLowering
     : public OpConversionPattern<mulberry_core::TensorViewOp> {
 public:
@@ -1012,37 +961,6 @@ public:
   }
 };
 
-class TensorLoadOpLowering
-    : public OpConversionPattern<mulberry_core::TensorLoadOp> {
-public:
-  using OpConversionPattern<mulberry_core::TensorLoadOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry_core::TensorLoadOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    auto load = memref::LoadOp::create(rewriter, op.getLoc(),
-                                       adaptor.getTensor(),
-                                       adaptor.getIndices());
-    rewriter.replaceOp(op, load.getResult());
-    return success();
-  }
-};
-
-class TensorStoreOpLowering
-    : public OpConversionPattern<mulberry_core::TensorStoreOp> {
-public:
-  using OpConversionPattern<mulberry_core::TensorStoreOp>::OpConversionPattern;
-
-  auto matchAndRewrite(mulberry_core::TensorStoreOp op, OpAdaptor adaptor,
-                       ConversionPatternRewriter& rewriter) const
-      -> LogicalResult final {
-    memref::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
-                            adaptor.getTensor(), adaptor.getIndices());
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
@@ -1069,10 +987,7 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     patterns.add<AllocaOpLowering, HeapAllocOpLowering,
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordExtractOpLowering, RecordGetFieldOpLowering,
-                 StoreOpLowering, TensorAllocOpLowering, TensorCastOpLowering,
-                 TensorDimOpLowering, TensorLoadOpLowering,
-                 TensorPackOpLowering, TensorStoreOpLowering,
-                 TensorViewOpLowering>(
+                 StoreOpLowering, TensorPackOpLowering, TensorViewOpLowering>(
         typeConverter, &getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);

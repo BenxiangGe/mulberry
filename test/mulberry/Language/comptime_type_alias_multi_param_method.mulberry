@@ -4,17 +4,15 @@
 comptime RankedBox<T, Rank: UInt64> = struct {
   value: T,
 
-  pub fn get(self: Ptr<RankedBox<T, Rank>>): T {
-    self.value
+  pub fn get(self: RankedBox<T, Rank>): T {
+    return self.value;
   }
 };
 
 fn main(): UInt64 {
-  var box: Ptr<RankedBox<UInt64, 2>> =
-      heap.alloc<RankedBox<UInt64, 2>>();
-  box.value = 42;
+  var box: RankedBox<UInt64, 2> = RankedBox<UInt64, 2> { 42 };
   io.print(box.get());
-  0
+  return 0;
 }
 
 # AST: ComptimeTypeAliasDecl {{.*}}name=RankedBox parameter=T, Rank: UInt64 type=struct {value: T, fn RankedBox.get}

@@ -3,29 +3,28 @@
 fn make(): List<Tensor<Float32>> {
   var w: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
   var weights: List<Tensor<Float32>> = list.from([w]);
-  weights
+  return weights;
 }
 
 fn main(): UInt64 {
   const weights: List<Tensor<Float32>> = make();
   const first: Tensor<Float32> = weights[0];
-  first.numel()
+  return first.numel();
 }
 
 # CHECK: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
 # CHECK-LABEL: func.func @make
-# CHECK-SAME: -> !llvm.struct<(i64, i64, ptr)>
+# CHECK-SAME: -> !llvm.ptr
 # CHECK: llvm.alloca
 # CHECK: llvm.alloca
 # CHECK: llvm.alloca
 # CHECK: llvm.call @mulberry_boehm_malloc
 # CHECK: llvm.store {{.*}} : f32, !llvm.ptr
-# CHECK: llvm.store {{.*}} : !llvm.struct<(i64, i64, ptr)>, !llvm.ptr
 # CHECK: call @std_list_from__std_tensor_Tensor__Float32__1
-# CHECK: return %{{.*}} : !llvm.struct<(i64, i64, ptr)>
+# CHECK: return %{{.*}} : !llvm.ptr
 
 # CHECK-LABEL: func.func @main
-# CHECK: call @make() : () -> !llvm.struct<(i64, i64, ptr)>
+# CHECK: call @make() : () -> !llvm.ptr
 # CHECK: call @std_list_List_get__
 # CHECK: call @std_tensor_Tensor_numel__Float32
 # CHECK: return

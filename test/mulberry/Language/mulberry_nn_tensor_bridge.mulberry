@@ -25,7 +25,7 @@ fn main(): UInt64 {
   var prime: Tensor<Float32> = nn.sigmoidPrime(primeInput);
   io.print(nn.argmax(prime));
 
-  0
+  return 0;
 }
 
 # JIT: 1

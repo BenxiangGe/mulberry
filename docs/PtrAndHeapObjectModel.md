@@ -1,15 +1,16 @@
-# `Ptr<T>` 与 Object Reference 模型
+# Internal `Ptr<T>` 与 Object Reference 模型
 
-本文档记录目标方向，不表示所有实现已经完成。当前代码仍有一些 by-value header
-路径；后续迁移目标是采用类似 Java 的 object reference 模型：
+本文档记录目标方向和当前实现边界。普通 source object 已经向类似 Java 的 object
+reference 模型迁移：
 
 ```text
 Scalar = value
 Object = reference
 ```
 
-`Ptr<T>` 仍然存在，但它应该主要服务于 stdlib/runtime/FFI 和底层库作者，而不是普通
-用户日常代码。
+`Ptr<T>` 仍然作为 compiler/stdlib/runtime internal storage type 存在，但不再是用户
+可见 source surface。普通用户代码应该只看见 `String`、`File`、`Array<T, N>`、
+`List<T>`、`Tensor<T>` 和用户 `struct` 这些 object reference。
 
 Mulberry 底层仍采用 C/C++ 风格的 typed pointer 模型：
 
@@ -27,9 +28,10 @@ Ptr<T> = pointer to T
 - 除了 scalar，其它 source-level object 都应该是 reference：`String`、`File`、
   `Array<T, N>`、`List<T>`、`Tensor<T>` 和用户 `struct`。
 - object 赋值和传参复制 reference，不复制 object storage。
-- object mutation 会影响所有 alias；后续用 `const` / `mut` 约束共享可变性。
-- `Ptr<T>` 是底层 typed address，不是默认 object surface。普通用户应该优先使用
-  object API，而不是手写 `Ptr<T>`。
+- object mutation 会影响所有 alias；第一版 `const` 已经能阻止直接写入 const
+  object，以及把 const object 直接传给 mutable 参数或 receiver。
+- `Ptr<T>` 是底层 typed address，不是 user source surface。普通用户使用 object API，
+  不手写 `Ptr<T>`。
 - heap object 由 Boehm GC 管理，不设计用户可见的 `free`。
 - 函数返回复杂对象时返回 object reference，而不是 by-value descriptor。
 - lowering 不应该为了函数边界再发明 escape descriptor 语义。
@@ -37,9 +39,10 @@ Ptr<T> = pointer to T
 这条路线牺牲一点 indirection 和 heap allocation，换取更简单的语言语义和更低的心智
 负担。对 Mulberry 当前目标来说，这个 tradeoff 是合理的。
 
-## `Ptr<T>` 语义
+## Internal `Ptr<T>` 语义
 
-`Ptr<T>` 等价于 C/C++ 的 `T*`：
+内部 `Ptr<T>` 等价于 C/C++ 的 `T*`。下面代码只表示 stdlib/compiler internal source
+可以使用的能力，不是用户层 API：
 
 ```mulberry
 var p: Ptr<UInt64>;
@@ -47,7 +50,7 @@ var p: Ptr<UInt64>;
 
 表示 `p` 保存一个地址，地址指向 `UInt64` storage。
 
-当前 source-level 读写使用 C/C++ 风格的解引用语法：
+stdlib/internal source 可以使用 C/C++ 风格的解引用语法：
 
 ```mulberry
 var p: Ptr<UInt64> = heap.alloc<UInt64>();
@@ -55,7 +58,7 @@ var p: Ptr<UInt64> = heap.alloc<UInt64>();
 var value: UInt64 = *p;
 ```
 
-连续 storage 使用带元素个数的 `heap.alloc<T>(count)` 分配，`p[i]` 表示第 `i`
+连续 storage 使用带元素个数的 internal `heap.alloc<T>(count)` 分配，`p[i]` 表示第 `i`
 个元素的 lvalue：
 
 ```mulberry
@@ -69,9 +72,9 @@ var value: UInt64 = p[0] + p[1];
 越界检查、空指针表达和分配失败策略都属于后续语言/runtime 设计。
 
 `ptr.load()` / `ptr.store()` 这类函数不作为用户 API 暴露。它们对应的是底层
-load/store 语义，源码层应该使用 `*p` 和 `*p = value`。
+load/store 语义；stdlib/internal source 使用 `*p` 和 `*p = value`。
 
-未来 source-level `Ptr<T>` 在 IR 中映射到：
+internal `Ptr<T>` 在 IR 中映射到：
 
 ```text
 Ptr<T>
@@ -80,7 +83,7 @@ Ptr<T>
   -> backend ptr
 ```
 
-`Ptr<T>` 自身不携带长度或边界信息。比如：
+`Ptr<T>` 自身不携带长度或边界信息。比如 internal field：
 
 ```mulberry
 var data: Ptr<Float32>;
@@ -119,13 +122,20 @@ y = 2;            // x 仍然是 1
 ```
 
 这个模型的好处是：`String`、`Array`、`List`、`Tensor`、`File` 和用户 `struct`
-拥有一致的赋值/传参/返回规则。代价是 aliasing 变成语言事实，必须用后续的
-`const` / `mut` 规则管理共享可变性。
+拥有一致的赋值/传参/返回规则。代价是 aliasing 变成语言事实，必须用当前第一版
+`const` 规则以及后续更完整的 `mut` 规则管理共享可变性。
 
-第一版 const/mut 目标规则：
+第一版 const/mut 规则：
 
 - `const x: Object` 表示不能通过 `x` mutation object。
 - `var x: Object` 表示可以通过 `x` mutation object。
+- 函数参数和 method receiver 默认是 mutable object reference；如果只读，写成
+  `const x: T` 或 `const self: T`。
+- `const` object 可以传给 const 参数/receiver，不能直接传给 mutable
+  参数/receiver。
+- 当前 `const` 不是 Rust borrow checker：引用拷贝仍然是浅拷贝，mutable aliases 仍然
+  允许存在。后续如果要更严格的 transitive readonly 或 unique mutable reference，
+  需要单独设计。
 - 多个 reference 可以指向同一个 object；如果要更严格的“唯一 mutable reference”，
   需要后续单独设计，不在第一版实现。
 - 显式深拷贝用 `clone()` / `copy()` 这类 API，不让赋值隐式 deep copy。
@@ -133,7 +143,7 @@ y = 2;            // x 仍然是 1
 ## Heap object 与共享 storage
 
 复杂对象的 runtime storage 放在 heap 上，由 object reference 指向。`Ptr<T>` 是实现
-这种 reference 的底层能力，但 source type 不应该到处写成 `Ptr<Object>`。
+这种 reference 的内部能力，user source 不写 `Ptr<Object>`。
 
 List 的形态：
 
@@ -153,7 +163,7 @@ var ys: List<UInt64> = xs;     // reference copy, not header deep copy
 ys.push(4);                    // xs 也观察到同一个 list object
 ```
 
-动态 Tensor 的形态：
+动态 Tensor 的 internal layout：
 
 ```mulberry
 comptime Tensor<T> = struct {
@@ -178,7 +188,7 @@ comptime Tensor<T> = struct {
 当前的设计重点不是把所有 legacy tensor 行为一次删干净，而是避免把 Tensor 语义、
 memref view、函数边界 ABI 和 runtime ownership 混成一层。
 
-String 的形态就是：
+String 的 internal layout：
 
 ```mulberry
 struct String {
@@ -189,7 +199,7 @@ struct String {
 
 `String` source value 是 reference。复制 `String` 复制 reference，不复制 bytes。
 
-string literal 直接分配 heap byte buffer，然后构造 `String` value：
+string literal 直接分配 heap byte buffer，然后构造 `String` object：
 
 ```text
 heap UInt8[4] = "abc\0" + String{length = 3, data = bytes}
@@ -219,6 +229,27 @@ fn makeTensor(): Tensor<Float32> {
 
 caller 拿到的是 Tensor object reference。函数边界不需要专门的 descriptor escape
 机制，也不应该把 memref descriptor 暴露成 source value。
+
+当前实现状态：
+
+- source-level 函数参数类型仍然写成 `T`，例如 `fn id(s: String): String`。
+- 非 extern 函数的 source object 参数在 MLIR 函数签名中降成
+  `Ptr<T>` ABI；函数体内直接把参数当作 object storage 地址使用。
+- extern 函数保留显式声明的 ABI，不会被这条规则自动改写。
+- 如果调用点传入的是 rvalue object，MLIRGen 会先把值 spill 到临时 slot，再把
+  临时地址传给 `Ptr<T>` ABI 参数。
+- source object 局部变量使用 reference slot：slot 里保存 object storage
+  pointer，真正 object storage 放在 GC heap 上。
+- source object literal 会分配 GC heap object；`var b = a` 和 `b = a`
+  都复制 reference，不复制 record header。
+- source object 函数返回也使用 `Ptr<T>` ABI；`fn make(): T` 在 source
+  层仍写 `T`，但 caller 拿到的是同一个 object reference。
+- Sema 保存函数参数的 const 标记。普通参数默认 mutable；`const values: List<T>`
+  这类参数允许读取 const object，但 mutable 参数或 receiver 会拒绝 const object。
+- 当 record/value storage 或 extern/package ABI 仍需要 materialized record
+  header 时，MLIRGen 会从 `Ptr<T>` 做一次显式 load。这个动作不属于普通
+  `castToType()`，而是限制在 value-boundary helper 里；普通 source
+  赋值/传参/返回不做隐式 deep copy。
 
 ## Alias 语义
 
@@ -309,6 +340,24 @@ C4.13  支持 generic struct，用 Mulberry 表达 List<T>
 C4.14  支持 generic function，用 Mulberry 表达 List<T> API
 C4.15  把 List<T> 迁到 std.list
 C4.16  删除旧 list descriptor / escape_storage / boundary rewrite
+P3.2a  method receiver surface 已从 `self: Ptr<T>` 收成 `self: T`；Sema 内部只对
+       真正的 struct method receiver 降成 `Ptr<T>`，普通源码不用写 receiver pointer。
+P3.2b  非 pointer 专项的 generic/method 示例不再用 `Ptr<T>` / `heap.alloc<T>()`
+       当默认写法；source-level pointer/heap 正向测试已在 P3.11 删除。
+P3.2c  普通非 extern object 参数 ABI 已收成内部 `Ptr<T>`；source 类型仍保持
+       `String`、`List<T>`、`Tensor<T>`、`Array<T, N>` 或用户 `struct`，不暴露
+       参数 pointer。
+P3.7   普通用户示例继续收敛到 `String`、`File`、`Array<T, N>`、`List<T>`、
+       `Tensor<T>` 和用户 `struct` 这些 object API；`Ptr<T>` 保留给 compiler/stdlib/
+       runtime internal storage。
+P3.9   `ptr` 已从 prelude 移除，stdlib 内部需要 raw pointer helper 时显式 import。
+P3.10  user source 不能再写 `Ptr<T>`、`heap.alloc<T>()`、dereference、import/call
+       `std.internal.ptr` helper，或直接读取 pointer field。
+P3.15  `std.ptr` 已收进 `std.internal.ptr`。stdlib 内部可以 `import internal.ptr`
+       并通过局部 alias `ptr` 使用 helper；用户 source 不能 import/call
+       `std.internal.*`。
+P3.11  source-level pointer/heap 正向测试已删除；core pointer lowering 仍由 MLIR-level
+       测试和 object lowering 正向路径覆盖。
 ```
 
 后续建议：
@@ -319,6 +368,8 @@ P4.6   设计 List grow / capacity 策略，只在 training 需要时实现
 P4.7   已完成设计检查：禁止把 tensor descriptor 伪装成 handle；真正的 Tensor object
        只能是 source-level `Tensor<T>` header
 P4.8   如果要继续缩小 Mulberry core dialect，逐项迁移 string/file/heap/record，而不是整块删除
+P3.3   已完成：struct-shaped object 的参数、局部 binding、assignment 和 function
+       return 都走 reference ABI。
 ```
 
 每一步都应该优先保持模型简单。如果某一步需要引入很难解释的桥接层，就说明底层能力

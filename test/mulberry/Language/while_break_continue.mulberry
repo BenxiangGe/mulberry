@@ -16,7 +16,7 @@ fn main(): UInt64 {
     sum = sum + i;
   }
   io.print(sum);
-  0
+  return 0;
 }
 
 # CHECK: 8

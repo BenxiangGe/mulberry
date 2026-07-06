@@ -1,5 +1,7 @@
 package std.string;
 
+import internal.ptr;
+
 struct String {
   length: UInt64,
   data: Ptr<UInt8>
