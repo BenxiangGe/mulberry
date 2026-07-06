@@ -5,4 +5,4 @@ fn main(): UInt64 {
   return values.push(4);
 }
 
-# CHECK: error: cannot bind const object to mutable reference
+# CHECK: error: cannot use readonly object as mutable reference

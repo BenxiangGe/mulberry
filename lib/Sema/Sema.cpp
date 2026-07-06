@@ -160,7 +160,7 @@ auto methodFunctionName(std::string_view ownerName,
 }
 
 auto isMethodReceiverParameter(const Prototype *prototype,
-                               const VariableStat *parameter,
+                               const ParameterDecl *parameter,
                                size_t index) -> bool {
   return prototype->isMethod() && index == 0 &&
          parameter->variable()->name() == "self";
@@ -206,26 +206,25 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   }
 
   auto *structType = cast<StructTypeNode>(node);
-  VectorUniquePtr<VariableStat> fields;
+  VectorUniquePtr<FieldDecl> fields;
   for (auto &field : structType->fields()) {
     auto variable = std::make_unique<VariableExpr>(
         field->variable()->location(), field->variable()->name());
-    fields.push_back(std::make_unique<VariableStat>(
+    fields.push_back(std::make_unique<FieldDecl>(
         field->location(), std::move(variable),
-        cloneTypeNode(field->typeNode()), nullptr, field->isConst()));
+        cloneTypeNode(field->typeNode())));
   }
   VectorUniquePtr<FunctionDecl> methods;
   for (auto &method : structType->methods()) {
     auto functionName = std::make_unique<FunctionName>(
         method->proto()->id()->location(), method->proto()->id()->name());
-    VectorUniquePtr<VariableStat> parameters;
+    VectorUniquePtr<ParameterDecl> parameters;
     for (auto &parameter : method->proto()->parameters()) {
       auto variable = std::make_unique<VariableExpr>(
           parameter->variable()->location(), parameter->variable()->name());
-      parameters.push_back(std::make_unique<VariableStat>(
+      parameters.push_back(std::make_unique<ParameterDecl>(
           parameter->location(), std::move(variable),
-          cloneTypeNode(parameter->typeNode()), nullptr,
-          parameter->isConst()));
+          cloneTypeNode(parameter->typeNode()), parameter->canMutateObject()));
     }
     auto prototype = std::make_unique<Prototype>(
         method->proto()->location(), std::move(functionName),
@@ -331,26 +330,26 @@ auto substituteTypeNode(const TypeNode *node,
   }
 
   auto *structType = cast<StructTypeNode>(node);
-  VectorUniquePtr<VariableStat> fields;
+  VectorUniquePtr<FieldDecl> fields;
   for (auto &field : structType->fields()) {
     auto variable = std::make_unique<VariableExpr>(
         field->variable()->location(), field->variable()->name());
-    fields.push_back(std::make_unique<VariableStat>(
+    fields.push_back(std::make_unique<FieldDecl>(
         field->location(), std::move(variable),
-        substituteTypeNode(field->typeNode(), substitution),
-        nullptr));
+        substituteTypeNode(field->typeNode(), substitution)));
   }
   VectorUniquePtr<FunctionDecl> methods;
   for (auto &method : structType->methods()) {
     auto functionName = std::make_unique<FunctionName>(
         method->proto()->id()->location(), method->proto()->id()->name());
-    VectorUniquePtr<VariableStat> parameters;
+    VectorUniquePtr<ParameterDecl> parameters;
     for (auto &parameter : method->proto()->parameters()) {
       auto variable = std::make_unique<VariableExpr>(
           parameter->variable()->location(), parameter->variable()->name());
-      parameters.push_back(std::make_unique<VariableStat>(
+      parameters.push_back(std::make_unique<ParameterDecl>(
           parameter->location(), std::move(variable),
-          substituteTypeNode(parameter->typeNode(), substitution), nullptr));
+          substituteTypeNode(parameter->typeNode(), substitution),
+          parameter->canMutateObject()));
     }
     auto prototype = std::make_unique<Prototype>(
         method->proto()->location(), std::move(functionName),
@@ -427,7 +426,8 @@ auto substituteBlockExpr(const BlockExpr *node,
       statements.push_back(std::make_unique<VariableStat>(
           variable->location(), std::move(clonedVariable),
           substituteTypeNode(variable->typeNode(), substitutions),
-          std::move(clonedInit), variable->isConst()));
+          std::move(clonedInit), variable->isConstBinding(),
+          variable->canMutateObject()));
       continue;
     }
 
@@ -618,14 +618,14 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
                              std::string_view concreteName,
                              const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<FunctionDecl> {
-  VectorUniquePtr<VariableStat> parameters;
+  VectorUniquePtr<ParameterDecl> parameters;
   for (auto &parameter : node->proto()->parameters()) {
     auto variable = std::make_unique<VariableExpr>(
         parameter->variable()->location(), parameter->variable()->name());
-    parameters.push_back(std::make_unique<VariableStat>(
+    parameters.push_back(std::make_unique<ParameterDecl>(
         parameter->location(), std::move(variable),
-        substituteTypeNode(parameter->typeNode(), substitutions), nullptr,
-        parameter->isConst()));
+        substituteTypeNode(parameter->typeNode(), substitutions),
+        parameter->canMutateObject()));
   }
 
   auto functionName =
@@ -708,7 +708,7 @@ private:
   auto sema(Prototype *node) -> MulberryResult;
   auto semaFunctionParameters(Prototype *node,
                               std::vector<const Type *> &parameterTypes,
-                              std::vector<bool> &parameterIsConst)
+                              std::vector<bool> &parameterCanMutateObject)
       -> MulberryResult;
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
@@ -739,6 +739,7 @@ private:
   auto semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
   auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
+  auto canMutateObjectReference(const Expr *expr) -> bool;
   auto checkMutableObjectArgument(const FunctionSymbol *signature, size_t index,
                                   const Expr *arg) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
@@ -954,9 +955,11 @@ private:
   }
 
   auto declareVariable(std::string_view name, const Type *type,
-                       bool isConst = false)
+                       bool isConstBinding = false,
+                       bool canMutateObject = true)
       -> MulberryResult {
-    return _symbols.declareVariable(name, type, isConst);
+    return _symbols.declareVariable(name, type, isConstBinding,
+                                    canMutateObject);
   }
 
   class VariableScope {
@@ -1018,7 +1021,7 @@ private:
 
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
-                       std::vector<bool> parameterIsConst,
+                       std::vector<bool> parameterCanMutateObject,
                        const Type *returnType,
                        std::string_view packageName = {})
       -> MulberryResult {
@@ -1026,7 +1029,8 @@ private:
       packageName = _currentPackageName;
     _functionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareFunction(name, std::move(parameterTypes),
-                                    std::move(parameterIsConst), returnType);
+                                    std::move(parameterCanMutateObject),
+                                    returnType);
   }
 
   auto declareGenericFunction(std::string_view name,
@@ -1730,7 +1734,7 @@ auto SemaImpl::sema(Prototype *node) -> MulberryResult {
 
 auto SemaImpl::semaFunctionParameters(
     Prototype *node, std::vector<const Type *> &parameterTypes,
-    std::vector<bool> &parameterIsConst)
+    std::vector<bool> &parameterCanMutateObject)
     -> MulberryResult {
   for (const auto &indexedParameter : llvm::enumerate(node->parameters())) {
     auto &par = indexedParameter.value();
@@ -1741,11 +1745,12 @@ auto SemaImpl::semaFunctionParameters(
         !getPtrType(parameterType) && getStructType(parameterType))
       parameterType = _typeContext.createPtrType(parameterType);
     par->setType(parameterType);
+    auto canMutateObject = par->canMutateObject();
     if (declareVariable(par->variable()->name(), parameterType,
-                        par->isConst()))
+                        !canMutateObject, canMutateObject))
       return emitError(par->variable().get(), diag::redefinition_var);
     parameterTypes.push_back(parameterType);
-    parameterIsConst.push_back(par->isConst());
+    parameterCanMutateObject.push_back(canMutateObject);
   }
   return success();
 }
@@ -1757,9 +1762,10 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
   for (size_t i = 0; i < parameters.size(); ++i) {
     auto &parameter = parameters[i];
     auto *parameterType = signature->parameterTypes[i];
+    auto canMutateObject = signature->parameterCanMutateObject[i];
     parameter->setType(parameterType);
     if (declareVariable(parameter->variable()->name(), parameterType,
-                        signature->parameterIsConst[i]))
+                        !canMutateObject, canMutateObject))
       return emitError(parameter->variable().get(), diag::redefinition_var);
   }
   node->setType(signature->returnType);
@@ -1768,8 +1774,8 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
 
 auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
   std::vector<const Type *> parameterTypes;
-  std::vector<bool> parameterIsConst;
-  if (semaFunctionParameters(node, parameterTypes, parameterIsConst))
+  std::vector<bool> parameterCanMutateObject;
+  if (semaFunctionParameters(node, parameterTypes, parameterCanMutateObject))
     return failure();
 
   auto *returnType = resolveType(node->returnTypeNode());
@@ -1779,7 +1785,7 @@ auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
 
   auto name = node->id()->name();
   if (declareFunction(name, std::move(parameterTypes),
-                      std::move(parameterIsConst), returnType)) {
+                      std::move(parameterCanMutateObject), returnType)) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return emitError(node->id().get(), diagnostic);
   }
@@ -2446,22 +2452,36 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
     auto *symbol = lookupVariable(var->name());
     if (!symbol)
       return emitError(var->location(), diag::undefined_var);
-    if (symbol->isConst)
+    if (symbol->isConstBinding)
       return emitError(var->location(), diag::assign_const);
     return success();
   }
 
-  if (auto *index = llvm::dyn_cast<IndexExpr>(expr)) {
-    return checkAssignable(index->base().get());
-  }
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
+    return checkConstObjectUseAsMutable(index->base().get());
 
   if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr)) {
     if (!memberAccess->isLvalue())
       return emitError(memberAccess, diag::expected_lvalue);
-    return checkAssignable(memberAccess->base().get());
+    return checkConstObjectUseAsMutable(memberAccess->base().get());
   }
 
   return success();
+}
+
+auto SemaImpl::canMutateObjectReference(const Expr *expr) -> bool {
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
+    return canMutateObjectReference(index->base().get());
+
+  if (auto *memberAccess = llvm::dyn_cast<MemberExpr>(expr))
+    return canMutateObjectReference(memberAccess->base().get());
+
+  auto *var = llvm::dyn_cast<VariableExpr>(expr);
+  if (!var)
+    return true;
+
+  auto *symbol = lookupVariable(var->name());
+  return !symbol || symbol->canMutateObject;
 }
 
 auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
@@ -2479,15 +2499,15 @@ auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
   auto *symbol = lookupVariable(var->name());
   if (!symbol)
     return emitError(var->location(), diag::undefined_var);
-  if (symbol->isConst)
-    return emitError(var->location(), diag::const_to_mutable);
+  if (!symbol->canMutateObject)
+    return emitError(var->location(), diag::readonly_to_mutable_reference);
   return success();
 }
 
 auto SemaImpl::checkMutableObjectArgument(const FunctionSymbol *signature,
                                           size_t index, const Expr *arg)
     -> MulberryResult {
-  if (signature->parameterIsConst[index])
+  if (!signature->parameterCanMutateObject[index])
     return success();
   if (!isSourceObjectType(signature->parameterTypes[index]))
     return success();
@@ -2822,7 +2842,9 @@ auto SemaImpl::sema(ForStat *node) -> MulberryResult {
 
   VariableScope loopScope(_symbols);
   auto *uint64Type = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
-  if (declareVariable(node->variableName(), uint64Type, /*isConst=*/true))
+  if (declareVariable(node->variableName(), uint64Type,
+                      /*isConstBinding=*/true,
+                      /*canMutateObject=*/false))
     return emitError(node, diag::redefinition_var);
 
   auto bodyBlock = node->bodyBlock().get();
@@ -2859,14 +2881,19 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   if (!varType)
     return failure();
   node->setType(varType);
-  if (declareVariable(var->name(), varType, node->isConst()))
-    return emitError(var, diag::redefinition_var);
-
   auto initExpr = node->init().get();
   if (sema(initExpr, varType))
     return failure();
   if (!sameType(varType, initExpr->type()))
     return emitError(initExpr, diag::mismatch_type);
+
+  auto canMutateObject = node->canMutateObject();
+  if (canMutateObject && isSourceObjectType(varType) &&
+      !canMutateObjectReference(initExpr))
+    return emitError(initExpr, diag::readonly_to_mutable_binding);
+  if (declareVariable(var->name(), varType, node->isConstBinding(),
+                      canMutateObject))
+    return emitError(var, diag::redefinition_var);
   return success();
 }
 

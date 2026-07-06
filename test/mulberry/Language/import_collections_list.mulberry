@@ -20,7 +20,7 @@ fn main(): UInt64 {
 # AST: ComptimeTypeAliasDecl {{.*}}(name=std.list.List parameter=T
 # AST: FunctionDecl {{.*}}
 # AST: Prototype {{.*}}name=std.imports.id
-# AST: VariableStat {{.*}}id=xs{{.*}}type=List<UInt64>
+# AST: ParameterDecl {{.*}}id=xs{{.*}}type=List<UInt64>
 # AST: Body:
 # AST: VariableExpr {{.*}}name=xs
 # AST: FunctionDecl {{.*}}

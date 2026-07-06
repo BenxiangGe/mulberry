@@ -3,7 +3,7 @@ package std.random;
 struct Rng {
   state: UInt64,
 
-  pub fn next(self: Rng): UInt64 {
+  pub fn next(mut self: Rng): UInt64 {
     # Small deterministic LCG for reproducible training shuffles. This is not
     # intended for cryptography or statistically serious simulation.
     const nextState: UInt64 = self.state * 1103515245 + 12345;
@@ -11,7 +11,7 @@ struct Rng {
     return self.state;
   }
 
-  pub fn nextBelow(self: Rng, bound: UInt64): UInt64 {
+  pub fn nextBelow(mut self: Rng, bound: UInt64): UInt64 {
     var result: UInt64 = 0;
     if bound > 0 {
       result = self.next() % bound;

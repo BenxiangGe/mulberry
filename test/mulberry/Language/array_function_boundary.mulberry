@@ -7,7 +7,7 @@ fn sum(xs: UInt64[3]): UInt64 {
   return xs[0] + xs[1] + xs[2];
 }
 
-fn bumpSecond(xs: UInt64[3]): UInt64 {
+fn bumpSecond(mut xs: UInt64[3]): UInt64 {
   xs[1] = 40;
   return xs[1];
 }

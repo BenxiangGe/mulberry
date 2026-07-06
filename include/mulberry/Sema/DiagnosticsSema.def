@@ -19,7 +19,10 @@ ERROR(expected_field, "expected struct field")
 ERROR(expected_expr, "expected expression")
 ERROR(expected_lvalue, "expected lvalue")
 ERROR(assign_const, "cannot assign to const variable")
-ERROR(const_to_mutable, "cannot bind const object to mutable reference")
+ERROR(readonly_to_mutable_binding,
+      "cannot bind readonly object to mutable variable")
+ERROR(readonly_to_mutable_reference,
+      "cannot use readonly object as mutable reference")
 ERROR(loop_control_outside_loop, "`break` or `continue` outside loop")
 ERROR(return_outside_function, "`return` outside function")
 

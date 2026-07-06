@@ -9,7 +9,7 @@ struct File {
   handle: Ptr<UInt8>
 }
 
-extern fn mulberry_file_open(const path: String, const mode: String): Ptr<UInt8>;
+extern fn mulberry_file_open(path: String, mode: String): Ptr<UInt8>;
 extern fn mulberry_file_close(handle: Ptr<UInt8>): UInt64;
 extern fn mulberry_file_seek(file: Ptr<UInt8>, offset: UInt64): UInt64;
 extern fn mulberry_file_tell(file: Ptr<UInt8>): UInt64;
@@ -24,32 +24,32 @@ fn print(value: UInt64): UInt64 {
   return 0;
 }
 
-fn open(const path: String, const mode: String): File {
+fn open(path: String, mode: String): File {
   return File { mulberry_file_open(path, mode) };
 }
 
-fn close(const file: File): UInt64 {
+fn close(file: File): UInt64 {
   return mulberry_file_close(file.handle);
 }
 
-fn seek(const file: File, offset: UInt64): UInt64 {
+fn seek(file: File, offset: UInt64): UInt64 {
   return mulberry_file_seek(file.handle, offset);
 }
 
-fn tell(const file: File): UInt64 {
+fn tell(file: File): UInt64 {
   return mulberry_file_tell(file.handle);
 }
 
-fn read<T>(const file: File, buffer: Tensor<T>): UInt64 {
+fn read<T>(file: File, mut buffer: Tensor<T>): UInt64 {
   return mulberry_file_read(file.handle, ptr.asUInt8(buffer.data),
                             buffer.numel * sizeof(T));
 }
 
-fn write<T>(const file: File, const buffer: Tensor<T>): UInt64 {
+fn write<T>(file: File, buffer: Tensor<T>): UInt64 {
   return mulberry_file_write(file.handle, ptr.asUInt8(buffer.data),
                              buffer.numel * sizeof(T));
 }
 
-fn writeBytes(const file: File, const bytes: List<UInt8>): UInt64 {
+fn writeBytes(file: File, bytes: List<UInt8>): UInt64 {
   return mulberry_file_write(file.handle, ptr.asUInt8(bytes.data), bytes.length);
 }

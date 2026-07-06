@@ -43,7 +43,7 @@ function-prototype        -> `fn` function-name comptime-parameter-clause?
 function-name             -> identifier
 function-signature        -> `(` parameter-list? `)` `:` type
 parameter-list            -> parameter (`,` parameter)* `,`?
-parameter                 -> `const`? identifier `:` type
+parameter                 -> `mut`? identifier `:` type
 
 struct-declaration        -> `struct` identifier `{` struct-member-list? `}`
 struct-member-list        -> struct-member (`,` struct-member)* `,`?
@@ -57,6 +57,19 @@ comptime-type-alias-declaration
                               `=` comptime-alias-body `;`
 comptime-alias-body       -> type
 comptime-alias-body       -> `struct` `{` struct-member-list? `}`
+```
+
+函数参数和 method receiver 默认是 readonly object reference。需要在 callee 里
+修改 object 时，参数前写 `mut`：
+
+```mulberry
+fn read(xs: List<UInt64>): UInt64 {
+  return xs.size();
+}
+
+fn append(mut xs: List<UInt64>, value: UInt64): UInt64 {
+  return xs.push(value);
+}
 ```
 
 ## Comptime Parameters
@@ -145,7 +158,7 @@ receiver.method(args...) -> method(receiver, args...)
 ## Blocks And Statements
 
 ```text
-block                     -> `{` statement* expression? `}`
+block                     -> `{` statement* `}`
 
 statement                 -> variable-declaration `;`
 statement                 -> expression `;`
@@ -161,8 +174,7 @@ variable-declaration      -> `const` identifier `:` type `=` expression
 return-statement          -> `return` expression? `;`
 ```
 
-block 的最后一个 expression 可以省略；省略时 block 的值是 `()`。函数返回推荐使用
-`return` statement；函数 body 的最后一个 expression 作为返回值仍暂时兼容。
+block 不产生 value。函数返回使用 `return` statement。
 
 ## Control Flow
 

@@ -22,11 +22,11 @@ struct Parser {
   position: UInt64,
   length: UInt64,
 
-  pub fn peekChar(const self: Parser): Char {
+  pub fn peekChar(self: Parser): Char {
     return self.text[self.position];
   }
 
-  pub fn isDigit(const self: Parser): Bool {
+  pub fn isDigit(self: Parser): Bool {
     var result: Bool = false;
     if self.position < self.length {
       result = isDigitChar(self.peekChar());
@@ -34,7 +34,7 @@ struct Parser {
     return result;
   }
 
-  pub fn skipSpaces(self: Parser): () {
+  pub fn skipSpaces(mut self: Parser): () {
     while self.position < self.length {
       if isSpace(self.peekChar()) {
         self.position = self.position + 1;
@@ -44,7 +44,7 @@ struct Parser {
     }
   }
 
-  pub fn consumeChar(self: Parser, value: Char): Bool {
+  pub fn consumeChar(mut self: Parser, value: Char): Bool {
     self.skipSpaces();
     var result: Bool = false;
     if self.position < self.length and self.peekChar() == value {
@@ -54,14 +54,14 @@ struct Parser {
     return result;
   }
 
-  pub fn skipComma(self: Parser): () {
+  pub fn skipComma(mut self: Parser): () {
     self.skipSpaces();
     if self.position < self.length and self.peekChar() == ',' {
       self.position = self.position + 1;
     }
   }
 
-  pub fn skipString(self: Parser): Bool {
+  pub fn skipString(mut self: Parser): Bool {
     var result: Bool = false;
     if self.consumeChar('"') {
       while self.position < self.length {
@@ -76,7 +76,7 @@ struct Parser {
     return result;
   }
 
-  pub fn stringEquals(self: Parser, const value: String): Bool {
+  pub fn stringEquals(mut self: Parser, value: String): Bool {
     self.skipSpaces();
     var result: Bool = false;
     if self.position < self.length and self.peekChar() == '"' {
@@ -107,7 +107,7 @@ struct Parser {
     return result;
   }
 
-  pub fn parseInteger(self: Parser): UInt64 {
+  pub fn parseInteger(mut self: Parser): UInt64 {
     self.skipSpaces();
     var value: UInt64 = 0;
     while self.isDigit() {
@@ -118,7 +118,7 @@ struct Parser {
     return value;
   }
 
-  pub fn parseIntegerArray(self: Parser): List<UInt64> {
+  pub fn parseIntegerArray(mut self: Parser): List<UInt64> {
     var values: List<UInt64> = list.withCapacity(0);
     if self.consumeChar('[') {
       while true {
@@ -134,7 +134,7 @@ struct Parser {
     return values;
   }
 
-  pub fn skipBracketValue(self: Parser): () {
+  pub fn skipBracketValue(mut self: Parser): () {
     var depth: UInt64 = 0;
     while self.position < self.length {
       if self.peekChar() == '"' {
@@ -158,7 +158,7 @@ struct Parser {
     }
   }
 
-  pub fn skipScalarValue(self: Parser): () {
+  pub fn skipScalarValue(mut self: Parser): () {
     while self.position < self.length {
       if self.peekChar() == ',' or self.peekChar() == '}' or
           self.peekChar() == ']' {
@@ -168,7 +168,7 @@ struct Parser {
     }
   }
 
-  pub fn skipValue(self: Parser): () {
+  pub fn skipValue(mut self: Parser): () {
     self.skipSpaces();
     if self.position < self.length {
       if self.peekChar() == '"' {

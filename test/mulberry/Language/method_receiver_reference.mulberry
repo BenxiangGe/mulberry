@@ -3,7 +3,7 @@
 struct Counter {
   value: UInt64,
 
-  pub fn bump(self: Counter): UInt64 {
+  pub fn bump(mut self: Counter): UInt64 {
     self.value = self.value + 1;
     return self.value;
   }

@@ -1,7 +1,7 @@
 # RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
-fn sum(const values: UInt64[3]): UInt64 {
+fn sum(values: UInt64[3]): UInt64 {
   return values[0] + values[1] + values[2];
 }
 
@@ -11,6 +11,6 @@ fn main(): UInt64 {
 }
 
 # AST: Prototype {{.*}}name=sum
-# AST: VariableStat const {{.*}}id=values{{.*}}type=UInt64[3]
+# AST: VariableStat {{.*}}id=values{{.*}}type=UInt64[3]
 # MLIR-LABEL: func.func @sum
 # MLIR: return

@@ -5,7 +5,7 @@
 
 import string.String;
 
-fn id(const path: String): String {
+fn id(path: String): String {
   return path;
 }
 

@@ -21,7 +21,6 @@ class BlockExpr;
 class Expr;
 class Type;
 class VariableExpr;
-class VariableStat;
 
 // _____________________________________________________________________________
 // Declaration
@@ -68,7 +67,7 @@ private:
 class Prototype final : public Node {
 public:
   explicit Prototype(llvm::SMLoc location, std::unique_ptr<FunctionName> id,
-                     VectorUniquePtr<VariableStat> parameters,
+                     VectorUniquePtr<ParameterDecl> parameters,
                      std::unique_ptr<TypeNode> returnTypeNode,
                      std::vector<ComptimeParam> comptimeParameters = {})
       : Node{location},
@@ -92,7 +91,7 @@ public:
 
   auto isMethod() const -> bool { return _isMethod; }
 
-  auto parameters() const -> const VectorUniquePtr<VariableStat> & {
+  auto parameters() const -> const VectorUniquePtr<ParameterDecl> & {
     return _parameters;
   }
 
@@ -106,7 +105,7 @@ public:
 
 private:
   std::unique_ptr<FunctionName> _id;
-  VectorUniquePtr<VariableStat> _parameters;
+  VectorUniquePtr<ParameterDecl> _parameters;
   std::unique_ptr<TypeNode> _returnTypeNode;
   std::vector<ComptimeParam> _comptimeParameters;
   const Type *_type = nullptr;
@@ -142,10 +141,10 @@ private:
 class StructDecl final : public Decl {
 public:
   explicit StructDecl(llvm::SMLoc location, std::unique_ptr<StructName> id,
-                      VectorUniquePtr<VariableStat> variables,
+                      VectorUniquePtr<FieldDecl> fields,
                       VectorUniquePtr<FunctionDecl> methods)
       : Decl{Decl_Struct, location}, _id(std::move(id)),
-        _variables(std::move(variables)), _methods(std::move(methods)){};
+        _fields(std::move(fields)), _methods(std::move(methods)){};
 
   static auto classof(const Decl *node) -> bool {
     return node->getKind() == Decl_Struct;
@@ -153,8 +152,8 @@ public:
 
   auto id() const -> const std::unique_ptr<StructName> & { return _id; }
 
-  auto variables() const -> const VectorUniquePtr<VariableStat> & {
-    return _variables;
+  auto fields() const -> const VectorUniquePtr<FieldDecl> & {
+    return _fields;
   }
 
   auto methods() const -> const VectorUniquePtr<FunctionDecl> & {
@@ -163,14 +162,14 @@ public:
 
 private:
   std::unique_ptr<StructName> _id;
-  VectorUniquePtr<VariableStat> _variables;
+  VectorUniquePtr<FieldDecl> _fields;
   VectorUniquePtr<FunctionDecl> _methods;
 
 public:
-  auto begin() const -> decltype(_variables.begin()) {
-    return _variables.begin();
+  auto begin() const -> decltype(_fields.begin()) {
+    return _fields.begin();
   }
-  auto end() const -> decltype(_variables.end()) { return _variables.end(); }
+  auto end() const -> decltype(_fields.end()) { return _fields.end(); }
 };
 
 // Type-level comptime alias. It can be generic, e.g.

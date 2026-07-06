@@ -27,12 +27,13 @@ using llvm::success;
 
 struct VariableSymbol {
   const Type *type = nullptr;
-  bool isConst = false;
+  bool isConstBinding = false;
+  bool canMutateObject = true;
 };
 
 struct FunctionSymbol {
   std::vector<const Type *> parameterTypes;
-  std::vector<bool> parameterIsConst;
+  std::vector<bool> parameterCanMutateObject;
   const Type *returnType = nullptr;
 };
 
@@ -53,13 +54,13 @@ class Symbols {
 public:
   auto declareFunction(std::string_view name,
                        std::vector<const Type *> parameterTypes,
-                       std::vector<bool> parameterIsConst,
+                       std::vector<bool> parameterCanMutateObject,
                        const Type *returnType)
       -> MulberryResult {
     return declareSymbol(
         _functionsByName, name,
-        FunctionSymbol{std::move(parameterTypes), std::move(parameterIsConst),
-                       returnType});
+        FunctionSymbol{std::move(parameterTypes),
+                       std::move(parameterCanMutateObject), returnType});
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {
@@ -125,13 +126,14 @@ public:
   }
 
   auto declareVariable(std::string_view name, const Type *type,
-                       bool isConst = false)
+                       bool isConstBinding = false,
+                       bool canMutateObject = true)
       -> MulberryResult {
     if (_variableScopes.empty())
       enterVariableScope();
 
     if (declareSymbol(_variableScopes.currentScope(), name,
-                      VariableSymbol{type, isConst}))
+                      VariableSymbol{type, isConstBinding, canMutateObject}))
       return failure();
     return success();
   }

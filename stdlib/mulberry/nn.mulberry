@@ -8,16 +8,16 @@ import tensor.Tensor;
 
 # mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
 # ordinary function calls; the NN package plugin rewrites and lowers them.
-extern fn mulberry.nn.matmul(const left: Tensor<Float32>, const right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matadd(const left: Tensor<Float32>, const right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matsub(const left: Tensor<Float32>, const right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.hadamard(const left: Tensor<Float32>, const right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matscale(const value: Tensor<Float32>, scale: Float32): Tensor<Float32>;
-extern fn mulberry.nn.transpose(const value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.exp(const value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.sigmoid(const value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.sigmoidPrime(const value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.argmax(const value: Tensor<Float32>): UInt64;
+extern fn mulberry.nn.matmul(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matadd(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matsub(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.hadamard(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.matscale(value: Tensor<Float32>, scale: Float32): Tensor<Float32>;
+extern fn mulberry.nn.transpose(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;
 
 struct Evaluation {
   correct: UInt64,
@@ -36,54 +36,59 @@ struct TensorDataset {
   xs: List<Tensor<Float32>>,
   ys: List<Tensor<Float32>>,
 
-  pub fn size(const self: TensorDataset): UInt64 {
+  pub fn size(self: TensorDataset): UInt64 {
     return self.xs.size();
   }
 
-  pub fn input(const self: TensorDataset, index: UInt64): Tensor<Float32> {
+  pub fn input(self: TensorDataset, index: UInt64): Tensor<Float32> {
     return self.xs[index];
   }
 
-  pub fn label(const self: TensorDataset, index: UInt64): Tensor<Float32> {
+  pub fn label(self: TensorDataset, index: UInt64): Tensor<Float32> {
     return self.ys[index];
   }
 
-  pub fn shuffle(self: TensorDataset, seed: UInt64): UInt64 {
+  pub fn shuffle(mut self: TensorDataset, seed: UInt64): UInt64 {
     return list.shufflePair(self.xs, self.ys, seed);
   }
 }
 
-fn datasetFromLists(const xs: List<Tensor<Float32>>,
-                    const ys: List<Tensor<Float32>>): TensorDataset {
+fn datasetFromLists(xs: List<Tensor<Float32>>,
+                    ys: List<Tensor<Float32>>): TensorDataset {
   return TensorDataset { xs, ys };
 }
 
-fn datasetFromBatches(const inputs: Tensor<Float32>,
-                      const labels: Tensor<Float32>): TensorDataset {
+fn datasetFromBatches(inputs: Tensor<Float32>,
+                      labels: Tensor<Float32>): TensorDataset {
   return datasetFromLists(tensor.slicesFirst(inputs), tensor.slicesFirst(labels));
 }
 
-fn forward(const weights: List<Tensor<Float32>>,
-           const biases: List<Tensor<Float32>>,
-           const input: Tensor<Float32>): Tensor<Float32> {
-  var activation: Tensor<Float32> = input;
-  for layer in 0 .. weights.size() {
+fn forward(weights: List<Tensor<Float32>>,
+           biases: List<Tensor<Float32>>,
+           input: Tensor<Float32>): Tensor<Float32> {
+  if weights.size() == 0 {
+    return input;
+  }
+
+  var activation: Tensor<Float32> =
+      sigmoid(matadd(matmul(weights[0], input), biases[0]));
+  for layer in 1 .. weights.size() {
     activation = sigmoid(matadd(matmul(weights[layer], activation),
                                 biases[layer]));
   }
   return activation;
 }
 
-fn predict(const weights: List<Tensor<Float32>>,
-           const biases: List<Tensor<Float32>>,
-           const input: Tensor<Float32>): UInt64 {
+fn predict(weights: List<Tensor<Float32>>,
+           biases: List<Tensor<Float32>>,
+           input: Tensor<Float32>): UInt64 {
   return argmax(forward(weights, biases, input));
 }
 
-fn countCorrect(const weights: List<Tensor<Float32>>,
-                const biases: List<Tensor<Float32>>,
-                const xs: List<Tensor<Float32>>,
-                const ys: List<Tensor<Float32>>): UInt64 {
+fn countCorrect(weights: List<Tensor<Float32>>,
+                biases: List<Tensor<Float32>>,
+                xs: List<Tensor<Float32>>,
+                ys: List<Tensor<Float32>>): UInt64 {
   var correct: UInt64 = 0;
   for sample in 0 .. xs.size() {
     if predict(weights, biases, xs[sample]) == argmax(ys[sample]) {
@@ -102,18 +107,18 @@ fn accuracyBasisPoints(correct: UInt64, total: UInt64): UInt64 {
   return result;
 }
 
-fn evaluate(const weights: List<Tensor<Float32>>,
-            const biases: List<Tensor<Float32>>,
-            const xs: List<Tensor<Float32>>,
-            const ys: List<Tensor<Float32>>): Evaluation {
+fn evaluate(weights: List<Tensor<Float32>>,
+            biases: List<Tensor<Float32>>,
+            xs: List<Tensor<Float32>>,
+            ys: List<Tensor<Float32>>): Evaluation {
   const correct: UInt64 = countCorrect(weights, biases, xs, ys);
   const total: UInt64 = xs.size();
   return Evaluation { correct, total, accuracyBasisPoints(correct, total) };
 }
 
-fn evaluateDataset(const weights: List<Tensor<Float32>>,
-                   const biases: List<Tensor<Float32>>,
-                   const dataset: TensorDataset): Evaluation {
+fn evaluateDataset(weights: List<Tensor<Float32>>,
+                   biases: List<Tensor<Float32>>,
+                   dataset: TensorDataset): Evaluation {
   return evaluate(weights, biases, dataset.xs, dataset.ys);
 }
 
@@ -135,10 +140,10 @@ fn batchEnd(batchStart: UInt64, batchSize: UInt64,
   return result;
 }
 
-fn twoLayerGradient(const weights: List<Tensor<Float32>>,
-                   const biases: List<Tensor<Float32>>,
-                   const input: Tensor<Float32>,
-                   const expected: Tensor<Float32>): TwoLayerGradient {
+fn twoLayerGradient(weights: List<Tensor<Float32>>,
+                   biases: List<Tensor<Float32>>,
+                   input: Tensor<Float32>,
+                   expected: Tensor<Float32>): TwoLayerGradient {
   var z1: Tensor<Float32> = matadd(matmul(weights[0], input), biases[0]);
   var a1: Tensor<Float32> = sigmoid(z1);
   var z2: Tensor<Float32> = matadd(matmul(weights[1], a1), biases[1]);
@@ -161,7 +166,7 @@ fn l2WeightScale(eta: Float32, regularization: Float32,
   return 1.0 - eta * regularization / core.toFloat32(trainingSize);
 }
 
-fn updateWeight(const weight: Tensor<Float32>, const gradient: Tensor<Float32>,
+fn updateWeight(weight: Tensor<Float32>, gradient: Tensor<Float32>,
                 gradientScale: Float32, weightScale: Float32): Tensor<Float32> {
   return matsub(matscale(weight, weightScale), matscale(gradient, gradientScale));
 }

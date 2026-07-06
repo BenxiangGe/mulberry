@@ -138,7 +138,7 @@ private:
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> MulberryResult;
   auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
-  auto parseStructMembers(VectorUniquePtr<VariableStat> &fields,
+  auto parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
                           VectorUniquePtr<FunctionDecl> &methods)
       -> MulberryResult;
   auto parseComptimeAliasBody(std::unique_ptr<TypeNode> &typeNode)

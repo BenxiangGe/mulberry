@@ -14,12 +14,14 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace mulberry {
 
 class FunctionDecl;
-class VariableStat;
+class Type;
+class VariableExpr;
 
 struct ComptimeParam {
   enum class Kind {
@@ -191,14 +193,65 @@ private:
   std::vector<ComptimeArg> _arguments;
 };
 
+class FieldDecl final : public Node {
+public:
+  FieldDecl(llvm::SMLoc location, std::unique_ptr<VariableExpr> variable,
+            std::unique_ptr<TypeNode> typeNode)
+      : Node{location}, _variable(std::move(variable)),
+        _typeNode(std::move(typeNode)) {}
+
+  auto variable() const -> const std::unique_ptr<VariableExpr> & {
+    return _variable;
+  }
+
+  auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
+
+  auto setType(const Type *type) -> void { _type = type; }
+
+  auto type() const -> const Type * { return _type; }
+
+private:
+  std::unique_ptr<VariableExpr> _variable;
+  std::unique_ptr<TypeNode> _typeNode;
+  const Type *_type = nullptr;
+};
+
+class ParameterDecl final : public Node {
+public:
+  ParameterDecl(llvm::SMLoc location, std::unique_ptr<VariableExpr> variable,
+                std::unique_ptr<TypeNode> typeNode,
+                bool canMutateObject = false)
+      : Node{location}, _variable(std::move(variable)),
+        _typeNode(std::move(typeNode)),
+        _canMutateObject(canMutateObject) {}
+
+  auto variable() const -> const std::unique_ptr<VariableExpr> & {
+    return _variable;
+  }
+
+  auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
+
+  auto setType(const Type *type) -> void { _type = type; }
+
+  auto type() const -> const Type * { return _type; }
+
+  auto canMutateObject() const -> bool { return _canMutateObject; }
+
+private:
+  std::unique_ptr<VariableExpr> _variable;
+  std::unique_ptr<TypeNode> _typeNode;
+  const Type *_type = nullptr;
+  bool _canMutateObject = false;
+};
+
 class StructTypeNode final : public TypeNode {
 public:
   explicit StructTypeNode(llvm::SMLoc location,
-                          VectorUniquePtr<VariableStat> fields)
+                          VectorUniquePtr<FieldDecl> fields)
       : TypeNode(location, TypeNode::Kind::Struct),
         _fields(std::move(fields)) {}
 
-  StructTypeNode(llvm::SMLoc location, VectorUniquePtr<VariableStat> fields,
+  StructTypeNode(llvm::SMLoc location, VectorUniquePtr<FieldDecl> fields,
                  VectorUniquePtr<FunctionDecl> methods)
       : TypeNode(location, TypeNode::Kind::Struct),
         _fields(std::move(fields)), _methods(std::move(methods)) {}
@@ -207,7 +260,7 @@ public:
     return node->kind() == TypeNode::Kind::Struct;
   }
 
-  auto fields() const -> const VectorUniquePtr<VariableStat> & {
+  auto fields() const -> const VectorUniquePtr<FieldDecl> & {
     return _fields;
   }
 
@@ -216,7 +269,7 @@ public:
   }
 
 private:
-  VectorUniquePtr<VariableStat> _fields;
+  VectorUniquePtr<FieldDecl> _fields;
   VectorUniquePtr<FunctionDecl> _methods;
 };
 

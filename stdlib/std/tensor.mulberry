@@ -13,28 +13,28 @@ comptime Tensor<T> = struct {
   sizes: List<UInt64>,
   strides: List<UInt64>,
 
-  pub fn ndim(const self: Tensor<T>): UInt64 {
+  pub fn ndim(self: Tensor<T>): UInt64 {
     return self.rank;
   }
 
-  pub fn numel(const self: Tensor<T>): UInt64 {
+  pub fn numel(self: Tensor<T>): UInt64 {
     return self.numel;
   }
 
-  pub fn shape(const self: Tensor<T>): List<UInt64> {
+  pub fn shape(self: Tensor<T>): List<UInt64> {
     return self.sizes;
   }
 
-  pub fn dim(const self: Tensor<T>, index: UInt64): UInt64 {
+  pub fn dim(self: Tensor<T>, index: UInt64): UInt64 {
     return self.sizes[index];
   }
 
-  pub fn stride(const self: Tensor<T>, index: UInt64): UInt64 {
+  pub fn stride(self: Tensor<T>, index: UInt64): UInt64 {
     return self.strides[index];
   }
 };
 
-fn numel(const shape: List<UInt64>): UInt64 {
+fn numel(shape: List<UInt64>): UInt64 {
   var count: UInt64 = 1;
   var index: UInt64 = 0;
   while index < shape.size() {
@@ -44,7 +44,7 @@ fn numel(const shape: List<UInt64>): UInt64 {
   return count;
 }
 
-fn rowMajorStrides(const shape: List<UInt64>): List<UInt64> {
+fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {
   var strides: List<UInt64> = list.withCapacity(0);
   var index: UInt64 = 0;
   while index < shape.size() {
@@ -62,18 +62,18 @@ fn rowMajorStrides(const shape: List<UInt64>): List<UInt64> {
   return strides;
 }
 
-fn zerosDynamic<T>(const shape: List<UInt64>): Tensor<T> {
+fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   const count: UInt64 = numel(shape);
   var data: Ptr<T> = heap.alloc<T>(count);
   mulberry_zero_memory(ptr.asUInt8(data), count * sizeof(T));
   return Tensor<T> { data, shape.size(), count, shape, rowMajorStrides(shape) };
 }
 
-fn zeros<T, N: UInt64>(const shape: Array<UInt64, N>): Tensor<T> {
+fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
   return zerosDynamic(list.from(shape));
 }
 
-fn sliceFirst<T>(const value: Tensor<T>, index: UInt64): Tensor<T> {
+fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
   var sizes: List<UInt64> = list.withCapacity(0);
   var strides: List<UInt64> = list.withCapacity(0);
 
@@ -89,7 +89,7 @@ fn sliceFirst<T>(const value: Tensor<T>, index: UInt64): Tensor<T> {
   return Tensor<T> { ptr.offset(value.data, offset), value.rank - 1, count, sizes, strides };
 }
 
-fn slicesFirst<T>(const value: Tensor<T>): List<Tensor<T>> {
+fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {
   var result: List<Tensor<T>> = list.withCapacity(value.sizes[0]);
   var index: UInt64 = 0;
   while index < value.sizes[0] {

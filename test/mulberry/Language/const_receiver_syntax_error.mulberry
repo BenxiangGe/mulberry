@@ -1,0 +1,11 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+comptime Box<T> = struct {
+  value: T,
+
+  pub fn get(const self: Box<T>): T {
+    return self.value;
+  }
+};
+
+# CHECK: error: function parameters are readonly by default; use `mut` for mutable parameters
