@@ -35,7 +35,8 @@ lowering bridge，但这些不是 Mulberry source surface。
   `Tensor<T>` 和用户 `struct`。
 - 赋值、传参和返回 object 时复制 reference，不做隐式 deep copy。
 - 通过一个 reference 修改对象，别的 alias 可以观察到同一个修改。
-- `const` / mutable receiver 是第一层约束机制；当前不做 Rust-style borrow checking。
+- `const` local binding、默认 readonly 参数和显式 `mut` 参数/receiver 是第一层约束
+  机制；当前不做 Rust-style borrow checking。
 - 显式复制对象后续应通过 `clone()` / `copy()` 这类 API 表达。
 - 遇到缺失能力时补语言/stdlib 能力，不在 MLIRGen 或 lowering 里继续堆
   object-specific workaround。

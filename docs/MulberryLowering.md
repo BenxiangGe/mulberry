@@ -302,12 +302,12 @@ reference 传递。不再需要单独的 list descriptor boundary pass。
 fn make(): List<Tensor<Float32>> {
   const w: Tensor<Float32> =
       tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  list.from([w])
+  return list.from([w]);
 }
 
 fn main(): UInt64 {
   const x: Tensor<Float32> = tensor.from([[0.2], [0.8]]);
-  x[0, 0]
+  return x[0, 0];
 }
 ```
 
@@ -321,7 +321,7 @@ List<T> non-extern parameter
 
 List<T> method receiver
   -> source `self: List<T>`
-  -> Sema internal object reference
+  -> Sema readonly object reference, or `mut self: List<T>` for mutation
   -> mulberry_core.ptr / mulberry_core.record field access
   -> LLVM pointer to temporary/list slot
 ```

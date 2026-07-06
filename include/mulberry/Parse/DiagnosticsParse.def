@@ -25,6 +25,8 @@ ERROR(expected_fun_struct, "expected `fun`, `extern`, `struct`, or `comptime`")
 ERROR(expected_type, "expected type")
 ERROR(expected_id, "expected identifier")
 ERROR(expected_expr, "expected expression")
+ERROR(unexpected_const_parameter_modifier,
+      "function parameters are readonly by default; use `mut` for mutable parameters")
 ERROR(integer_literal_overflows, "integer literal overflows")
 ERROR(float_literal_invalid, "invalid Float32 literal")
 ERROR(string_literal_invalid, "invalid String literal")

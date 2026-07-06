@@ -1956,7 +1956,7 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
       return;
     }
 
-    if (node->isConst()) {
+    if (node->isConstBinding()) {
       setVariableValue(varName, value);
       return;
     }

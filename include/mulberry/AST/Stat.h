@@ -54,10 +54,13 @@ public:
   explicit VariableStat(llvm::SMLoc location,
                         std::unique_ptr<VariableExpr> variable,
                         std::unique_ptr<TypeNode> typeNode,
-                        std::unique_ptr<Expr> init, bool isConst = false)
+                        std::unique_ptr<Expr> init,
+                        bool isConstBinding = false,
+                        bool canMutateObject = true)
       : Stat{Stat_VariableDecl, location}, _variable(std::move(variable)),
         _typeNode(std::move(typeNode)), _init{std::move(init)},
-        _isConst(isConst) {};
+        _isConstBinding(isConstBinding),
+        _canMutateObject(canMutateObject) {};
 
   static auto classof(const Stat *node) -> bool {
     return node->getKind() == Stat_VariableDecl;
@@ -75,14 +78,17 @@ public:
 
   auto init() const -> const std::unique_ptr<Expr> & { return _init; }
 
-  auto isConst() const -> bool { return _isConst; }
+  auto isConstBinding() const -> bool { return _isConstBinding; }
+
+  auto canMutateObject() const -> bool { return _canMutateObject; }
 
 private:
   std::unique_ptr<VariableExpr> _variable;
   std::unique_ptr<TypeNode> _typeNode;
   const Type *_type = nullptr;
   std::unique_ptr<Expr> _init;
-  bool _isConst;
+  bool _isConstBinding;
+  bool _canMutateObject;
 };
 
 // _____________________________________________________________________________

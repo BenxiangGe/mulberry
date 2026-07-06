@@ -52,6 +52,8 @@ private:
   auto dump(const Decl *node) -> void;
   auto dump(const ImportDecl *node) -> void;
   auto dump(const Prototype *node) -> void;
+  auto dump(const ParameterDecl *node) -> void;
+  auto dump(const FieldDecl *node) -> void;
   auto dump(const FunctionDecl *node) -> void;
   auto dump(const StructDecl *node) -> void;
   auto dump(const ComptimeTypeAliasDecl *node) -> void;
@@ -248,6 +250,34 @@ auto Dumper::dump(const Prototype *node) -> void {
     dump(parameter.get());
 }
 
+auto Dumper::dump(const ParameterDecl *node) -> void {
+  auto id = node->variable().get();
+  auto typeNode = node->typeNode();
+  INDENT();
+  errs() << "ParameterDecl ";
+  if (!node->canMutateObject())
+    errs() << "readonly ";
+  errs() << "(id=" << id->name() << " " << loc(id)
+         << ") (type=" << formatTypeNode(typeNode) << " "
+         << loc(typeNode) << ")";
+  if (auto origin = formatOrigin(originOf(node->type())); !origin.empty())
+    errs() << " origin=" << origin;
+  errs() << "\n";
+}
+
+auto Dumper::dump(const FieldDecl *node) -> void {
+  auto id = node->variable().get();
+  auto typeNode = node->typeNode();
+  INDENT();
+  errs() << "FieldDecl "
+         << "(id=" << id->name() << " " << loc(id)
+         << ") (type=" << formatTypeNode(typeNode) << " "
+         << loc(typeNode) << ")";
+  if (auto origin = formatOrigin(originOf(node->type())); !origin.empty())
+    errs() << " origin=" << origin;
+  errs() << "\n";
+}
+
 auto Dumper::dump(const FunctionDecl *node) -> void {
   INDENT();
   errs() << "FunctionDecl " << loc(node);
@@ -265,8 +295,8 @@ auto Dumper::dump(const StructDecl *node) -> void {
   auto id = node->id().get();
   errs() << "StructDecl " << loc(node)
          << " (name=" << id->name() << " " << loc(id) << ")\n";
-  for (auto &var : node->variables())
-    dump(var.get());
+  for (auto &field : node->fields())
+    dump(field.get());
   for (auto &method : node->methods())
     dump(method.get());
 }
@@ -446,8 +476,10 @@ auto Dumper::dump(const VariableStat *node) -> void {
   auto typeNode = node->typeNode();
   INDENT();
   errs() << "VariableStat ";
-  if (node->isConst())
+  if (node->isConstBinding())
     errs() << "const ";
+  else if (!node->canMutateObject())
+    errs() << "readonly ";
   errs() << "(id=" << id->name() << " " << loc(id)
          << ") (type=" << formatTypeNode(typeNode) << " "
          << loc(typeNode) << ")";

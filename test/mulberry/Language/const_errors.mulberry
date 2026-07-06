@@ -7,4 +7,4 @@ fn main(): UInt64 {
   return 0;
 }
 
-# CHECK: error: cannot assign to const variable
+# CHECK: error: cannot use readonly object as mutable reference

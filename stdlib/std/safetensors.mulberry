@@ -28,11 +28,11 @@ struct TensorFile {
 struct ByteBuffer {
   bytes: List<UInt8>,
 
-  pub fn pushChar(self: ByteBuffer, value: UInt8): UInt64 {
+  pub fn pushChar(mut self: ByteBuffer, value: UInt8): UInt64 {
     return self.bytes.push(value);
   }
 
-  pub fn pushString(self: ByteBuffer, const value: String): UInt64 {
+  pub fn pushString(mut self: ByteBuffer, value: String): UInt64 {
     var index: UInt64 = 0;
     while index < value.length {
       self.bytes.push(value.data[index]);
@@ -41,7 +41,7 @@ struct ByteBuffer {
     return 0;
   }
 
-  pub fn pushQuotedString(self: ByteBuffer, const value: String): UInt64 {
+  pub fn pushQuotedString(mut self: ByteBuffer, value: String): UInt64 {
     # This writer only supports trusted ASCII tensor names.  That is enough for
     # current checkpoint names such as "w1", "b1", "w2", and "b2"; general JSON
     # escaping should be added when user-provided names become part of the API.
@@ -51,7 +51,7 @@ struct ByteBuffer {
     return 0;
   }
 
-  pub fn pushUInt64(self: ByteBuffer, value: UInt64): UInt64 {
+  pub fn pushUInt64(mut self: ByteBuffer, value: UInt64): UInt64 {
     if value == 0 {
       self.pushChar('0');
     } else {
@@ -73,7 +73,7 @@ struct ByteBuffer {
     return 0;
   }
 
-  pub fn pushShape(self: ByteBuffer, const shape: List<UInt64>): UInt64 {
+  pub fn pushShape(mut self: ByteBuffer, shape: List<UInt64>): UInt64 {
     var index: UInt64 = 0;
     while index < shape.size() {
       if index > 0 {
@@ -85,8 +85,8 @@ struct ByteBuffer {
     return 0;
   }
 
-  pub fn pushTensorHeader(self: ByteBuffer, const name: String,
-                          const value: Tensor<Float32>,
+  pub fn pushTensorHeader(mut self: ByteBuffer, name: String,
+                          value: Tensor<Float32>,
                           offset: UInt64): UInt64 {
     const nextOffset: UInt64 = offset + value.numel * sizeof(Float32);
     self.pushQuotedString(name);
@@ -102,7 +102,7 @@ struct ByteBuffer {
   }
 }
 
-fn parseTensorObject(parser: Parser, headerLength: UInt64): TensorInfo {
+fn parseTensorObject(mut parser: Parser, headerLength: UInt64): TensorInfo {
   var info: TensorInfo =
       TensorInfo { false, headerLength, 0, 0, list.withCapacity(0) };
   if parser.consumeChar('{') {
@@ -149,7 +149,7 @@ fn parseTensorObject(parser: Parser, headerLength: UInt64): TensorInfo {
   return info;
 }
 
-fn findTensorInHeader(parser: Parser, const name: String,
+fn findTensorInHeader(mut parser: Parser, name: String,
                       headerLength: UInt64): TensorInfo {
   var info: TensorInfo =
       TensorInfo { false, headerLength, 0, 0, list.withCapacity(0) };
@@ -175,7 +175,7 @@ fn findTensorInHeader(parser: Parser, const name: String,
   return info;
 }
 
-fn readHeaderLength(const file: File): UInt64 {
+fn readHeaderLength(file: File): UInt64 {
   var tensorBytes: Tensor<UInt8> = tensor.zeros([8]);
   io.seek(file, 0);
   io.read(file, tensorBytes);
@@ -189,7 +189,7 @@ fn readHeaderLength(const file: File): UInt64 {
       core.toUInt64(tensorBytes[7]) * 72057594037927936;
 }
 
-fn loadTensorFile(const file: File): TensorFile {
+fn loadTensorFile(file: File): TensorFile {
   const headerLength: UInt64 = readHeaderLength(file);
   var headerBytes: Tensor<UInt8> = tensor.zeros([headerLength]);
   io.seek(file, 8);
@@ -197,21 +197,21 @@ fn loadTensorFile(const file: File): TensorFile {
   return TensorFile { file, headerLength, headerBytes };
 }
 
-fn open(const path: String): TensorFile {
+fn open(path: String): TensorFile {
   return loadTensorFile(io.open(path, "rb"));
 }
 
-fn close(const tensorFile: TensorFile): UInt64 {
+fn close(tensorFile: TensorFile): UInt64 {
   return io.close(tensorFile.file);
 }
 
-fn find(const tensorFile: TensorFile, const name: String): TensorInfo {
+fn find(tensorFile: TensorFile, name: String): TensorInfo {
   var parser: Parser =
       Parser { tensorFile.headerBytes, 0, tensorFile.headerLength };
   return findTensorInHeader(parser, name, tensorFile.headerLength);
 }
 
-fn read(const tensorFile: TensorFile, const name: String): Tensor<Float32> {
+fn read(tensorFile: TensorFile, name: String): Tensor<Float32> {
   const info: TensorInfo = find(tensorFile, name);
   var value: Tensor<Float32> = tensor.zerosDynamic(info.shape);
   io.seek(tensorFile.file, 8 + info.headerLength + info.begin);
@@ -219,11 +219,11 @@ fn read(const tensorFile: TensorFile, const name: String): Tensor<Float32> {
   return value;
 }
 
-fn findTensor(const file: File, const name: String): TensorInfo {
+fn findTensor(file: File, name: String): TensorInfo {
   return find(loadTensorFile(file), name);
 }
 
-fn readTensor(const file: File, const name: String): Tensor<Float32> {
+fn readTensor(file: File, name: String): Tensor<Float32> {
   return read(loadTensorFile(file), name);
 }
 
@@ -231,7 +231,7 @@ fn makeByteBuffer(): ByteBuffer {
   return ByteBuffer { list.withCapacity(0) };
 }
 
-fn writeUInt64LE(const file: File, value: UInt64): UInt64 {
+fn writeUInt64LE(file: File, value: UInt64): UInt64 {
   var bytes: Tensor<UInt8> = tensor.zeros([8]);
   var remaining: UInt64 = value;
   var index: UInt64 = 0;
@@ -244,12 +244,12 @@ fn writeUInt64LE(const file: File, value: UInt64): UInt64 {
   return io.write(file, bytes);
 }
 
-fn writeHeader(const file: File, const header: ByteBuffer): UInt64 {
+fn writeHeader(file: File, header: ByteBuffer): UInt64 {
   return writeUInt64LE(file, header.bytes.size()) + io.writeBytes(file, header.bytes);
 }
 
-fn write(const path: String, const names: List<String>,
-         const values: List<Tensor<Float32>>): UInt64 {
+fn write(path: String, names: List<String>,
+         values: List<Tensor<Float32>>): UInt64 {
   var header: ByteBuffer = makeByteBuffer();
   header.pushChar('{');
 

@@ -336,15 +336,17 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
     return failure();
 
   // Parse List
-  VectorUniquePtr<VariableStat> parameters;
+  VectorUniquePtr<ParameterDecl> parameters;
   unique_ptr<TypeNode> typeNode;
   if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
                 diag::expected_r_paren, parameters,
-                [this](unique_ptr<VariableStat> &elem) -> MulberryResult {
-                  bool isConst = false;
-                  if (tokenIs(Token::kw_const)) {
-                    isConst = true;
-                    consume(Token::kw_const);
+                [this](unique_ptr<ParameterDecl> &elem) -> MulberryResult {
+                  bool canMutateObject = false;
+                  if (tokenIs(Token::kw_const))
+                    return emitError(diag::unexpected_const_parameter_modifier);
+                  if (tokenIs(Token::kw_mut)) {
+                    canMutateObject = true;
+                    consume(Token::kw_mut);
                   }
                   unique_ptr<VariableExpr> param;
                   unique_ptr<TypeNode> typeNode;
@@ -352,9 +354,9 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
                       parseToken(Token::colon, diag::expected_colon) ||
                       parseType(typeNode))
                     return failure();
-                  elem = make_unique<VariableStat>(
+                  elem = make_unique<ParameterDecl>(
                       param->location(), std::move(param), std::move(typeNode),
-                      nullptr, isConst);
+                      canMutateObject);
                   return success();
                 }) ||
       parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
@@ -447,7 +449,7 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
       parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
 
-  VectorUniquePtr<VariableStat> fields;
+  VectorUniquePtr<FieldDecl> fields;
   VectorUniquePtr<FunctionDecl> methods;
   if (parseStructMembers(fields, methods))
     return failure();
@@ -457,7 +459,7 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseStructMembers(VectorUniquePtr<VariableStat> &fields,
+auto Parser::parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
                                 VectorUniquePtr<FunctionDecl> &methods)
     -> MulberryResult {
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
@@ -476,8 +478,8 @@ auto Parser::parseStructMembers(VectorUniquePtr<VariableStat> &fields,
         parseToken(Token::colon, diag::expected_colon) ||
         parseType(typeNode))
       return failure();
-    fields.push_back(make_unique<VariableStat>(
-        var->location(), std::move(var), std::move(typeNode), nullptr));
+    fields.push_back(make_unique<FieldDecl>(
+        var->location(), std::move(var), std::move(typeNode)));
 
     if (!tokenIs(Token::r_brace) &&
         parseToken(Token::comma, diag::expected_comma_or_r_brace))
@@ -496,7 +498,7 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
   if (parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
 
-  VectorUniquePtr<VariableStat> fields;
+  VectorUniquePtr<FieldDecl> fields;
   VectorUniquePtr<FunctionDecl> methods;
   if (parseStructMembers(fields, methods))
     return failure();
@@ -1128,6 +1130,7 @@ auto Parser::parseVariableDecl(unique_ptr<Stat> &stat, bool isConst)
       parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
     return failure();
   stat = make_unique<VariableStat>(loc, std::move(var), std::move(typeNode),
-                                   std::move(e), isConst);
+                                   std::move(e), isConst,
+                                   /*canMutateObject=*/!isConst);
   return success();
 }

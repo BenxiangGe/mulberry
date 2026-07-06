@@ -35,7 +35,7 @@ fn sum(xs: List<UInt64>): UInt64 {
     result = result + xs[i];
     i = i + 1;
   }
-  result
+  return result;
 }
 ```
 
@@ -84,7 +84,7 @@ xs[index] = v   -> std.list.List.set(xs, index, v)
 第一版 method 语义：
 
 - `self` 是普通第一个参数，不是隐藏对象。
-- receiver 默认 mutable；只读方法写 `const self: List<T>`。
+- 参数和 receiver 默认 readonly；会修改 list object 的方法写 `mut self: List<T>`。
 - 不做继承、虚函数、接口、trait、动态派发或 method value。
 - MLIRGen 不认识 method；Sema 在进入 MLIRGen 前已经把 dot call 解析成普通
   function call。
@@ -97,15 +97,15 @@ object：
 package std.list;
 
 comptime List<T> = struct {
-  pub fn size(const self: List<T>): UInt64 {
+  pub fn size(self: List<T>): UInt64 {
     ...
   }
 
-  pub fn get(const self: List<T>, index: UInt64): T {
+  pub fn get(self: List<T>, index: UInt64): T {
     ...
   }
 
-  pub fn push(self: List<T>, const value: T): UInt64 {
+  pub fn push(mut self: List<T>, value: T): UInt64 {
     ...
   }
 };
@@ -125,10 +125,10 @@ package std.list;
 fn withCapacity<T>(capacity: UInt64): List<T>;
 
 comptime List<T> = struct {
-  pub fn size(const self: List<T>): UInt64;
-  pub fn get(const self: List<T>, index: UInt64): T;
-  pub fn set(self: List<T>, index: UInt64, const value: T): UInt64;
-  pub fn push(self: List<T>, const value: T): UInt64;
+  pub fn size(self: List<T>): UInt64;
+  pub fn get(self: List<T>, index: UInt64): T;
+  pub fn set(mut self: List<T>, index: UInt64, value: T): UInt64;
+  pub fn push(mut self: List<T>, value: T): UInt64;
 };
 ```
 
@@ -192,7 +192,7 @@ list-specific workaround 塞回 compiler implementation。
 generic struct alias 和 generic function 单态化已经支持，并能生成高层 MLIR。函数可以写成：
 
 ```mulberry
-fn push<T>(xs: List<T>, value: T): UInt64 {
+fn push<T>(mut xs: List<T>, value: T): UInt64 {
   ...
 }
 ```
@@ -202,9 +202,9 @@ fn push<T>(xs: List<T>, value: T): UInt64 {
 函数和普通 `func.call`。
 
 当前 `std.list` 已经实现 public `List<T>` alias、`withCapacity<T>()`、
-`from<T, N>()`、`size<T>()`、`get<T>()`、`set<T>()`、`swap<T>()`、`grow<T>()`、
-`push<T>()`。其中 `push<T>()` 在容量不足时会按 `0 -> 1 -> 2x` 策略增长容量并复制
-旧元素。
+`from<T, N>()`，以及 `List<T>` methods：`size()`、`get()`、`set()`、`swap()`、
+`grow()`、`push()`。其中 `push()` 在容量不足时会按 `0 -> 1 -> 2x` 策略增长容量并
+复制旧元素。
 
 当前 C4.9 已经完成：旧 `mulberry.list` / `mulberry.list_storage` /
 `mulberry.list_desc` type/op 和直接测试这些 IR 的 lit 已删除。

@@ -67,7 +67,7 @@ fn main(): UInt64 {
 
   xs[1] = 40;
   p.x = 3;
-  p.x
+  return p.x;
 }
 ```
 

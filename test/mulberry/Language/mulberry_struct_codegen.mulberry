@@ -18,7 +18,7 @@ fn readX(box: Box): UInt64 {
   return box.pair.x;
 }
 
-fn update(box: Box): Box {
+fn update(mut box: Box): Box {
   var copy: Box = box;
   copy.pair.x = copy.pair.y;
   copy.ok = false;

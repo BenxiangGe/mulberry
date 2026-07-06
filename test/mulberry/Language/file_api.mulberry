@@ -2,7 +2,7 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
-fn transfer(input: File, output: File, bytes: Tensor<UInt8>): UInt64 {
+fn transfer(input: File, output: File, mut bytes: Tensor<UInt8>): UInt64 {
   const readCount: UInt64 = io.read(input, bytes);
   const writeCount: UInt64 = io.write(output, bytes);
   io.close(input);
@@ -19,8 +19,8 @@ fn main(): UInt64 {
 }
 
 # AST: Prototype {{.*}}name=transfer{{.*}}type=UInt64
-# AST: VariableStat {{.*}}id=input{{.*}}type=File
-# AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
+# AST: ParameterDecl {{.*}}id=input{{.*}}type=File
+# AST: ParameterDecl {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
 # AST: CallExpr {{.*}}type=UInt64 callee=std_io_read__UInt8
 # AST: CallExpr {{.*}}type=UInt64 callee=std_io_write__UInt8
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>

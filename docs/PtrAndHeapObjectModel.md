@@ -28,8 +28,8 @@ Ptr<T> = pointer to T
 - 除了 scalar，其它 source-level object 都应该是 reference：`String`、`File`、
   `Array<T, N>`、`List<T>`、`Tensor<T>` 和用户 `struct`。
 - object 赋值和传参复制 reference，不复制 object storage。
-- object mutation 会影响所有 alias；第一版 `const` 已经能阻止直接写入 const
-  object，以及把 const object 直接传给 mutable 参数或 receiver。
+- object mutation 会影响所有 alias；第一版 `const`/`mut` 规则已经能阻止通过 readonly
+  reference 修改 object，以及把 readonly object 直接传给 `mut` 参数或 receiver。
 - `Ptr<T>` 是底层 typed address，不是 user source surface。普通用户使用 object API，
   不手写 `Ptr<T>`。
 - heap object 由 Boehm GC 管理，不设计用户可见的 `free`。
@@ -123,15 +123,17 @@ y = 2;            // x 仍然是 1
 
 这个模型的好处是：`String`、`Array`、`List`、`Tensor`、`File` 和用户 `struct`
 拥有一致的赋值/传参/返回规则。代价是 aliasing 变成语言事实，必须用当前第一版
-`const` 规则以及后续更完整的 `mut` 规则管理共享可变性。
+`const`/`mut` 规则管理共享可变性。
 
 第一版 const/mut 规则：
 
-- `const x: Object` 表示不能通过 `x` mutation object。
-- `var x: Object` 表示可以通过 `x` mutation object。
-- 函数参数和 method receiver 默认是 mutable object reference；如果只读，写成
-  `const x: T` 或 `const self: T`。
-- `const` object 可以传给 const 参数/receiver，不能直接传给 mutable
+- `const x: Object` local binding 表示不能通过 `x` mutation object。
+- `var x: Object` local binding 表示可以通过 `x` mutation object，但不能把
+  readonly object reference 绑定到 mutable local。
+- 函数参数和 method receiver 默认是 readonly object reference。
+- 需要在 callee 里修改 object 时，参数或 receiver 写成 `mut x: T` /
+  `mut self: T`。
+- mutable object 可以传给 readonly 参数/receiver；readonly object 不能传给 `mut`
   参数/receiver。
 - 当前 `const` 不是 Rust borrow checker：引用拷贝仍然是浅拷贝，mutable aliases 仍然
   允许存在。后续如果要更严格的 transitive readonly 或 unique mutable reference，
@@ -244,8 +246,9 @@ caller 拿到的是 Tensor object reference。函数边界不需要专门的 des
   都复制 reference，不复制 record header。
 - source object 函数返回也使用 `Ptr<T>` ABI；`fn make(): T` 在 source
   层仍写 `T`，但 caller 拿到的是同一个 object reference。
-- Sema 保存函数参数的 const 标记。普通参数默认 mutable；`const values: List<T>`
-  这类参数允许读取 const object，但 mutable 参数或 receiver 会拒绝 const object。
+- Sema 保存函数参数/receiver 的 mutation permission。普通参数默认 readonly；
+  `mut values: List<T>` 这类参数允许 callee 修改 object，因此调用点必须提供 mutable
+  object reference。
 - 当 record/value storage 或 extern/package ABI 仍需要 materialized record
   header 时，MLIRGen 会从 `Ptr<T>` 做一次显式 load。这个动作不属于普通
   `castToType()`，而是限制在 value-boundary helper 里；普通 source
