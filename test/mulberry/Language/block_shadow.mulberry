@@ -11,7 +11,7 @@ fn main(): UInt64 {
   }
 
   io.print(value);
-  0
+  return 0;
 }
 
 # CHECK: %[[OUTER:.*]] = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>

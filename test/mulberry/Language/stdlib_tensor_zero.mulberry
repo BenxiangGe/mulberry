@@ -8,7 +8,7 @@ fn main(): UInt64 {
   io.print(bytes.numel());
   io.print(core.toUInt64(bytes[2]));
   io.print(boolToUInt64(matrix[1, 1] == 0.0));
-  0
+  return 0;
 }
 
 # MLIR: call @std_tensor_zeros__UInt8

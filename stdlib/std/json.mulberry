@@ -10,11 +10,11 @@ import tensor.Tensor;
 # Cursor-style JSON parser for small structured metadata.  It intentionally
 # avoids building a DOM; callers parse only the fields they need.
 fn isSpace(char: Char): Bool {
-  char == ' ' or char == '\n' or char == '\r' or char == '\t'
+  return char == ' ' or char == '\n' or char == '\r' or char == '\t';
 }
 
 fn isDigitChar(char: Char): Bool {
-  char >= '0' and char <= '9'
+  return char >= '0' and char <= '9';
 }
 
 struct Parser {
@@ -22,19 +22,19 @@ struct Parser {
   position: UInt64,
   length: UInt64,
 
-  pub fn peekChar(self: Ptr<Parser>): Char {
-    self.text[self.position]
+  pub fn peekChar(const self: Parser): Char {
+    return self.text[self.position];
   }
 
-  pub fn isDigit(self: Ptr<Parser>): Bool {
+  pub fn isDigit(const self: Parser): Bool {
     var result: Bool = false;
     if self.position < self.length {
       result = isDigitChar(self.peekChar());
     }
-    result
+    return result;
   }
 
-  pub fn skipSpaces(self: Ptr<Parser>): () {
+  pub fn skipSpaces(self: Parser): () {
     while self.position < self.length {
       if isSpace(self.peekChar()) {
         self.position = self.position + 1;
@@ -44,24 +44,24 @@ struct Parser {
     }
   }
 
-  pub fn consumeChar(self: Ptr<Parser>, value: Char): Bool {
+  pub fn consumeChar(self: Parser, value: Char): Bool {
     self.skipSpaces();
     var result: Bool = false;
     if self.position < self.length and self.peekChar() == value {
       self.position = self.position + 1;
       result = true;
     }
-    result
+    return result;
   }
 
-  pub fn skipComma(self: Ptr<Parser>): () {
+  pub fn skipComma(self: Parser): () {
     self.skipSpaces();
     if self.position < self.length and self.peekChar() == ',' {
       self.position = self.position + 1;
     }
   }
 
-  pub fn skipString(self: Ptr<Parser>): Bool {
+  pub fn skipString(self: Parser): Bool {
     var result: Bool = false;
     if self.consumeChar('"') {
       while self.position < self.length {
@@ -73,10 +73,10 @@ struct Parser {
       }
       result = true;
     }
-    result
+    return result;
   }
 
-  pub fn stringEquals(self: Ptr<Parser>, value: String): Bool {
+  pub fn stringEquals(self: Parser, const value: String): Bool {
     self.skipSpaces();
     var result: Bool = false;
     if self.position < self.length and self.peekChar() == '"' {
@@ -104,10 +104,10 @@ struct Parser {
       }
       result = matches and index == value.length;
     }
-    result
+    return result;
   }
 
-  pub fn parseInteger(self: Ptr<Parser>): UInt64 {
+  pub fn parseInteger(self: Parser): UInt64 {
     self.skipSpaces();
     var value: UInt64 = 0;
     while self.isDigit() {
@@ -115,10 +115,10 @@ struct Parser {
       value = value * 10 + digit;
       self.position = self.position + 1;
     }
-    value
+    return value;
   }
 
-  pub fn parseIntegerArray(self: Ptr<Parser>): List<UInt64> {
+  pub fn parseIntegerArray(self: Parser): List<UInt64> {
     var values: List<UInt64> = list.withCapacity(0);
     if self.consumeChar('[') {
       while true {
@@ -131,10 +131,10 @@ struct Parser {
         self.skipComma();
       }
     }
-    values
+    return values;
   }
 
-  pub fn skipBracketValue(self: Ptr<Parser>): () {
+  pub fn skipBracketValue(self: Parser): () {
     var depth: UInt64 = 0;
     while self.position < self.length {
       if self.peekChar() == '"' {
@@ -158,7 +158,7 @@ struct Parser {
     }
   }
 
-  pub fn skipScalarValue(self: Ptr<Parser>): () {
+  pub fn skipScalarValue(self: Parser): () {
     while self.position < self.length {
       if self.peekChar() == ',' or self.peekChar() == '}' or
           self.peekChar() == ']' {
@@ -168,7 +168,7 @@ struct Parser {
     }
   }
 
-  pub fn skipValue(self: Ptr<Parser>): () {
+  pub fn skipValue(self: Parser): () {
     self.skipSpaces();
     if self.position < self.length {
       if self.peekChar() == '"' {

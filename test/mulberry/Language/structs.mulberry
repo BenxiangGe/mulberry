@@ -45,5 +45,5 @@ fn main(): UInt64 {
   # CHECK: 20
 
   # var x: C = value.a.c;
-  0
+  return 0;
 }

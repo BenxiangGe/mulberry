@@ -5,7 +5,7 @@ comptime RankedBox<T, Rank: UInt64> = struct {
 };
 
 fn main(): UInt64 {
-  0
+  return 0;
 }
 
 # AST: ComptimeTypeAliasDecl {{.*}}name=RankedBox parameter=T, Rank: UInt64 type=struct {value: T}

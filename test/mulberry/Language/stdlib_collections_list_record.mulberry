@@ -12,7 +12,7 @@ fn main(): UInt64 {
   var xs: List<Pair> = list.from([Pair { 10, 32 }, Pair { 4, 9 }]);
   io.print(xs.size());
   io.print(xs[0].x + xs[1].y);
-  0
+  return 0;
 }
 
 # AST: VariableStat (id=xs
@@ -23,13 +23,12 @@ fn main(): UInt64 {
 # MLIR: call @std_list_from__Pair__2
 # MLIR-DAG: func.func @std_list_List_push__Pair
 # MLIR-DAG: mulberry_core.ptr.index
-# MLIR-DAG: mulberry_core.record.extract
+# MLIR-DAG: mulberry_core.record.get_field
 
 # LOWER-LABEL: func.func @main()
 # LOWER: call @std_list_from__Pair__2
 # LOWER: call @std_list_List_get__Pair
 # LOWER-DAG: llvm.getelementptr
-# LOWER-DAG: llvm.extractvalue
 
 # JIT: 2
 # JIT-NEXT: 19

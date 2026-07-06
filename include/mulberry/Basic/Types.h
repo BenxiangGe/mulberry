@@ -12,9 +12,7 @@ namespace mulberry {
 enum class TypeKind {
   Builtin,
   Struct,
-  Tensor,
   Array,
-  List,
   Ptr,
 };
 
@@ -122,24 +120,6 @@ private:
   std::optional<ComptimeAliasOrigin> _origin;
 };
 
-// Internal/core tensor type. Source-level `Tensor<T>` is now a stdlib/comptime
-// record header and appears here as StructType with an alias origin, not as
-// this type.
-class TensorType final : public Type {
-public:
-  TensorType(const Type *elementType, std::vector<int64_t> shape);
-
-  static auto classof(const Type *type) -> bool;
-
-  auto elementType() const -> const Type *;
-
-  auto shape() const -> const std::vector<int64_t> &;
-
-private:
-  const Type *_elementType;
-  std::vector<int64_t> _shape;
-};
-
 class ArrayType final : public Type {
 public:
   ArrayType(const Type *elementType, uint64_t size);
@@ -153,18 +133,6 @@ public:
 private:
   const Type *_elementType;
   uint64_t _size = 0;
-};
-
-class ListType final : public Type {
-public:
-  explicit ListType(const Type *elementType);
-
-  static auto classof(const Type *type) -> bool;
-
-  auto elementType() const -> const Type *;
-
-private:
-  const Type *_elementType;
 };
 
 class PtrType final : public Type {
@@ -181,10 +149,8 @@ private:
 
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
-auto getTensorType(const Type *type) -> const TensorType *;
 auto getArrayType(const Type *type) -> const ArrayType *;
 auto getStructType(const Type *type) -> const StructType *;
-auto getListType(const Type *type) -> const ListType *;
 auto getPtrType(const Type *type) -> const PtrType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
@@ -196,9 +162,7 @@ auto isFileType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
 auto isArrayElementType(const Type *type) -> bool;
-auto isTensorType(const Type *type) -> bool;
 auto isArrayType(const Type *type) -> bool;
-auto isListType(const Type *type) -> bool;
 auto isPtrType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
@@ -222,14 +186,8 @@ public:
                         ComptimeAliasOrigin origin) const
       -> const StructType *;
 
-  auto createTensorType(const Type *elementType,
-                        std::vector<int64_t> shape) const
-      -> const TensorType *;
-
   auto createArrayType(const Type *elementType, uint64_t size) const
       -> const ArrayType *;
-
-  auto createListType(const Type *elementType) const -> const ListType *;
 
   auto createPtrType(const Type *pointeeType) const -> const PtrType *;
 };

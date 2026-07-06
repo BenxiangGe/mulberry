@@ -11,7 +11,7 @@ fn main(): UInt64 {
   io.print(bytes.numel());
   io.print(core.toUInt64(bytes[2]));
   io.print(boolToUInt64(matrix[1, 1] > 3.5));
-  0
+  return 0;
 }
 
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>

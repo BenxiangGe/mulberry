@@ -20,5 +20,5 @@ fn main(): UInt64 {
   var biases: List<Tensor<Float32>> = list.from([b1, b2]);
 
   io.print(nn.predict(weights, biases, x));
-  0
+  return 0;
 }

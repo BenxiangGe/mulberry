@@ -903,5 +903,5 @@ fn main(): UInt64 {
 
   io.print(pred);
 
-  0
+  return 0;
 }

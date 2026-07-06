@@ -9,7 +9,7 @@ fn makeModel(w1: Tensor<Float32>,
              w2: Tensor<Float32>,
              bias: Tensor<Float32>): Model {
   var weights: List<Tensor<Float32>> = list.from([w1, w2]);
-  Model { weights, bias }
+  return Model { weights, bias };
 }
 
 fn main(): UInt64 {
@@ -19,22 +19,23 @@ fn main(): UInt64 {
 
   var model: Model = makeModel(w1, w2, bias);
   var otherBias: Tensor<Float32> = bias;
-  var activeBias: Tensor<Float32> = if true {
-    model.bias
+  var activeBias: Tensor<Float32> = otherBias;
+  if true {
+    activeBias = model.bias;
   } else {
-    otherBias
-  };
+    activeBias = otherBias;
+  }
   var firstWeight: Tensor<Float32> =
       model.weights[0];
 
-  model.weights.size() + firstWeight.numel() + 1
+  return model.weights.size() + firstWeight.numel() + 1;
 }
 
 # CHECK-LABEL: func.func @makeModel
-# CHECK-SAME: !mulberry_core.record<std_tensor_Tensor__Float32
-# CHECK-SAME: !mulberry_core.record<std_tensor_Tensor__Float32
-# CHECK-SAME: !mulberry_core.record<std_tensor_Tensor__Float32
-# CHECK-SAME: -> !mulberry_core.record<Model
+# CHECK-SAME: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# CHECK-SAME: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# CHECK-SAME: !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# CHECK-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Model
 # CHECK: call @std_list_from__std_tensor_Tensor__Float32__2
 # CHECK: mulberry_core.record.get_field {{.*}}["bias"]
 # CHECK-LABEL: func.func @main()

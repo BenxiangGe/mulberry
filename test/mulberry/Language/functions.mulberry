@@ -1,18 +1,18 @@
 # RUN: mulberry-driver %s -typecheck
 
 fn foo(k: UInt64): () {
-  ()
+  return;
 }
 
 fn bar(x: UInt64, y: UInt64): () {
   foo(x);
   foo(y);
-  ()
+  return;
 }
 
 fn main(): UInt64 {
   bar(10, 20);
-  0
+  return 0;
 }
 
 # CHECK: 10

@@ -3,26 +3,24 @@
 fn bar(x: UInt64, y: Bool): Bool {
   var k: Bool = y;
 
-  k = if k {
-    false
+  if k {
+    k = false;
   } else {
-    true
-  };
+    k = true;
+  }
 
-  k
+  return k;
 }
 
 fn main(): UInt64 {
   bar(18446744073709551615, false);
-  0
+  return 0;
 }
 
 # CHECK-LABEL: func.func @bar
-# CHECK: scf.if {{.*}} -> (i1)
+# CHECK: scf.if
 # CHECK: arith.constant false
-# CHECK: scf.yield {{.*}} : i1
 # CHECK: arith.constant true
-# CHECK: scf.yield {{.*}} : i1
 # CHECK: return {{.*}} : i1
 # CHECK-LABEL: func.func @main
 # CHECK: call @bar

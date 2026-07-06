@@ -74,7 +74,7 @@ fn main(): UInt64 {
   io.print(lastBatchEnd);
   io.print(processedSamples);
   io.print(evaluation.total);
-  0
+  return 0;
 }
 
 # JIT: 11

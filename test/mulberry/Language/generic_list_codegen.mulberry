@@ -2,25 +2,25 @@
 # RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWER
 
 fn first(xs: List<UInt64>): UInt64 {
-  xs[0]
+  return xs[0];
 }
 
 fn make(): List<UInt64> {
   var numbers: List<UInt64> = list.from([1, 2, 3]);
-  numbers
+  return numbers;
 }
 
 fn main(): UInt64 {
   var numbers: List<UInt64> = list.from([4, 5, 6]);
   io.print(first(numbers));
-  make().size()
+  return make().size();
 }
 
-# CHECK-LABEL: func.func @first(%arg0: !mulberry_core.record<std_list_List__UInt64
+# CHECK-LABEL: func.func @first(%arg0: !mulberry_core.ptr<!mulberry_core.record<std_list_List__UInt64
 # CHECK-SAME: -> i64
 # CHECK: call @std_list_List_get__UInt64
 # CHECK-LABEL: func.func @make()
-# CHECK-SAME: -> !mulberry_core.record<std_list_List__UInt64
+# CHECK-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std_list_List__UInt64
 # CHECK: call @std_list_from__UInt64__3
 # CHECK-LABEL: func.func @main()
 # CHECK: call @std_list_from__UInt64__3
@@ -29,10 +29,10 @@ fn main(): UInt64 {
 # CHECK: call @std_list_List_size__UInt64
 
 # LOWER-DAG: llvm.func @mulberry_boehm_malloc(i64) -> !llvm.ptr
-# LOWER-LABEL: func.func @first(%arg0: !llvm.struct<(i64, i64, ptr)>) -> i64
+# LOWER-LABEL: func.func @first(%arg0: !llvm.ptr) -> i64
 # LOWER: call @std_list_List_get__UInt64
 # LOWER-LABEL: func.func @make
-# LOWER-SAME: -> !llvm.struct<(i64, i64, ptr)>
+# LOWER-SAME: -> !llvm.ptr
 # LOWER: call @std_list_from__UInt64__3
 # LOWER-LABEL: func.func @main
 # LOWER: call @std_list_from__UInt64__3

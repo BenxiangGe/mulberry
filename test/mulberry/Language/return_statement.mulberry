@@ -1,0 +1,29 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=OUT
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+
+import io;
+
+fn choose(flag: Bool): UInt64 {
+  if flag {
+    return 7;
+  }
+  return 3;
+}
+
+fn skip(flag: Bool): () {
+  if flag {
+    return;
+  }
+  io.print(9);
+}
+
+fn main(): UInt64 {
+  skip(true);
+  io.print(choose(true));
+  return 0;
+}
+
+# OUT-NOT: 9
+# OUT: 7
+
+# AST: ReturnStat

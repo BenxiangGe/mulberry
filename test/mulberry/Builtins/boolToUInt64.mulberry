@@ -5,7 +5,7 @@ fn main(): UInt64 {
   
   io.print(boolToUInt64(false));
 
-  0
+  return 0;
 }
 
 # CHECK-LABEL: func.func @std.core.boolToUInt64

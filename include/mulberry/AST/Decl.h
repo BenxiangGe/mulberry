@@ -88,6 +88,10 @@ public:
 
   auto isGeneric() const -> bool { return !_comptimeParameters.empty(); }
 
+  auto setIsMethod(bool isMethod) -> void { _isMethod = isMethod; }
+
+  auto isMethod() const -> bool { return _isMethod; }
+
   auto parameters() const -> const VectorUniquePtr<VariableStat> & {
     return _parameters;
   }
@@ -106,6 +110,7 @@ private:
   std::unique_ptr<TypeNode> _returnTypeNode;
   std::vector<ComptimeParam> _comptimeParameters;
   const Type *_type = nullptr;
+  bool _isMethod = false;
 };
 
 class FunctionDecl final : public Decl {

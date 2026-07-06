@@ -7,5 +7,5 @@ fn main(): UInt64 {
   }
 
   var scopedValue: UInt64 = 2;
-  scopedValue
+  return scopedValue;
 }

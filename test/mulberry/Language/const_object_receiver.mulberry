@@ -1,0 +1,9 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn main(): UInt64 {
+  const values: List<UInt64> = list.from([10, 20, 30]);
+  return values.size() + values[1];
+}
+
+# CHECK: call @std_list_List_size__UInt64
+# CHECK: call @std_list_List_get__UInt64

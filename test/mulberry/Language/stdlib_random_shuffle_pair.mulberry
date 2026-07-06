@@ -12,7 +12,7 @@ fn main(): UInt64 {
   io.print(xs[1] + ys[1] * 100);
   io.print(xs[2] + ys[2] * 100);
   io.print(xs[3] + ys[3] * 100);
-  0
+  return 0;
 }
 
 # JIT: 4

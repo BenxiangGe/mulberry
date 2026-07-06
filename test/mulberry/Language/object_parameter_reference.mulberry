@@ -1,0 +1,27 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Counter {
+  value: UInt64
+}
+
+fn bump(counter: Counter): UInt64 {
+  counter.value = counter.value + 1;
+  return 0;
+}
+
+fn read(counter: Counter): UInt64 {
+  return counter.value;
+}
+
+fn main(): UInt64 {
+  var counter: Counter = Counter { 41 };
+  bump(counter);
+  io.print(read(counter));
+  return 0;
+}
+
+# MLIR: func.func @bump(%arg0: !mulberry_core.ptr<!mulberry_core.record<Counter
+# MLIR: func.func @read(%arg0: !mulberry_core.ptr<!mulberry_core.record<Counter
+
+# JIT: 42

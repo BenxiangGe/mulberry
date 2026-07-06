@@ -72,20 +72,20 @@ private:
   auto dump(const CharLiteralExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
-  auto dump(const DerefExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
   auto dump(const IndexExpr *node) -> void;
   auto dump(const BinaryExpr *node) -> void;
-  auto dump(const IfExpr *node) -> void;
-  auto dump(const WhileExpr *node) -> void;
-  auto dump(const BreakExpr *node) -> void;
-  auto dump(const ContinueExpr *node) -> void;
-  auto dump(const ForExpr *node) -> void;
 
   // Statements
   auto dump(const Stat *node) -> void;
   auto dump(const VariableStat *node) -> void;
   auto dump(const ExprStat *node) -> void;
+  auto dump(const IfStat *node) -> void;
+  auto dump(const WhileStat *node) -> void;
+  auto dump(const ForStat *node) -> void;
+  auto dump(const BreakStat *node) -> void;
+  auto dump(const ContinueStat *node) -> void;
+  auto dump(const ReturnStat *node) -> void;
 
   // Utility
   auto indent() -> void {
@@ -114,9 +114,6 @@ private:
       result += "]";
       return result;
     }
-
-    if (auto *listType = dyn_cast<ListTypeNode>(node))
-      return "List<" + formatTypeNode(listType->elementTypeNode()) + ">";
 
     if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
       return "Ptr<" + formatTypeNode(ptrType->pointeeTypeNode()) + ">";
@@ -286,10 +283,9 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr, DerefExpr,
+            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr,
             ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
-            AssignExpr, IfExpr, WhileExpr, BreakExpr, ContinueExpr, ForExpr,
-            BinaryExpr>(
+            AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -306,7 +302,6 @@ auto Dumper::dump(const BlockExpr *node, std::string_view string) -> void {
   errs() << string << "\n";
   for (auto &expr : *node)
     dump(expr.get());
-  dump(node->expression().get());
 }
 
 auto Dumper::dump(const CallExpr *node) -> void {
@@ -410,13 +405,6 @@ auto Dumper::dump(const HeapAllocExpr *node) -> void {
     dump(node->count().get());
 }
 
-auto Dumper::dump(const DerefExpr *node) -> void {
-  INDENT();
-  errs() << "DerefExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-  dump(node->pointer().get());
-}
-
 auto Dumper::dump(const ArrayLiteralExpr *node) -> void {
   INDENT();
   errs() << "ArrayLiteralExpr " << loc(node)
@@ -445,49 +433,11 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
   dump(node->rhs().get());
 }
 
-auto Dumper::dump(const IfExpr *node) -> void {
-  INDENT();
-  errs() << "IfExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-  dump(node->conditionExpr().get());
-  dump(node->thenBlock().get(), "thenBlock:");
-  if (node->hasElseBlock())
-    dump(node->elseBlock().get(), "elseBlock:");
-}
-
-auto Dumper::dump(const WhileExpr *node) -> void {
-  INDENT();
-  errs() << "WhileExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-  dump(node->conditionExpr().get());
-  dump(node->bodyBlock().get(), "bodyBlock:");
-}
-
-auto Dumper::dump(const BreakExpr *node) -> void {
-  INDENT();
-  errs() << "BreakExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-}
-
-auto Dumper::dump(const ContinueExpr *node) -> void {
-  INDENT();
-  errs() << "ContinueExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
-}
-
-auto Dumper::dump(const ForExpr *node) -> void {
-  INDENT();
-  errs() << "ForExpr " << loc(node)
-         << " type=" << formatType(node->type())
-         << " variable=" << node->variableName() << "\n";
-  dump(node->startExpr().get());
-  dump(node->endExpr().get());
-  dump(node->bodyBlock().get(), "bodyBlock:");
-}
-
 auto Dumper::dump(const Stat *node) -> void {
   llvm::TypeSwitch<const Stat *>(node)
-      .Case<VariableStat, ExprStat>([&](auto *node) { this->dump(node); })
+      .Case<VariableStat, ExprStat, IfStat, WhileStat, ForStat, BreakStat,
+            ContinueStat, ReturnStat>(
+          [&](auto *node) { this->dump(node); })
       .Default([&](const Stat *) { llvm_unreachable("Unexpected statement"); });
 }
 
@@ -510,6 +460,48 @@ auto Dumper::dump(const VariableStat *node) -> void {
 
 auto Dumper::dump(const ExprStat *node) -> void {
   dump(node->expression().get());
+}
+
+auto Dumper::dump(const IfStat *node) -> void {
+  INDENT();
+  errs() << "IfStat " << loc(node) << "\n";
+  dump(node->conditionExpr().get());
+  dump(node->thenBlock().get(), "thenBlock:");
+  if (node->hasElseBlock())
+    dump(node->elseBlock().get(), "elseBlock:");
+}
+
+auto Dumper::dump(const WhileStat *node) -> void {
+  INDENT();
+  errs() << "WhileStat " << loc(node) << "\n";
+  dump(node->conditionExpr().get());
+  dump(node->bodyBlock().get(), "bodyBlock:");
+}
+
+auto Dumper::dump(const ForStat *node) -> void {
+  INDENT();
+  errs() << "ForStat " << loc(node)
+         << " variable=" << node->variableName() << "\n";
+  dump(node->startExpr().get());
+  dump(node->endExpr().get());
+  dump(node->bodyBlock().get(), "bodyBlock:");
+}
+
+auto Dumper::dump(const BreakStat *node) -> void {
+  INDENT();
+  errs() << "BreakStat " << loc(node) << "\n";
+}
+
+auto Dumper::dump(const ContinueStat *node) -> void {
+  INDENT();
+  errs() << "ContinueStat " << loc(node) << "\n";
+}
+
+auto Dumper::dump(const ReturnStat *node) -> void {
+  INDENT();
+  errs() << "ReturnStat " << loc(node) << "\n";
+  if (node->hasExpression())
+    dump(node->expression().get());
 }
 
 namespace mulberry {

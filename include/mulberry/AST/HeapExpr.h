@@ -39,23 +39,6 @@ private:
   const Type *_allocatedType = nullptr;
 };
 
-class DerefExpr final : public Expr {
-public:
-  DerefExpr(llvm::SMLoc location, std::unique_ptr<Expr> pointer)
-      : Expr{Expr_Deref, location}, _pointer(std::move(pointer)) {}
-
-  static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_Deref;
-  }
-
-  auto pointer() const -> const std::unique_ptr<Expr> & { return _pointer; }
-
-  auto isLvalue() const -> bool override { return true; }
-
-private:
-  std::unique_ptr<Expr> _pointer;
-};
-
 } // end namespace mulberry
 
 #endif // MULBERRY_HEAP_EXPR_H

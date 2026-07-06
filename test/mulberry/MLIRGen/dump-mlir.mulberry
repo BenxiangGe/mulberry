@@ -8,5 +8,5 @@
 fn main(): UInt64 {
 	1;
 	io.print(2);
-	0
+	return 0;
 }

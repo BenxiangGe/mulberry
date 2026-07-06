@@ -56,7 +56,7 @@ fn main(): UInt64 {
   io.print(boolToUInt64(true or false));
   io.print(boolToUInt64(true or true));
 
-  0
+  return 0;
 }
 
 # CHECK: arith.addi

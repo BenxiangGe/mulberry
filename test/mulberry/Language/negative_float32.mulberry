@@ -6,7 +6,7 @@ fn main(): UInt64 {
   var x: Float32 = -1.25;
   var values: Tensor<Float32> = tensor.from([-1.25, -2.5e1]);
 
-  0
+  return 0;
 }
 
 # TOKENS: diff '-'

@@ -7,7 +7,7 @@ fn main(): UInt64 {
   const tensorValue: Tensor<Float32> =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
 
-  answer + tensorValue.numel()
+  return answer + tensorValue.numel();
 }
 
 # TOKENS: kw_const 'const'

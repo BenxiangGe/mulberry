@@ -3,7 +3,7 @@
 fn main(): UInt64 {
   var values: Tensor<Float32> = tensor.from([1, 2]);
 
-  0
+  return 0;
 }
 
 # CHECK: error: type mismatch

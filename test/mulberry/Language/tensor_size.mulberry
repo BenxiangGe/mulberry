@@ -9,7 +9,7 @@ fn main(): UInt64 {
   io.print(xsTensor.numel());
   io.print(ysTensor.numel());
 
-  0
+  return 0;
 }
 
 # AST: CallExpr {{.*}}type=UInt64 callee=std_tensor_Tensor_numel__UInt64

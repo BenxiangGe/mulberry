@@ -12,15 +12,15 @@ fn main(): UInt64 {
   }
 
   io.print(value);
-  0
+  return 0;
 }
 
 # CHECK-LABEL: func.func @main
+# CHECK: %[[KEEP_GOING:.*]] = mulberry_core.alloca i1 : !mulberry_core.ptr<i1>
 # CHECK: %[[OUTER:.*]] = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
 # CHECK: arith.constant 3 : i64
 # CHECK: mulberry_core.store {{.*}}, %[[OUTER]] : i64, !mulberry_core.ptr<i64>
-# CHECK: %[[TRUE:.*]] = arith.constant true
-# CHECK: mulberry_core.store %[[TRUE]], %[[KEEP_GOING:.*]] : i1, !mulberry_core.ptr<i1>
+# CHECK: mulberry_core.store {{.*}}, %[[KEEP_GOING]] : i1, !mulberry_core.ptr<i1>
 # CHECK: scf.while
 # CHECK: %[[INNER:.*]] = mulberry_core.alloca i64 : !mulberry_core.ptr<i64>
 # CHECK: arith.constant 4 : i64

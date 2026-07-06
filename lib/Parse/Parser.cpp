@@ -190,20 +190,6 @@ auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
   return parseToken(Token::greater, diag::expected_greater);
 }
 
-auto Parser::parseListType(unique_ptr<TypeNode> &typeNode,
-                           llvm::SMLoc location) -> MulberryResult {
-  if (parseToken(Token::less, diag::expected_less))
-    return failure();
-
-  unique_ptr<TypeNode> elementTypeNode;
-  if (parseType(elementTypeNode) ||
-      parseToken(Token::greater, diag::expected_greater))
-    return failure();
-
-  typeNode = make_unique<ListTypeNode>(std::move(elementTypeNode), location);
-  return success();
-}
-
 auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
                           llvm::SMLoc location) -> MulberryResult {
   if (parseToken(Token::less, diag::expected_less))
@@ -355,6 +341,11 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
   if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
                 diag::expected_r_paren, parameters,
                 [this](unique_ptr<VariableStat> &elem) -> MulberryResult {
+                  bool isConst = false;
+                  if (tokenIs(Token::kw_const)) {
+                    isConst = true;
+                    consume(Token::kw_const);
+                  }
                   unique_ptr<VariableExpr> param;
                   unique_ptr<TypeNode> typeNode;
                   if (parseVariableExpr(param) ||
@@ -363,7 +354,7 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
                     return failure();
                   elem = make_unique<VariableStat>(
                       param->location(), std::move(param), std::move(typeNode),
-                      nullptr);
+                      nullptr, isConst);
                   return success();
                 }) ||
       parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
@@ -408,8 +399,7 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
   VectorUniquePtr<Stat> statements;
   while (true) {
     if (consumeIf(Token::r_brace)) {
-      block = make_unique<BlockExpr>(
-          loc, std::move(statements), make_unique<UnitExpr>(loc));
+      block = make_unique<BlockExpr>(loc, std::move(statements));
       return success();
     }
 
@@ -417,10 +407,23 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
     if (parseStatementWithoutSemi(stat))
       return failure();
 
-    auto isStatement = stat->getKind() != Stat::Stat_Expression;
-    if (isStatement) {
+    auto needsSemi = stat->getKind() == Stat::Stat_VariableDecl ||
+                     stat->getKind() == Stat::Stat_Return;
+    if (needsSemi) {
       if (parseToken(Token::semi, diag::expected_semi))
         return failure();
+      statements.push_back(std::move(stat));
+      continue;
+    }
+
+    if (stat->getKind() == Stat::Stat_Break ||
+        stat->getKind() == Stat::Stat_Continue) {
+      consumeIf(Token::semi);
+      statements.push_back(std::move(stat));
+      continue;
+    }
+
+    if (stat->getKind() != Stat::Stat_Expression) {
       statements.push_back(std::move(stat));
       continue;
     }
@@ -430,15 +433,7 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
       continue;
     }
 
-    if (!consumeIf(Token::r_brace)) {
-      statements.push_back(std::move(stat));
-      continue;
-    }
-
-    unique_ptr<ExprStat> exprStat(static_cast<ExprStat *>(stat.release()));
-    block = make_unique<BlockExpr>(loc, std::move(statements),
-                                   std::move(exprStat->expression()));
-    return success();
+    return parseToken(Token::semi, diag::expected_semi);
   }
 }
 
@@ -638,22 +633,10 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
     return parseChar(expr);
   case Token::diff:
     return parseNegativeFloat(expr);
-  case Token::mul:
-    return parseDerefExpr(expr);
   case Token::identifier:
     return parseIdentifierExpr(expr);
   case Token::l_square:
     return parseArrayLiteral(expr);
-  case Token::kw_if:
-    return parseIfExpr(expr);
-  case Token::kw_while:
-    return parseWhileExpr(expr);
-  case Token::kw_break:
-    return parseBreakExpr(expr);
-  case Token::kw_continue:
-    return parseContinueExpr(expr);
-  case Token::kw_for:
-    return parseForExpr(expr);
   case Token::kw_true: {
     auto loc = tokenLoc();
     consume(Token::kw_true);
@@ -689,7 +672,7 @@ auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
   return success();
 }
 
-auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_if);
   unique_ptr<Expr> condition;
@@ -706,12 +689,12 @@ auto Parser::parseIfExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
       return failure();
   }
 
-  expr = make_unique<IfExpr>(loc, std::move(condition), std::move(thenBlock),
+  stat = make_unique<IfStat>(loc, std::move(condition), std::move(thenBlock),
                              std::move(elseBlock));
   return success();
 }
 
-auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseWhileStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_while);
   unique_ptr<Expr> condition;
@@ -720,26 +703,41 @@ auto Parser::parseWhileExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
       parseToken(Token::l_brace, diag::expected_l_brace) ||
       parseBlockExpr(bodyBlock))
     return failure();
-  expr =
-      make_unique<WhileExpr>(loc, std::move(condition), std::move(bodyBlock));
+  stat =
+      make_unique<WhileStat>(loc, std::move(condition), std::move(bodyBlock));
   return success();
 }
 
-auto Parser::parseBreakExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseBreakStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_break);
-  expr = make_unique<BreakExpr>(loc);
+  stat = make_unique<BreakStat>(loc);
   return success();
 }
 
-auto Parser::parseContinueExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseContinueStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_continue);
-  expr = make_unique<ContinueExpr>(loc);
+  stat = make_unique<ContinueStat>(loc);
   return success();
 }
 
-auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseReturnStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+  auto loc = tokenLoc();
+  consume(Token::kw_return);
+  if (tokenIs(Token::semi)) {
+    stat = make_unique<ReturnStat>(loc, nullptr);
+    return success();
+  }
+
+  unique_ptr<Expr> expression;
+  if (parseExpression(expression))
+    return failure();
+  stat = make_unique<ReturnStat>(loc, std::move(expression));
+  return success();
+}
+
+auto Parser::parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_for);
 
@@ -758,7 +756,7 @@ auto Parser::parseForExpr(std::unique_ptr<Expr> &expr) -> MulberryResult {
       parseBlockExpr(bodyBlock))
     return failure();
 
-  expr = make_unique<ForExpr>(loc, variableName, std::move(startExpr),
+  stat = make_unique<ForStat>(loc, variableName, std::move(startExpr),
                               std::move(endExpr), std::move(bodyBlock));
   return success();
 }
@@ -816,27 +814,6 @@ auto Parser::parseChar(unique_ptr<Expr> &expr) -> MulberryResult {
     return success();
   }
   return emitError(diag::expected_expr);
-}
-
-auto Parser::parseDerefExpr(unique_ptr<Expr> &expr) -> MulberryResult {
-  auto location = tokenLoc();
-  consume(Token::mul);
-
-  unique_ptr<Expr> pointer;
-  if (parsePrimaryExpression(pointer))
-    return failure();
-  while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
-    if (tokenIs(Token::dot)) {
-      if (parseMemberAccess(pointer))
-        return failure();
-      continue;
-    }
-    if (parseIndex(pointer))
-      return failure();
-  }
-
-  expr = make_unique<DerefExpr>(location, std::move(pointer));
-  return success();
 }
 
 auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
@@ -1039,7 +1016,7 @@ auto Parser::getTokenPrecedence() -> int {
   case Token::add:
   case Token::diff:
     return 600;
-  case Token::mul:
+  case Token::star:
   case Token::div:
   case Token::rem:
     return 700;
@@ -1066,7 +1043,7 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
     return BinaryExpr::Operator::Add;
   case Token::diff:
     return BinaryExpr::Operator::Diff;
-  case Token::mul:
+  case Token::star:
     return BinaryExpr::Operator::Mul;
   case Token::div:
     return BinaryExpr::Operator::Div;
@@ -1108,6 +1085,18 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult
     return parseVarDecl(stat);
   case Token::kw_const:
     return parseConstDecl(stat);
+  case Token::kw_if:
+    return parseIfStat(stat);
+  case Token::kw_while:
+    return parseWhileStat(stat);
+  case Token::kw_for:
+    return parseForStat(stat);
+  case Token::kw_break:
+    return parseBreakStat(stat);
+  case Token::kw_continue:
+    return parseContinueStat(stat);
+  case Token::kw_return:
+    return parseReturnStat(stat);
   default: {
     auto loc = tokenLoc();
     unique_ptr<Expr> expr;
