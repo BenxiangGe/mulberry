@@ -1,0 +1,44 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+package std.objectabi;
+
+struct Box {
+  value: UInt64
+}
+
+extern fn inspectBox(value: std.objectabi.Box): UInt64;
+extern fn makeBox(value: UInt64): std.objectabi.Box;
+
+fn identity(value: Box): Box {
+  return value;
+}
+
+fn inspect(value: Box): UInt64 {
+  return inspectBox(identity(value));
+}
+
+fn make(value: UInt64): Box {
+  return makeBox(value);
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# MLIR-LABEL: func.func private @inspectBox(!mulberry_core.record<std.objectabi.Box
+# MLIR-LABEL: func.func private @makeBox(i64) -> !mulberry_core.record<std.objectabi.Box
+
+# MLIR-LABEL: func.func @std.objectabi.identity(
+# MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
+
+# MLIR-LABEL: func.func @std.objectabi.inspect(
+# MLIR: %[[IDENTITY:.*]] = func.call @std.objectabi.identity
+# MLIR: %[[HEADER:.*]] = mulberry_core.load %[[IDENTITY]]
+# MLIR: func.call @inspectBox(%[[HEADER]])
+
+# MLIR-LABEL: func.func @std.objectabi.make(
+# MLIR: %[[VALUE:.*]] = func.call @makeBox
+# MLIR: %[[OBJECT:.*]] = mulberry_core.heap.alloc !mulberry_core.record<std.objectabi.Box
+# MLIR: mulberry_core.store %[[VALUE]], %[[OBJECT]]
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box

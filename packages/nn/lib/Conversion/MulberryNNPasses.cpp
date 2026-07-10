@@ -118,7 +118,26 @@ static auto allocateTranspose(PatternRewriter& rewriter, Location loc,
   return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
 }
 
-static auto isTensorF32Record(Type type) -> bool {
+static auto isListU64Reference(Type type) -> bool {
+  auto ptrType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(type);
+  if (!ptrType)
+    return false;
+
+  auto recordType = llvm::dyn_cast<mlir::mulberry_core::RecordType>(
+      ptrType.getPointeeType());
+  if (!recordType)
+    return false;
+
+  auto dataType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+      recordType.getFieldType("data"));
+  auto lengthType = recordType.getFieldType("length");
+  auto capacityType = recordType.getFieldType("capacity");
+  return lengthType && lengthType.isInteger(64) && capacityType &&
+         capacityType.isInteger(64) && dataType &&
+         dataType.getPointeeType().isInteger(64);
+}
+
+static auto isTensorF32RecordABI(Type type) -> bool {
   auto recordType = llvm::dyn_cast<mlir::mulberry_core::RecordType>(type);
   if (!recordType)
     return false;
@@ -131,8 +150,9 @@ static auto isTensorF32Record(Type type) -> bool {
   auto rankType = recordType.getFieldType("rank");
   auto numelType = recordType.getFieldType("numel");
   return rankType && rankType.isInteger(64) && numelType &&
-         numelType.isInteger(64) && recordType.getFieldType("sizes") &&
-         recordType.getFieldType("strides");
+         numelType.isInteger(64) &&
+         isListU64Reference(recordType.getFieldType("sizes")) &&
+         isListU64Reference(recordType.getFieldType("strides"));
 }
 
 static auto getMatrixTensorType(MLIRContext* context)
@@ -159,9 +179,9 @@ static auto createTensorCall(PatternRewriter& rewriter, Location loc,
 }
 
 static auto packTensor(PatternRewriter& rewriter, Location loc, Value tensor,
-                       Type recordType) -> Value {
-  return mlir::mulberry_core::TensorPackOp::create(rewriter, loc, recordType,
-                                                   tensor);
+                       Type tensorRecordType) -> Value {
+  return mlir::mulberry_core::TensorPackOp::create(
+      rewriter, loc, tensorRecordType, tensor);
 }
 
 static auto rewriteBinaryCall(func::CallOp call, PatternRewriter& rewriter,
@@ -201,15 +221,16 @@ static auto rewriteBinaryCall(func::CallOp call, PatternRewriter& rewriter,
   return success();
 }
 
-static auto rewriteBinaryRecordCall(func::CallOp call, PatternRewriter& rewriter,
-                                    StringRef name) -> LogicalResult {
+static auto rewriteBinaryRecordABICall(func::CallOp call,
+                                       PatternRewriter& rewriter,
+                                       StringRef name) -> LogicalResult {
   if (!isPublicMulberryNNCall(call, name))
     return failure();
   if (call.getNumOperands() != 2 || call.getNumResults() != 1)
     return failure();
-  if (!isTensorF32Record(call.getOperand(0).getType()) ||
-      !isTensorF32Record(call.getOperand(1).getType()) ||
-      !isTensorF32Record(call.getResult(0).getType()))
+  if (!isTensorF32RecordABI(call.getOperand(0).getType()) ||
+      !isTensorF32RecordABI(call.getOperand(1).getType()) ||
+      !isTensorF32RecordABI(call.getResult(0).getType()))
     return failure();
 
   auto loc = call.getLoc();
@@ -257,14 +278,15 @@ static auto rewriteUnaryCall(func::CallOp call, PatternRewriter& rewriter,
   return success();
 }
 
-static auto rewriteUnaryRecordCall(func::CallOp call, PatternRewriter& rewriter,
-                                   StringRef name) -> LogicalResult {
+static auto rewriteUnaryRecordABICall(func::CallOp call,
+                                      PatternRewriter& rewriter,
+                                      StringRef name) -> LogicalResult {
   if (!isPublicMulberryNNCall(call, name))
     return failure();
   if (call.getNumOperands() != 1 || call.getNumResults() != 1)
     return failure();
-  if (!isTensorF32Record(call.getOperand(0).getType()) ||
-      !isTensorF32Record(call.getResult(0).getType()))
+  if (!isTensorF32RecordABI(call.getOperand(0).getType()) ||
+      !isTensorF32RecordABI(call.getResult(0).getType()))
     return failure();
 
   auto loc = call.getLoc();
@@ -304,7 +326,7 @@ public:
     if (isPublicMulberryNNCall(call, "argmax")) {
       if (call.getNumOperands() != 1 || call.getNumResults() != 1 ||
           !call.getResult(0).getType().isInteger(64) ||
-          !isTensorF32Record(call.getOperand(0).getType()))
+          !isTensorF32RecordABI(call.getOperand(0).getType()))
         return failure();
 
       auto view = createTensorView(rewriter, loc, call.getOperand(0));
@@ -319,18 +341,19 @@ public:
         succeeded(rewriteBinaryCall(call, rewriter, "matadd")) ||
         succeeded(rewriteBinaryCall(call, rewriter, "matsub")) ||
         succeeded(rewriteBinaryCall(call, rewriter, "hadamard")) ||
-        succeeded(rewriteBinaryRecordCall(call, rewriter, "matmul")) ||
-        succeeded(rewriteBinaryRecordCall(call, rewriter, "matadd")) ||
-        succeeded(rewriteBinaryRecordCall(call, rewriter, "matsub")) ||
-        succeeded(rewriteBinaryRecordCall(call, rewriter, "hadamard")) ||
+        succeeded(rewriteBinaryRecordABICall(call, rewriter, "matmul")) ||
+        succeeded(rewriteBinaryRecordABICall(call, rewriter, "matadd")) ||
+        succeeded(rewriteBinaryRecordABICall(call, rewriter, "matsub")) ||
+        succeeded(rewriteBinaryRecordABICall(call, rewriter, "hadamard")) ||
         succeeded(rewriteUnaryCall(call, rewriter, "transpose")) ||
         succeeded(rewriteUnaryCall(call, rewriter, "exp")) ||
         succeeded(rewriteUnaryCall(call, rewriter, "sigmoid")) ||
         succeeded(rewriteUnaryCall(call, rewriter, "sigmoidPrime")) ||
-        succeeded(rewriteUnaryRecordCall(call, rewriter, "transpose")) ||
-        succeeded(rewriteUnaryRecordCall(call, rewriter, "exp")) ||
-        succeeded(rewriteUnaryRecordCall(call, rewriter, "sigmoid")) ||
-        succeeded(rewriteUnaryRecordCall(call, rewriter, "sigmoidPrime")))
+        succeeded(rewriteUnaryRecordABICall(call, rewriter, "transpose")) ||
+        succeeded(rewriteUnaryRecordABICall(call, rewriter, "exp")) ||
+        succeeded(rewriteUnaryRecordABICall(call, rewriter, "sigmoid")) ||
+        succeeded(rewriteUnaryRecordABICall(call, rewriter,
+                                            "sigmoidPrime")))
       return success();
 
     if (isTensorMulberryNNCall(call, "matscale")) {
@@ -350,8 +373,8 @@ public:
 
     if (isPublicMulberryNNCall(call, "matscale") &&
         call.getNumOperands() == 2 && call.getNumResults() == 1 &&
-        isTensorF32Record(call.getOperand(0).getType()) &&
-        isTensorF32Record(call.getResult(0).getType()) &&
+        isTensorF32RecordABI(call.getOperand(0).getType()) &&
+        isTensorF32RecordABI(call.getResult(0).getType()) &&
         call.getOperand(1).getType().isF32()) {
       auto input = createTensorView(rewriter, loc, call.getOperand(0));
       auto resultType = getMatrixTensorType(rewriter.getContext());

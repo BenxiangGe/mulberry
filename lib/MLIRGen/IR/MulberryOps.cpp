@@ -80,26 +80,15 @@ auto RecordGetFieldOp::verify() -> LogicalResult {
   return success();
 }
 
-auto RecordExtractOp::verify() -> LogicalResult {
-  auto recordType = llvm::dyn_cast<RecordType>(getRecord().getType());
-  if (!recordType)
-    return emitOpError("input must be a Mulberry record");
-
-  auto fieldType = recordType.getFieldType(getField());
-  if (!fieldType)
-    return emitOpError("unknown record field `") << getField() << "`";
-
-  if (getResult().getType() != fieldType)
-    return emitOpError("result type must match field type");
-
-  return success();
-}
-
-static auto verifyTensorMetadataList(Operation* op, Type type,
-                                     StringRef fieldName) -> LogicalResult {
-  auto listType = llvm::dyn_cast<RecordType>(type);
+static auto verifyTensorMetadataListReference(Operation* op, Type type,
+                                              StringRef fieldName)
+    -> LogicalResult {
+  auto ptrType = llvm::dyn_cast<PtrType>(type);
+  auto listType = ptrType
+                      ? llvm::dyn_cast<RecordType>(ptrType.getPointeeType())
+                      : RecordType{};
   if (!listType)
-    return op->emitOpError(" record needs a List<i64> `")
+    return op->emitOpError(" record needs a List<i64> reference `")
            << fieldName << "` field";
 
   auto lengthType = listType.getFieldType("length");
@@ -108,15 +97,15 @@ static auto verifyTensorMetadataList(Operation* op, Type type,
   if (!lengthType || !lengthType.isInteger(64) ||
       !capacityType || !capacityType.isInteger(64) ||
       getPtrPointeeType(dataType) != IntegerType::get(op->getContext(), 64))
-    return op->emitOpError(" record needs a List<i64> `")
+    return op->emitOpError(" record needs a List<i64> reference `")
            << fieldName << "` field";
 
   return success();
 }
 
-static auto verifyTensorRecord(Operation* op, RecordType recordType,
-                               mlir::mulberry_core::TensorType tensorType,
-                               StringRef valueName) -> LogicalResult {
+static auto verifyTensorRecordABI(Operation* op, RecordType recordType,
+                                  mlir::mulberry_core::TensorType tensorType,
+                                  StringRef valueName) -> LogicalResult {
   if (!recordType)
     return op->emitOpError(valueName)
            << " must be a Mulberry record";
@@ -136,23 +125,25 @@ static auto verifyTensorRecord(Operation* op, RecordType recordType,
     return op->emitOpError(valueName)
            << " record needs an i64 `numel` field";
 
-  if (failed(verifyTensorMetadataList(op, recordType.getFieldType("sizes"),
-                                      "sizes")) ||
-      failed(verifyTensorMetadataList(op, recordType.getFieldType("strides"),
-                                      "strides")))
+  if (failed(verifyTensorMetadataListReference(
+          op, recordType.getFieldType("sizes"), "sizes")) ||
+      failed(verifyTensorMetadataListReference(
+          op, recordType.getFieldType("strides"), "strides")))
     return failure();
 
   return success();
 }
 
 auto TensorViewOp::verify() -> LogicalResult {
-  auto recordType = llvm::dyn_cast<RecordType>(getTensor().getType());
+  auto recordType = llvm::dyn_cast<RecordType>(getTensorRecord().getType());
   auto tensorType = getTensorType(getResult().getType());
-  return verifyTensorRecord(getOperation(), recordType, tensorType, "tensor");
+  return verifyTensorRecordABI(getOperation(), recordType, tensorType,
+                               "tensor");
 }
 
 auto TensorPackOp::verify() -> LogicalResult {
-  auto recordType = llvm::dyn_cast<RecordType>(getResult().getType());
+  auto recordType = llvm::dyn_cast<RecordType>(getTensorRecord().getType());
   auto tensorType = getTensorType(getTensor().getType());
-  return verifyTensorRecord(getOperation(), recordType, tensorType, "result");
+  return verifyTensorRecordABI(getOperation(), recordType, tensorType,
+                               "result");
 }

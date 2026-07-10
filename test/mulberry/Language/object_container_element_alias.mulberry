@@ -1,0 +1,33 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Counter {
+  value: UInt64
+}
+
+fn main(): UInt64 {
+  var arrayCounter: Counter = Counter { 1 };
+  var counters: Array<Counter, 1> = [arrayCounter];
+  counters[0].value = 31;
+  io.print(arrayCounter.value);
+
+  var listCounter: Counter = Counter { 2 };
+  var counterList: List<Counter> = list.from([listCounter]);
+  counterList[0].value = 32;
+  io.print(listCounter.value);
+
+  var value: Tensor<UInt64> = tensor.from([3, 4]);
+  var tensors: List<Tensor<UInt64>> = list.from([value]);
+  tensors[0][1] = 33;
+  io.print(value[1]);
+
+  var tensorArray: Array<Tensor<UInt64>, 1> = [value];
+  tensorArray[0][0] = 34;
+  io.print(value[0]);
+  return 0;
+}
+
+# JIT: 31
+# JIT-NEXT: 32
+# JIT-NEXT: 33
+# JIT-NEXT: 34

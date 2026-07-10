@@ -34,7 +34,7 @@ fn main(): UInt64 {
 # MLIR: mulberry_core.record.get_field
 # MLIR-SAME: ["weight"]
 # MLIR: mulberry_core.load
-# MLIR: mulberry_core.record.extract
+# MLIR: mulberry_core.record.get_field
 # MLIR: mulberry_core.ptr.index
 
 # LOWERED-LABEL: func.func @makeLayer

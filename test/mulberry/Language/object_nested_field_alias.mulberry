@@ -1,0 +1,43 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Counter {
+  value: UInt64
+}
+
+struct Box {
+  counter: Counter
+}
+
+fn makeBox(counter: Counter): Box {
+  return Box { counter };
+}
+
+fn setValue(mut counter: Counter, value: UInt64): UInt64 {
+  counter.value = value;
+  return 0;
+}
+
+fn replace(mut box: Box, counter: Counter): UInt64 {
+  box.counter = counter;
+  return 0;
+}
+
+fn main(): UInt64 {
+  var first: Counter = Counter { 1 };
+  var box: Box = makeBox(first);
+  setValue(box.counter, 11);
+  io.print(first.value);
+
+  var alias: Box = box;
+  var second: Counter = Counter { 2 };
+  replace(alias, second);
+  setValue(box.counter, 22);
+  io.print(second.value);
+  io.print(first.value);
+  return 0;
+}
+
+# JIT: 11
+# JIT-NEXT: 22
+# JIT-NEXT: 11

@@ -21,7 +21,7 @@ fn main(): UInt64 {
 
 # MLIR: mulberry_core.record.get_field %{{.*}}["data"]
 # MLIR: mulberry_core.record.get_field %{{.*}}["strides"]
-# MLIR: mulberry_core.record.extract
+# MLIR: mulberry_core.load
 # MLIR: mulberry_core.ptr.index
 
 # LOWERED: func.func @main

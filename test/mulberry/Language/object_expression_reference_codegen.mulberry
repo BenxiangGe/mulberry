@@ -1,0 +1,53 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+struct Item {
+  value: UInt64
+}
+
+struct Holder {
+  item: Item
+}
+
+fn fromField(holder: Holder): Item {
+  return holder.item;
+}
+
+fn fromArray(items: Array<Item, 1>): Item {
+  return items[0];
+}
+
+fn makeItem(): Item {
+  return Item { 7 };
+}
+
+fn makeString(): String {
+  return "mulberry";
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# MLIR-LABEL: func.func @fromField(
+# MLIR-SAME: !mulberry_core.ptr<!mulberry_core.record<Holder
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Item
+# MLIR: %[[FIELD:.*]] = mulberry_core.record.get_field {{.*}}["item"]
+# MLIR: %[[FIELD_VALUE:.*]] = mulberry_core.load %[[FIELD]]
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Item
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<Item
+
+# MLIR-LABEL: func.func @fromArray(
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Item
+# MLIR: %[[ELEMENT:.*]] = mulberry_core.ptr.index
+# MLIR: %[[ELEMENT_VALUE:.*]] = mulberry_core.load %[[ELEMENT]]
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<Item
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<Item
+
+# MLIR-LABEL: func.func @makeItem() -> !mulberry_core.ptr<!mulberry_core.record<Item
+# MLIR: %[[ITEM:.*]] = mulberry_core.heap.alloc !mulberry_core.record<Item
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<Item
+
+# MLIR-LABEL: func.func @makeString()
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std.string.String
+# MLIR: %[[STRING:.*]] = mulberry_core.heap.alloc !mulberry_core.record<std.string.String
+# MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<std.string.String

@@ -7,8 +7,6 @@ module {
     %value = arith.constant 42 : i64
     mulberry_core.store %value, %age : i64, !mulberry_core.ptr<i64>
     %loaded = mulberry_core.load %age : !mulberry_core.ptr<i64> -> i64
-    %recordValue = mulberry_core.load %record : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>> -> !mulberry_core.record<Person {age: i64, active: i1}>
-    %active = mulberry_core.record.extract %recordValue["active"] : !mulberry_core.record<Person {age: i64, active: i1}> -> i1
     return %loaded : i64
   }
 }
@@ -18,4 +16,3 @@ module {
 // CHECK: mulberry_core.record.get_field {{.*}}["age"] : !mulberry_core.ptr<!mulberry_core.record<Person {age: i64, active: i1}>> -> !mulberry_core.ptr<i64>
 // CHECK: mulberry_core.store
 // CHECK: mulberry_core.load
-// CHECK: mulberry_core.record.extract {{.*}}["active"] : !mulberry_core.record<Person {age: i64, active: i1}> -> i1

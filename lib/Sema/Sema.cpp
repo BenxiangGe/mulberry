@@ -159,13 +159,6 @@ auto methodFunctionName(std::string_view ownerName,
   return name;
 }
 
-auto isMethodReceiverParameter(const Prototype *prototype,
-                               const ParameterDecl *parameter,
-                               size_t index) -> bool {
-  return prototype->isMethod() && index == 0 &&
-         parameter->variable()->name() == "self";
-}
-
 auto isSourceObjectType(const Type *type) -> bool {
   if (auto *ptrType = getPtrType(type))
     type = ptrType->pointeeType();
@@ -1741,9 +1734,6 @@ auto SemaImpl::semaFunctionParameters(
     auto *parameterType = checkType(par->typeNode(), UnitPolicy::Reject);
     if (!parameterType)
       return failure();
-    if (isMethodReceiverParameter(node, par.get(), indexedParameter.index()) &&
-        !getPtrType(parameterType) && getStructType(parameterType))
-      parameterType = _typeContext.createPtrType(parameterType);
     par->setType(parameterType);
     auto canMutateObject = par->canMutateObject();
     if (declareVariable(par->variable()->name(), parameterType,
@@ -2294,18 +2284,9 @@ auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
       checkInternalFeature(node->location()))
     return failure();
 
-  auto *baseIndex = llvm::dyn_cast<IndexExpr>(node->base().get());
-  auto isStdlibListElement =
-      baseIndex &&
-      baseIndex->indexKind() == IndexExpr::IndexKind::StdlibList;
-
   node->setType(field->type());
   node->setFieldIndex(field->index());
-  // `xs[i]` is assignable as a whole through List.set.  Its field access
-  // is only a read from the value returned by List.get until the
-  // language has element references.
-  node->setLvalue(!isStdlibListElement &&
-                  (ptrType || node->base()->isLvalue()));
+  node->setLvalue(ptrType || node->base()->isLvalue());
   return success();
 }
 

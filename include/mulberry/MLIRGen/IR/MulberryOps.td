@@ -104,41 +104,26 @@ def Mulberry_RecordGetFieldOp : Mulberry_Op<"record.get_field"> {
   let hasVerifier = 1;
 }
 
-def Mulberry_RecordExtractOp : Mulberry_Op<"record.extract"> {
-  let summary = "Extract a Mulberry record field value";
-
-  let arguments = (ins
-    Mulberry_AnyRecordType:$record,
-    StrAttr:$field
-  );
-  let results = (outs AnyType:$result);
-
-  let assemblyFormat = "$record `[` $field `]` attr-dict `:` type($record) "
-                       "`->` type($result)";
-
-  let hasVerifier = 1;
-}
-
 def Mulberry_TensorViewOp : Mulberry_Op<"tensor.view"> {
-  let summary = "View a stdlib Tensor value as an internal tensor";
+  let summary = "View a stdlib Tensor record ABI value as an internal tensor";
 
-  let arguments = (ins Mulberry_AnyRecordType:$tensor);
+  let arguments = (ins Mulberry_AnyRecordType:$tensorRecord);
   let results = (outs Mulberry_AnyTensorType:$result);
 
-  let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
+  let assemblyFormat = "$tensorRecord attr-dict `:` type($tensorRecord) `->` "
                        "type($result)";
 
   let hasVerifier = 1;
 }
 
 def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
-  let summary = "Pack an internal tensor into a stdlib Tensor value";
+  let summary = "Pack an internal tensor into a stdlib Tensor record ABI value";
 
   let arguments = (ins Mulberry_AnyTensorType:$tensor);
-  let results = (outs Mulberry_AnyRecordType:$result);
+  let results = (outs Mulberry_AnyRecordType:$tensorRecord);
 
   let assemblyFormat = "$tensor attr-dict `:` type($tensor) `->` "
-                       "type($result)";
+                       "type($tensorRecord)";
 
   let hasVerifier = 1;
 }
