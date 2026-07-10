@@ -1,0 +1,74 @@
+# Nielsen-sized CNN mini-batch training over a small deterministic MNIST subset.
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("data/nielsen-cnn-relu.safetensors");
+  var parameters: nn.CnnParameters = nn.CnnParameters {
+    safetensors.read(file, "conv1_weight"),
+    safetensors.read(file, "conv1_bias"),
+    safetensors.read(file, "classifier_weight"),
+    safetensors.read(file, "classifier_bias")
+  };
+  var train: nn.TensorDataset = nn.datasetFromBatches(
+      safetensors.read(file, "train_input"),
+      safetensors.read(file, "train_label"));
+  var test: nn.TensorDataset = nn.datasetFromBatches(
+      safetensors.read(file, "test_input"),
+      safetensors.read(file, "test_label"));
+  safetensors.close(file);
+
+  const batchSize: UInt64 = 2;
+  const epochs: UInt64 = 3;
+  const eta: Float32 = 0.01;
+  const regularization: Float32 = 0.01;
+  const beforeTrain: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, train);
+  const beforeTest: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, test);
+  const beforeTrainLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, train);
+  const beforeTestLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, test);
+  for epoch in 0 .. epochs {
+    parameters = nn.cnnTrainEpoch(
+        parameters, train, batchSize, eta, regularization, 12345 + epoch);
+  }
+  const afterTrain: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, train);
+  const afterTest: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, test);
+  const afterTrainLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, train);
+  const afterTestLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, test);
+  var metrics: Tensor<Float32> = tensor.from([
+    beforeTrainLoss, afterTrainLoss, beforeTestLoss, afterTestLoss
+  ]);
+
+  var names: List<String> = list.from([
+    "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias",
+    "metrics"
+  ]);
+  var values: List<Tensor<Float32>> = list.from([
+    parameters.convWeight, parameters.convBias,
+    parameters.classifierWeight, parameters.classifierBias, metrics
+  ]);
+  safetensors.write("/tmp/mulberry_nielsen_cnn_trained.safetensors",
+                    names, values);
+
+  io.print(train.size());
+  io.print(test.size());
+  io.print(nn.batchCount(train.size(), batchSize));
+  io.print(epochs);
+  io.print(beforeTrain.correct);
+  io.print(beforeTrain.accuracyBasisPoints);
+  io.print(afterTrain.correct);
+  io.print(afterTrain.accuracyBasisPoints);
+  io.print(beforeTest.correct);
+  io.print(beforeTest.accuracyBasisPoints);
+  io.print(afterTest.correct);
+  io.print(afterTest.accuracyBasisPoints);
+  return 0;
+}

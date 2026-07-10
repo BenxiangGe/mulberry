@@ -5,6 +5,7 @@
 
 #include "MulberryNN/MulberryNNDialect.h"
 #include "mulberry/MLIRGen/IR/MulberryTypes.h"
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
@@ -15,4 +16,3 @@
 #include "MulberryNN/MulberryNNOps.h.inc"
 
 #endif // MULBERRY_NN_OPS_H
-

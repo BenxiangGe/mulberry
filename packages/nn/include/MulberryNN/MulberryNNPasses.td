@@ -25,7 +25,8 @@ def LowerMulberryNN : Pass<"lower-mulberry-nn", "::mlir::ModuleOp"> {
     belongs to the NN package; core Mulberry lowering must not know these ops.
   }];
   let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
-                           "math::MathDialect", "memref::MemRefDialect"];
+                           "math::MathDialect", "memref::MemRefDialect",
+                           "scf::SCFDialect"];
 }
 
 #endif // MULBERRY_NN_PASSES_TD

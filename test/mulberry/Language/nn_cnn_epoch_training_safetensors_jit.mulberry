@@ -1,0 +1,119 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_nielsen_cnn_safetensors.py --sample-count 10 --test-count 10 --output /tmp/mulberry_nn_cnn_epoch_training.safetensors | FileCheck %s --check-prefix=EXPORT
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: %numpy_python %mulberry_src_root/tools/check_nielsen_cnn_checkpoint.py --fixture /tmp/mulberry_nn_cnn_epoch_training.safetensors --checkpoint /tmp/mulberry_nn_cnn_epoch_checkpoint.safetensors --batch-size 2 --epochs 3 --learning-rate 0.01 --regularization 0.01 --shuffle-seed 12345 --report-evaluation | FileCheck %s --check-prefix=NUMPY
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_nn_cnn_epoch_training.safetensors");
+  var parameters: nn.CnnParameters = nn.CnnParameters {
+    safetensors.read(file, "conv1_weight"),
+    safetensors.read(file, "conv1_bias"),
+    safetensors.read(file, "classifier_weight"),
+    safetensors.read(file, "classifier_bias")
+  };
+  var train: nn.TensorDataset = nn.datasetFromBatches(
+      safetensors.read(file, "train_input"),
+      safetensors.read(file, "train_label"));
+  var test: nn.TensorDataset = nn.datasetFromBatches(
+      safetensors.read(file, "test_input"),
+      safetensors.read(file, "test_label"));
+  safetensors.close(file);
+
+  const batchSize: UInt64 = 2;
+  const epochs: UInt64 = 3;
+  const eta: Float32 = 0.01;
+  const regularization: Float32 = 0.01;
+  const beforeTrain: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, train);
+  const beforeTest: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, test);
+  const beforeTrainLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, train);
+  const beforeTestLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, test);
+  for epoch in 0 .. epochs {
+    parameters = nn.cnnTrainEpoch(
+        parameters, train, batchSize, eta, regularization, 12345 + epoch);
+  }
+  const afterTrain: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, train);
+  const afterTest: nn.Evaluation =
+      nn.cnnEvaluateDataset(parameters, test);
+  const afterTrainLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, train);
+  const afterTestLoss: Float32 =
+      nn.cnnMeanCrossEntropy(parameters, test);
+  var metrics: Tensor<Float32> = tensor.from([
+    beforeTrainLoss, afterTrainLoss, beforeTestLoss, afterTestLoss
+  ]);
+
+  var names: List<String> = list.from([
+    "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias",
+    "metrics"
+  ]);
+  var values: List<Tensor<Float32>> = list.from([
+    parameters.convWeight, parameters.convBias,
+    parameters.classifierWeight, parameters.classifierBias, metrics
+  ]);
+  safetensors.write("/tmp/mulberry_nn_cnn_epoch_checkpoint.safetensors",
+                    names, values);
+
+  const sampleCount: UInt64 = train.size();
+  const totalBatches: UInt64 = nn.batchCount(sampleCount, batchSize);
+  io.print(sampleCount);
+  io.print(totalBatches);
+  io.print(epochs);
+  io.print(totalBatches * epochs);
+  io.print(beforeTrain.correct);
+  io.print(beforeTrain.total);
+  io.print(beforeTrain.accuracyBasisPoints);
+  io.print(afterTrain.correct);
+  io.print(afterTrain.total);
+  io.print(afterTrain.accuracyBasisPoints);
+  io.print(beforeTest.correct);
+  io.print(beforeTest.total);
+  io.print(beforeTest.accuracyBasisPoints);
+  io.print(afterTest.correct);
+  io.print(afterTest.total);
+  io.print(afterTest.accuracyBasisPoints);
+  io.print(parameters.convWeight.numel());
+  io.print(parameters.convBias.numel());
+  io.print(parameters.classifierWeight.numel());
+  io.print(parameters.classifierBias.numel());
+  return 0;
+}
+
+# EXPORT: train_input: F32[10, 1, 28, 28]
+# EXPORT: train_label: F32[10, 1, 10]
+# EXPORT: test_input: F32[10, 1, 28, 28]
+# EXPORT: test_label: F32[10, 1, 10]
+
+# JIT: 10
+# JIT-NEXT: 5
+# JIT-NEXT: 3
+# JIT-NEXT: 15
+# JIT-NEXT: 0
+# JIT-NEXT: 10
+# JIT-NEXT: 0
+# JIT-NEXT: 7
+# JIT-NEXT: 10
+# JIT-NEXT: 7000
+# JIT-NEXT: 1
+# JIT-NEXT: 10
+# JIT-NEXT: 1000
+# JIT-NEXT: 2
+# JIT-NEXT: 10
+# JIT-NEXT: 2000
+# JIT-NEXT: 500
+# JIT-NEXT: 20
+# JIT-NEXT: 28800
+# JIT-NEXT: 10
+
+# NUMPY: NumPy CNN train correct: 0 -> 7 / 10
+# NUMPY-NEXT: NumPy CNN train loss:
+# NUMPY-NEXT: NumPy CNN test correct: 1 -> 2 / 10
+# NUMPY-NEXT: NumPy CNN test loss:
+# NUMPY-NEXT: NumPy Nielsen CNN mini-batch checkpoint: ok

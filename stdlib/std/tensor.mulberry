@@ -73,6 +73,14 @@ fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
   return zerosDynamic(list.from(shape));
 }
 
+fn reshape<T, N: UInt64>(value: Tensor<T>,
+                         shape: Array<UInt64, N>): Tensor<T> {
+  var sizes: List<UInt64> = list.from(shape);
+  return Tensor<T> {
+    value.data, N, value.numel, sizes, rowMajorStrides(sizes)
+  };
+}
+
 fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
   var sizes: List<UInt64> = list.withCapacity(0);
   var strides: List<UInt64> = list.withCapacity(0);

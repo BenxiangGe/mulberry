@@ -119,12 +119,20 @@ Sema、MLIRGen 和 core `LowerMulberry` 不再硬编码 NN primitive。
 - `exp`
 - `sigmoid`
 - `sigmoidPrime`
+- `relu`
+- `softmax`
+- `softmaxCrossEntropy`
+- `conv2d`
+- `maxPool2d`
 - `argmax`
 
 driver 检测到 `import mulberry.nn` 后，会通过 bundled package registry 加载
 `MulberryNNPackage`，并把 NN package pipeline 接入默认 lowering / JIT / executable
-路径。当前 NN lowering 主要覆盖 Nielsen MNIST FCN 推理和训练需要的 rank-2 Tensor
-路径；CNN、ReLU、Softmax、conv2d、max-pool 和通用 autograd 还没有实现。
+路径。当前 NN lowering 同时覆盖 Nielsen MNIST FCN 的 rank-2 路径，以及 NCHW/OIHW
+CNN 的 ReLU、Softmax、Conv2D、MaxPool2D、显式 backward 和 mini-batch SGD。
+训练 loss 使用 package-owned stable log-sum-exp 直接从 logits 计算，不先物化
+probability tensor。Parser、Sema、MLIRGen 和 core lowering 不包含这些 NN-specific
+逻辑；通用 autograd 仍未实现。
 
 ## 构建与测试
 
@@ -179,6 +187,10 @@ cmake --build build/release --target check-mulberry
   `examples/dl/training_mnist_safetensors.mulberry`
 - safetensors mini-batch training smoke：
   `examples/dl/training_mnist_minibatch_safetensors.mulberry`
+- Nielsen 尺寸 CNN inference：
+  `examples/dl/inference_nielsen_cnn_safetensors.mulberry`
+- Nielsen 尺寸 CNN mini-batch training、train/test accuracy 与 cross-entropy：
+  `examples/dl/training_nielsen_cnn_safetensors.mulberry`
 - 小型纯源码训练回归：`examples/dl/training_tiny.mulberry`
 
 相关脚本：
@@ -187,6 +199,10 @@ cmake --build build/release --target check-mulberry
 - `tools/export_mnist_raw_tensors.py`
 - `tools/export_mnist_safetensors.py`
 - `tools/export_mnist_training_safetensors.py`
+- `tools/export_nielsen_cnn_safetensors.py`
+- `tools/check_cnn_backward.py`
+- `tools/check_nielsen_cnn_checkpoint.py`
+- `tools/benchmark_nielsen_cnn.py`
 
 常用运行方式：
 
@@ -222,6 +238,7 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 - [Builtins](docs/Builtins.md)
 - [Grammar](docs/Grammar.md)
 - [Deep learning examples](examples/dl/README.md)
+- [Nielsen CNN 性能基线](docs/CnnPerformance.md)
 
 更多 IR/lowering 细节目前仍在快速变化中，暂时以源码和 lit tests 为准。
 
@@ -232,8 +249,8 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 - `Ptr<T>` 仍存在于 stdlib/compiler 内部；普通用户 surface 已经隐藏它，但 FFI 设计还没完成。
 - `tensor.from(...)` 仍是 compiler-known stdlib entry，不是完全由 Mulberry stdlib
   自己实现的普通函数。干净实现需要更强的 comptime / reflection / overload 能力。
-- `mulberry.nn` 当前主要覆盖 rank-2 Tensor 的 FCN 路径；CNN、broadcasting、batch matmul、
-  GPU backend 和自动求导还没实现。
+- `mulberry.nn` 的 CNN 路径当前固定 Float32、NCHW input、OIHW weight 和显式
+  backprop；通用 broadcasting、batch matmul、GPU backend 和自动求导还没实现。
 - 当前 safetensors / JSON 支持只覆盖项目需要的子集，不是完整通用库。
 - JIT、object file 和 executable generation 已对当前正向子集打开，但 ABI、FFI 和
   runtime 打包还很早期。

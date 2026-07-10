@@ -17,6 +17,42 @@ extern fn mulberry.nn.transpose(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.relu(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.softmax(value: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.softmaxCrossEntropy(
+    logits: Tensor<Float32>, expected: Tensor<Float32>): Float32;
+extern fn mulberry.nn.conv2d(input: Tensor<Float32>,
+                            weight: Tensor<Float32>,
+                            bias: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.maxPool2d(input: Tensor<Float32>,
+                               height: UInt64,
+                               width: UInt64): Tensor<Float32>;
+extern fn mulberry.nn.reluBackwardInto(input: Tensor<Float32>,
+                                      outputGradient: Tensor<Float32>,
+                                      mut inputGradient: Tensor<Float32>): ();
+extern fn mulberry.nn.conv2dBackwardInto(
+    input: Tensor<Float32>, weight: Tensor<Float32>,
+    outputGradient: Tensor<Float32>, mut inputGradient: Tensor<Float32>,
+    mut weightGradient: Tensor<Float32>,
+    mut biasGradient: Tensor<Float32>): ();
+extern fn mulberry.nn.maxPool2dBackwardInto(
+    input: Tensor<Float32>, outputGradient: Tensor<Float32>,
+    height: UInt64, width: UInt64,
+    mut inputGradient: Tensor<Float32>): ();
+# Elementwise NN ops need a static rank at the MLIR package boundary. Keep
+# these rank-specific entry points behind the CNN helpers below.
+extern fn mulberry.nn.__tensorAdd1d(left: Tensor<Float32>,
+                                   right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.__tensorSubtract1d(
+    left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.__tensorScale1d(value: Tensor<Float32>,
+                                     scale: Float32): Tensor<Float32>;
+extern fn mulberry.nn.__tensorAdd4d(left: Tensor<Float32>,
+                                   right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.__tensorSubtract4d(
+    left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+extern fn mulberry.nn.__tensorScale4d(value: Tensor<Float32>,
+                                     scale: Float32): Tensor<Float32>;
 extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;
 
 struct Evaluation {
@@ -30,6 +66,26 @@ struct TwoLayerGradient {
   b1: Tensor<Float32>,
   w2: Tensor<Float32>,
   b2: Tensor<Float32>
+}
+
+struct Conv2DGradient {
+  input: Tensor<Float32>,
+  weight: Tensor<Float32>,
+  bias: Tensor<Float32>
+}
+
+struct CnnParameters {
+  convWeight: Tensor<Float32>,
+  convBias: Tensor<Float32>,
+  classifierWeight: Tensor<Float32>,
+  classifierBias: Tensor<Float32>
+}
+
+struct CnnGradient {
+  convWeight: Tensor<Float32>,
+  convBias: Tensor<Float32>,
+  classifierWeight: Tensor<Float32>,
+  classifierBias: Tensor<Float32>
 }
 
 struct TensorDataset {
@@ -159,6 +215,34 @@ fn twoLayerGradient(weights: List<Tensor<Float32>>,
   return TwoLayerGradient { nablaW1, delta1, nablaW2, delta2 };
 }
 
+fn reluGradient(input: Tensor<Float32>,
+                outputGradient: Tensor<Float32>): Tensor<Float32> {
+  var inputGradient: Tensor<Float32> =
+      tensor.zerosDynamic(input.shape());
+  reluBackwardInto(input, outputGradient, inputGradient);
+  return inputGradient;
+}
+
+fn conv2dGradient(input: Tensor<Float32>, weight: Tensor<Float32>,
+                  outputGradient: Tensor<Float32>): Conv2DGradient {
+  var inputGradient: Tensor<Float32> =
+      tensor.zerosDynamic(input.shape());
+  var weightGradient: Tensor<Float32> =
+      tensor.zerosDynamic(weight.shape());
+  var biasGradient: Tensor<Float32> = tensor.zeros([weight.dim(0)]);
+  conv2dBackwardInto(input, weight, outputGradient, inputGradient,
+                     weightGradient, biasGradient);
+  return Conv2DGradient { inputGradient, weightGradient, biasGradient };
+}
+
+fn maxPool2d2x2Gradient(input: Tensor<Float32>,
+                       outputGradient: Tensor<Float32>): Tensor<Float32> {
+  var inputGradient: Tensor<Float32> =
+      tensor.zerosDynamic(input.shape());
+  maxPool2dBackwardInto(input, outputGradient, 2, 2, inputGradient);
+  return inputGradient;
+}
+
 # Nielsen network2 L2 update: w = (1 - eta * lambda / n) * w - scale * grad.
 # See http://neuralnetworksanddeeplearning.com/chap3.html#overfitting_and_regularization
 fn l2WeightScale(eta: Float32, regularization: Float32,
@@ -169,4 +253,203 @@ fn l2WeightScale(eta: Float32, regularization: Float32,
 fn updateWeight(weight: Tensor<Float32>, gradient: Tensor<Float32>,
                 gradientScale: Float32, weightScale: Float32): Tensor<Float32> {
   return matsub(matscale(weight, weightScale), matscale(gradient, gradientScale));
+}
+
+fn __cnnBatchInput(input: Tensor<Float32>): Tensor<Float32> {
+  return tensor.reshape(
+      input, [1, input.dim(0), input.dim(1), input.dim(2)]);
+}
+
+fn cnnLogits(parameters: CnnParameters,
+             input: Tensor<Float32>): Tensor<Float32> {
+  var convolved: Tensor<Float32> =
+      conv2d(input, parameters.convWeight, parameters.convBias);
+  var pooled: Tensor<Float32> = maxPool2d(convolved, 2, 2);
+  var activated: Tensor<Float32> = relu(pooled);
+  const batchSize: UInt64 = activated.dim(0);
+  var features: Tensor<Float32> = tensor.reshape(
+      activated, [batchSize, activated.numel() / batchSize]);
+  return matadd(
+      matmul(features, parameters.classifierWeight),
+      parameters.classifierBias);
+}
+
+fn cnnForward(parameters: CnnParameters,
+              input: Tensor<Float32>): Tensor<Float32> {
+  return softmax(cnnLogits(parameters, input));
+}
+
+fn cnnPredict(parameters: CnnParameters,
+              input: Tensor<Float32>): UInt64 {
+  return argmax(cnnForward(parameters, __cnnBatchInput(input)));
+}
+
+fn cnnCountCorrect(parameters: CnnParameters,
+                   dataset: TensorDataset): UInt64 {
+  var correct: UInt64 = 0;
+  for sample in 0 .. dataset.size() {
+    if cnnPredict(parameters, dataset.input(sample)) ==
+        argmax(dataset.label(sample)) {
+      correct = correct + 1;
+    }
+  }
+  return correct;
+}
+
+fn cnnEvaluateDataset(parameters: CnnParameters,
+                      dataset: TensorDataset): Evaluation {
+  const correct: UInt64 = cnnCountCorrect(parameters, dataset);
+  const total: UInt64 = dataset.size();
+  return Evaluation { correct, total, accuracyBasisPoints(correct, total) };
+}
+
+fn cnnMeanCrossEntropy(parameters: CnnParameters,
+                       dataset: TensorDataset): Float32 {
+  const sampleCount: UInt64 = dataset.size();
+  if sampleCount == 0 {
+    return 0.0;
+  }
+
+  var total: Float32 = 0.0;
+  for sample in 0 .. sampleCount {
+    const logits: Tensor<Float32> = cnnLogits(
+        parameters, __cnnBatchInput(dataset.input(sample)));
+    total = total + softmaxCrossEntropy(logits, dataset.label(sample));
+  }
+  return total / core.toFloat32(sampleCount);
+}
+
+# One-example softmax cross-entropy gradient. Mini-batch SGD sums these
+# gradients and applies one scaled update after the batch.
+fn cnnGradient(parameters: CnnParameters, input: Tensor<Float32>,
+               expected: Tensor<Float32>): CnnGradient {
+  var convolved: Tensor<Float32> =
+      conv2d(input, parameters.convWeight, parameters.convBias);
+  var pooled: Tensor<Float32> = maxPool2d(convolved, 2, 2);
+  var activated: Tensor<Float32> = relu(pooled);
+  const batchSize: UInt64 = activated.dim(0);
+  var features: Tensor<Float32> = tensor.reshape(
+      activated, [batchSize, activated.numel() / batchSize]);
+  var logits: Tensor<Float32> = matadd(
+      matmul(features, parameters.classifierWeight),
+      parameters.classifierBias);
+  var probabilities: Tensor<Float32> = softmax(logits);
+
+  var scoreGradient: Tensor<Float32> = matsub(probabilities, expected);
+  var classifierWeightGradient: Tensor<Float32> =
+      matmul(transpose(features), scoreGradient);
+  var featureGradient: Tensor<Float32> =
+      matmul(scoreGradient, transpose(parameters.classifierWeight));
+  var activationGradient: Tensor<Float32> = tensor.reshape(
+      featureGradient,
+      [activated.dim(0), activated.dim(1),
+       activated.dim(2), activated.dim(3)]);
+  var poolGradient: Tensor<Float32> =
+      reluGradient(pooled, activationGradient);
+  var convOutputGradient: Tensor<Float32> =
+      maxPool2d2x2Gradient(convolved, poolGradient);
+  const convGradient: Conv2DGradient = conv2dGradient(
+      input, parameters.convWeight, convOutputGradient);
+  return CnnGradient {
+    convGradient.weight,
+    convGradient.bias,
+    classifierWeightGradient,
+    scoreGradient
+  };
+}
+
+fn addCnnGradient(left: CnnGradient,
+                  right: CnnGradient): CnnGradient {
+  return CnnGradient {
+    __tensorAdd4d(left.convWeight, right.convWeight),
+    __tensorAdd1d(left.convBias, right.convBias),
+    matadd(left.classifierWeight, right.classifierWeight),
+    matadd(left.classifierBias, right.classifierBias)
+  };
+}
+
+fn zeroCnnGradient(parameters: CnnParameters): CnnGradient {
+  return CnnGradient {
+    tensor.zerosDynamic(parameters.convWeight.shape()),
+    tensor.zerosDynamic(parameters.convBias.shape()),
+    tensor.zerosDynamic(parameters.classifierWeight.shape()),
+    tensor.zerosDynamic(parameters.classifierBias.shape())
+  };
+}
+
+fn cnnBatchGradient(parameters: CnnParameters, dataset: TensorDataset,
+                    batchStart: UInt64,
+                    batchEnd: UInt64): CnnGradient {
+  var result: CnnGradient = zeroCnnGradient(parameters);
+  for sample in batchStart .. batchEnd {
+    const inputView: Tensor<Float32> = dataset.input(sample);
+    const input: Tensor<Float32> = __cnnBatchInput(inputView);
+    const gradient: CnnGradient =
+        cnnGradient(parameters, input, dataset.label(sample));
+    result = addCnnGradient(result, gradient);
+  }
+  return result;
+}
+
+fn updateCnn(parameters: CnnParameters, gradient: CnnGradient,
+             gradientScale: Float32, weightScale: Float32): CnnParameters {
+  return CnnParameters {
+    __tensorSubtract4d(
+        __tensorScale4d(parameters.convWeight, weightScale),
+        __tensorScale4d(gradient.convWeight, gradientScale)),
+    __tensorSubtract1d(
+        parameters.convBias,
+        __tensorScale1d(gradient.convBias, gradientScale)),
+    updateWeight(parameters.classifierWeight, gradient.classifierWeight,
+                 gradientScale, weightScale),
+    matsub(parameters.classifierBias,
+           matscale(gradient.classifierBias, gradientScale))
+  };
+}
+
+fn cnnSgdStep(parameters: CnnParameters, input: Tensor<Float32>,
+              expected: Tensor<Float32>, gradientScale: Float32,
+              weightScale: Float32): CnnParameters {
+  const gradient: CnnGradient = cnnGradient(parameters, input, expected);
+  return updateCnn(parameters, gradient, gradientScale, weightScale);
+}
+
+fn cnnMiniBatchStep(parameters: CnnParameters, dataset: TensorDataset,
+                    batchStart: UInt64, batchEnd: UInt64,
+                    eta: Float32,
+                    weightScale: Float32): CnnParameters {
+  const gradient: CnnGradient =
+      cnnBatchGradient(parameters, dataset, batchStart, batchEnd);
+  const currentBatchSize: UInt64 = batchEnd - batchStart;
+  const gradientScale: Float32 =
+      eta / core.toFloat32(currentBatchSize);
+  return updateCnn(parameters, gradient, gradientScale, weightScale);
+}
+
+fn cnnTrainEpoch(parameters: CnnParameters, mut dataset: TensorDataset,
+                 batchSize: UInt64, eta: Float32,
+                 regularization: Float32,
+                 shuffleSeed: UInt64): CnnParameters {
+  dataset.shuffle(shuffleSeed);
+  const trainingSize: UInt64 = dataset.size();
+  const totalBatches: UInt64 = batchCount(trainingSize, batchSize);
+  const weightScale: Float32 =
+      l2WeightScale(eta, regularization, trainingSize);
+  # Keep the readonly input reference intact while the loop rebinds its
+  # accumulator to each newly allocated parameter set.
+  var updated: CnnParameters = CnnParameters {
+    parameters.convWeight,
+    parameters.convBias,
+    parameters.classifierWeight,
+    parameters.classifierBias
+  };
+
+  for batch in 0 .. totalBatches {
+    const batchStart: UInt64 = batch * batchSize;
+    const currentBatchEnd: UInt64 =
+        batchEnd(batchStart, batchSize, trainingSize);
+    updated = cnnMiniBatchStep(updated, dataset, batchStart, currentBatchEnd,
+                               eta, weightScale);
+  }
+  return updated;
 }

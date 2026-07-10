@@ -1,0 +1,65 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_nielsen_cnn_safetensors.py --output /tmp/mulberry_nielsen_cnn_safetensors_jit.safetensors | FileCheck %s --check-prefix=EXPORT
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile = safetensors.open(
+      "/tmp/mulberry_nielsen_cnn_safetensors_jit.safetensors");
+
+  var input: Tensor<Float32> = safetensors.read(file, "input");
+  var convWeight: Tensor<Float32> =
+      safetensors.read(file, "conv1_weight");
+  var convBias: Tensor<Float32> = safetensors.read(file, "conv1_bias");
+  var classifierWeight: Tensor<Float32> =
+      safetensors.read(file, "classifier_weight");
+  var classifierBias: Tensor<Float32> =
+      safetensors.read(file, "classifier_bias");
+  var reference: Tensor<Float32> =
+      safetensors.read(file, "reference_probabilities");
+  var label: Tensor<Float32> = safetensors.read(file, "label");
+  safetensors.close(file);
+
+  var convolved: Tensor<Float32> =
+      nn.conv2d(input, convWeight, convBias);
+  var pooled: Tensor<Float32> = nn.maxPool2d(convolved, 2, 2);
+  var activated: Tensor<Float32> = nn.relu(pooled);
+  var features: Tensor<Float32> = tensor.reshape(activated, [1, 2880]);
+  var logits: Tensor<Float32> = nn.matadd(
+      nn.matmul(features, classifierWeight), classifierBias);
+  var probabilities: Tensor<Float32> = nn.softmax(logits);
+
+  const prediction: UInt64 = nn.argmax(probabilities);
+  const referencePrediction: UInt64 = nn.argmax(reference);
+  io.print(input.ndim());
+  io.print(convolved.dim(1));
+  io.print(convolved.dim(2));
+  io.print(pooled.dim(2));
+  io.print(features.dim(1));
+  io.print(probabilities.dim(1));
+  io.print(prediction);
+  io.print(referencePrediction);
+  io.print(boolToUInt64(prediction == referencePrediction));
+  io.print(nn.argmax(label));
+  return 0;
+}
+
+# EXPORT: topology: NCHW conv -> 2x2 pool -> ReLU -> flatten -> softmax
+# EXPORT: input: F32[1, 1, 28, 28]
+# EXPORT: conv1_weight: F32[20, 1, 5, 5]
+# EXPORT: classifier_weight: F32[2880, 10]
+# EXPORT: reference prediction: 8
+# EXPORT: MNIST label: 7
+# EXPORT: parameters: deterministic fixture, not a trained Nielsen checkpoint
+
+# JIT: 4
+# JIT-NEXT: 20
+# JIT-NEXT: 24
+# JIT-NEXT: 12
+# JIT-NEXT: 2880
+# JIT-NEXT: 10
+# JIT-NEXT: 8
+# JIT-NEXT: 8
+# JIT-NEXT: 1
+# JIT-NEXT: 7

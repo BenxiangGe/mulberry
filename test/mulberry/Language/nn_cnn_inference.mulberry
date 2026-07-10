@@ -1,0 +1,41 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var input: Tensor<Float32> = tensor.from([[[
+    [1.0, 2.0, 3.0],
+    [4.0, 5.0, 6.0],
+    [7.0, 8.0, 9.0]
+  ]]]);
+  var weight: Tensor<Float32> = tensor.from([[[
+    [1.0, 0.0],
+    [0.0, 1.0]
+  ]]]);
+  var bias: Tensor<Float32> = tensor.from([0.0]);
+
+  var convolved: Tensor<Float32> = nn.conv2d(input, weight, bias);
+  var pooled: Tensor<Float32> = nn.maxPool2d(convolved, 2, 2);
+  var activated: Tensor<Float32> = nn.relu(pooled);
+  var features: Tensor<Float32> = tensor.reshape(activated, [1, 1]);
+  var classifier: Tensor<Float32> = tensor.from([[-1.0, 1.0]]);
+  var scores: Tensor<Float32> = nn.matmul(features, classifier);
+  var probabilities: Tensor<Float32> = nn.softmax(scores);
+
+  io.print(convolved.dim(2));
+  io.print(pooled.dim(2));
+  io.print(nn.argmax(probabilities));
+  return 0;
+}
+
+# LOWERED: linalg.conv_2d_nchw_fchw
+# LOWERED: linalg.pooling_nchw_max
+# LOWERED: arith.maximumf
+# LOWERED: math.exp
+# LOWERED-NOT: mulberry_nn.
+
+# JIT: 2
+# JIT-NEXT: 1
+# JIT-NEXT: 1

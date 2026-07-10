@@ -23,6 +23,7 @@ target_compile_definitions(mulberryDriver PRIVATE
 )
 
 target_link_libraries(mulberryDriver
+        MLIRAffineToStandard
         MLIRBuiltinToLLVMIRTranslation
         MLIRExecutionEngine
         MLIRExecutionEngineUtils

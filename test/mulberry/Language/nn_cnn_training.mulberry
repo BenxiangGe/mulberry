@@ -1,0 +1,50 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var input: Tensor<Float32> = tensor.from([[[
+    [1.0, 2.0, 3.0],
+    [4.0, 5.0, 6.0],
+    [7.0, 8.0, 9.0]
+  ]]]);
+  var convWeight: Tensor<Float32> = tensor.from([[[
+    [1.0, 0.0],
+    [0.0, 1.0]
+  ]]]);
+  var convBias: Tensor<Float32> = tensor.from([0.0]);
+  var classifierWeight: Tensor<Float32> = tensor.from([[-1.0, 1.0]]);
+  var classifierBias: Tensor<Float32> = tensor.from([[0.0, 0.0]]);
+  var expected: Tensor<Float32> = tensor.from([[1.0, 0.0]]);
+  const parameters: nn.CnnParameters = nn.CnnParameters {
+    convWeight, convBias, classifierWeight, classifierBias
+  };
+
+  const before: UInt64 = nn.argmax(nn.cnnForward(parameters, input));
+  const gradient: nn.CnnGradient =
+      nn.cnnGradient(parameters, input, expected);
+  const updated: nn.CnnParameters =
+      nn.cnnSgdStep(parameters, input, expected, 0.1, 1.0);
+  const after: UInt64 = nn.argmax(nn.cnnForward(updated, input));
+
+  io.print(before);
+  io.print(core.boolToUInt64(gradient.convWeight[0, 0, 1, 1] > 0.0));
+  io.print(core.boolToUInt64(gradient.convBias[0] > 0.0));
+  io.print(core.boolToUInt64(gradient.classifierWeight[0, 0] < 0.0));
+  io.print(core.boolToUInt64(updated.classifierWeight[0, 0] > 0.0));
+  io.print(after);
+  return 0;
+}
+
+# LOWERED: scf.for
+# LOWERED: arith.cmpf ogt
+# LOWERED-NOT: mulberry_nn.
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 0

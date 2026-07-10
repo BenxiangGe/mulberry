@@ -846,6 +846,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::LLVM) {
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::createConvertLinalgToLoopsPass());
+    pm.addPass(mlir::createLowerAffinePass());
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addNestedPass<mlir::func::FuncOp>(
         mlir::LLVM::createLLVMRequestCWrappersPass());

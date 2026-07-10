@@ -14,5 +14,6 @@ add_mlir_dialect_library(MulberryNNConversion
         MLIRLinalgDialect
         MLIRMathDialect
         MLIRMemRefDialect
+        MLIRSCFDialect
         MLIRTransforms
 )

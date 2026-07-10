@@ -1,0 +1,93 @@
+# RUN: %numpy_python %mulberry_src_root/tools/export_nielsen_cnn_safetensors.py --sample-count 2 --output /tmp/mulberry_nn_cnn_minibatch.safetensors | FileCheck %s --check-prefix=EXPORT
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: %numpy_python %mulberry_src_root/tools/check_nielsen_cnn_checkpoint.py --fixture /tmp/mulberry_nn_cnn_minibatch.safetensors --checkpoint /tmp/mulberry_nn_cnn_checkpoint.safetensors | FileCheck %s --check-prefix=NUMPY
+
+import mulberry.nn;
+import safetensors;
+
+fn main(): UInt64 {
+  const file: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_nn_cnn_minibatch.safetensors");
+  var convWeight: Tensor<Float32> =
+      safetensors.read(file, "conv1_weight");
+  var convBias: Tensor<Float32> = safetensors.read(file, "conv1_bias");
+  var classifierWeight: Tensor<Float32> =
+      safetensors.read(file, "classifier_weight");
+  var classifierBias: Tensor<Float32> =
+      safetensors.read(file, "classifier_bias");
+  var trainInput: Tensor<Float32> = safetensors.read(file, "train_input");
+  var trainLabel: Tensor<Float32> = safetensors.read(file, "train_label");
+  safetensors.close(file);
+
+  const parameters: nn.CnnParameters = nn.CnnParameters {
+    convWeight, convBias, classifierWeight, classifierBias
+  };
+  var train: nn.TensorDataset =
+      nn.datasetFromBatches(trainInput, trainLabel);
+  const sampleCount: UInt64 = train.size();
+  const updated: nn.CnnParameters =
+      nn.cnnMiniBatchStep(parameters, train, 0, sampleCount, 0.001, 1.0);
+
+  var names: List<String> = list.from([
+    "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias"
+  ]);
+  var values: List<Tensor<Float32>> = list.from([
+    updated.convWeight, updated.convBias,
+    updated.classifierWeight, updated.classifierBias
+  ]);
+  safetensors.write("/tmp/mulberry_nn_cnn_checkpoint.safetensors",
+                    names, values);
+
+  const checkpoint: safetensors.TensorFile =
+      safetensors.open("/tmp/mulberry_nn_cnn_checkpoint.safetensors");
+  var savedConvWeight: Tensor<Float32> =
+      safetensors.read(checkpoint, "conv1_weight");
+  var savedConvBias: Tensor<Float32> =
+      safetensors.read(checkpoint, "conv1_bias");
+  var savedClassifierWeight: Tensor<Float32> =
+      safetensors.read(checkpoint, "classifier_weight");
+  var savedClassifierBias: Tensor<Float32> =
+      safetensors.read(checkpoint, "classifier_bias");
+  safetensors.close(checkpoint);
+
+  io.print(sampleCount);
+  io.print(classifierWeight.dim(0));
+  io.print(updated.convWeight.numel());
+  io.print(updated.convBias.numel());
+  io.print(updated.classifierWeight.numel());
+  io.print(updated.classifierBias.numel());
+  io.print(savedConvWeight.numel());
+  io.print(savedConvBias.numel());
+  io.print(savedClassifierWeight.numel());
+  io.print(savedClassifierBias.numel());
+  io.print(core.boolToUInt64(
+      savedConvWeight[0, 0, 0, 0] == updated.convWeight[0, 0, 0, 0]));
+  io.print(core.boolToUInt64(
+      savedConvBias[0] == updated.convBias[0]));
+  io.print(core.boolToUInt64(
+      savedClassifierWeight[0, 0] == updated.classifierWeight[0, 0]));
+  io.print(core.boolToUInt64(
+      savedClassifierBias[0, 0] == updated.classifierBias[0, 0]));
+  return 0;
+}
+
+# EXPORT: classifier_weight: F32[2880, 10]
+# EXPORT: train_input: F32[2, 1, 28, 28]
+# EXPORT: train_label: F32[2, 1, 10]
+
+# JIT: 2
+# JIT-NEXT: 2880
+# JIT-NEXT: 500
+# JIT-NEXT: 20
+# JIT-NEXT: 28800
+# JIT-NEXT: 10
+# JIT-NEXT: 500
+# JIT-NEXT: 20
+# JIT-NEXT: 28800
+# JIT-NEXT: 10
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+
+# NUMPY: NumPy Nielsen CNN mini-batch checkpoint: ok
