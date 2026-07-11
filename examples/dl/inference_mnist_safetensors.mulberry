@@ -5,19 +5,19 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/mnist-784-30-10.safetensors");
 
-  var w1: Tensor<Float32> = safetensors.read(file, "w1");
-  var b1: Tensor<Float32> = safetensors.read(file, "b1");
-  var w2: Tensor<Float32> = safetensors.read(file, "w2");
-  var b2: Tensor<Float32> = safetensors.read(file, "b2");
-  var x: Tensor<Float32> = safetensors.read(file, "x");
+  var w1 = safetensors.read(file, "w1");
+  var b1 = safetensors.read(file, "b1");
+  var w2 = safetensors.read(file, "w2");
+  var b2 = safetensors.read(file, "b2");
+  var x = safetensors.read(file, "x");
 
   safetensors.close(file);
 
-  var weights: List<Tensor<Float32>> = list.from([w1, w2]);
-  var biases: List<Tensor<Float32>> = list.from([b1, b2]);
+  var weights = list.from([w1, w2]);
+  var biases = list.from([b1, b2]);
 
   io.print(nn.predict(weights, biases, x));
   return 0;

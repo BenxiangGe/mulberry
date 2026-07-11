@@ -6,7 +6,7 @@
 
 fn main(): UInt64 {
   var bytes: Tensor<UInt8> = tensor.from([10, 20, 30, 40]);
-  var matrix: Tensor<Float32> =
+  var matrix =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   io.print(bytes.numel());
   io.print(core.toUInt64(bytes[2]));
@@ -17,7 +17,7 @@ fn main(): UInt64 {
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
 # AST: CallExpr {{.*}}type=std_tensor_Tensor__UInt8 callee=std.tensor.from
 # AST: ArrayLiteralExpr {{.*}}type=Array<UInt8, 4>
-# AST: VariableStat {{.*}}id=matrix{{.*}}type=Tensor<Float32>
+# AST: VariableStat {{.*}}id=matrix{{.*}}inferredType=std.tensor.Tensor<Float32>
 # AST: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std.tensor.from
 # AST: ArrayLiteralExpr {{.*}}type=Array<Array<Float32, 2>, 2>
 

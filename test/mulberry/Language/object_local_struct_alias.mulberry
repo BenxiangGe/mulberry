@@ -6,8 +6,8 @@ struct Counter {
 }
 
 fn main(): UInt64 {
-  var a: Counter = Counter { 1 };
-  var b: Counter = a;
+  var a = Counter { 1 };
+  var b = a;
   b.value = 42;
   io.print(a.value);
   return 0;

@@ -24,13 +24,13 @@ fn replace(mut box: Box, counter: Counter): UInt64 {
 }
 
 fn main(): UInt64 {
-  var first: Counter = Counter { 1 };
-  var box: Box = makeBox(first);
+  var first = Counter { 1 };
+  var box = makeBox(first);
   setValue(box.counter, 11);
   io.print(first.value);
 
-  var alias: Box = box;
-  var second: Counter = Counter { 2 };
+  var alias = box;
+  var second = Counter { 2 };
   replace(alias, second);
   setValue(box.counter, 22);
   io.print(second.value);

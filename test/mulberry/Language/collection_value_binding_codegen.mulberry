@@ -1,8 +1,8 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var w1: Tensor<Float32> = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  var w2: Tensor<Float32> = tensor.from([[5.0, 6.0]]);
+  var w1 = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  var w2 = tensor.from([[5.0, 6.0]]);
 
   var weights: List<Tensor<Float32>> =
       list.withCapacity(1);
@@ -10,7 +10,7 @@ fn main(): UInt64 {
   weights = list.withCapacity(1);
   weights.push(w2);
 
-  var activation: Tensor<Float32> = w1;
+  var activation = w1;
   activation = w2;
 
   return weights.size() + 1;

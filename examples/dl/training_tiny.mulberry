@@ -3,43 +3,43 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var w1: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var w2: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var b1: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
-  var b2: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var w1 = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var w2 = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var b1 = tensor.from([[0.0], [0.0]]);
+  var b2 = tensor.from([[0.0], [0.0]]);
 
-  var x0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
-  var x1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
-  var y0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
-  var y1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
-  var xs: List<Tensor<Float32>> = list.from([x0, x1]);
-  var ys: List<Tensor<Float32>> = list.from([y0, y1]);
-  const eta: Float32 = 0.8;
+  var x0 = tensor.from([[1.0], [0.0]]);
+  var x1 = tensor.from([[0.0], [1.0]]);
+  var y0 = tensor.from([[1.0], [0.0]]);
+  var y1 = tensor.from([[0.0], [1.0]]);
+  var xs = list.from([x0, x1]);
+  var ys = list.from([y0, y1]);
+  const eta = 0.8;
 
   for epoch in 0 .. 4 {
     for sample in 0 .. xs.size() {
-      const x: Tensor<Float32> = xs[sample];
-      const y: Tensor<Float32> = ys[sample];
-      var weights: List<Tensor<Float32>> = list.from([w1, w2]);
-      var biases: List<Tensor<Float32>> = list.from([b1, b2]);
+      const x = xs[sample];
+      const y = ys[sample];
+      var weights = list.from([w1, w2]);
+      var biases = list.from([b1, b2]);
 
-      var z1: Tensor<Float32> = nn.matadd(
+      var z1 = nn.matadd(
           nn.matmul(weights[0], x),
           biases[0]);
-      var a1: Tensor<Float32> = nn.sigmoid(z1);
-      var z2: Tensor<Float32> = nn.matadd(
+      var a1 = nn.sigmoid(z1);
+      var z2 = nn.matadd(
           nn.matmul(weights[1], a1),
           biases[1]);
-      var a2: Tensor<Float32> = nn.sigmoid(z2);
+      var a2 = nn.sigmoid(z2);
 
-      var delta2: Tensor<Float32> =
+      var delta2 =
         nn.hadamard(nn.matsub(a2, y), nn.sigmoidPrime(z2));
-      var nablaW2: Tensor<Float32> = nn.matmul(delta2, nn.transpose(a1));
+      var nablaW2 = nn.matmul(delta2, nn.transpose(a1));
 
-      var delta1: Tensor<Float32> =
+      var delta1 =
         nn.hadamard(nn.matmul(nn.transpose(weights[1]), delta2),
                     nn.sigmoidPrime(z1));
-      var nablaW1: Tensor<Float32> = nn.matmul(delta1, nn.transpose(x));
+      var nablaW1 = nn.matmul(delta1, nn.transpose(x));
 
       w1 = nn.matsub(weights[0], nn.matscale(nablaW1, eta));
       w2 = nn.matsub(weights[1], nn.matscale(nablaW2, eta));
@@ -48,10 +48,10 @@ fn main(): UInt64 {
     }
   }
 
-  var finalWeights: List<Tensor<Float32>> = list.from([w1, w2]);
-  var finalBiases: List<Tensor<Float32>> = list.from([b1, b2]);
+  var finalWeights = list.from([w1, w2]);
+  var finalBiases = list.from([b1, b2]);
 
-  var activation0: Tensor<Float32> = xs[0];
+  var activation0 = xs[0];
   for layer in 0 .. finalWeights.size() {
     activation0 = nn.sigmoid(nn.matadd(
         nn.matmul(finalWeights[layer], activation0),
@@ -59,7 +59,7 @@ fn main(): UInt64 {
   }
   io.print(nn.argmax(activation0));
 
-  var activation1: Tensor<Float32> = xs[1];
+  var activation1 = xs[1];
   for layer in 0 .. finalWeights.size() {
     activation1 = nn.sigmoid(nn.matadd(
         nn.matmul(finalWeights[layer], activation1),

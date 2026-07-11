@@ -24,15 +24,15 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/nielsen-cnn-relu.safetensors");
-  const parameters: nn.CnnParameters = nn.CnnParameters {
+  const parameters = nn.CnnParameters {
     safetensors.read(file, "conv1_weight"),
     safetensors.read(file, "conv1_bias"),
     safetensors.read(file, "classifier_weight"),
     safetensors.read(file, "classifier_bias")
   };
-  var test: nn.TensorDataset = nn.datasetFromBatches(
+  var test = nn.datasetFromBatches(
       safetensors.read(file, "test_input"),
       safetensors.read(file, "test_label"));
   safetensors.close(file);
@@ -43,19 +43,19 @@ fn main(): UInt64 {
 
 EVALUATION_BODIES = {
     "accuracy": """\
-  const evaluation: nn.Evaluation = nn.cnnEvaluateDataset(parameters, test);
+  const evaluation = nn.cnnEvaluateDataset(parameters, test);
   io.print(evaluation.correct);""",
     "loss": """\
-  const loss: Float32 = nn.cnnMeanCrossEntropy(parameters, test);
-  var valid: UInt64 = 0;
+  const loss = nn.cnnMeanCrossEntropy(parameters, test);
+  var valid = 0;
   if loss >= 0.0 {
     valid = 1;
   }
   io.print(valid);""",
     "accuracy+loss": """\
-  const evaluation: nn.Evaluation = nn.cnnEvaluateDataset(parameters, test);
-  const loss: Float32 = nn.cnnMeanCrossEntropy(parameters, test);
-  var valid: UInt64 = 0;
+  const evaluation = nn.cnnEvaluateDataset(parameters, test);
+  const loss = nn.cnnMeanCrossEntropy(parameters, test);
+  var valid = 0;
   if loss >= 0.0 {
     valid = 1;
   }
@@ -68,18 +68,18 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/nielsen-cnn-relu.safetensors");
-  var parameters: nn.CnnParameters = nn.CnnParameters {
+  var parameters = nn.CnnParameters {
     safetensors.read(file, "conv1_weight"),
     safetensors.read(file, "conv1_bias"),
     safetensors.read(file, "classifier_weight"),
     safetensors.read(file, "classifier_bias")
   };
-  var train: nn.TensorDataset = nn.datasetFromBatches(
+  var train = nn.datasetFromBatches(
       safetensors.read(file, "train_input"),
       safetensors.read(file, "train_label"));
-  var test: nn.TensorDataset = nn.datasetFromBatches(
+  var test = nn.datasetFromBatches(
       safetensors.read(file, "test_input"),
       safetensors.read(file, "test_label"));
   safetensors.close(file);

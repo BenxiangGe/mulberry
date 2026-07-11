@@ -6,7 +6,7 @@
 
 fn main(): UInt64 {
   var bytes: Tensor<UInt8> = tensor.from([10, 20, 30, 40]);
-  var matrix: Tensor<Float32> =
+  var matrix =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   matrix[0, 1] = 9.0;
 

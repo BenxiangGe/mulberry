@@ -2,8 +2,8 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn main(): UInt64 {
-  var xs: List<UInt64> = list.from([1]);
-  var ys: List<UInt64> = xs;
+  var xs = list.from([1]);
+  var ys = xs;
   ys.push(2);
   io.print(xs.size());
   return 0;

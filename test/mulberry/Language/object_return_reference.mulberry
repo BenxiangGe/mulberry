@@ -14,8 +14,8 @@ fn alias(counter: Counter): Counter {
 }
 
 fn main(): UInt64 {
-  var original: Counter = makeCounter();
-  var returned: Counter = alias(original);
+  var original = makeCounter();
+  var returned = alias(original);
   returned.value = 42;
   io.print(original.value);
   return 0;

@@ -3,7 +3,7 @@
 import io;
 
 fn main(): UInt64 {
-  var value: UInt64 = 1;
+  var value = 1;
   if value == 1 {
     value = 2;
   }

@@ -23,7 +23,7 @@ fn toFloat32(value: UInt64): Float32 {
 }
 
 fn boolToUInt64(value: Bool): UInt64 {
-  var result: UInt64 = 0;
+  var result = 0;
   if value {
     result = 1;
   }

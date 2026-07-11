@@ -5,7 +5,7 @@ fn sizeOf(values: List<UInt64>): UInt64 {
 }
 
 fn main(): UInt64 {
-  var values: List<UInt64> = list.from([1, 2, 3]);
+  var values = list.from([1, 2, 3]);
   return sizeOf(values);
 }
 

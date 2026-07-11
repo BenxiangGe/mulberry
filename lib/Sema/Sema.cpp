@@ -418,7 +418,9 @@ auto substituteBlockExpr(const BlockExpr *node,
                             : nullptr;
       statements.push_back(std::make_unique<VariableStat>(
           variable->location(), std::move(clonedVariable),
-          substituteTypeNode(variable->typeNode(), substitutions),
+          variable->hasExplicitType()
+              ? substituteTypeNode(variable->typeNode(), substitutions)
+              : nullptr,
           std::move(clonedInit), variable->isConstBinding(),
           variable->canMutateObject()));
       continue;
@@ -2858,15 +2860,22 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
 
 auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   auto var = node->variable().get();
-  auto *varType = checkType(node->typeNode(), UnitPolicy::Allow);
-  if (!varType)
-    return failure();
-  node->setType(varType);
   auto initExpr = node->init().get();
-  if (sema(initExpr, varType))
-    return failure();
-  if (!sameType(varType, initExpr->type()))
-    return emitError(initExpr, diag::mismatch_type);
+  const Type *varType = nullptr;
+  if (node->hasExplicitType()) {
+    varType = checkType(node->typeNode(), UnitPolicy::Allow);
+    if (!varType || sema(initExpr, varType))
+      return failure();
+    if (!sameType(varType, initExpr->type()))
+      return emitError(initExpr, diag::mismatch_type);
+  } else {
+    if (sema(initExpr))
+      return failure();
+    varType = initExpr->type();
+    if (!varType)
+      return emitError(initExpr, diag::mismatch_type);
+  }
+  node->setType(varType);
 
   auto canMutateObject = node->canMutateObject();
   if (canMutateObject && isSourceObjectType(varType) &&

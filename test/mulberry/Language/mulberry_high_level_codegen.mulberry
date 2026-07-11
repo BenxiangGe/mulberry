@@ -10,9 +10,9 @@ fn add(x: UInt64): UInt64 {
 }
 
 fn main(): UInt64 {
-  var a: A = A { 1, true };
-  var sum: UInt64 = 0;
-  var result: UInt64 = 0;
+  var a = A { 1, true };
+  var sum = 0;
+  var result = 0;
 
   for i in 0 .. 2 {
     sum = sum + i;

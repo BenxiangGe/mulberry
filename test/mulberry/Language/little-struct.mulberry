@@ -6,7 +6,7 @@ struct A {
 }
 
 fn main(): UInt64 {
-  var a: A = A { false, 12345 };
+  var a = A { false, 12345 };
   # A { false, 12345 };
 
   return 6789;

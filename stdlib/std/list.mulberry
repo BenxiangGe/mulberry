@@ -22,15 +22,15 @@ comptime List<T> = struct {
   }
 
   pub fn swap(mut self: List<T>, first: UInt64, second: UInt64): UInt64 {
-    const value: T = self.data[first];
+    const value = self.data[first];
     self.data[first] = self.data[second];
     self.data[second] = value;
     return 0;
   }
 
   pub fn grow(mut self: List<T>, newCapacity: UInt64): UInt64 {
-    var newData: Ptr<T> = heap.alloc<T>(newCapacity);
-    var index: UInt64 = 0;
+    var newData = heap.alloc<T>(newCapacity);
+    var index = 0;
     while index < self.length {
       newData[index] = self.data[index];
       index = index + 1;
@@ -42,7 +42,7 @@ comptime List<T> = struct {
 
   pub fn push(mut self: List<T>, value: T): UInt64 {
     if self.length >= self.capacity {
-      var newCapacity: UInt64 = self.capacity * 2;
+      var newCapacity = self.capacity * 2;
       if self.capacity == 0 {
         newCapacity = 1;
       }
@@ -60,7 +60,7 @@ fn withCapacity<T>(capacity: UInt64): List<T> {
 
 fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
   var result: List<T> = withCapacity(N);
-  var index: UInt64 = 0;
+  var index = 0;
   while index < N {
     result.push(array[index]);
     index = index + 1;
@@ -70,11 +70,11 @@ fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
 
 fn shufflePair<T, U>(mut first: List<T>, mut second: List<U>,
                      seed: UInt64): UInt64 {
-  var rng: random.Rng = random.seed(seed);
-  var index: UInt64 = first.size();
+  var rng = random.seed(seed);
+  var index = first.size();
   while index > 1 {
-    const target: UInt64 = index - 1;
-    const swapIndex: UInt64 = rng.nextBelow(index);
+    const target = index - 1;
+    const swapIndex = rng.nextBelow(index);
     first.swap(target, swapIndex);
     second.swap(target, swapIndex);
     index = index - 1;

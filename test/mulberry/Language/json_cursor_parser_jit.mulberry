@@ -11,11 +11,11 @@ fn main(): UInt64 {
       '{', '"', 'a', '"', ':', '[', '1', '2', ',', '3', '4', ']', ',',
       '"', 'b', '"', ':', '{', '"', 'c', '"', ':', '5', '}', '}'
   ]);
-  var parser: json.Parser = json.Parser { text, 0, 25 };
+  var parser = json.Parser { text, 0, 25 };
   parser.consumeChar('{');
   io.print(boolToUInt64(parser.stringEquals("a")));
   parser.consumeChar(':');
-  var values: List<UInt64> = parser.parseIntegerArray();
+  var values = parser.parseIntegerArray();
   io.print(values.size());
   io.print(values[0]);
   io.print(values[1]);

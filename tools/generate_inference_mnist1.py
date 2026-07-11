@@ -132,13 +132,10 @@ def emitVariable(
     name: str,
     matrix: np.ndarray,
     isConst: bool = False,
-    typeAnnotation: str | None = None,
 ) -> str:
     literal = formatMatrixLiteral(matrix)
     keyword = "const" if isConst else "var"
-    if typeAnnotation is None:
-        typeAnnotation = "Tensor<Float32>"
-    return f"  {keyword} {name}: {typeAnnotation} = {literal};"
+    return f"  {keyword} {name} = tensor.from({literal});"
 
 
 def formatPathForComment(path: Path) -> str:
@@ -163,31 +160,30 @@ def writeMulberrySource(
     output.parent.mkdir(parents=True, exist_ok=True)
     body = "\n\n".join(
         [
-            emitVariable("w1", w1, typeAnnotation="Tensor<Float32>"),
-            emitVariable("b1", b1, typeAnnotation="Tensor<Float32>"),
-            emitVariable("w2", w2, typeAnnotation="Tensor<Float32>"),
-            emitVariable("b2", b2, typeAnnotation="Tensor<Float32>"),
+            emitVariable("w1", w1),
+            emitVariable("b1", b1),
+            emitVariable("w2", w2),
+            emitVariable("b2", b2),
             "\n".join(
                 [
-                    "  var weights: List<Tensor<Float32>> = [w1, w2];",
-                    "  var biases: List<Tensor<Float32>> = [b1, b2];",
+                    "  var weights = list.from([w1, w2]);",
+                    "  var biases = list.from([b1, b2]);",
                 ]
             ),
-            emitVariable("activation", x, typeAnnotation="Tensor<Float32>"),
-            f"  const y: UInt64 = {y};",
+            emitVariable("activation", x),
+            f"  const y = {y};",
             "\n".join(
                 [
                     "  for layer in 0 .. weights.size() {",
                     "    activation = nn.sigmoid(nn.matadd(",
                     "        nn.matmul(weights[layer], activation),",
                     "        biases[layer]));",
-                    "    ()",
-                    "  };",
+                    "  }",
                 ]
             ),
-            "  var pred: UInt64 = nn.argmax(activation);",
+            "  var pred = nn.argmax(activation);",
             "  io.print(pred);",
-            "  0",
+            "  return 0;",
         ]
     )
 

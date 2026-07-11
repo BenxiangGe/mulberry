@@ -8,24 +8,24 @@ struct Model {
 fn makeModel(w1: Tensor<Float32>,
              w2: Tensor<Float32>,
              bias: Tensor<Float32>): Model {
-  var weights: List<Tensor<Float32>> = list.from([w1, w2]);
+  var weights = list.from([w1, w2]);
   return Model { weights, bias };
 }
 
 fn main(): UInt64 {
-  var w1: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var w2: Tensor<Float32> = tensor.from([[1.0, 1.0]]);
-  var bias: Tensor<Float32> = tensor.from([[0.0]]);
+  var w1 = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var w2 = tensor.from([[1.0, 1.0]]);
+  var bias = tensor.from([[0.0]]);
 
-  var model: Model = makeModel(w1, w2, bias);
-  var otherBias: Tensor<Float32> = bias;
-  var activeBias: Tensor<Float32> = otherBias;
+  var model = makeModel(w1, w2, bias);
+  var otherBias = bias;
+  var activeBias = otherBias;
   if true {
     activeBias = model.bias;
   } else {
     activeBias = otherBias;
   }
-  var firstWeight: Tensor<Float32> =
+  var firstWeight =
       model.weights[0];
 
   return model.weights.size() + firstWeight.numel() + 1;

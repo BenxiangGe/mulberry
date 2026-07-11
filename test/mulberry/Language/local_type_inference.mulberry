@@ -1,0 +1,54 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Result {
+  value: UInt64,
+  ready: Bool
+}
+
+fn identity<T>(value: T): T {
+  const result = value;
+  return result;
+}
+
+fn main(): UInt64 {
+  const answer = identity(42);
+  const result = Result { answer, true };
+
+  var values = [1, 2, 3];
+  values[1] = 40;
+
+  var numbers = list.from([5, 6]);
+  numbers.push(7);
+  const numberCount = numbers.size();
+
+  const matrix = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+
+  io.print(result.value);
+  io.print(values[0] + values[1] + values[2]);
+  io.print(numbers[2]);
+  io.print(numberCount);
+  io.print(matrix.numel());
+  return 0;
+}
+
+# AST: VariableStat const {{.*}}id=answer{{.*}}inferredType=UInt64
+# AST: VariableStat const {{.*}}id=result{{.*}}inferredType=Result
+# AST: VariableStat {{.*}}id=values{{.*}}inferredType=Array<UInt64, 3>
+# AST: VariableStat {{.*}}id=numbers{{.*}}inferredType=std.list.List<UInt64>
+# AST: VariableStat const {{.*}}id=numberCount{{.*}}inferredType=UInt64
+# AST: VariableStat const {{.*}}id=matrix{{.*}}inferredType=std.tensor.Tensor<Float32>
+
+# MLIR-DAG: func.func @identity__UInt64
+# MLIR-DAG: func.call @std_list_from__UInt64__2
+# MLIR-DAG: func.call @std_list_List_push__UInt64
+# MLIR-DAG: func.call @std_list_List_size__UInt64
+# MLIR-DAG: func.call @std_tensor_Tensor_numel__Float32
+
+# JIT: 42
+# JIT-NEXT: 44
+# JIT-NEXT: 7
+# JIT-NEXT: 3
+# JIT-NEXT: 4

@@ -33,7 +33,7 @@ struct ByteBuffer {
   }
 
   pub fn pushString(mut self: ByteBuffer, value: String): UInt64 {
-    var index: UInt64 = 0;
+    var index = 0;
     while index < value.length {
       self.bytes.push(value.data[index]);
       index = index + 1;
@@ -56,15 +56,15 @@ struct ByteBuffer {
       self.pushChar('0');
     } else {
       var digits: List<UInt8> = list.withCapacity(0);
-      var remaining: UInt64 = value;
+      var remaining = value;
       while remaining > 0 {
-        const digitValue: UInt64 = remaining % 10 + core.toUInt64('0');
-        const digit: UInt8 = core.toUInt8(digitValue);
+        const digitValue = remaining % 10 + core.toUInt64('0');
+        const digit = core.toUInt8(digitValue);
         digits.push(digit);
         remaining = remaining / 10;
       }
 
-      var index: UInt64 = digits.size();
+      var index = digits.size();
       while index > 0 {
         index = index - 1;
         self.pushChar(digits[index]);
@@ -74,7 +74,7 @@ struct ByteBuffer {
   }
 
   pub fn pushShape(mut self: ByteBuffer, shape: List<UInt64>): UInt64 {
-    var index: UInt64 = 0;
+    var index = 0;
     while index < shape.size() {
       if index > 0 {
         self.pushChar(',');
@@ -88,7 +88,7 @@ struct ByteBuffer {
   pub fn pushTensorHeader(mut self: ByteBuffer, name: String,
                           value: Tensor<Float32>,
                           offset: UInt64): UInt64 {
-    const nextOffset: UInt64 = offset + value.numel * sizeof(Float32);
+    const nextOffset = offset + value.numel * sizeof(Float32);
     self.pushQuotedString(name);
     self.pushString(
         ":{\"dtype\":\"F32\",\"shape\":[");
@@ -103,7 +103,7 @@ struct ByteBuffer {
 }
 
 fn parseTensorObject(mut parser: Parser, headerLength: UInt64): TensorInfo {
-  var info: TensorInfo =
+  var info =
       TensorInfo { false, headerLength, 0, 0, list.withCapacity(0) };
   if parser.consumeChar('{') {
     info.found = true;
@@ -113,7 +113,7 @@ fn parseTensorObject(mut parser: Parser, headerLength: UInt64): TensorInfo {
         parser.position = parser.position + 1;
         break;
       }
-      const keyStart: UInt64 = parser.position;
+      const keyStart = parser.position;
       if parser.stringEquals("dtype") {
         parser.consumeChar(':');
         parser.skipString();
@@ -132,7 +132,7 @@ fn parseTensorObject(mut parser: Parser, headerLength: UInt64): TensorInfo {
       parser.position = keyStart;
       if parser.stringEquals("data_offsets") {
         parser.consumeChar(':');
-        var offsets: List<UInt64> = parser.parseIntegerArray();
+        var offsets = parser.parseIntegerArray();
         info.begin = offsets[0];
         info.end = offsets[1];
         parser.skipComma();
@@ -151,7 +151,7 @@ fn parseTensorObject(mut parser: Parser, headerLength: UInt64): TensorInfo {
 
 fn findTensorInHeader(mut parser: Parser, name: String,
                       headerLength: UInt64): TensorInfo {
-  var info: TensorInfo =
+  var info =
       TensorInfo { false, headerLength, 0, 0, list.withCapacity(0) };
   if parser.consumeChar('{') {
     while true {
@@ -190,7 +190,7 @@ fn readHeaderLength(file: File): UInt64 {
 }
 
 fn loadTensorFile(file: File): TensorFile {
-  const headerLength: UInt64 = readHeaderLength(file);
+  const headerLength = readHeaderLength(file);
   var headerBytes: Tensor<UInt8> = tensor.zeros([headerLength]);
   io.seek(file, 8);
   io.read(file, headerBytes);
@@ -206,13 +206,13 @@ fn close(tensorFile: TensorFile): UInt64 {
 }
 
 fn find(tensorFile: TensorFile, name: String): TensorInfo {
-  var parser: Parser =
+  var parser =
       Parser { tensorFile.headerBytes, 0, tensorFile.headerLength };
   return findTensorInHeader(parser, name, tensorFile.headerLength);
 }
 
 fn read(tensorFile: TensorFile, name: String): Tensor<Float32> {
-  const info: TensorInfo = find(tensorFile, name);
+  const info = find(tensorFile, name);
   var value: Tensor<Float32> = tensor.zerosDynamic(info.shape);
   io.seek(tensorFile.file, 8 + info.headerLength + info.begin);
   io.read(tensorFile.file, value);
@@ -233,10 +233,10 @@ fn makeByteBuffer(): ByteBuffer {
 
 fn writeUInt64LE(file: File, value: UInt64): UInt64 {
   var bytes: Tensor<UInt8> = tensor.zeros([8]);
-  var remaining: UInt64 = value;
-  var index: UInt64 = 0;
+  var remaining = value;
+  var index = 0;
   while index < 8 {
-    const byteValue: UInt64 = remaining % 256;
+    const byteValue = remaining % 256;
     bytes[index] = core.toUInt8(byteValue);
     remaining = remaining / 256;
     index = index + 1;
@@ -250,11 +250,11 @@ fn writeHeader(file: File, header: ByteBuffer): UInt64 {
 
 fn write(path: String, names: List<String>,
          values: List<Tensor<Float32>>): UInt64 {
-  var header: ByteBuffer = makeByteBuffer();
+  var header = makeByteBuffer();
   header.pushChar('{');
 
-  var offset: UInt64 = 0;
-  var index: UInt64 = 0;
+  var offset = 0;
+  var index = 0;
   while index < values.size() {
     if index > 0 {
       header.pushChar(',');
@@ -265,8 +265,8 @@ fn write(path: String, names: List<String>,
 
   header.pushChar('}');
 
-  const file: File = io.open(path, "wb");
-  var byteCount: UInt64 = writeHeader(file, header);
+  const file = io.open(path, "wb");
+  var byteCount = writeHeader(file, header);
   index = 0;
   while index < values.size() {
     byteCount = byteCount + io.write(file, values[index]);

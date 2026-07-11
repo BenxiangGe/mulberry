@@ -5,29 +5,29 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var input: Tensor<Float32> = tensor.from([[[
+  var input = tensor.from([[[
     [1.0, 2.0, 3.0],
     [4.0, 5.0, 6.0],
     [7.0, 8.0, 9.0]
   ]]]);
-  var convWeight: Tensor<Float32> = tensor.from([[[
+  var convWeight = tensor.from([[[
     [1.0, 0.0],
     [0.0, 1.0]
   ]]]);
-  var convBias: Tensor<Float32> = tensor.from([0.0]);
-  var classifierWeight: Tensor<Float32> = tensor.from([[-1.0, 1.0]]);
-  var classifierBias: Tensor<Float32> = tensor.from([[0.0, 0.0]]);
-  var expected: Tensor<Float32> = tensor.from([[1.0, 0.0]]);
-  const parameters: nn.CnnParameters = nn.CnnParameters {
+  var convBias = tensor.from([0.0]);
+  var classifierWeight = tensor.from([[-1.0, 1.0]]);
+  var classifierBias = tensor.from([[0.0, 0.0]]);
+  var expected = tensor.from([[1.0, 0.0]]);
+  const parameters = nn.CnnParameters {
     convWeight, convBias, classifierWeight, classifierBias
   };
 
-  const before: UInt64 = nn.argmax(nn.cnnForward(parameters, input));
-  const gradient: nn.CnnGradient =
+  const before = nn.argmax(nn.cnnForward(parameters, input));
+  const gradient =
       nn.cnnGradient(parameters, input, expected);
-  const updated: nn.CnnParameters =
+  const updated =
       nn.cnnSgdStep(parameters, input, expected, 0.1, 1.0);
-  const after: UInt64 = nn.argmax(nn.cnnForward(updated, input));
+  const after = nn.argmax(nn.cnnForward(updated, input));
 
   io.print(before);
   io.print(core.boolToUInt64(gradient.convWeight[0, 0, 1, 1] > 0.0));

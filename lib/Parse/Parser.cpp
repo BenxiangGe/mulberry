@@ -1125,9 +1125,11 @@ auto Parser::parseVariableDecl(unique_ptr<Stat> &stat, bool isConst)
   unique_ptr<VariableExpr> var;
   unique_ptr<TypeNode> typeNode;
   unique_ptr<Expr> e;
-  if (parseVariableExpr(var) ||
-      parseToken(Token::colon, diag::expected_colon) || parseType(typeNode) ||
-      parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
+  if (parseVariableExpr(var))
+    return failure();
+  if (consumeIf(Token::colon) && parseType(typeNode))
+    return failure();
+  if (parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
     return failure();
   stat = make_unique<VariableStat>(loc, std::move(var), std::move(typeNode),
                                    std::move(e), isConst,

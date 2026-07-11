@@ -8,7 +8,7 @@ fn makeLiteral(): UInt64[3] {
 }
 
 fn makeLocal(): UInt64[3] {
-  var xs: UInt64[3] = [7, 8, 9];
+  var xs = [7, 8, 9];
   xs[1] = 40;
   return xs;
 }
@@ -18,10 +18,10 @@ fn sum(xs: UInt64[3]): UInt64 {
 }
 
 fn main(): UInt64 {
-  var literal: UInt64[3] = makeLiteral();
+  var literal = makeLiteral();
   io.print(sum(literal));
 
-  var local: UInt64[3] = makeLocal();
+  var local = makeLocal();
   io.print(sum(local));
 
   io.print(sum(makeLiteral()));

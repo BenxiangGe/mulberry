@@ -169,10 +169,14 @@ statement                 -> `break` `;`?
 statement                 -> `continue` `;`?
 statement                 -> return-statement
 
-variable-declaration      -> `var` identifier `:` type `=` expression
-variable-declaration      -> `const` identifier `:` type `=` expression
+variable-declaration      -> `var` identifier (`:` type)? `=` expression
+variable-declaration      -> `const` identifier (`:` type)? `=` expression
 return-statement          -> `return` expression? `;`
 ```
+
+省略 `: type` 时，局部变量直接采用 initializer 的 semantic type。这个规则只适用于
+local variable declaration；函数参数、函数返回类型和 struct field 仍必须显式声明。
+如果 initializer 本身不能确定完整类型，程序员需要保留类型注解。
 
 block 不产生 value。函数返回使用 `return` statement。
 

@@ -3,7 +3,7 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn bar(x: UInt64, y: Bool): Bool {
-  var k: Bool = y;
+  var k = y;
   
   if k {
     io.print(18446744073709551615);
@@ -29,7 +29,7 @@ fn main(): UInt64 {
   3 < 1; 3 <= 1; 3 > 1; 3 >= 1;
   true and false or true == false != true;
 
-  var boolValue: Bool = bar(18446744073709551615, false);
+  var boolValue = bar(18446744073709551615, false);
   io.print(boolToUInt64(boolValue));
   baz();
   return 0;

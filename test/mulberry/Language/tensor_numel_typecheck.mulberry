@@ -1,6 +1,6 @@
 # RUN: mulberry-driver -typecheck %s
 
 fn main(): UInt64 {
-  var xsTensor: Tensor<UInt64> = tensor.from([1, 2, 3]);
+  var xsTensor = tensor.from([1, 2, 3]);
   return xsTensor.numel();
 }

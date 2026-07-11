@@ -35,8 +35,8 @@ comptime Tensor<T> = struct {
 };
 
 fn numel(shape: List<UInt64>): UInt64 {
-  var count: UInt64 = 1;
-  var index: UInt64 = 0;
+  var count = 1;
+  var index = 0;
   while index < shape.size() {
     count = count * shape[index];
     index = index + 1;
@@ -46,14 +46,14 @@ fn numel(shape: List<UInt64>): UInt64 {
 
 fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {
   var strides: List<UInt64> = list.withCapacity(0);
-  var index: UInt64 = 0;
+  var index = 0;
   while index < shape.size() {
     strides.push(1);
     index = index + 1;
   }
 
-  var stride: UInt64 = 1;
-  var reverseIndex: UInt64 = shape.size();
+  var stride = 1;
+  var reverseIndex = shape.size();
   while reverseIndex > 0 {
     reverseIndex = reverseIndex - 1;
     strides[reverseIndex] = stride;
@@ -63,8 +63,8 @@ fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {
 }
 
 fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
-  const count: UInt64 = numel(shape);
-  var data: Ptr<T> = heap.alloc<T>(count);
+  const count = numel(shape);
+  var data = heap.alloc<T>(count);
   mulberry_zero_memory(ptr.asUInt8(data), count * sizeof(T));
   return Tensor<T> { data, shape.size(), count, shape, rowMajorStrides(shape) };
 }
@@ -75,7 +75,7 @@ fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
 
 fn reshape<T, N: UInt64>(value: Tensor<T>,
                          shape: Array<UInt64, N>): Tensor<T> {
-  var sizes: List<UInt64> = list.from(shape);
+  var sizes = list.from(shape);
   return Tensor<T> {
     value.data, N, value.numel, sizes, rowMajorStrides(sizes)
   };
@@ -85,23 +85,23 @@ fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
   var sizes: List<UInt64> = list.withCapacity(0);
   var strides: List<UInt64> = list.withCapacity(0);
 
-  var dimension: UInt64 = 1;
+  var dimension = 1;
   while dimension < value.rank {
     sizes.push(value.sizes[dimension]);
     strides.push(value.strides[dimension]);
     dimension = dimension + 1;
   }
 
-  const offset: UInt64 = index * value.strides[0];
-  const count: UInt64 = value.numel / value.sizes[0];
+  const offset = index * value.strides[0];
+  const count = value.numel / value.sizes[0];
   return Tensor<T> { ptr.offset(value.data, offset), value.rank - 1, count, sizes, strides };
 }
 
 fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {
   var result: List<Tensor<T>> = list.withCapacity(value.sizes[0]);
-  var index: UInt64 = 0;
+  var index = 0;
   while index < value.sizes[0] {
-    var sample: Tensor<T> = std.tensor.sliceFirst(value, index);
+    var sample = std.tensor.sliceFirst(value, index);
     result.push(sample);
     index = index + 1;
   }

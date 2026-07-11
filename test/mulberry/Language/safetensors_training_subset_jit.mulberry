@@ -4,23 +4,23 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("/tmp/mulberry_safetensors_training_subset_jit.safetensors");
 
-  var trainX: Tensor<Float32> = safetensors.read(file, "train_x");
-  var trainY: Tensor<Float32> = safetensors.read(file, "train_y");
-  var testX: Tensor<Float32> = safetensors.read(file, "test_x");
-  var testY: Tensor<Float32> = safetensors.read(file, "test_y");
+  var trainX = safetensors.read(file, "train_x");
+  var trainY = safetensors.read(file, "train_y");
+  var testX = safetensors.read(file, "test_x");
+  var testY = safetensors.read(file, "test_y");
   safetensors.close(file);
 
-  var train: nn.TensorDataset = nn.datasetFromBatches(trainX, trainY);
-  var test: nn.TensorDataset = nn.datasetFromBatches(testX, testY);
+  var train = nn.datasetFromBatches(trainX, trainY);
+  var test = nn.datasetFromBatches(testX, testY);
 
-  var trainX0: Tensor<Float32> = train.input(0);
-  var trainY0: Tensor<Float32> = train.label(0);
-  var testX0: Tensor<Float32> = test.input(0);
-  var testY0: Tensor<Float32> = test.label(0);
-  var testY1: Tensor<Float32> = test.label(1);
+  var trainX0 = train.input(0);
+  var trainY0 = train.label(0);
+  var testX0 = test.input(0);
+  var testY0 = test.label(0);
+  var testY1 = test.label(1);
 
   io.print(trainX0.numel());
   io.print(testX0.numel());

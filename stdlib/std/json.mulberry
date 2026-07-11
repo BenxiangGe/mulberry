@@ -27,7 +27,7 @@ struct Parser {
   }
 
   pub fn isDigit(self: Parser): Bool {
-    var result: Bool = false;
+    var result = false;
     if self.position < self.length {
       result = isDigitChar(self.peekChar());
     }
@@ -46,7 +46,7 @@ struct Parser {
 
   pub fn consumeChar(mut self: Parser, value: Char): Bool {
     self.skipSpaces();
-    var result: Bool = false;
+    var result = false;
     if self.position < self.length and self.peekChar() == value {
       self.position = self.position + 1;
       result = true;
@@ -62,7 +62,7 @@ struct Parser {
   }
 
   pub fn skipString(mut self: Parser): Bool {
-    var result: Bool = false;
+    var result = false;
     if self.consumeChar('"') {
       while self.position < self.length {
         if self.peekChar() == '"' {
@@ -78,11 +78,11 @@ struct Parser {
 
   pub fn stringEquals(mut self: Parser, value: String): Bool {
     self.skipSpaces();
-    var result: Bool = false;
+    var result = false;
     if self.position < self.length and self.peekChar() == '"' {
       self.position = self.position + 1;
-      var index: UInt64 = 0;
-      var matches: Bool = true;
+      var index = 0;
+      var matches = true;
       while self.position < self.length {
         if self.peekChar() == '"' {
           break;
@@ -109,9 +109,9 @@ struct Parser {
 
   pub fn parseInteger(mut self: Parser): UInt64 {
     self.skipSpaces();
-    var value: UInt64 = 0;
+    var value = 0;
     while self.isDigit() {
-      const digit: UInt64 = core.toUInt64(self.peekChar()) - core.toUInt64('0');
+      const digit = core.toUInt64(self.peekChar()) - core.toUInt64('0');
       value = value * 10 + digit;
       self.position = self.position + 1;
     }
@@ -135,7 +135,7 @@ struct Parser {
   }
 
   pub fn skipBracketValue(mut self: Parser): () {
-    var depth: UInt64 = 0;
+    var depth = 0;
     while self.position < self.length {
       if self.peekChar() == '"' {
         self.skipString();

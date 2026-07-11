@@ -3,16 +3,16 @@
 # RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
 fn transfer(input: File, output: File, mut bytes: Tensor<UInt8>): UInt64 {
-  const readCount: UInt64 = io.read(input, bytes);
-  const writeCount: UInt64 = io.write(output, bytes);
+  const readCount = io.read(input, bytes);
+  const writeCount = io.write(output, bytes);
   io.close(input);
   io.close(output);
   return readCount + writeCount;
 }
 
 fn main(): UInt64 {
-  const input: File = io.open("data/mnist.bin", "rb");
-  const output: File = io.open("data/out.bin", "wb");
+  const input = io.open("data/mnist.bin", "rb");
+  const output = io.open("data/out.bin", "wb");
   var bytes: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
   io.write(output, bytes);
   return io.close(input) + io.close(output);

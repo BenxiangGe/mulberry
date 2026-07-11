@@ -2,9 +2,9 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var matrix: Tensor<Float32> =
+  var matrix =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  var row: Tensor<Float32> = tensor.reshape(matrix, [1, 4]);
+  var row = tensor.reshape(matrix, [1, 4]);
 
   io.print(row.ndim());
   io.print(row.dim(0));

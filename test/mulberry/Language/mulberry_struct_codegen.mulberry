@@ -19,15 +19,15 @@ fn readX(box: Box): UInt64 {
 }
 
 fn update(mut box: Box): Box {
-  var copy: Box = box;
+  var copy = box;
   copy.pair.x = copy.pair.y;
   copy.ok = false;
   return copy;
 }
 
 fn main(): UInt64 {
-  var box: Box = Box { makePair(4), true };
-  var changed: Box = update(box);
+  var box = Box { makePair(4), true };
+  var changed = update(box);
   return readX(changed);
 }
 

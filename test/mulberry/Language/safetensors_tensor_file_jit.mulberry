@@ -3,11 +3,11 @@
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("/tmp/mulberry_safetensors_tensor_file_jit.safetensors");
 
-  var x: Tensor<Float32> = safetensors.read(file, "x");
-  var w1: Tensor<Float32> = safetensors.read(file, "w1");
+  var x = safetensors.read(file, "x");
+  var w1 = safetensors.read(file, "w1");
   safetensors.close(file);
 
   io.print(x.numel());

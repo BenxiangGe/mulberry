@@ -29,7 +29,7 @@ fn main(): UInt64 {
   # D { 12345, true };
   # var cc: C = C { true };
   # E { C { true } };
-  var e: E = E { C { true } };
+  var e = E { C { true } };
   e.ec.a = false;
   # E { cc };
   # A { false, 20, C { true } };

@@ -3,10 +3,10 @@
 import safetensors;
 
 fn main(): UInt64 {
-  const file: File =
+  const file =
       io.open("/tmp/mulberry_safetensors_parser_jit.safetensors", "rb");
-  const w1: safetensors.TensorInfo = safetensors.findTensor(file, "w1");
-  const x: safetensors.TensorInfo = safetensors.findTensor(file, "x");
+  const w1 = safetensors.findTensor(file, "w1");
+  const x = safetensors.findTensor(file, "x");
   io.print(boolToUInt64(w1.found));
   io.print(w1.headerLength);
   io.print(w1.shape.size());

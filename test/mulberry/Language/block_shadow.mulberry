@@ -1,11 +1,11 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var value: UInt64 = 1;
+  var value = 1;
   io.print(value);
 
   if true {
-    var value: UInt64 = 2;
+    var value = 2;
     io.print(value);
   } else {
   }

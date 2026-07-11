@@ -1,14 +1,14 @@
 # RUN: mulberry-driver --dump=lowered-mlir %s 2>&1 | FileCheck %s
 
 fn make(): List<Tensor<Float32>> {
-  var w: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var weights: List<Tensor<Float32>> = list.from([w]);
+  var w = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var weights = list.from([w]);
   return weights;
 }
 
 fn main(): UInt64 {
-  const weights: List<Tensor<Float32>> = make();
-  const first: Tensor<Float32> = weights[0];
+  const weights = make();
+  const first = weights[0];
   return first.numel();
 }
 

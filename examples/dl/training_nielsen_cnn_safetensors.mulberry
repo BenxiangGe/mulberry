@@ -3,55 +3,55 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/nielsen-cnn-relu.safetensors");
-  var parameters: nn.CnnParameters = nn.CnnParameters {
+  var parameters = nn.CnnParameters {
     safetensors.read(file, "conv1_weight"),
     safetensors.read(file, "conv1_bias"),
     safetensors.read(file, "classifier_weight"),
     safetensors.read(file, "classifier_bias")
   };
-  var train: nn.TensorDataset = nn.datasetFromBatches(
+  var train = nn.datasetFromBatches(
       safetensors.read(file, "train_input"),
       safetensors.read(file, "train_label"));
-  var test: nn.TensorDataset = nn.datasetFromBatches(
+  var test = nn.datasetFromBatches(
       safetensors.read(file, "test_input"),
       safetensors.read(file, "test_label"));
   safetensors.close(file);
 
-  const batchSize: UInt64 = 2;
-  const epochs: UInt64 = 3;
-  const eta: Float32 = 0.01;
-  const regularization: Float32 = 0.01;
-  const beforeTrain: nn.Evaluation =
+  const batchSize = 2;
+  const epochs = 3;
+  const eta = 0.01;
+  const regularization = 0.01;
+  const beforeTrain =
       nn.cnnEvaluateDataset(parameters, train);
-  const beforeTest: nn.Evaluation =
+  const beforeTest =
       nn.cnnEvaluateDataset(parameters, test);
-  const beforeTrainLoss: Float32 =
+  const beforeTrainLoss =
       nn.cnnMeanCrossEntropy(parameters, train);
-  const beforeTestLoss: Float32 =
+  const beforeTestLoss =
       nn.cnnMeanCrossEntropy(parameters, test);
   for epoch in 0 .. epochs {
     parameters = nn.cnnTrainEpoch(
         parameters, train, batchSize, eta, regularization, 12345 + epoch);
   }
-  const afterTrain: nn.Evaluation =
+  const afterTrain =
       nn.cnnEvaluateDataset(parameters, train);
-  const afterTest: nn.Evaluation =
+  const afterTest =
       nn.cnnEvaluateDataset(parameters, test);
-  const afterTrainLoss: Float32 =
+  const afterTrainLoss =
       nn.cnnMeanCrossEntropy(parameters, train);
-  const afterTestLoss: Float32 =
+  const afterTestLoss =
       nn.cnnMeanCrossEntropy(parameters, test);
-  var metrics: Tensor<Float32> = tensor.from([
+  var metrics = tensor.from([
     beforeTrainLoss, afterTrainLoss, beforeTestLoss, afterTestLoss
   ]);
 
-  var names: List<String> = list.from([
+  var names = list.from([
     "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias",
     "metrics"
   ]);
-  var values: List<Tensor<Float32>> = list.from([
+  var values = list.from([
     parameters.convWeight, parameters.convBias,
     parameters.classifierWeight, parameters.classifierBias, metrics
   ]);

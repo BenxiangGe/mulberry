@@ -6,13 +6,13 @@ struct Rng {
   pub fn next(mut self: Rng): UInt64 {
     # Small deterministic LCG for reproducible training shuffles. This is not
     # intended for cryptography or statistically serious simulation.
-    const nextState: UInt64 = self.state * 1103515245 + 12345;
+    const nextState = self.state * 1103515245 + 12345;
     self.state = nextState % 2147483648;
     return self.state;
   }
 
   pub fn nextBelow(mut self: Rng, bound: UInt64): UInt64 {
-    var result: UInt64 = 0;
+    var result = 0;
     if bound > 0 {
       result = self.next() % bound;
     }

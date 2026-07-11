@@ -6,11 +6,11 @@ fn id(xs: UInt64[3]): UInt64[3] {
 }
 
 fn main(): UInt64 {
-  var a: UInt64[3] = [1, 2, 3];
-  var b: UInt64[3] = a;
+  var a = [1, 2, 3];
+  var b = a;
   b[1] = 40;
 
-  var c: UInt64[3] = id(a);
+  var c = id(a);
   c[2] = 50;
 
   io.print(a[0] + a[1] + a[2]);

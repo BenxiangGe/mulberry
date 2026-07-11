@@ -5,17 +5,17 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var logits: Tensor<Float32> = tensor.from([
+  var logits = tensor.from([
     [1000.0, 1000.0],
     [0.0, 0.0]
   ]);
-  var expected: Tensor<Float32> = tensor.from([
+  var expected = tensor.from([
     [1.0, 0.0],
     [0.0, 1.0]
   ]);
-  const loss: Float32 = nn.softmaxCrossEntropy(logits, expected);
+  const loss = nn.softmaxCrossEntropy(logits, expected);
 
-  var matches: UInt64 = 0;
+  var matches = 0;
   if loss > 0.693 and loss < 0.694 {
     matches = 1;
   }

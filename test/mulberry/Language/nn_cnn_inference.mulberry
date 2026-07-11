@@ -5,24 +5,24 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var input: Tensor<Float32> = tensor.from([[[
+  var input = tensor.from([[[
     [1.0, 2.0, 3.0],
     [4.0, 5.0, 6.0],
     [7.0, 8.0, 9.0]
   ]]]);
-  var weight: Tensor<Float32> = tensor.from([[[
+  var weight = tensor.from([[[
     [1.0, 0.0],
     [0.0, 1.0]
   ]]]);
-  var bias: Tensor<Float32> = tensor.from([0.0]);
+  var bias = tensor.from([0.0]);
 
-  var convolved: Tensor<Float32> = nn.conv2d(input, weight, bias);
-  var pooled: Tensor<Float32> = nn.maxPool2d(convolved, 2, 2);
-  var activated: Tensor<Float32> = nn.relu(pooled);
-  var features: Tensor<Float32> = tensor.reshape(activated, [1, 1]);
-  var classifier: Tensor<Float32> = tensor.from([[-1.0, 1.0]]);
-  var scores: Tensor<Float32> = nn.matmul(features, classifier);
-  var probabilities: Tensor<Float32> = nn.softmax(scores);
+  var convolved = nn.conv2d(input, weight, bias);
+  var pooled = nn.maxPool2d(convolved, 2, 2);
+  var activated = nn.relu(pooled);
+  var features = tensor.reshape(activated, [1, 1]);
+  var classifier = tensor.from([[-1.0, 1.0]]);
+  var scores = nn.matmul(features, classifier);
+  var probabilities = nn.softmax(scores);
 
   io.print(convolved.dim(2));
   io.print(pooled.dim(2));

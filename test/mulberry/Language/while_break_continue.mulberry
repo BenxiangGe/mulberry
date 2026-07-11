@@ -3,8 +3,8 @@
 import io;
 
 fn main(): UInt64 {
-  var i: UInt64 = 0;
-  var sum: UInt64 = 0;
+  var i = 0;
+  var sum = 0;
   while i < 6 {
     i = i + 1;
     if i == 2 {

@@ -6,12 +6,12 @@ fn first(xs: List<UInt64>): UInt64 {
 }
 
 fn make(): List<UInt64> {
-  var numbers: List<UInt64> = list.from([1, 2, 3]);
+  var numbers = list.from([1, 2, 3]);
   return numbers;
 }
 
 fn main(): UInt64 {
-  var numbers: List<UInt64> = list.from([4, 5, 6]);
+  var numbers = list.from([4, 5, 6]);
   io.print(first(numbers));
   return make().size();
 }

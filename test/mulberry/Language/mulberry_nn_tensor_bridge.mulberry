@@ -3,26 +3,26 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var left: Tensor<Float32> = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  var right: Tensor<Float32> = tensor.from([[0.25], [0.5]]);
-  var bias: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var left = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  var right = tensor.from([[0.25], [0.5]]);
+  var bias = tensor.from([[0.0], [0.0]]);
 
-  var product: Tensor<Float32> = nn.matmul(left, right);
-  var shifted: Tensor<Float32> = nn.matadd(product, bias);
-  var activated: Tensor<Float32> = nn.sigmoid(shifted);
+  var product = nn.matmul(left, right);
+  var shifted = nn.matadd(product, bias);
+  var activated = nn.sigmoid(shifted);
   io.print(nn.argmax(activated));
 
-  var restored: Tensor<Float32> = nn.matsub(shifted, bias);
-  var squared: Tensor<Float32> = nn.hadamard(restored, product);
+  var restored = nn.matsub(shifted, bias);
+  var squared = nn.hadamard(restored, product);
   io.print(nn.argmax(squared));
 
-  var transposed: Tensor<Float32> = nn.transpose(right);
-  var scaled: Tensor<Float32> = nn.matscale(transposed, 2.0);
-  var exponentials: Tensor<Float32> = nn.exp(scaled);
+  var transposed = nn.transpose(right);
+  var scaled = nn.matscale(transposed, 2.0);
+  var exponentials = nn.exp(scaled);
   io.print(nn.argmax(exponentials));
 
-  var primeInput: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
-  var prime: Tensor<Float32> = nn.sigmoidPrime(primeInput);
+  var primeInput = tensor.from([[0.0], [1.0]]);
+  var prime = nn.sigmoidPrime(primeInput);
   io.print(nn.argmax(prime));
 
   return 0;

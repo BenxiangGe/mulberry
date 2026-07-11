@@ -13,9 +13,9 @@ fn first(xs: List<Tensor<Float32>>): Tensor<Float32> {
 }
 
 fn main(): UInt64 {
-  var w1: Tensor<Float32> = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  var w2: Tensor<Float32> = tensor.from([[5.0, 6.0]]);
-  var xs: List<Tensor<Float32>> = list.from([w1, w2]);
+  var w1 = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  var w2 = tensor.from([[5.0, 6.0]]);
+  var xs = list.from([w1, w2]);
 
   io.print(xs.size());
   io.print(first(xs).numel());

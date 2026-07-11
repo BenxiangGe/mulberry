@@ -6,7 +6,7 @@ struct Box {
 }
 
 fn main(): UInt64 {
-  var box: Box = Box { [1, 2, 3] };
+  var box = Box { [1, 2, 3] };
   box.data[1] = 40;
   io.print(box.data[0] + box.data[1] + box.data[2]);
   return 0;

@@ -13,7 +13,7 @@ struct C {
 }
 
 fn main(): UInt64 {
-  var c: C = C { B { A {}, 2 }, 1 };
+  var c = C { B { A {}, 2 }, 1 };
   io.print(c.x);
   c.x = 11;
   io.print(c.x);

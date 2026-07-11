@@ -4,8 +4,8 @@
 import safetensors;
 
 fn main(): UInt64 {
-  const file: File = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var w1Tensor: Tensor<Float32> = safetensors.readTensor(file, "w1");
+  const file = io.open("data/mnist-784-30-10.safetensors", "rb");
+  var w1Tensor = safetensors.readTensor(file, "w1");
   io.close(file);
   return w1Tensor.numel();
 }

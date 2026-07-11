@@ -1,8 +1,8 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var xs: UInt64[3] = [1, 2, 3];
-  var sum: UInt64 = 0;
+  var xs = [1, 2, 3];
+  var sum = 0;
 
   for i in 0 .. 3 {
     sum = sum + xs[i];

@@ -7,39 +7,39 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/mnist-784-30-10-training.safetensors");
 
-  var w1: Tensor<Float32> = safetensors.read(file, "w1");
-  var b1: Tensor<Float32> = safetensors.read(file, "b1");
-  var w2: Tensor<Float32> = safetensors.read(file, "w2");
-  var b2: Tensor<Float32> = safetensors.read(file, "b2");
-  var trainX: Tensor<Float32> = safetensors.read(file, "train_x");
-  var trainY: Tensor<Float32> = safetensors.read(file, "train_y");
-  var testX: Tensor<Float32> = safetensors.read(file, "test_x");
-  var testY: Tensor<Float32> = safetensors.read(file, "test_y");
+  var w1 = safetensors.read(file, "w1");
+  var b1 = safetensors.read(file, "b1");
+  var w2 = safetensors.read(file, "w2");
+  var b2 = safetensors.read(file, "b2");
+  var trainX = safetensors.read(file, "train_x");
+  var trainY = safetensors.read(file, "train_y");
+  var testX = safetensors.read(file, "test_x");
+  var testY = safetensors.read(file, "test_y");
 
   safetensors.close(file);
 
-  var train: nn.TensorDataset = nn.datasetFromBatches(trainX, trainY);
-  var test: nn.TensorDataset = nn.datasetFromBatches(testX, testY);
+  var train = nn.datasetFromBatches(trainX, trainY);
+  var test = nn.datasetFromBatches(testX, testY);
 
-  const eta: Float32 = 0.1;
-  const batchSize: UInt64 = 5;
-  const trainingSize: UInt64 = train.size();
-  const batchCount: UInt64 = nn.batchCount(trainingSize, batchSize);
-  const regularization: Float32 = 0.01;
-  const weightScale: Float32 =
+  const eta = 0.1;
+  const batchSize = 5;
+  const trainingSize = train.size();
+  const batchCount = nn.batchCount(trainingSize, batchSize);
+  const regularization = 0.01;
+  const weightScale =
       nn.l2WeightScale(eta, regularization, trainingSize);
 
   for epoch in 0 .. 30 {
     train.shuffle(12345 + epoch);
     for batch in 0 .. batchCount {
-      const batchStart: UInt64 = batch * batchSize;
-      const batchEnd: UInt64 = nn.batchEnd(batchStart, batchSize,
+      const batchStart = batch * batchSize;
+      const batchEnd = nn.batchEnd(batchStart, batchSize,
                                            trainingSize);
-      const currentBatchSize: UInt64 = batchEnd - batchStart;
-      const batchScale: Float32 = eta / core.toFloat32(currentBatchSize);
+      const currentBatchSize = batchEnd - batchStart;
+      const batchScale = eta / core.toFloat32(currentBatchSize);
 
       var sumW1: Tensor<Float32> = tensor.zeros([30, 784]);
       var sumB1: Tensor<Float32> = tensor.zeros([30, 1]);
@@ -47,11 +47,11 @@ fn main(): UInt64 {
       var sumB2: Tensor<Float32> = tensor.zeros([10, 1]);
 
       for sample in batchStart .. batchEnd {
-        const x: Tensor<Float32> = train.input(sample);
-        const y: Tensor<Float32> = train.label(sample);
-        var weights: List<Tensor<Float32>> = list.from([w1, w2]);
-        var biases: List<Tensor<Float32>> = list.from([b1, b2]);
-        const gradient: nn.TwoLayerGradient =
+        const x = train.input(sample);
+        const y = train.label(sample);
+        var weights = list.from([w1, w2]);
+        var biases = list.from([b1, b2]);
+        const gradient =
             nn.twoLayerGradient(weights, biases, x, y);
 
         sumW1 = nn.matadd(sumW1, gradient.w1);
@@ -67,31 +67,31 @@ fn main(): UInt64 {
     }
   }
 
-  const inferenceFile: safetensors.TensorFile =
+  const inferenceFile =
       safetensors.open("data/mnist-784-30-10.safetensors");
-  var x: Tensor<Float32> = safetensors.read(inferenceFile, "x");
+  var x = safetensors.read(inferenceFile, "x");
   safetensors.close(inferenceFile);
 
-  var checkpointNames: List<String> = list.from(["w1", "b1", "w2", "b2"]);
-  var checkpointTensors: List<Tensor<Float32>> = list.from([w1, b1, w2, b2]);
+  var checkpointNames = list.from(["w1", "b1", "w2", "b2"]);
+  var checkpointTensors = list.from([w1, b1, w2, b2]);
   safetensors.write("/tmp/mulberry_mnist_minibatch_trained.safetensors",
                     checkpointNames, checkpointTensors);
 
-  const checkpointFile: safetensors.TensorFile =
+  const checkpointFile =
       safetensors.open("/tmp/mulberry_mnist_minibatch_trained.safetensors");
-  var savedW1Tensor: Tensor<Float32> = safetensors.read(checkpointFile, "w1");
-  var savedB1Tensor: Tensor<Float32> = safetensors.read(checkpointFile, "b1");
-  var savedW2Tensor: Tensor<Float32> = safetensors.read(checkpointFile, "w2");
-  var savedB2Tensor: Tensor<Float32> = safetensors.read(checkpointFile, "b2");
+  var savedW1Tensor = safetensors.read(checkpointFile, "w1");
+  var savedB1Tensor = safetensors.read(checkpointFile, "b1");
+  var savedW2Tensor = safetensors.read(checkpointFile, "w2");
+  var savedB2Tensor = safetensors.read(checkpointFile, "b2");
   safetensors.close(checkpointFile);
 
-  var finalWeights: List<Tensor<Float32>> =
+  var finalWeights =
       list.from([savedW1Tensor, savedW2Tensor]);
-  var finalBiases: List<Tensor<Float32>> =
+  var finalBiases =
       list.from([savedB1Tensor, savedB2Tensor]);
-  const trainEvaluation: nn.Evaluation =
+  const trainEvaluation =
       nn.evaluateDataset(finalWeights, finalBiases, train);
-  const testEvaluation: nn.Evaluation =
+  const testEvaluation =
       nn.evaluateDataset(finalWeights, finalBiases, test);
   io.print(trainEvaluation.correct);
   io.print(trainEvaluation.total);

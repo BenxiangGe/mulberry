@@ -8,7 +8,7 @@ comptime Storage<T, Rank: UInt64> = struct {
 comptime Handle<T, Rank: UInt64> = Storage<T, Rank>;
 
 fn main(): UInt64 {
-  var handle: Handle<Float32, 2> = Storage<Float32, 2> { 1.5, 2 };
+  var handle = Storage<Float32, 2> { 1.5, 2 };
   return handle.rank;
 }
 

@@ -1,14 +1,14 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var outputValues: Tensor<Float32> = tensor.from([1.0, 7.0, 3.0, 4.0]);
-  const output: File = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "wb");
-  const writeCount: UInt64 = io.write(output, outputValues);
+  var outputValues = tensor.from([1.0, 7.0, 3.0, 4.0]);
+  const output = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "wb");
+  const writeCount = io.write(output, outputValues);
   io.close(output);
 
   var inputTensor: Tensor<Float32> = tensor.zeros([4]);
-  const input: File = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "rb");
-  const readCount: UInt64 = io.read(input, inputTensor);
+  const input = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "rb");
+  const readCount = io.read(input, inputTensor);
   io.close(input);
 
   io.print(writeCount);

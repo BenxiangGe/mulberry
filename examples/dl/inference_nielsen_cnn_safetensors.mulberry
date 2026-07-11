@@ -2,30 +2,30 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("data/nielsen-cnn-relu.safetensors");
 
-  var input: Tensor<Float32> = safetensors.read(file, "input");
-  var convWeight: Tensor<Float32> =
+  var input = safetensors.read(file, "input");
+  var convWeight =
       safetensors.read(file, "conv1_weight");
-  var convBias: Tensor<Float32> = safetensors.read(file, "conv1_bias");
-  var classifierWeight: Tensor<Float32> =
+  var convBias = safetensors.read(file, "conv1_bias");
+  var classifierWeight =
       safetensors.read(file, "classifier_weight");
-  var classifierBias: Tensor<Float32> =
+  var classifierBias =
       safetensors.read(file, "classifier_bias");
-  var reference: Tensor<Float32> =
+  var reference =
       safetensors.read(file, "reference_probabilities");
-  var label: Tensor<Float32> = safetensors.read(file, "label");
+  var label = safetensors.read(file, "label");
   safetensors.close(file);
 
-  var convolved: Tensor<Float32> =
+  var convolved =
       nn.conv2d(input, convWeight, convBias);
-  var pooled: Tensor<Float32> = nn.maxPool2d(convolved, 2, 2);
-  var activated: Tensor<Float32> = nn.relu(pooled);
-  var features: Tensor<Float32> = tensor.reshape(activated, [1, 2880]);
-  var logits: Tensor<Float32> = nn.matadd(
+  var pooled = nn.maxPool2d(convolved, 2, 2);
+  var activated = nn.relu(pooled);
+  var features = tensor.reshape(activated, [1, 2880]);
+  var logits = nn.matadd(
       nn.matmul(features, classifierWeight), classifierBias);
-  var probabilities: Tensor<Float32> = nn.softmax(logits);
+  var probabilities = nn.softmax(logits);
 
   io.print(nn.argmax(probabilities));
   io.print(nn.argmax(reference));

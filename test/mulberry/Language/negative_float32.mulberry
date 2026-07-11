@@ -3,8 +3,8 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
 fn main(): UInt64 {
-  var x: Float32 = -1.25;
-  var values: Tensor<Float32> = tensor.from([-1.25, -2.5e1]);
+  var x = -1.25;
+  var values = tensor.from([-1.25, -2.5e1]);
 
   return 0;
 }

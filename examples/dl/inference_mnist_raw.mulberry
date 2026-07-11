@@ -10,29 +10,29 @@ fn main(): UInt64 {
   var b2h: Tensor<Float32> = tensor.zeros([10, 1]);
   var xh: Tensor<Float32> = tensor.zeros([784, 1]);
 
-  const w1File: File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb");
+  const w1File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb");
   io.read(w1File, w1h);
   io.close(w1File);
 
-  const b1File: File = io.open("data/mnist-784-30-10-raw/b1.f32", "rb");
+  const b1File = io.open("data/mnist-784-30-10-raw/b1.f32", "rb");
   io.read(b1File, b1h);
   io.close(b1File);
 
-  const w2File: File = io.open("data/mnist-784-30-10-raw/w2.f32", "rb");
+  const w2File = io.open("data/mnist-784-30-10-raw/w2.f32", "rb");
   io.read(w2File, w2h);
   io.close(w2File);
 
-  const b2File: File = io.open("data/mnist-784-30-10-raw/b2.f32", "rb");
+  const b2File = io.open("data/mnist-784-30-10-raw/b2.f32", "rb");
   io.read(b2File, b2h);
   io.close(b2File);
 
-  const xFile: File = io.open("data/mnist-784-30-10-raw/x.f32", "rb");
+  const xFile = io.open("data/mnist-784-30-10-raw/x.f32", "rb");
   io.read(xFile, xh);
   io.close(xFile);
 
-  var weights: List<Tensor<Float32>> = list.from([w1h, w2h]);
-  var biases: List<Tensor<Float32>> = list.from([b1h, b2h]);
-  var activation: Tensor<Float32> = xh;
+  var weights = list.from([w1h, w2h]);
+  var biases = list.from([b1h, b2h]);
+  var activation = xh;
 
   for layer in 0 .. weights.size() {
     activation = nn.sigmoid(nn.matadd(

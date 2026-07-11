@@ -6,47 +6,47 @@ import mulberry.nn;
 import safetensors;
 
 fn main(): UInt64 {
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("/tmp/mulberry_nn_cnn_minibatch.safetensors");
-  var convWeight: Tensor<Float32> =
+  var convWeight =
       safetensors.read(file, "conv1_weight");
-  var convBias: Tensor<Float32> = safetensors.read(file, "conv1_bias");
-  var classifierWeight: Tensor<Float32> =
+  var convBias = safetensors.read(file, "conv1_bias");
+  var classifierWeight =
       safetensors.read(file, "classifier_weight");
-  var classifierBias: Tensor<Float32> =
+  var classifierBias =
       safetensors.read(file, "classifier_bias");
-  var trainInput: Tensor<Float32> = safetensors.read(file, "train_input");
-  var trainLabel: Tensor<Float32> = safetensors.read(file, "train_label");
+  var trainInput = safetensors.read(file, "train_input");
+  var trainLabel = safetensors.read(file, "train_label");
   safetensors.close(file);
 
-  const parameters: nn.CnnParameters = nn.CnnParameters {
+  const parameters = nn.CnnParameters {
     convWeight, convBias, classifierWeight, classifierBias
   };
-  var train: nn.TensorDataset =
+  var train =
       nn.datasetFromBatches(trainInput, trainLabel);
-  const sampleCount: UInt64 = train.size();
-  const updated: nn.CnnParameters =
+  const sampleCount = train.size();
+  const updated =
       nn.cnnMiniBatchStep(parameters, train, 0, sampleCount, 0.001, 1.0);
 
-  var names: List<String> = list.from([
+  var names = list.from([
     "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias"
   ]);
-  var values: List<Tensor<Float32>> = list.from([
+  var values = list.from([
     updated.convWeight, updated.convBias,
     updated.classifierWeight, updated.classifierBias
   ]);
   safetensors.write("/tmp/mulberry_nn_cnn_checkpoint.safetensors",
                     names, values);
 
-  const checkpoint: safetensors.TensorFile =
+  const checkpoint =
       safetensors.open("/tmp/mulberry_nn_cnn_checkpoint.safetensors");
-  var savedConvWeight: Tensor<Float32> =
+  var savedConvWeight =
       safetensors.read(checkpoint, "conv1_weight");
-  var savedConvBias: Tensor<Float32> =
+  var savedConvBias =
       safetensors.read(checkpoint, "conv1_bias");
-  var savedClassifierWeight: Tensor<Float32> =
+  var savedClassifierWeight =
       safetensors.read(checkpoint, "classifier_weight");
-  var savedClassifierBias: Tensor<Float32> =
+  var savedClassifierBias =
       safetensors.read(checkpoint, "classifier_bias");
   safetensors.close(checkpoint);
 

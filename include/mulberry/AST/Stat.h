@@ -72,6 +72,8 @@ public:
 
   auto typeNode() const -> const TypeNode * { return _typeNode.get(); }
 
+  auto hasExplicitType() const -> bool { return _typeNode != nullptr; }
+
   auto setType(const Type *type) -> void { _type = type; }
 
   auto type() const -> const Type * { return _type; }

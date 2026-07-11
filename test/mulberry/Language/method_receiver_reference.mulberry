@@ -10,7 +10,7 @@ struct Counter {
 }
 
 fn main(): UInt64 {
-  var counter: Counter = Counter { 40 };
+  var counter = Counter { 40 };
   counter.bump();
   counter.bump();
   io.print(counter.value);

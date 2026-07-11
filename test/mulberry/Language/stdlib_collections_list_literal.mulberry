@@ -3,7 +3,7 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var xs: List<UInt64> = list.from([10, 20, 30]);
+  var xs = list.from([10, 20, 30]);
   io.print(xs[1]);
   return xs.size();
 }

@@ -3,11 +3,11 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var xs: Tensor<Float32> =
+  var xs =
       tensor.from([[[1.0], [2.0]], [[3.0], [4.0]], [[5.0], [6.0]]]);
-  var ys: Tensor<Float32> =
+  var ys =
       tensor.from([[[1.0], [0.0]], [[0.0], [1.0]], [[1.0], [0.0]]]);
-  var dataset: nn.TensorDataset = nn.datasetFromBatches(xs, ys);
+  var dataset = nn.datasetFromBatches(xs, ys);
 
   io.print(dataset.size());
   io.print(dataset.input(0).numel());

@@ -1,7 +1,7 @@
 # RUN: mulberry-driver %s -dump=mlir 2>&1 | FileCheck %s
 
 fn bar(x: UInt64, y: Bool): Bool {
-  var k: Bool = y;
+  var k = y;
 
   if k {
     k = false;

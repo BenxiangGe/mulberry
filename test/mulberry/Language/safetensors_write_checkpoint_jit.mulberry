@@ -3,18 +3,18 @@
 import safetensors;
 
 fn main(): UInt64 {
-  var a: Tensor<Float32> = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  var b: Tensor<Float32> = tensor.from([[5.0], [6.0]]);
-  var names: List<String> = list.from(["a", "b"]);
-  var values: List<Tensor<Float32>> = list.from([a, b]);
+  var a = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  var b = tensor.from([[5.0], [6.0]]);
+  var names = list.from(["a", "b"]);
+  var values = list.from([a, b]);
 
   safetensors.write("/tmp/mulberry_safetensors_write_checkpoint_jit.safetensors",
                     names, values);
 
-  const file: safetensors.TensorFile =
+  const file =
       safetensors.open("/tmp/mulberry_safetensors_write_checkpoint_jit.safetensors");
-  var readA: Tensor<Float32> = safetensors.read(file, "a");
-  var readB: Tensor<Float32> = safetensors.read(file, "b");
+  var readA = safetensors.read(file, "a");
+  var readB = safetensors.read(file, "b");
   safetensors.close(file);
 
   io.print(readA.numel());

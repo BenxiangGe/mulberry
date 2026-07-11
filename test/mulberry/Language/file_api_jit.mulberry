@@ -2,13 +2,13 @@
 
 fn main(): UInt64 {
   var outputBytes: Tensor<UInt8> = tensor.from([10, 20, 30, 40]);
-  const output: File = io.open("/tmp/mulberry_file_api_jit.bin", "wb");
+  const output = io.open("/tmp/mulberry_file_api_jit.bin", "wb");
   io.write(output, outputBytes);
   io.close(output);
 
   var inputTensor: Tensor<UInt8> = tensor.zeros([4]);
-  const input: File = io.open("/tmp/mulberry_file_api_jit.bin", "rb");
-  const count: UInt64 = io.read(input, inputTensor);
+  const input = io.open("/tmp/mulberry_file_api_jit.bin", "rb");
+  const count = io.read(input, inputTensor);
   io.close(input);
 
   io.print(count);

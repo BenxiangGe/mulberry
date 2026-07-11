@@ -182,13 +182,27 @@ private:
     for (auto &argument : origin->arguments()) {
       result += separator;
       if (argument.kind() == ComptimeTypeValue::Kind::Type)
-        result += formatType(argument.type());
+        result += formatSourceType(argument.type());
       else
         result += std::to_string(argument.uint64Value());
       separator = ", ";
     }
     result += ">";
     return result;
+  }
+
+  auto formatSourceType(const Type *type) -> std::string {
+    if (!type)
+      return "<pending>";
+
+    if (auto *arrayType = getArrayType(type))
+      return "Array<" + formatSourceType(arrayType->elementType()) + ", " +
+             std::to_string(arrayType->size()) + ">";
+    if (auto *ptrType = getPtrType(type))
+      return "Ptr<" + formatSourceType(ptrType->pointeeType()) + ">";
+    if (auto origin = formatOrigin(originOf(type)); !origin.empty())
+      return origin;
+    return formatType(type);
   }
 
   auto originOf(const Type *type) -> const ComptimeAliasOrigin * {
@@ -480,9 +494,13 @@ auto Dumper::dump(const VariableStat *node) -> void {
     errs() << "const ";
   else if (!node->canMutateObject())
     errs() << "readonly ";
-  errs() << "(id=" << id->name() << " " << loc(id)
-         << ") (type=" << formatTypeNode(typeNode) << " "
-         << loc(typeNode) << ")";
+  errs() << "(id=" << id->name() << " " << loc(id) << ") ";
+  if (typeNode) {
+    errs() << "(type=" << formatTypeNode(typeNode) << " " << loc(typeNode)
+           << ")";
+  } else {
+    errs() << "(inferredType=" << formatSourceType(node->type()) << ")";
+  }
   if (auto origin = formatOrigin(originOf(node->type())); !origin.empty())
     errs() << " origin=" << origin;
   errs() << "\n";

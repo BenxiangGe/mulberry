@@ -2,7 +2,7 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  var values: Array<Array<UInt64, 2>, 2> = [[1, 2], [3, 4]];
+  var values = [[1, 2], [3, 4]];
   values[0][1] = 40;
   io.print(values[0][0] + values[0][1] + values[1][0] + values[1][1]);
   return 0;

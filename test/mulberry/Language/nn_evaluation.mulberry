@@ -3,23 +3,23 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  var w1: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var w2: Tensor<Float32> = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
-  var b1: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
-  var b2: Tensor<Float32> = tensor.from([[0.0], [0.0]]);
+  var w1 = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var w2 = tensor.from([[1.0, 0.0], [0.0, 1.0]]);
+  var b1 = tensor.from([[0.0], [0.0]]);
+  var b2 = tensor.from([[0.0], [0.0]]);
 
-  var x0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
-  var x1: Tensor<Float32> = tensor.from([[0.0], [1.0]]);
-  var y0: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
-  var y1: Tensor<Float32> = tensor.from([[1.0], [0.0]]);
+  var x0 = tensor.from([[1.0], [0.0]]);
+  var x1 = tensor.from([[0.0], [1.0]]);
+  var y0 = tensor.from([[1.0], [0.0]]);
+  var y1 = tensor.from([[1.0], [0.0]]);
 
-  var weights: List<Tensor<Float32>> = list.from([w1, w2]);
-  var biases: List<Tensor<Float32>> = list.from([b1, b2]);
-  var xs: List<Tensor<Float32>> = list.from([x0, x1]);
-  var ys: List<Tensor<Float32>> = list.from([y0, y1]);
-  var dataset: nn.TensorDataset = nn.datasetFromLists(xs, ys);
+  var weights = list.from([w1, w2]);
+  var biases = list.from([b1, b2]);
+  var xs = list.from([x0, x1]);
+  var ys = list.from([y0, y1]);
+  var dataset = nn.datasetFromLists(xs, ys);
 
-  const evaluation: nn.Evaluation =
+  const evaluation =
       nn.evaluateDataset(weights, biases, dataset);
   io.print(evaluation.correct);
   io.print(evaluation.total);

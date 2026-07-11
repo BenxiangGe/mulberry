@@ -8,10 +8,10 @@ struct Pair {
 }
 
 fn main(): UInt64 {
-  const byteSize: UInt64 = sizeof(UInt8);
-  const scalarAlign: UInt64 = alignof(UInt64);
-  const pairSize: UInt64 = sizeof(Pair);
-  const pairAlign: UInt64 = alignof(Pair);
+  const byteSize = sizeof(UInt8);
+  const scalarAlign = alignof(UInt64);
+  const pairSize = sizeof(Pair);
+  const pairAlign = alignof(Pair);
   return byteSize + scalarAlign + pairSize + pairAlign;
 }
 

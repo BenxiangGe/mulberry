@@ -1,8 +1,8 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  var xs: List<UInt64> = list.from([10, 20, 30, 40]);
-  var ys: List<UInt64> = list.from([1, 2, 3, 4]);
+  var xs = list.from([10, 20, 30, 40]);
+  var ys = list.from([1, 2, 3, 4]);
 
   list.shufflePair(xs, ys, 123);
 

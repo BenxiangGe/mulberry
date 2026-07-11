@@ -1,9 +1,9 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
-  const five: Float32 = core.toFloat32(5);
-  const half: Float32 = 10.0 / core.toFloat32(4);
-  const byte: UInt8 = core.toUInt8(65);
+  const five = core.toFloat32(5);
+  const half = 10.0 / core.toFloat32(4);
+  const byte = core.toUInt8(65);
 
   io.print(core.boolToUInt64(five == 5.0));
   io.print(core.boolToUInt64(half == 2.5));
