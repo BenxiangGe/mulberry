@@ -194,6 +194,8 @@ private:
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
+  auto gen(const InterpolatedStringExpr *node) -> mlir::Value;
+  auto gen(const ObjectIdentityExpr *node) -> mlir::Value;
   auto genStringLiteralObject(const StringLiteralExpr *node,
                               mlir::mulberry_core::RecordType storageType)
       -> mlir::Value;
@@ -609,6 +611,12 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
   case Expr::Expr_StringLiteral:
     result = gen(cast<StringLiteralExpr>(node));
     break;
+  case Expr::Expr_InterpolatedString:
+    result = gen(cast<InterpolatedStringExpr>(node));
+    break;
+  case Expr::Expr_ObjectIdentity:
+    result = gen(cast<ObjectIdentityExpr>(node));
+    break;
   case Expr::Expr_CharLiteral:
     result = gen(cast<CharLiteralExpr>(node));
     break;
@@ -942,6 +950,61 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   return genStringLiteralObject(node, storageType);
 }
 
+auto MLIRGenImpl::gen(const InterpolatedStringExpr *node) -> mlir::Value {
+  auto &segments = node->segments();
+  if (segments.empty())
+    llvm_unreachable("interpolated String has no segments");
+
+  auto result = gen(segments.front().get());
+  if (segments.size() == 1)
+    return result;
+  if (!node->hasConcatFunctionName())
+    llvm_unreachable("interpolated String has no resolved concat function");
+
+  for (size_t index = 1; index < segments.size(); ++index) {
+    auto next = gen(segments[index].get());
+    auto call = genDeclaredLoweredCall(
+        node->concatFunctionName(), mlir::ValueRange{result, next}, loc(node));
+    result = call.getResult(0);
+  }
+  return result;
+}
+
+auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
+  auto calleeIter = findFunction(node->functionName());
+  if (calleeIter == _functionsByName.end()) {
+    ERR("object identity call `{0}` has no declared callee",
+        node->functionName());
+    return nullptr;
+  }
+
+  auto &callee = calleeIter->second;
+  if (!callee.isExtern)
+    llvm_unreachable("object identity helper must use the runtime ABI");
+
+  auto calleeType = callee.operation.getFunctionType();
+  if (calleeType.getNumInputs() != 2 || calleeType.getNumResults() != 1)
+    llvm_unreachable("object identity helper has an invalid signature");
+
+  StringLiteralExpr typeName(node->location(), std::string(node->typeName()));
+  typeName.setType(node->type());
+  auto typeNameValue =
+      genCallArgumentValue(&typeName, calleeType.getInput(0), true);
+
+  auto objectReference = genObjectReference(node->value().get());
+  auto objectPointer = castToType(objectReference, calleeType.getInput(1),
+                                  loc(node));
+  if (!objectPointer)
+    llvm_unreachable("object identity reference cannot use runtime ABI");
+
+  DBG("format object identity `{0}` through `{1}`", node->typeName(),
+      node->functionName());
+  auto call = mlir::func::CallOp::create(
+      _builder, loc(node), node->functionName(), calleeType.getResults(),
+      mlir::ValueRange{typeNameValue, objectPointer});
+  return boxExternObjectResult(call.getResult(0), node->type(), loc(node));
+}
+
 auto MLIRGenImpl::genStringLiteralObject(
     const StringLiteralExpr *node,
     mlir::mulberry_core::RecordType storageType) -> mlir::Value {
@@ -1086,6 +1149,12 @@ auto MLIRGenImpl::getStructField(const MemberExpr *memberExpr) const
 auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   using Operator = BinaryExpr::Operator;
   auto op = node->opEnum();
+
+  if (node->hasFunctionName()) {
+    const Expr *arguments[] = {node->lhs().get(), node->rhs().get()};
+    return genDeclaredCall(node->functionName(), arguments, loc(node))
+        .getResult(0);
+  }
 
   auto lhs =
       castToType(gen(node->lhs().get()),
@@ -1695,21 +1764,9 @@ auto MLIRGenImpl::genCallArgumentValue(const Expr *expr,
 }
 
 auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
-  switch (expr->literalKind()) {
-  case ArrayLiteralExpr::LiteralKind::Array: {
-    auto arrayType =
-        llvm::cast<mlir::mulberry_core::RecordType>(getLayoutMLIRType(expr));
-    return genArrayLiteralObject(expr, arrayType);
-  }
-  case ArrayLiteralExpr::LiteralKind::Unknown:
-    break;
-  }
-
-  auto type = getLayoutMLIRType(expr);
-  if (auto arrayType = llvm::dyn_cast<mlir::mulberry_core::RecordType>(type))
-    return genArrayLiteralObject(expr, arrayType);
-
-  llvm_unreachable("array literal must lower to array");
+  auto arrayType =
+      llvm::cast<mlir::mulberry_core::RecordType>(getLayoutMLIRType(expr));
+  return genArrayLiteralObject(expr, arrayType);
 }
 
 auto MLIRGenImpl::genArrayLiteralObject(

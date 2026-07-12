@@ -1,0 +1,20 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  const hello = "hello";
+  const message = hello + ", " + "Mulberry";
+  io.writeText(message);
+  io.writeText("\n");
+  return 0;
+}
+
+# AST: BinaryExpr {{.*}}type=std.string.String op=`+` callee=std.string.concat
+# AST: BinaryExpr {{.*}}type=std.string.String op=`+` callee=std.string.concat
+
+# MLIR-COUNT-2: call @std.string.concat
+# MLIR: call @std.io.writeText
+
+# JIT: hello, Mulberry

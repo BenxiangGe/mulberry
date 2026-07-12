@@ -5,7 +5,7 @@ fn main(): UInt64 {
   var xs: UInt64[3] = [1, 2, 3];
 
   for i in 0 .. 3 {
-    io.print(i);
+    io.println(i);
   }
 
   return 0;
@@ -16,7 +16,7 @@ fn main(): UInt64 {
 # CHECK-SAME: variable=i
 # CHECK: bodyBlock:
 # CHECK-NEXT: CallExpr
-# CHECK-SAME: callee=std.io.print
+# CHECK-SAME: callee=std_io_println__UInt64
 # CHECK-NEXT: VariableExpr
 # CHECK-SAME: type=UInt64
 # CHECK-SAME: name=i

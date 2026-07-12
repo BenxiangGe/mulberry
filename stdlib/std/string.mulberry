@@ -1,8 +1,53 @@
 package std.string;
 
+import core;
 import internal.ptr;
 
 struct String {
   length: UInt64,
   data: Ptr<UInt8>
+}
+
+extern fn mulberry_string_from_bool(value: Bool): String;
+extern fn mulberry_string_from_u8(value: UInt8): String;
+extern fn mulberry_string_from_u64(value: UInt64): String;
+extern fn mulberry_string_from_f32(value: Float32): String;
+extern fn mulberry_string_object_identity(typeName: String,
+                                          object: Ptr<UInt8>): String;
+
+fn fromBool(value: Bool): String {
+  return mulberry_string_from_bool(value);
+}
+
+fn fromUInt8(value: UInt8): String {
+  return mulberry_string_from_u8(value);
+}
+
+fn fromUInt64(value: UInt64): String {
+  return mulberry_string_from_u64(value);
+}
+
+fn fromFloat32(value: Float32): String {
+  return mulberry_string_from_f32(value);
+}
+
+fn concat(left: String, right: String): String {
+  const length = left.length + right.length;
+  var data = heap.alloc<UInt8>(length + 1);
+
+  var index = 0;
+  while index < left.length {
+    data[index] = left.data[index];
+    index = index + 1;
+  }
+
+  index = 0;
+  while index < right.length {
+    data[left.length + index] = right.data[index];
+    index = index + 1;
+  }
+
+  const nul = core.toUInt8(0);
+  data[length] = nul;
+  return String { length, data };
 }

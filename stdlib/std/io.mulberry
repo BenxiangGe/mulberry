@@ -15,13 +15,22 @@ extern fn mulberry_file_seek(file: Ptr<UInt8>, offset: UInt64): UInt64;
 extern fn mulberry_file_tell(file: Ptr<UInt8>): UInt64;
 extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
-extern fn printU64(value: UInt64): ();
-extern fn printNewline(): ();
+extern fn writeString(value: String): ();
 
-fn print(value: UInt64): UInt64 {
-  printU64(value);
-  printNewline();
-  return 0;
+fn writeText(value: String): () {
+  writeString(value);
+  return;
+}
+
+fn print<T>(value: T): () {
+  writeText("{$value}");
+  return;
+}
+
+fn println<T>(value: T): () {
+  print(value);
+  writeText("\n");
+  return;
 }
 
 fn open(path: String, mode: String): File {

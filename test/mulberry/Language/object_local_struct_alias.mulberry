@@ -9,7 +9,7 @@ fn main(): UInt64 {
   var a = Counter { 1 };
   var b = a;
   b.value = 42;
-  io.print(a.value);
+  io.println(a.value);
   return 0;
 }
 

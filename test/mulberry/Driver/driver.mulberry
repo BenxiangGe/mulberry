@@ -26,10 +26,10 @@ fn bar(x: UInt64, y: Bool): B {
   var k = y;
   
   if k {
-    io.print(18446744073709551615);
+    io.println(18446744073709551615);
     k = false;
   } else {
-    io.print(1);
+    io.println(1);
     k = true;
   }
 
@@ -50,7 +50,7 @@ fn main(): UInt64 {
   true and false or true == false != true;
 
   var structValue = bar(18446744073709551615, false);
-  io.print(boolToUInt64(structValue.x));
+  io.println(boolToUInt64(structValue.x));
   baz();
   return 0;
 }

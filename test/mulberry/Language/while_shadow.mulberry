@@ -3,15 +3,15 @@
 fn main(): UInt64 {
   var value = 3;
   var keepGoing = true;
-  io.print(value);
+  io.println(value);
 
   while keepGoing {
     var value = 4;
-    io.print(value);
+    io.println(value);
     keepGoing = false;
   }
 
-  io.print(value);
+  io.println(value);
   return 0;
 }
 

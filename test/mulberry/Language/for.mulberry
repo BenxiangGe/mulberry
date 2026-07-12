@@ -8,7 +8,7 @@ fn main(): UInt64 {
     sum = sum + xs[i];
   }
 
-  io.print(sum);
+  io.println(sum);
   return 0;
 }
 

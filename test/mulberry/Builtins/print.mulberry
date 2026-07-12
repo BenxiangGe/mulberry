@@ -1,10 +1,10 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  io.print(10);
+  io.println(10);
   return 0;
 }
 
-# CHECK: call @std.io.print
+# CHECK: call @std_io_println__UInt64
 # CHECK-SAME: i64
 # CHECK-NOT: cir.

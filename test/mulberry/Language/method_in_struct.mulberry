@@ -11,7 +11,7 @@ comptime BoxStorage<T> = struct {
 
 fn main(): UInt64 {
   var box: BoxStorage<UInt64> = BoxStorage<UInt64> { 42 };
-  io.print(box.get());
+  io.println(box.get());
   return 0;
 }
 

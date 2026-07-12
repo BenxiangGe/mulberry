@@ -1,0 +1,90 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Point {
+  x: UInt64,
+  y: UInt64,
+
+  pub fn toString(self: Point): String {
+    return "Point({$self.x}, {$self.y})";
+  }
+}
+
+struct Plain {
+  value: UInt64
+}
+
+comptime Box<T> = struct {
+  value: T,
+
+  pub fn toString(self: Box<T>): String {
+    return "Box({$self.value})";
+  }
+};
+
+comptime PlainBox<T> = struct {
+  value: T
+};
+
+fn decorate<T>(value: T): String {
+  return "<{$value}>";
+}
+
+fn main(): UInt64 {
+  const truth = true;
+  const byte = core.toUInt8(7);
+  const count = 18446744073709551615;
+  const loss = 3.5;
+  const point = Point { 4, 9 };
+  const plain = Plain { 11 };
+  const alias = plain;
+  const values = [1, 2];
+  const box: Box<UInt64> = Box<UInt64> { 12 };
+  const plainBox: PlainBox<UInt64> = PlainBox<UInt64> { 13 };
+
+  io.writeText("scalars {$truth} {$byte} {$count} {$loss}");
+  io.writeText("\n");
+  io.writeText("custom {$point}");
+  io.writeText("\n");
+  io.writeText("count=" + count + ", point=" + point);
+  io.writeText("\n");
+  io.writeText("plain " + plain);
+  io.writeText("\n");
+  io.writeText("alias {$alias}");
+  io.writeText("\n");
+  io.writeText("array {$values}");
+  io.writeText("\n");
+  io.writeText("generic " + decorate(count) + " " + decorate(point));
+  io.writeText("\n");
+  io.writeText("boxes {$box} {$plainBox}");
+  io.writeText("\n");
+  return 0;
+}
+
+# AST: CallExpr {{.*}}callee=std.string.fromBool
+# AST: CallExpr {{.*}}callee=std.string.fromUInt8
+# AST: CallExpr {{.*}}callee=std.string.fromUInt64
+# AST: CallExpr {{.*}}callee=std.string.fromFloat32
+# AST: CallExpr {{.*}}callee=Point.toString
+# AST: ObjectIdentityExpr {{.*}}objectType=Plain callee=mulberry_string_object_identity
+# AST: ObjectIdentityExpr {{.*}}objectType=Array<UInt64, 2> callee=mulberry_string_object_identity
+# AST: CallExpr {{.*}}callee=Box_toString__UInt64
+# AST: ObjectIdentityExpr {{.*}}objectType=PlainBox<UInt64> callee=mulberry_string_object_identity
+
+# MLIR: call @std.string.fromBool
+# MLIR: call @std.string.fromUInt8
+# MLIR: call @std.string.fromUInt64
+# MLIR: call @std.string.fromFloat32
+# MLIR: call @Point.toString
+# MLIR: call @mulberry_string_object_identity
+
+# JIT: scalars true 7 18446744073709551615 3.5
+# JIT-NEXT: custom Point(4, 9)
+# JIT-NEXT: count=18446744073709551615, point=Point(4, 9)
+# JIT-NEXT: plain Plain@0x[[IDENTITY:[0-9a-f]+]]
+# JIT-NEXT: alias Plain@0x[[IDENTITY]]
+# JIT-NEXT: array Array<UInt64, 2>@0x{{[0-9a-f]+}}
+# JIT-NEXT: generic <18446744073709551615> <Point(4, 9)>
+# JIT-NEXT: boxes Box(12) PlainBox<UInt64>@0x{{[0-9a-f]+}}

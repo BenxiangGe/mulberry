@@ -14,9 +14,9 @@ fn bumpSecond(mut xs: UInt64[3]): UInt64 {
 
 fn main(): UInt64 {
   var xs = [7, 8, 9];
-  io.print(sum(xs));
-  io.print(bumpSecond(xs));
-  io.print(xs[1]);
+  io.println(sum(xs));
+  io.println(bumpSecond(xs));
+  io.println(xs[1]);
   return 0;
 }
 

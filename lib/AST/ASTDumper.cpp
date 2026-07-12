@@ -71,6 +71,8 @@ private:
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
+  auto dump(const InterpolatedStringExpr *node) -> void;
+  auto dump(const ObjectIdentityExpr *node) -> void;
   auto dump(const CharLiteralExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
@@ -327,9 +329,10 @@ auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            CharLiteralExpr, TypeLayoutExpr, HeapAllocExpr,
-            ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
-            AssignExpr, BinaryExpr>(
+            InterpolatedStringExpr, ObjectIdentityExpr, CharLiteralExpr,
+            TypeLayoutExpr,
+            HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr,
+            MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -422,6 +425,27 @@ auto Dumper::dump(const StringLiteralExpr *node) -> void {
          << " value=\"" << node->value() << "\"\n";
 }
 
+auto Dumper::dump(const InterpolatedStringExpr *node) -> void {
+  INDENT();
+  errs() << "InterpolatedStringExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " segments=" << node->segments().size();
+  if (node->hasConcatFunctionName())
+    errs() << " callee=" << node->concatFunctionName();
+  errs() << "\n";
+  for (auto &segment : node->segments())
+    dump(segment.get());
+}
+
+auto Dumper::dump(const ObjectIdentityExpr *node) -> void {
+  INDENT();
+  errs() << "ObjectIdentityExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " objectType=" << node->typeName()
+         << " callee=" << node->functionName() << "\n";
+  dump(node->value().get());
+}
+
 auto Dumper::dump(const CharLiteralExpr *node) -> void {
   INDENT();
   errs() << "CharLiteralExpr " << loc(node)
@@ -472,7 +496,10 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
   errs() << "BinaryExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " op=`"
-         << node->op() << "`\n";
+         << node->op() << "`";
+  if (node->hasFunctionName())
+    errs() << " callee=" << node->functionName();
+  errs() << "\n";
   dump(node->lhs().get());
   dump(node->rhs().get());
 }

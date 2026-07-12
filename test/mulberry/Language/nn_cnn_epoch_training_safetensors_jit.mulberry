@@ -63,26 +63,26 @@ fn main(): UInt64 {
 
   const sampleCount = train.size();
   const totalBatches = nn.batchCount(sampleCount, batchSize);
-  io.print(sampleCount);
-  io.print(totalBatches);
-  io.print(epochs);
-  io.print(totalBatches * epochs);
-  io.print(beforeTrain.correct);
-  io.print(beforeTrain.total);
-  io.print(beforeTrain.accuracyBasisPoints);
-  io.print(afterTrain.correct);
-  io.print(afterTrain.total);
-  io.print(afterTrain.accuracyBasisPoints);
-  io.print(beforeTest.correct);
-  io.print(beforeTest.total);
-  io.print(beforeTest.accuracyBasisPoints);
-  io.print(afterTest.correct);
-  io.print(afterTest.total);
-  io.print(afterTest.accuracyBasisPoints);
-  io.print(parameters.convWeight.numel());
-  io.print(parameters.convBias.numel());
-  io.print(parameters.classifierWeight.numel());
-  io.print(parameters.classifierBias.numel());
+  io.println(sampleCount);
+  io.println(totalBatches);
+  io.println(epochs);
+  io.println(totalBatches * epochs);
+  io.println(beforeTrain.correct);
+  io.println(beforeTrain.total);
+  io.println(beforeTrain.accuracyBasisPoints);
+  io.println(afterTrain.correct);
+  io.println(afterTrain.total);
+  io.println(afterTrain.accuracyBasisPoints);
+  io.println(beforeTest.correct);
+  io.println(beforeTest.total);
+  io.println(beforeTest.accuracyBasisPoints);
+  io.println(afterTest.correct);
+  io.println(afterTest.total);
+  io.println(afterTest.accuracyBasisPoints);
+  io.println(parameters.convWeight.numel());
+  io.println(parameters.convBias.numel());
+  io.println(parameters.classifierWeight.numel());
+  io.println(parameters.classifierBias.numel());
   return 0;
 }
 

@@ -8,7 +8,7 @@ comptime Pair<T, U> = struct {
 
 fn main(): UInt64 {
   var pair: Pair<UInt64, Float32> = Pair<UInt64, Float32> { 42, 1.5 };
-  io.print(pair.first);
+  io.println(pair.first);
   return 0;
 }
 

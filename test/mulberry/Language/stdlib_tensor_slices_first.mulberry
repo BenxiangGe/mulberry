@@ -8,10 +8,10 @@ fn main(): UInt64 {
   const second = samples[1];
   const third = samples[2];
 
-  io.print(samples.size());
-  io.print(first.numel());
-  io.print(core.boolToUInt64(second[1, 0] > 3.5));
-  io.print(core.boolToUInt64(third[0, 0] > 4.5));
+  io.println(samples.size());
+  io.println(first.numel());
+  io.println(core.boolToUInt64(second[1, 0] > 3.5));
+  io.println(core.boolToUInt64(third[0, 0] > 4.5));
   return 0;
 }
 

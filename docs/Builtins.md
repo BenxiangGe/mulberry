@@ -15,7 +15,8 @@
 
 ## Functions  
 
-- `io.print(...)`
+- `io.print<T>(T): ()`
+- `io.println<T>(T): ()`
 - `boolToUInt64(Bool): UInt64`
 - `core.toUInt64(UInt8): UInt64`
 - `core.toUInt8(UInt64): UInt8`

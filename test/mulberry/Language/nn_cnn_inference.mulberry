@@ -24,9 +24,9 @@ fn main(): UInt64 {
   var scores = nn.matmul(features, classifier);
   var probabilities = nn.softmax(scores);
 
-  io.print(convolved.dim(2));
-  io.print(pooled.dim(2));
-  io.print(nn.argmax(probabilities));
+  io.println(convolved.dim(2));
+  io.println(pooled.dim(2));
+  io.println(nn.argmax(probabilities));
   return 0;
 }
 

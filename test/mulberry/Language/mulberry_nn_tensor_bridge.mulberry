@@ -10,20 +10,20 @@ fn main(): UInt64 {
   var product = nn.matmul(left, right);
   var shifted = nn.matadd(product, bias);
   var activated = nn.sigmoid(shifted);
-  io.print(nn.argmax(activated));
+  io.println(nn.argmax(activated));
 
   var restored = nn.matsub(shifted, bias);
   var squared = nn.hadamard(restored, product);
-  io.print(nn.argmax(squared));
+  io.println(nn.argmax(squared));
 
   var transposed = nn.transpose(right);
   var scaled = nn.matscale(transposed, 2.0);
   var exponentials = nn.exp(scaled);
-  io.print(nn.argmax(exponentials));
+  io.println(nn.argmax(exponentials));
 
   var primeInput = tensor.from([[0.0], [1.0]]);
   var prime = nn.sigmoidPrime(primeInput);
-  io.print(nn.argmax(prime));
+  io.println(nn.argmax(prime));
 
   return 0;
 }

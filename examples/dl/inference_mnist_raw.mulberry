@@ -40,6 +40,6 @@ fn main(): UInt64 {
         biases[layer]));
   }
 
-  io.print(nn.argmax(activation));
+  io.println(nn.argmax(activation));
   return 0;
 }

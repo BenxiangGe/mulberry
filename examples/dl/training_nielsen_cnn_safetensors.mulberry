@@ -58,17 +58,17 @@ fn main(): UInt64 {
   safetensors.write("/tmp/mulberry_nielsen_cnn_trained.safetensors",
                     names, values);
 
-  io.print(train.size());
-  io.print(test.size());
-  io.print(nn.batchCount(train.size(), batchSize));
-  io.print(epochs);
-  io.print(beforeTrain.correct);
-  io.print(beforeTrain.accuracyBasisPoints);
-  io.print(afterTrain.correct);
-  io.print(afterTrain.accuracyBasisPoints);
-  io.print(beforeTest.correct);
-  io.print(beforeTest.accuracyBasisPoints);
-  io.print(afterTest.correct);
-  io.print(afterTest.accuracyBasisPoints);
+  io.println(train.size());
+  io.println(test.size());
+  io.println(nn.batchCount(train.size(), batchSize));
+  io.println(epochs);
+  io.println(beforeTrain.correct);
+  io.println(beforeTrain.accuracyBasisPoints);
+  io.println(afterTrain.correct);
+  io.println(afterTrain.accuracyBasisPoints);
+  io.println(beforeTest.correct);
+  io.println(beforeTest.accuracyBasisPoints);
+  io.println(afterTest.correct);
+  io.println(afterTest.accuracyBasisPoints);
   return 0;
 }

@@ -9,9 +9,9 @@ fn main(): UInt64 {
   var matrix = tensor.from(values);
   var bytes = tensor.from([10, 20, 30]);
 
-  io.print(matrix.numel());
-  io.print(boolToUInt64(matrix[1, 1] > 3.5));
-  io.print(bytes[2]);
+  io.println(matrix.numel());
+  io.println(boolToUInt64(matrix[1, 1] > 3.5));
+  io.println(bytes[2]);
   return 0;
 }
 

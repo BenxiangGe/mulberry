@@ -4,9 +4,9 @@ fn main(): UInt64 {
   var values = list.from([10, 20, 30]);
   values.swap(0, 2);
 
-  io.print(values[0]);
-  io.print(values[1]);
-  io.print(values[2]);
+  io.println(values[0]);
+  io.println(values[1]);
+  io.println(values[2]);
   return 0;
 }
 

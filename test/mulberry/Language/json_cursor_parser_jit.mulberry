@@ -13,17 +13,17 @@ fn main(): UInt64 {
   ]);
   var parser = json.Parser { text, 0, 25 };
   parser.consumeChar('{');
-  io.print(boolToUInt64(parser.stringEquals("a")));
+  io.println(boolToUInt64(parser.stringEquals("a")));
   parser.consumeChar(':');
   var values = parser.parseIntegerArray();
-  io.print(values.size());
-  io.print(values[0]);
-  io.print(values[1]);
+  io.println(values.size());
+  io.println(values[0]);
+  io.println(values[1]);
   parser.consumeChar(',');
-  io.print(boolToUInt64(parser.stringEquals("b")));
+  io.println(boolToUInt64(parser.stringEquals("b")));
   parser.consumeChar(':');
   parser.skipValue();
-  io.print(parser.position);
+  io.println(parser.position);
   return 0;
 }
 

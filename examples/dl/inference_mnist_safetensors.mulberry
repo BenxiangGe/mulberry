@@ -19,6 +19,6 @@ fn main(): UInt64 {
   var weights = list.from([w1, w2]);
   var biases = list.from([b1, b2]);
 
-  io.print(nn.predict(weights, biases, x));
+  io.println(nn.predict(weights, biases, x));
   return 0;
 }

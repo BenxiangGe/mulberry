@@ -26,11 +26,11 @@ fn main(): UInt64 {
 
   const matrix = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
 
-  io.print(result.value);
-  io.print(values[0] + values[1] + values[2]);
-  io.print(numbers[2]);
-  io.print(numberCount);
-  io.print(matrix.numel());
+  io.println(result.value);
+  io.println(values[0] + values[1] + values[2]);
+  io.println(numbers[2]);
+  io.println(numberCount);
+  io.println(matrix.numel());
   return 0;
 }
 

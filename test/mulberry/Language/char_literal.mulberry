@@ -8,12 +8,12 @@ fn id(value: Char): Char {
 }
 
 fn main(): UInt64 {
-  io.print(core.toUInt64(id('A')));
-  io.print(core.toUInt64('\n'));
-  io.print(core.toUInt64('\t'));
-  io.print(core.toUInt64('\''));
-  io.print(core.toUInt64('"'));
-  io.print(core.toUInt64('\\'));
+  io.println(core.toUInt64(id('A')));
+  io.println(core.toUInt64('\n'));
+  io.println(core.toUInt64('\t'));
+  io.println(core.toUInt64('\''));
+  io.println(core.toUInt64('"'));
+  io.println(core.toUInt64('\\'));
   return 0;
 }
 

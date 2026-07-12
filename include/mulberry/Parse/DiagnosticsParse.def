@@ -30,6 +30,10 @@ ERROR(unexpected_const_parameter_modifier,
 ERROR(integer_literal_overflows, "integer literal overflows")
 ERROR(float_literal_invalid, "invalid Float32 literal")
 ERROR(string_literal_invalid, "invalid String literal")
+ERROR(expected_string_interpolation_access,
+      "expected variable or integer index in String interpolation")
+ERROR(invalid_string_interpolation_access,
+      "String interpolation only accepts variable/member/index access")
 
 // ___________________________________________________________________________
 #undef ERROR

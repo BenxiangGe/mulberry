@@ -14,13 +14,13 @@ struct C {
 
 fn main(): UInt64 {
   var c = C { B { A {}, 2 }, 1 };
-  io.print(c.x);
+  io.println(c.x);
   c.x = 11;
-  io.print(c.x);
+  io.println(c.x);
 
-  io.print(c.b.y);
+  io.println(c.b.y);
   c.b.y = 22;
-  io.print(c.b.y);
+  io.println(c.b.y);
   return 0;
 }
 
@@ -29,5 +29,5 @@ fn main(): UInt64 {
 # CHECK-SAME: !mulberry_core.record<A {}
 # CHECK: mulberry_core.record.get_field
 # CHECK: mulberry_core.store
-# CHECK: call @std.io.print
+# CHECK: call @std_io_println__UInt64
 # CHECK-NOT: cir.

@@ -27,8 +27,8 @@ fn main(): UInt64 {
       nn.matmul(features, classifierWeight), classifierBias);
   var probabilities = nn.softmax(logits);
 
-  io.print(nn.argmax(probabilities));
-  io.print(nn.argmax(reference));
-  io.print(nn.argmax(label));
+  io.println(nn.argmax(probabilities));
+  io.println(nn.argmax(reference));
+  io.println(nn.argmax(label));
   return 0;
 }

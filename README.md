@@ -61,7 +61,7 @@ fn main(): UInt64 {
 
   xs[1] = 40;
   values.push(40);
-  io.print(matrix.numel());
+  io.println(matrix.numel());
 
   return p.x + xs[1] + values.size();
 }
@@ -88,7 +88,7 @@ object、Tensor view/pack 等 lowering bridge。这是内部 IR，不是用户 s
 当前 stdlib 主要放在 `stdlib/std`：
 
 - `core`：基础转换函数，例如 `toUInt64()`、`toUInt8()`、`toFloat32()`。
-- `io`：`print()`、`File`、`open()` / `close()`、Tensor byte read/write。
+- `io`：generic `print()` / `println()`、`File`、`open()` / `close()`、Tensor byte read/write。
 - `string`：source-level `String` object。
 - `list`：`List<T>`、`withCapacity()`、`from()`、`push()`、`size()`、`shufflePair()`。
 - `tensor`：`Tensor<T>`、`zeros()`、`from()`、`sliceFirst()`、`slicesFirst()`。
@@ -97,7 +97,7 @@ object、Tensor view/pack 等 lowering bridge。这是内部 IR，不是用户 s
 - `random`：当前训练示例使用的 deterministic LCG。
 
 `stdlib/prelude.mulberry` 默认 import 常用 stdlib package 和类型，所以普通用户程序可以
-直接写 `List<T>`、`Tensor<T>`、`String`、`File`、`io.print(...)`、`tensor.zeros(...)` 等。
+直接写 `List<T>`、`Tensor<T>`、`String`、`File`、`io.println(...)`、`tensor.zeros(...)` 等。
 
 ## 神经网络 Package
 
@@ -239,6 +239,8 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 
 - [Builtins](docs/Builtins.md)
 - [Grammar](docs/Grammar.md)
+- [数值类型设计](docs/NumericTypes.md)
+- [String、字符串插值与输出设计](docs/StringFormatting.md)
 - [Deep learning examples](examples/dl/README.md)
 - [Nielsen CNN 性能基线](docs/CnnPerformance.md)
 

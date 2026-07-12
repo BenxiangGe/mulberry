@@ -15,7 +15,7 @@ fn main(): UInt64 {
     }
     sum = sum + i;
   }
-  io.print(sum);
+  io.println(sum);
   return 0;
 }
 

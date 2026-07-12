@@ -30,6 +30,8 @@ public:
     Expr_FloatLiteral,
     Expr_BoolLiteral,
     Expr_StringLiteral,
+    Expr_InterpolatedString,
+    Expr_ObjectIdentity,
     Expr_CharLiteral,
     Expr_ArrayLiteral,
     Expr_Index,

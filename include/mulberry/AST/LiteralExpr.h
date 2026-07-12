@@ -85,6 +85,73 @@ private:
   std::string _value;
 };
 
+class InterpolatedStringExpr final : public Expr {
+public:
+  InterpolatedStringExpr(llvm::SMLoc location,
+                         VectorUniquePtr<Expr> segments)
+      : Expr{Expr_InterpolatedString, location},
+        _segments(std::move(segments)) {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_InterpolatedString;
+  }
+
+  // Text remains a StringLiteralExpr; embedded values keep their normal
+  // VariableExpr/MemberExpr/IndexExpr shape.
+  auto segments() const -> const VectorUniquePtr<Expr> & { return _segments; }
+
+  auto segments() -> VectorUniquePtr<Expr> & { return _segments; }
+
+  auto hasConcatFunctionName() const -> bool {
+    return !_concatFunctionName.empty();
+  }
+
+  auto concatFunctionName() const -> std::string_view {
+    return _concatFunctionName;
+  }
+
+  auto setConcatFunctionName(std::string_view functionName) -> void {
+    _concatFunctionName = functionName;
+  }
+
+private:
+  VectorUniquePtr<Expr> _segments;
+  std::string _concatFunctionName;
+};
+
+// Sema inserts this node only for the default object stringification path.
+// The source object remains a reference; MLIRGen adapts it to the hidden
+// runtime pointer ABI without exposing Ptr<T> in Mulberry source.
+class ObjectIdentityExpr final : public Expr {
+public:
+  explicit ObjectIdentityExpr(llvm::SMLoc location,
+                              std::unique_ptr<Expr> value)
+      : Expr{Expr_ObjectIdentity, location}, _value(std::move(value)) {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_ObjectIdentity;
+  }
+
+  auto value() const -> const std::unique_ptr<Expr> & { return _value; }
+
+  auto typeName() const -> std::string_view { return _typeName; }
+
+  auto setTypeName(std::string_view typeName) -> void {
+    _typeName = typeName;
+  }
+
+  auto functionName() const -> std::string_view { return _functionName; }
+
+  auto setFunctionName(std::string_view functionName) -> void {
+    _functionName = functionName;
+  }
+
+private:
+  std::unique_ptr<Expr> _value;
+  std::string _typeName;
+  std::string _functionName;
+};
+
 class CharLiteralExpr final : public Expr {
 public:
   explicit CharLiteralExpr(llvm::SMLoc location, uint8_t value)

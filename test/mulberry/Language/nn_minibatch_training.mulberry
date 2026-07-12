@@ -53,9 +53,9 @@ fn main(): UInt64 {
   const evaluation =
       nn.evaluateDataset(finalWeights, finalBiases, dataset);
 
-  io.print(nn.predict(finalWeights, finalBiases, dataset.input(0)));
-  io.print(nn.predict(finalWeights, finalBiases, dataset.input(1)));
-  io.print(evaluation.correct);
+  io.println(nn.predict(finalWeights, finalBiases, dataset.input(0)));
+  io.println(nn.predict(finalWeights, finalBiases, dataset.input(1)));
+  io.println(evaluation.correct);
 
   return 0;
 }

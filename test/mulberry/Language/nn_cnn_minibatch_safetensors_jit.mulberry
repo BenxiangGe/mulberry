@@ -50,23 +50,23 @@ fn main(): UInt64 {
       safetensors.read(checkpoint, "classifier_bias");
   safetensors.close(checkpoint);
 
-  io.print(sampleCount);
-  io.print(classifierWeight.dim(0));
-  io.print(updated.convWeight.numel());
-  io.print(updated.convBias.numel());
-  io.print(updated.classifierWeight.numel());
-  io.print(updated.classifierBias.numel());
-  io.print(savedConvWeight.numel());
-  io.print(savedConvBias.numel());
-  io.print(savedClassifierWeight.numel());
-  io.print(savedClassifierBias.numel());
-  io.print(core.boolToUInt64(
+  io.println(sampleCount);
+  io.println(classifierWeight.dim(0));
+  io.println(updated.convWeight.numel());
+  io.println(updated.convBias.numel());
+  io.println(updated.classifierWeight.numel());
+  io.println(updated.classifierBias.numel());
+  io.println(savedConvWeight.numel());
+  io.println(savedConvBias.numel());
+  io.println(savedClassifierWeight.numel());
+  io.println(savedClassifierBias.numel());
+  io.println(core.boolToUInt64(
       savedConvWeight[0, 0, 0, 0] == updated.convWeight[0, 0, 0, 0]));
-  io.print(core.boolToUInt64(
+  io.println(core.boolToUInt64(
       savedConvBias[0] == updated.convBias[0]));
-  io.print(core.boolToUInt64(
+  io.println(core.boolToUInt64(
       savedClassifierWeight[0, 0] == updated.classifierWeight[0, 0]));
-  io.print(core.boolToUInt64(
+  io.println(core.boolToUInt64(
       savedClassifierBias[0, 0] == updated.classifierBias[0, 0]));
   return 0;
 }

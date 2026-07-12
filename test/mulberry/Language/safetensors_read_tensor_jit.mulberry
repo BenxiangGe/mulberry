@@ -9,18 +9,18 @@ fn main(): UInt64 {
   var w1 = safetensors.readTensor(file, "w1");
   io.close(file);
 
-  io.print(x.numel());
-  io.print(x.ndim());
-  io.print(x.dim(0));
-  io.print(x.dim(1));
-  io.print(x.stride(0));
-  io.print(x.stride(1));
-  io.print(w1.numel());
-  io.print(w1.ndim());
-  io.print(w1.dim(0));
-  io.print(w1.dim(1));
-  io.print(w1.stride(0));
-  io.print(w1.stride(1));
+  io.println(x.numel());
+  io.println(x.ndim());
+  io.println(x.dim(0));
+  io.println(x.dim(1));
+  io.println(x.stride(0));
+  io.println(x.stride(1));
+  io.println(w1.numel());
+  io.println(w1.ndim());
+  io.println(w1.dim(0));
+  io.println(w1.dim(1));
+  io.println(w1.stride(0));
+  io.println(w1.stride(1));
   return 0;
 }
 

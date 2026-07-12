@@ -39,6 +39,9 @@ Lexer::Lexer(const llvm::SourceMgr &sourceMgr, unsigned bufferID) {
 auto Lexer::lexToken() -> Token {
   while (true) {
   Restart:
+    if (atEnd())
+      return formToken(Token::eof, _curPtr);
+
     const char *tokStart = _curPtr;
     switch (*_curPtr++) {
     default:
@@ -53,8 +56,6 @@ auto Lexer::lexToken() -> Token {
       // Handle whitespace.
       continue;
     case 0:
-      if (_curPtr - 1 == _curBuffer.end())
-        return formToken(Token::eof, tokStart);
       continue;
     case ';':
       return formToken(Token::semi, tokStart);
@@ -67,13 +68,13 @@ auto Lexer::lexToken() -> Token {
     case ')':
       return formToken(Token::r_paren, tokStart);
     case '<':
-      if (*_curPtr == '=') {
+      if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::less_equal, tokStart);
       }
       return formToken(Token::less, tokStart);
     case '>':
-      if (*_curPtr == '=') {
+      if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::greater_equal, tokStart);
       }
@@ -89,19 +90,19 @@ auto Lexer::lexToken() -> Token {
     case ':':
       return formToken(Token::colon, tokStart);
     case '.':
-      if (*_curPtr == '.') {
+      if (peek() == '.') {
         ++_curPtr;
         return formToken(Token::dot_dot, tokStart);
       }
       return formToken(Token::dot, tokStart);
     case '=':
-      if (*_curPtr == '=') {
+      if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::eq, tokStart);
       }
       return formToken(Token::assign, tokStart);
     case '!':
-      if (*_curPtr == '=') {
+      if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::neq, tokStart);
       }
@@ -132,8 +133,10 @@ auto Lexer::lexToken() -> Token {
     case '9':
       return lexNumber(tokStart);
     case '#': {
+      if (_mode == Mode::StringInterpolation)
+        return formToken(Token::error, tokStart);
       while (true) {
-        if (*_curPtr == '\n' || *_curPtr == 0) {
+        if (peek() == '\n' || peek() == 0) {
           goto Restart;
         }
         _curPtr++;
@@ -145,7 +148,7 @@ auto Lexer::lexToken() -> Token {
 
 auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
   // Match [A-Za-z_][A-Za-z0-9_]*
-  while (isIdentifierContinue(*_curPtr))
+  while (isIdentifierContinue(peek()))
     ++_curPtr;
 
   llvm::StringRef spelling(tokStart, _curPtr - tokStart);
@@ -159,25 +162,25 @@ auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
 }
 
 auto Lexer::lexNumber(const char *tokStart) -> Token {
-  while (isDigit(*_curPtr))
+  while (isDigit(peek()))
     ++_curPtr;
 
   bool isFloat = false;
-  if (*_curPtr == '.' && isDigit(_curPtr[1])) {
+  if (peek() == '.' && isDigit(peek(1))) {
     isFloat = true;
     ++_curPtr;
-    while (isDigit(*_curPtr))
+    while (isDigit(peek()))
       ++_curPtr;
   }
 
-  if ((*_curPtr == 'e' || *_curPtr == 'E') &&
-      (isDigit(_curPtr[1]) ||
-       ((_curPtr[1] == '+' || _curPtr[1] == '-') && isDigit(_curPtr[2])))) {
+  if ((peek() == 'e' || peek() == 'E') &&
+      (isDigit(peek(1)) ||
+       ((peek(1) == '+' || peek(1) == '-') && isDigit(peek(2))))) {
     isFloat = true;
     ++_curPtr;
-    if (*_curPtr == '+' || *_curPtr == '-')
+    if (peek() == '+' || peek() == '-')
       ++_curPtr;
-    while (isDigit(*_curPtr))
+    while (isDigit(peek()))
       ++_curPtr;
   }
 
@@ -187,17 +190,16 @@ auto Lexer::lexNumber(const char *tokStart) -> Token {
 auto Lexer::lexString(const char *tokStart) -> Token {
   // Escape validation is handled when the token is decoded; lexing only needs
   // to keep escaped quotes from terminating the token early.
-  while (_curPtr != _curBuffer.end() && *_curPtr != 0) {
-    if (*_curPtr == '"') {
+  while (!atEnd() && peek() != 0) {
+    if (peek() == '"') {
       ++_curPtr;
       return formToken(Token::string_literal, tokStart);
     }
-    if (*_curPtr == '\n' || *_curPtr == '\r')
+    if (peek() == '\n' || peek() == '\r')
       return formToken(Token::error, tokStart);
-    if (*_curPtr == '\\') {
+    if (peek() == '\\') {
       ++_curPtr;
-      if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
-          *_curPtr == '\n' || *_curPtr == '\r')
+      if (atEnd() || peek() == 0 || peek() == '\n' || peek() == '\r')
         return formToken(Token::error, tokStart);
     }
     ++_curPtr;
@@ -207,19 +209,17 @@ auto Lexer::lexString(const char *tokStart) -> Token {
 }
 
 auto Lexer::lexChar(const char *tokStart) -> Token {
-  if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
-      *_curPtr == '\n' || *_curPtr == '\r')
+  if (atEnd() || peek() == 0 || peek() == '\n' || peek() == '\r')
     return formToken(Token::error, tokStart);
 
-  if (*_curPtr == '\\') {
+  if (peek() == '\\') {
     ++_curPtr;
-    if (_curPtr == _curBuffer.end() || *_curPtr == 0 ||
-        *_curPtr == '\n' || *_curPtr == '\r')
+    if (atEnd() || peek() == 0 || peek() == '\n' || peek() == '\r')
       return formToken(Token::error, tokStart);
   }
 
   ++_curPtr;
-  if (_curPtr == _curBuffer.end() || *_curPtr != '\'')
+  if (atEnd() || peek() != '\'')
     return formToken(Token::error, tokStart);
 
   ++_curPtr;

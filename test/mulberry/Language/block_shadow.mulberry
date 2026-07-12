@@ -2,15 +2,15 @@
 
 fn main(): UInt64 {
   var value = 1;
-  io.print(value);
+  io.println(value);
 
   if true {
     var value = 2;
-    io.print(value);
+    io.println(value);
   } else {
   }
 
-  io.print(value);
+  io.println(value);
   return 0;
 }
 

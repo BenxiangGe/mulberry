@@ -17,8 +17,8 @@ fn main(): UInt64 {
   var w2 = tensor.from([[5.0, 6.0]]);
   var xs = list.from([w1, w2]);
 
-  io.print(xs.size());
-  io.print(first(xs).numel());
+  io.println(xs.size());
+  io.println(first(xs).numel());
   return 0;
 }
 
@@ -33,7 +33,7 @@ fn main(): UInt64 {
 # MLIR: call @std_list_List_size__
 # MLIR: call @first
 # MLIR: call @std_tensor_Tensor_numel__Float32
-# MLIR: call @std.io.print
+# MLIR: call @std_io_println__UInt64
 
 # LOWER-LABEL: func.func @first
 # LOWER-SAME: -> !llvm.ptr
@@ -42,7 +42,7 @@ fn main(): UInt64 {
 # LOWER: call @std_list_from__std_tensor_Tensor__Float32__2
 # LOWER: call @std_list_List_size__
 # LOWER: call @first
-# LOWER: call @std.io.print
+# LOWER: call @std_io_println__UInt64
 
 # JIT: 2
 # JIT-NEXT: 4

@@ -9,7 +9,7 @@ struct Point {
 fn main(): UInt64 {
   var points = [Point { 1, 2 }, Point { 3, 4 }];
   points[1].x = 40;
-  io.print(points[0].x + points[1].x);
+  io.println(points[0].x + points[1].x);
   return 0;
 }
 

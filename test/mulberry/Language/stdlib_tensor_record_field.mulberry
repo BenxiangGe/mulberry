@@ -19,7 +19,7 @@ fn main(): UInt64 {
   var tensor2d =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   var layer = makeLayer(tensor2d);
-  io.print(useLayer(layer));
+  io.println(useLayer(layer));
   return 0;
 }
 

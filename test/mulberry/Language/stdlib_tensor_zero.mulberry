@@ -5,9 +5,9 @@
 fn main(): UInt64 {
   var bytes: Tensor<UInt8> = tensor.zeros([4]);
   var matrix: Tensor<Float32> = tensor.zeros([2, 2]);
-  io.print(bytes.numel());
-  io.print(core.toUInt64(bytes[2]));
-  io.print(boolToUInt64(matrix[1, 1] == 0.0));
+  io.println(bytes.numel());
+  io.println(core.toUInt64(bytes[2]));
+  io.println(boolToUInt64(matrix[1, 1] == 0.0));
   return 0;
 }
 

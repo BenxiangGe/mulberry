@@ -9,11 +9,11 @@ fn main(): UInt64 {
       tensor.from([[[1.0], [0.0]], [[0.0], [1.0]], [[1.0], [0.0]]]);
   var dataset = nn.datasetFromBatches(xs, ys);
 
-  io.print(dataset.size());
-  io.print(dataset.input(0).numel());
-  io.print(nn.argmax(dataset.label(1)));
+  io.println(dataset.size());
+  io.println(dataset.input(0).numel());
+  io.println(nn.argmax(dataset.label(1)));
   dataset.shuffle(123);
-  io.print(dataset.size());
+  io.println(dataset.size());
   return 0;
 }
 

@@ -20,11 +20,6 @@ namespace mulberry {
 // Source `[...]` defaults to the plain language Array.
 class ArrayLiteralExpr final : public Expr {
 public:
-  enum class LiteralKind {
-    Unknown,
-    Array,
-  };
-
   ArrayLiteralExpr(llvm::SMLoc loc,
                    std::vector<std::unique_ptr<Expr>> elements)
       : Expr(Expr_ArrayLiteral, loc), _elements(std::move(elements)) {}
@@ -46,16 +41,9 @@ public:
     return _inferredShape;
   }
 
-  auto literalKind() const -> LiteralKind { return _literalKind; }
-
-  auto setArrayLiteral() -> void {
-    _literalKind = LiteralKind::Array;
-  }
-
 private:
   std::vector<std::unique_ptr<Expr>> _elements;
   std::vector<int64_t> _inferredShape;
-  LiteralKind _literalKind = LiteralKind::Unknown;
 };
 
 // Source `base[...]` is type-neutral. Sema classifies it by base type.

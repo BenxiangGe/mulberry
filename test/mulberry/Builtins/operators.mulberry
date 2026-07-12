@@ -1,60 +1,60 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
 
 fn main(): UInt64 {
-  io.print(20 + 10);
-  io.print(18446744073709551615 + 0);
-  io.print(18446744073709551615 + 1);
+  io.println(20 + 10);
+  io.println(18446744073709551615 + 0);
+  io.println(18446744073709551615 + 1);
 
-  io.print(20 - 10);
-  io.print(0 - 1);
+  io.println(20 - 10);
+  io.println(0 - 1);
 
-  io.print(20 * 10);
+  io.println(20 * 10);
 
-  io.print(20 / 10);
-  io.print(20 / 3);
+  io.println(20 / 10);
+  io.println(20 / 3);
 
-  io.print(20 % 10);
-  io.print(20 % 3);
+  io.println(20 % 10);
+  io.println(20 % 3);
 
-  io.print(boolToUInt64(20 < 10));
-  io.print(boolToUInt64(10 < 20));
-  io.print(boolToUInt64(10 < 10));
+  io.println(boolToUInt64(20 < 10));
+  io.println(boolToUInt64(10 < 20));
+  io.println(boolToUInt64(10 < 10));
 
-  io.print(boolToUInt64(20 <= 10));
-  io.print(boolToUInt64(10 <= 20));
-  io.print(boolToUInt64(10 <= 10));
+  io.println(boolToUInt64(20 <= 10));
+  io.println(boolToUInt64(10 <= 20));
+  io.println(boolToUInt64(10 <= 10));
 
-  io.print(boolToUInt64(20 > 10));
-  io.print(boolToUInt64(10 > 20));
-  io.print(boolToUInt64(10 > 10));
+  io.println(boolToUInt64(20 > 10));
+  io.println(boolToUInt64(10 > 20));
+  io.println(boolToUInt64(10 > 10));
 
-  io.print(boolToUInt64(20 >= 10));
-  io.print(boolToUInt64(10 >= 20));
-  io.print(boolToUInt64(10 >= 10));
+  io.println(boolToUInt64(20 >= 10));
+  io.println(boolToUInt64(10 >= 20));
+  io.println(boolToUInt64(10 >= 10));
 
-  io.print(boolToUInt64(20 == 10));
-  io.print(boolToUInt64(10 >= 20));
-  io.print(boolToUInt64(10 == 10));
+  io.println(boolToUInt64(20 == 10));
+  io.println(boolToUInt64(10 >= 20));
+  io.println(boolToUInt64(10 == 10));
 
-  io.print(boolToUInt64(20 != 10));
-  io.print(boolToUInt64(10 != 20));
-  io.print(boolToUInt64(10 != 10));
+  io.println(boolToUInt64(20 != 10));
+  io.println(boolToUInt64(10 != 20));
+  io.println(boolToUInt64(10 != 10));
 
-  io.print(boolToUInt64(true == true));
-  io.print(boolToUInt64(true == false));
+  io.println(boolToUInt64(true == true));
+  io.println(boolToUInt64(true == false));
 
-  io.print(boolToUInt64(true != true));
-  io.print(boolToUInt64(true != false));
+  io.println(boolToUInt64(true != true));
+  io.println(boolToUInt64(true != false));
 
-  io.print(boolToUInt64(false and false));
-  io.print(boolToUInt64(false and true));
-  io.print(boolToUInt64(true and false));
-  io.print(boolToUInt64(true and true));
+  io.println(boolToUInt64(false and false));
+  io.println(boolToUInt64(false and true));
+  io.println(boolToUInt64(true and false));
+  io.println(boolToUInt64(true and true));
 
-  io.print(boolToUInt64(false or false));
-  io.print(boolToUInt64(false or true));
-  io.print(boolToUInt64(true or false));
-  io.print(boolToUInt64(true or true));
+  io.println(boolToUInt64(false or false));
+  io.println(boolToUInt64(false or true));
+  io.println(boolToUInt64(true or false));
+  io.println(boolToUInt64(true or true));
 
   return 0;
 }
@@ -73,5 +73,5 @@ fn main(): UInt64 {
 # CHECK: arith.andi
 # CHECK: arith.ori
 # CHECK: call @std.core.boolToUInt64
-# CHECK: call @std.io.print
+# CHECK: call @std_io_println__UInt64
 # CHECK-NOT: cir.

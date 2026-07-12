@@ -900,7 +900,7 @@ fn main(): UInt64 {
 
   var pred = nn.argmax(activation);
 
-  io.print(pred);
+  io.println(pred);
 
   return 0;
 }

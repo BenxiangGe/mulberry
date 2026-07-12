@@ -4,7 +4,7 @@
 
 fn main(): UInt64 {
   var xs = list.from([10, 20, 30]);
-  io.print(xs[1]);
+  io.println(xs[1]);
   return xs.size();
 }
 

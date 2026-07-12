@@ -13,9 +13,22 @@ unit-literal              -> `(` `)`
 boolean-literal           -> `true` | `false`
 integer-literal           -> decimal-digit+
 float-literal             -> decimal-digit+ `.` decimal-digit+
-string-literal            -> `"` ... `"`
+string-literal            -> `"` string-segment* `"`
+string-segment            -> string-character
+string-segment            -> `\\n` | `\\t` | `\\"` | `\\\\` | `\\{` | `\\}`
+string-segment            -> string-interpolation
+string-interpolation      -> `{$` interpolation-access `}`
+interpolation-access      -> identifier interpolation-suffix*
+interpolation-suffix      -> `.` identifier
+interpolation-suffix      -> `[` interpolation-index-list `]`
+interpolation-index-list  -> interpolation-index (`,` interpolation-index)* `,`?
+interpolation-index       -> integer-literal | interpolation-access
 char-literal              -> `'` ... `'`
 ```
+
+只有未转义的 `{$` 开始插值。插值是受限 access grammar，不接受 binary expression、
+function call 或 method call。普通 `{` / `}` 是文本；`\{`、`\}` 和 `\\` 分别表示
+literal `{`、`}` 和 `\`。
 
 ## Module
 
@@ -194,7 +207,7 @@ condition                 -> expression
 
 ```mulberry
 if value > 0 {
-  io.print(value);
+  io.println(value);
 }
 
 while index < values.size() {
@@ -202,6 +215,6 @@ while index < values.size() {
 }
 
 for i in 0 .. values.size() {
-  io.print(values[i]);
+  io.println(values[i]);
 }
 ```

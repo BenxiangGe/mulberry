@@ -5,9 +5,9 @@ fn main(): UInt64 {
   const half = 10.0 / core.toFloat32(4);
   const byte = core.toUInt8(65);
 
-  io.print(core.boolToUInt64(five == 5.0));
-  io.print(core.boolToUInt64(half == 2.5));
-  io.print(core.toUInt64(byte));
+  io.println(core.boolToUInt64(five == 5.0));
+  io.println(core.boolToUInt64(half == 2.5));
+  io.println(core.toUInt64(byte));
   return 0;
 }
 

@@ -3,11 +3,11 @@
 import mulberry.nn;
 
 fn main(): UInt64 {
-  io.print(nn.batchCount(10, 5));
-  io.print(nn.batchCount(11, 5));
-  io.print(nn.batchCount(0, 5));
-  io.print(nn.batchEnd(5, 5, 12));
-  io.print(nn.batchEnd(10, 5, 12));
+  io.println(nn.batchCount(10, 5));
+  io.println(nn.batchCount(11, 5));
+  io.println(nn.batchCount(0, 5));
+  io.println(nn.batchEnd(5, 5, 12));
+  io.println(nn.batchEnd(10, 5, 12));
   return 0;
 }
 

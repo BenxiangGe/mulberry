@@ -10,9 +10,9 @@ fn main(): UInt64 {
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   matrix[0, 1] = 9.0;
 
-  io.print(core.toUInt64(bytes[2]));
-  io.print(boolToUInt64(matrix[0, 1] > 8.5));
-  io.print(boolToUInt64(matrix[1, 0] > 2.5));
+  io.println(core.toUInt64(bytes[2]));
+  io.println(boolToUInt64(matrix[0, 1] > 8.5));
+  io.println(boolToUInt64(matrix[1, 0] > 2.5));
   return 0;
 }
 

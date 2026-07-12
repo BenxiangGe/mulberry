@@ -15,7 +15,7 @@ fn main(): UInt64 {
   var tensor2d =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   var returned = idTensor(tensor2d);
-  io.print(checkTensor(returned));
+  io.println(checkTensor(returned));
   return 0;
 }
 

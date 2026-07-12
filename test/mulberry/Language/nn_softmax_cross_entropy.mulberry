@@ -19,7 +19,7 @@ fn main(): UInt64 {
   if loss > 0.693 and loss < 0.694 {
     matches = 1;
   }
-  io.print(matches);
+  io.println(matches);
   return 0;
 }
 

@@ -10,8 +10,8 @@ struct Pair {
 
 fn main(): UInt64 {
   var xs: List<Pair> = list.from([Pair { 10, 32 }, Pair { 4, 9 }]);
-  io.print(xs.size());
-  io.print(xs[0].x + xs[1].y);
+  io.println(xs.size());
+  io.println(xs[0].x + xs[1].y);
   return 0;
 }
 

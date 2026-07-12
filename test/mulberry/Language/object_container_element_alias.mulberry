@@ -9,21 +9,21 @@ fn main(): UInt64 {
   var arrayCounter = Counter { 1 };
   var counters = [arrayCounter];
   counters[0].value = 31;
-  io.print(arrayCounter.value);
+  io.println(arrayCounter.value);
 
   var listCounter = Counter { 2 };
   var counterList = list.from([listCounter]);
   counterList[0].value = 32;
-  io.print(listCounter.value);
+  io.println(listCounter.value);
 
   var value = tensor.from([3, 4]);
   var tensors = list.from([value]);
   tensors[0][1] = 33;
-  io.print(value[1]);
+  io.println(value[1]);
 
   var tensorArray = [value];
   tensorArray[0][0] = 34;
-  io.print(value[0]);
+  io.println(value[0]);
   return 0;
 }
 

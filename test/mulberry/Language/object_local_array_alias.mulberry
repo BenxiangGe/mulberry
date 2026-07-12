@@ -13,11 +13,11 @@ fn main(): UInt64 {
   var c = id(a);
   c[2] = 50;
 
-  io.print(a[0] + a[1] + a[2]);
+  io.println(a[0] + a[1] + a[2]);
 
   a = [4, 5, 6];
-  io.print(b[0] + b[1] + b[2]);
-  io.print(a[0] + a[1] + a[2]);
+  io.println(b[0] + b[1] + b[2]);
+  io.println(a[0] + a[1] + a[2]);
   return 0;
 }
 

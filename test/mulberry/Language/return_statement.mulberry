@@ -14,12 +14,12 @@ fn skip(flag: Bool): () {
   if flag {
     return;
   }
-  io.print(9);
+  io.println(9);
 }
 
 fn main(): UInt64 {
   skip(true);
-  io.print(choose(true));
+  io.println(choose(true));
   return 0;
 }
 

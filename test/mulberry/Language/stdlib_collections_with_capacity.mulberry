@@ -7,8 +7,8 @@ fn main(): UInt64 {
   xs.length = 2;
   xs[0] = 42;
   xs[1] = 58;
-  io.print(xs.size());
-  io.print(xs[0] + xs[1]);
+  io.println(xs.size());
+  io.println(xs[0] + xs[1]);
   return 0;
 }
 

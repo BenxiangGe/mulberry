@@ -12,6 +12,27 @@ using namespace mulberry;
 using llvm::SMLoc;
 using llvm::SMRange;
 
+namespace {
+auto decodeStringEscape(char value) -> std::optional<char> {
+  switch (value) {
+  case 'n':
+    return '\n';
+  case 't':
+    return '\t';
+  case '"':
+    return '"';
+  case '\\':
+    return '\\';
+  case '{':
+    return '{';
+  case '}':
+    return '}';
+  default:
+    return std::nullopt;
+  }
+}
+} // namespace
+
 auto Token::getUInt64IntegerValue() const -> std::optional<uint64_t> {
   uint64_t result = 0;
   if (_spelling.getAsInteger(10, result))
@@ -23,43 +44,64 @@ auto Token::getFloat32Value() const -> std::optional<llvm::APFloat> {
   return llvm::APFloat(llvm::APFloat::IEEEsingle(), _spelling);
 }
 
-auto Token::getStringLiteralValue() const -> std::optional<std::string> {
+auto Token::getStringLiteralSegments() const
+    -> std::optional<std::vector<StringLiteralSegment>> {
   if (_kind != string_literal || _spelling.size() < 2 ||
       _spelling.front() != '"' || _spelling.back() != '"')
     return std::nullopt;
 
-  // The lexer keeps the source spelling, including quotes and escapes. Decode
-  // here so AST/Sema see the source-level String value, not token text.
-  std::string result;
-  for (size_t i = 1; i + 1 < _spelling.size(); ++i) {
-    auto c = _spelling[i];
-    if (c != '\\') {
-      result.push_back(c);
+  std::vector<StringLiteralSegment> segments;
+  std::string text;
+  size_t textOffset = 1;
+  bool hasInterpolation = false;
+
+  for (size_t i = 1; i + 1 < _spelling.size();) {
+    if (_spelling[i] == '\\') {
+      if (i + 2 >= _spelling.size())
+        return std::nullopt;
+      auto decoded = decodeStringEscape(_spelling[i + 1]);
+      if (!decoded)
+        return std::nullopt;
+      text.push_back(*decoded);
+      i += 2;
       continue;
     }
 
-    if (++i + 1 >= _spelling.size())
-      return std::nullopt;
+    if (_spelling[i] == '{' && i + 2 < _spelling.size() &&
+        _spelling[i + 1] == '$') {
+      if (!text.empty()) {
+        segments.push_back({StringLiteralSegment::Kind::Text, textOffset,
+                            i - textOffset, std::move(text)});
+        text.clear();
+      }
 
-    switch (_spelling[i]) {
-    case 'n':
-      result.push_back('\n');
-      break;
-    case 't':
-      result.push_back('\t');
-      break;
-    case '"':
-      result.push_back('"');
-      break;
-    case '\\':
-      result.push_back('\\');
-      break;
-    default:
-      return std::nullopt;
+      auto interpolationOffset = i + 2;
+      auto interpolationEnd = interpolationOffset;
+      while (interpolationEnd + 1 < _spelling.size() &&
+             _spelling[interpolationEnd] != '}')
+        ++interpolationEnd;
+      if (interpolationEnd + 1 >= _spelling.size())
+        return std::nullopt;
+
+      segments.push_back({StringLiteralSegment::Kind::Interpolation,
+                          interpolationOffset,
+                          interpolationEnd - interpolationOffset, {}});
+      hasInterpolation = true;
+      i = interpolationEnd + 1;
+      textOffset = i;
+      continue;
     }
+
+    text.push_back(_spelling[i]);
+    ++i;
   }
 
-  return result;
+  if (!text.empty() || !hasInterpolation)
+    segments.push_back({StringLiteralSegment::Kind::Text, textOffset,
+                        _spelling.size() - 1 - textOffset,
+                        std::move(text)});
+
+  return segments;
 }
 
 auto Token::getCharLiteralValue() const -> std::optional<uint8_t> {

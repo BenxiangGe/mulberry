@@ -2,24 +2,43 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
+struct Label {
+  value: UInt64,
+
+  pub fn toString(self: Label): String {
+    return "Label({$self.value})";
+  }
+}
+
+struct Plain {
+  value: UInt64
+}
+
 fn main(): UInt64 {
+  io.print("value=");
   io.print(11);
+  io.print(", flag=");
+  io.println(true);
+  io.println(Label { 7 });
+  io.println(Plain { 9 });
   return 0;
 }
 
-# AST: Prototype {{.*}}name=printU64
-# AST: Prototype {{.*}}name=printNewline
-# AST: Prototype {{.*}}name=std.io.print
-# AST: CallExpr {{.*}}type=Unit callee=printU64
-# AST: CallExpr {{.*}}type=Unit callee=printNewline
-# AST: CallExpr {{.*}}type=UInt64 callee=std.io.print
+# AST: CallExpr {{.*}}type=Unit callee=std_io_print__std_string_String
+# AST: CallExpr {{.*}}type=Unit callee=std_io_print__UInt64
+# AST: CallExpr {{.*}}type=Unit callee=std_io_println__Bool
+# AST: CallExpr {{.*}}type=Unit callee=std_io_println__Label
+# AST: CallExpr {{.*}}type=Unit callee=std_io_println__Plain
 
-# MLIR: func.func private @printU64(i64)
-# MLIR: func.func private @printNewline()
-# MLIR-LABEL: func.func @std.io.print
-# MLIR: call @printU64
-# MLIR: call @printNewline
 # MLIR-LABEL: func.func @main
-# MLIR: call @std.io.print
+# MLIR: call @std_io_print__std_string_String
+# MLIR: call @std_io_print__UInt64
+# MLIR: call @std_io_println__Bool
+# MLIR: call @std_io_println__Label
+# MLIR: call @std_io_println__Plain
+# MLIR: call @Label.toString
+# MLIR: call @mulberry_string_object_identity
 
-# JIT: 11
+# JIT: value=11, flag=true
+# JIT-NEXT: Label(7)
+# JIT-NEXT: Plain@0x{{[0-9a-f]+}}

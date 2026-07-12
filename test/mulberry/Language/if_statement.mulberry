@@ -12,7 +12,7 @@ fn main(): UInt64 {
   } else {
     value = value + 4;
   }
-  io.print(value);
+  io.println(value);
   return 0;
 }
 

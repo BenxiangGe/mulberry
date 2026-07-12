@@ -6,10 +6,10 @@ fn bar(x: UInt64, y: Bool): Bool {
   var k = y;
   
   if k {
-    io.print(18446744073709551615);
+    io.println(18446744073709551615);
     k = false;
   } else {
-    io.print(1);
+    io.println(1);
     k = true;
   }
 
@@ -30,29 +30,31 @@ fn main(): UInt64 {
   true and false or true == false != true;
 
   var boolValue = bar(18446744073709551615, false);
-  io.print(boolToUInt64(boolValue));
+  io.println(boolToUInt64(boolValue));
   baz();
   return 0;
 }
 
-# MLIRLLVM-DAG: llvm.func @std.io.print
-# MLIRLLVM-DAG: llvm.func private @printU64
-# MLIRLLVM-DAG: llvm.func @_mlir_ciface_printU64
-# MLIRLLVM: llvm.call @printU64
+# MLIRLLVM-DAG: llvm.func private @writeString
+# MLIRLLVM-DAG: llvm.func @_mlir_ciface_writeString
 # MLIRLLVM: llvm.func @main() -> i64
-# MLIRLLVM: llvm.call @std.io.print
+# MLIRLLVM: llvm.call @std_io_println__UInt64
 # MLIRLLVM: llvm.func @_mlir_ciface_main() -> i64
+# MLIRLLVM: llvm.func @std_io_println__UInt64
+# MLIRLLVM: llvm.call @std_io_print__UInt64
+# MLIRLLVM: llvm.func @std_io_print__UInt64
 # MLIRLLVM-NOT: mulberry.
 # MLIRLLVM-NOT: func.func
 # MLIRLLVM-NOT: builtin.unrealized_conversion_cast
 
-# LLVM-DAG: define i64 @std.io.print
-# LLVM-DAG: define private void @printU64
-# LLVM-DAG: declare void @_mlir_ciface_printU64
-# LLVM: call void @printU64
+# LLVM-DAG: define private void @writeString
+# LLVM-DAG: declare void @_mlir_ciface_writeString
 # LLVM: define i64 @main()
-# LLVM: call i64 @std.io.print
+# LLVM: call void @std_io_println__UInt64
 # LLVM: define i64 @_mlir_ciface_main()
+# LLVM: define void @std_io_println__UInt64
+# LLVM: call void @std_io_print__UInt64
+# LLVM: define void @std_io_print__UInt64
 
 # JIT: 1
 # JIT-NEXT: 0

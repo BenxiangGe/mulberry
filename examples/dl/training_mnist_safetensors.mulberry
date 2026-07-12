@@ -65,19 +65,19 @@ fn main(): UInt64 {
       nn.evaluateDataset(finalWeights, finalBiases, train);
   const testEvaluation =
       nn.evaluateDataset(finalWeights, finalBiases, test);
-  io.print(trainEvaluation.correct);
-  io.print(trainEvaluation.total);
-  io.print(trainEvaluation.accuracyBasisPoints);
-  io.print(testEvaluation.correct);
-  io.print(testEvaluation.total);
-  io.print(testEvaluation.accuracyBasisPoints);
+  io.println(trainEvaluation.correct);
+  io.println(trainEvaluation.total);
+  io.println(trainEvaluation.accuracyBasisPoints);
+  io.println(testEvaluation.correct);
+  io.println(testEvaluation.total);
+  io.println(testEvaluation.accuracyBasisPoints);
 
   const inferenceFile =
       safetensors.open("data/mnist-784-30-10.safetensors");
   var x = safetensors.read(inferenceFile, "x");
   safetensors.close(inferenceFile);
 
-  io.print(nn.predict(finalWeights, finalBiases, x));
+  io.println(nn.predict(finalWeights, finalBiases, x));
 
   return 0;
 }

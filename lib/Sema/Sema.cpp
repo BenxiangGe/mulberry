@@ -165,6 +165,43 @@ auto isSourceObjectType(const Type *type) -> bool {
   return getStructType(type) || getArrayType(type);
 }
 
+auto unqualifiedTypeName(std::string_view name) -> std::string_view {
+  auto dot = name.rfind('.');
+  return dot == std::string_view::npos ? name : name.substr(dot + 1);
+}
+
+auto formatStringificationType(const Type *type) -> std::string {
+  if (auto *builtinType = getBuiltinType(type))
+    return std::string(builtinType->name());
+
+  if (auto *arrayType = getArrayType(type)) {
+    return "Array<" + formatStringificationType(arrayType->elementType()) +
+           ", " + std::to_string(arrayType->size()) + ">";
+  }
+
+  if (auto *structType = getStructType(type)) {
+    auto *origin = structType->origin();
+    if (!origin)
+      return std::string(unqualifiedTypeName(structType->name()));
+
+    std::string result(unqualifiedTypeName(origin->aliasName()));
+    result += "<";
+    std::string separator;
+    for (auto &argument : origin->arguments()) {
+      result += separator;
+      if (argument.kind() == ComptimeTypeValue::Kind::Type)
+        result += formatStringificationType(argument.type());
+      else
+        result += std::to_string(argument.uint64Value());
+      separator = ", ";
+    }
+    result += ">";
+    return result;
+  }
+
+  return formatType(type);
+}
+
 auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   if (auto *unitType = dyn_cast<UnitTypeNode>(node))
     return std::make_unique<UnitTypeNode>(unitType->location());
@@ -277,6 +314,9 @@ auto substituteTypeNode(const TypeNode *node,
     -> std::unique_ptr<TypeNode> {
   if (substitution.parameterName.empty())
     return cloneTypeNode(node);
+
+  if (auto *unitType = dyn_cast<UnitTypeNode>(node))
+    return std::make_unique<UnitTypeNode>(unitType->location());
 
   if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
     if (namedType->name() == substitution.parameterName &&
@@ -512,6 +552,25 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<StringLiteralExpr>(
         expr->location(), std::string(expr->value()));
   }
+  case Expr::Expr_InterpolatedString: {
+    auto *expr = cast<InterpolatedStringExpr>(node);
+    VectorUniquePtr<Expr> segments;
+    for (auto &segment : expr->segments())
+      segments.push_back(substituteExpr(segment.get(), substitutions));
+    auto result = std::make_unique<InterpolatedStringExpr>(
+        expr->location(), std::move(segments));
+    if (expr->hasConcatFunctionName())
+      result->setConcatFunctionName(expr->concatFunctionName());
+    return result;
+  }
+  case Expr::Expr_ObjectIdentity: {
+    auto *expr = cast<ObjectIdentityExpr>(node);
+    auto result = std::make_unique<ObjectIdentityExpr>(
+        expr->location(), substituteExpr(expr->value().get(), substitutions));
+    result->setTypeName(expr->typeName());
+    result->setFunctionName(expr->functionName());
+    return result;
+  }
   case Expr::Expr_CharLiteral: {
     auto *expr = cast<CharLiteralExpr>(node);
     return std::make_unique<CharLiteralExpr>(expr->location(), expr->value());
@@ -559,10 +618,13 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Binary: {
     auto *expr = cast<BinaryExpr>(node);
-    return std::make_unique<BinaryExpr>(
+    auto result = std::make_unique<BinaryExpr>(
         expr->location(), expr->opEnum(),
         substituteExpr(expr->lhs().get(), substitutions),
         substituteExpr(expr->rhs().get(), substitutions));
+    if (expr->hasFunctionName())
+      result->setFunctionName(expr->functionName());
+    return result;
   }
   case Expr::Expr_Block:
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
@@ -727,11 +789,21 @@ private:
   auto sema(FloatLiteralExpr *node) -> MulberryResult;
   auto sema(BoolLiteralExpr *node) -> MulberryResult;
   auto sema(StringLiteralExpr *node) -> MulberryResult;
+  auto sema(InterpolatedStringExpr *node) -> MulberryResult;
+  auto sema(ObjectIdentityExpr *node) -> MulberryResult;
   auto sema(CharLiteralExpr *node) -> MulberryResult;
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
-  auto semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult;
+  auto resolveStringConcatFunction(Expr *node, const Type *stringType,
+                                   std::string &functionName)
+      -> MulberryResult;
+  auto resolveObjectIdentityFunction(Expr *node, const Type *stringType,
+                                     std::string &functionName)
+      -> MulberryResult;
+  auto stringifyExpression(std::unique_ptr<Expr> &expression,
+                           const Type *stringType) -> MulberryResult;
+  auto hasMethod(const Type *type, std::string_view methodName) -> bool;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
   auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
   auto canMutateObjectReference(const Expr *expr) -> bool;
@@ -1951,6 +2023,10 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_StringLiteral:
     return sema(cast<StringLiteralExpr>(node));
+  case Expr::Expr_InterpolatedString:
+    return sema(cast<InterpolatedStringExpr>(node));
+  case Expr::Expr_ObjectIdentity:
+    return sema(cast<ObjectIdentityExpr>(node));
   case Expr::Expr_CharLiteral:
     return sema(cast<CharLiteralExpr>(node));
   case Expr::Expr_TypeLayout:
@@ -2315,6 +2391,50 @@ auto SemaImpl::sema(StringLiteralExpr *node) -> MulberryResult {
   return success();
 }
 
+auto SemaImpl::sema(InterpolatedStringExpr *node) -> MulberryResult {
+  auto *stringType = lookupType("String");
+  if (!stringType)
+    return emitError(node, diag::undefined_type);
+
+  for (auto &segment : node->segments()) {
+    if (sema(segment.get()))
+      return failure();
+    if (stringifyExpression(segment, stringType))
+      return failure();
+  }
+
+  if (node->segments().size() > 1) {
+    std::string functionName;
+    if (resolveStringConcatFunction(node, stringType, functionName))
+      return failure();
+    node->setConcatFunctionName(functionName);
+  }
+  node->setType(stringType);
+  return success();
+}
+
+auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
+  if (sema(node->value().get()))
+    return failure();
+
+  auto *valueType = node->value()->type();
+  if (!getStructType(valueType) && !getArrayType(valueType))
+    return emitError(node->value().get(), diag::mismatch_type);
+
+  auto *stringType = lookupType("String");
+  if (!stringType)
+    return emitError(node, diag::undefined_type);
+
+  std::string functionName;
+  if (resolveObjectIdentityFunction(node, stringType, functionName))
+    return failure();
+
+  node->setTypeName(formatStringificationType(valueType));
+  node->setFunctionName(functionName);
+  node->setType(stringType);
+  return success();
+}
+
 auto SemaImpl::sema(CharLiteralExpr *node) -> MulberryResult {
   setBuiltinType(node, BuiltinTypeKind::UInt8);
   return success();
@@ -2373,10 +2493,27 @@ auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
 
 auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   using Operator = BinaryExpr::Operator;
-  if (semaBinaryOperandsSameType(node))
-    return llvm::failure();
+  if (sema(node->lhs().get()) || sema(node->rhs().get()))
+    return failure();
 
   auto *lhsType = node->lhs()->type();
+  auto *rhsType = node->rhs()->type();
+  auto *stringType = lookupType("String");
+  if (node->opEnum() == Operator::Add && stringType &&
+      sameType(lhsType, stringType)) {
+    if (stringifyExpression(node->rhs(), stringType))
+      return failure();
+    std::string functionName;
+    if (resolveStringConcatFunction(node, stringType, functionName))
+      return failure();
+    node->setFunctionName(functionName);
+    node->setType(stringType);
+    return success();
+  }
+
+  if (!sameType(lhsType, rhsType))
+    return emitError(node->lhs().get(), diag::mismatch_type);
+
   switch (node->opEnum()) {
   case Operator::Add:
   case Operator::Mul:
@@ -2422,12 +2559,129 @@ auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   llvm_unreachable("Unexpected BinaryExpr operator");
 }
 
-auto SemaImpl::semaBinaryOperandsSameType(BinaryExpr *node) -> MulberryResult {
-  if (sema(node->lhs().get()) || sema(node->rhs().get()))
-    return failure();
-  if (!sameType(node->lhs()->type(), node->rhs()->type()))
-    return emitError(node->lhs().get(), diag::mismatch_type);
-  return success();
+auto SemaImpl::resolveStringConcatFunction(
+    Expr *node, const Type *stringType, std::string &functionName)
+    -> MulberryResult {
+  functionName = resolveFunctionName("std.string.concat");
+  auto *signature = lookupFunction(functionName);
+  if (signature && signature->parameterTypes.size() == 2 &&
+      sameType(signature->parameterTypes[0], stringType) &&
+      sameType(signature->parameterTypes[1], stringType) &&
+      sameType(signature->returnType, stringType))
+    return success();
+
+  auto diagnostic =
+      formatNameDiagnostic(diag::undefined_func, "std.string.concat");
+  return emitError(node, diagnostic);
+}
+
+auto SemaImpl::resolveObjectIdentityFunction(
+    Expr *node, const Type *stringType, std::string &functionName)
+    -> MulberryResult {
+  constexpr std::string_view name = "mulberry_string_object_identity";
+  functionName = resolveFunctionName(name);
+  auto *signature = lookupFunction(functionName);
+  if (signature && signature->parameterTypes.size() == 2 &&
+      sameType(signature->parameterTypes[0], stringType) &&
+      sameType(signature->returnType, stringType)) {
+    auto *objectPtr = getPtrType(signature->parameterTypes[1]);
+    if (objectPtr && isUInt8Type(objectPtr->pointeeType()))
+      return success();
+  }
+
+  auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
+  return emitError(node, diagnostic);
+}
+
+auto SemaImpl::hasMethod(const Type *type, std::string_view methodName)
+    -> bool {
+  auto *structType = getStructType(type);
+  if (!structType)
+    return false;
+
+  std::vector<std::string> owners;
+  if (auto *origin = structType->origin())
+    owners.push_back(std::string(origin->aliasName()));
+  owners.push_back(std::string(structType->name()));
+
+  for (auto &owner : owners) {
+    auto fullName = methodFunctionName(owner, methodName);
+    if (lookupFunction(fullName) || lookupGenericFunction(fullName))
+      return true;
+  }
+  return false;
+}
+
+auto SemaImpl::stringifyExpression(std::unique_ptr<Expr> &expression,
+                                   const Type *stringType)
+    -> MulberryResult {
+  if (sameType(expression->type(), stringType))
+    return success();
+
+  auto location = expression->location();
+  auto *valueType = expression->type();
+  if (isUnitType(valueType))
+    return emitError(expression.get(), diag::mismatch_type);
+
+  std::string_view formatterName;
+  if (auto *builtinType = getBuiltinType(valueType)) {
+    switch (builtinType->builtinKind()) {
+    case BuiltinTypeKind::Bool:
+      formatterName = "std.string.fromBool";
+      break;
+    case BuiltinTypeKind::UInt8:
+      formatterName = "std.string.fromUInt8";
+      break;
+    case BuiltinTypeKind::UInt64:
+      formatterName = "std.string.fromUInt64";
+      break;
+    case BuiltinTypeKind::Float32:
+      formatterName = "std.string.fromFloat32";
+      break;
+    case BuiltinTypeKind::Unit:
+      llvm_unreachable("Unit is not stringifiable");
+    }
+  }
+
+  if (!formatterName.empty()) {
+    VectorUniquePtr<Expr> arguments;
+    arguments.push_back(std::move(expression));
+    auto call = std::make_unique<CallExpr>(location, formatterName,
+                                           std::move(arguments));
+    auto *callExpr = call.get();
+    expression = std::move(call);
+    if (sema(callExpr))
+      return failure();
+    if (!sameType(callExpr->type(), stringType))
+      return emitError(callExpr, diag::mismatch_type);
+    return success();
+  }
+
+  if (!getStructType(valueType) && !getArrayType(valueType))
+    return emitError(expression.get(), diag::mismatch_type);
+
+  if (hasMethod(valueType, "toString")) {
+    auto call = std::make_unique<CallExpr>(
+        location, std::move(expression), "toString", VectorUniquePtr<Expr>{});
+    auto *callExpr = call.get();
+    expression = std::move(call);
+    if (semaMethodCall(callExpr, stringType))
+      return failure();
+
+    auto *signature = lookupFunction(callExpr->name());
+    if (!signature || signature->parameterTypes.size() != 1 ||
+        signature->parameterCanMutateObject.size() != 1 ||
+        signature->parameterCanMutateObject[0] ||
+        !sameType(signature->returnType, stringType))
+      return emitError(callExpr, diag::mismatch_type);
+    return success();
+  }
+
+  auto identity = std::make_unique<ObjectIdentityExpr>(
+      location, std::move(expression));
+  auto *identityExpr = identity.get();
+  expression = std::move(identity);
+  return sema(identityExpr);
 }
 
 auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
@@ -2529,7 +2783,6 @@ auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
   std::vector<int64_t> inferredShape;
   arrayLeafElementType(arrayType, inferredShape);
   expr->setInferredShape(std::move(inferredShape));
-  expr->setArrayLiteral();
   expr->setType(arrayType);
   return success();
 }
@@ -2592,7 +2845,6 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
   }
 
   expr->setInferredShape({static_cast<int64_t>(type->size())});
-  expr->setArrayLiteral();
   expr->setType(type);
   return success();
 }
@@ -2620,7 +2872,6 @@ auto SemaImpl::semaTensorSourceArrayLiteral(
     auto *arrayType =
         _typeContext.createArrayType(leafElementType, elements.size());
     expr->setInferredShape(inferredShape);
-    expr->setArrayLiteral();
     expr->setType(arrayType);
     return success();
   }
@@ -2649,7 +2900,6 @@ auto SemaImpl::semaTensorSourceArrayLiteral(
                        nestedShape.end());
   auto *arrayType = _typeContext.createArrayType(nestedType, elements.size());
   expr->setInferredShape(inferredShape);
-  expr->setArrayLiteral();
   expr->setType(arrayType);
   return success();
 }

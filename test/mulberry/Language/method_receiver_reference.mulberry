@@ -13,7 +13,7 @@ fn main(): UInt64 {
   var counter = Counter { 40 };
   counter.bump();
   counter.bump();
-  io.print(counter.value);
+  io.println(counter.value);
   return 0;
 }
 

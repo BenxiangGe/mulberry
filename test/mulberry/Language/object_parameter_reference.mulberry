@@ -17,7 +17,7 @@ fn read(counter: Counter): UInt64 {
 fn main(): UInt64 {
   var counter = Counter { 41 };
   bump(counter);
-  io.print(read(counter));
+  io.println(read(counter));
   return 0;
 }
 

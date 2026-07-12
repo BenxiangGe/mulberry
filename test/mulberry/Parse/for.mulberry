@@ -3,7 +3,7 @@
 
 fn main(): UInt64 {
   for i in 0 .. 3 {
-    io.print(i);
+    io.println(i);
   }
 
   return 0;

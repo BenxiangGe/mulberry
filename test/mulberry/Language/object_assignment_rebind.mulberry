@@ -10,8 +10,8 @@ fn main(): UInt64 {
   var c = a;
   c = b;
   c.value = 99;
-  io.print(a.value);
-  io.print(b.value);
+  io.println(a.value);
+  io.println(b.value);
   return 0;
 }
 

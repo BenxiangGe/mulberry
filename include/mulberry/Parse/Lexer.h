@@ -16,8 +16,15 @@ namespace mulberry {
 
 class Lexer {
 public:
+  enum class Mode {
+    Source,
+    StringInterpolation,
+  };
+
   explicit Lexer(const llvm::SourceMgr &sourceMgr);
   Lexer(const llvm::SourceMgr &sourceMgr, unsigned bufferID);
+  Lexer(llvm::StringRef buffer, Mode mode)
+      : _curBuffer(buffer), _curPtr(buffer.begin()), _mode(mode) {}
 
   auto lexToken() -> Token;
 
@@ -37,6 +44,13 @@ public:
   }
 
 private:
+  auto atEnd() const -> bool { return _curPtr == _curBuffer.end(); }
+
+  auto peek(size_t offset = 0) const -> char {
+    auto remaining = static_cast<size_t>(_curBuffer.end() - _curPtr);
+    return offset < remaining ? _curPtr[offset] : 0;
+  }
+
   auto formToken(Token::Kind kind, const char *tokStart) -> Token {
     return Token(kind, llvm::StringRef(tokStart, _curPtr - tokStart));
   }
@@ -48,6 +62,7 @@ private:
 
   llvm::StringRef _curBuffer;
   const char *_curPtr;
+  Mode _mode = Mode::Source;
 
   Lexer(const Lexer &) = delete;
   auto operator=(const Lexer &) -> void = delete;

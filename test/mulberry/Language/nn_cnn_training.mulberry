@@ -29,12 +29,12 @@ fn main(): UInt64 {
       nn.cnnSgdStep(parameters, input, expected, 0.1, 1.0);
   const after = nn.argmax(nn.cnnForward(updated, input));
 
-  io.print(before);
-  io.print(core.boolToUInt64(gradient.convWeight[0, 0, 1, 1] > 0.0));
-  io.print(core.boolToUInt64(gradient.convBias[0] > 0.0));
-  io.print(core.boolToUInt64(gradient.classifierWeight[0, 0] < 0.0));
-  io.print(core.boolToUInt64(updated.classifierWeight[0, 0] > 0.0));
-  io.print(after);
+  io.println(before);
+  io.println(core.boolToUInt64(gradient.convWeight[0, 0, 1, 1] > 0.0));
+  io.println(core.boolToUInt64(gradient.convBias[0] > 0.0));
+  io.println(core.boolToUInt64(gradient.classifierWeight[0, 0] < 0.0));
+  io.println(core.boolToUInt64(updated.classifierWeight[0, 0] > 0.0));
+  io.println(after);
   return 0;
 }
 

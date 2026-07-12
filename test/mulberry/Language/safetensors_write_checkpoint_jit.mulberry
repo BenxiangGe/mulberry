@@ -17,10 +17,10 @@ fn main(): UInt64 {
   var readB = safetensors.read(file, "b");
   safetensors.close(file);
 
-  io.print(readA.numel());
-  io.print(core.boolToUInt64(readA[1, 1] > 3.5));
-  io.print(readB.numel());
-  io.print(core.boolToUInt64(readB[1, 0] > 5.5));
+  io.println(readA.numel());
+  io.println(core.boolToUInt64(readA[1, 1] > 3.5));
+  io.println(readB.numel());
+  io.println(core.boolToUInt64(readB[1, 0] > 5.5));
   return 0;
 }
 

@@ -2,13 +2,13 @@
 
 fn main(): UInt64 {
   var i = 7;
-  io.print(i);
+  io.println(i);
 
   for i in 0 .. 2 {
-    io.print(i);
+    io.println(i);
   }
 
-  io.print(i);
+  io.println(i);
   return 0;
 }
 

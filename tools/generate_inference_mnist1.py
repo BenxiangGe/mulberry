@@ -182,7 +182,7 @@ def writeMulberrySource(
                 ]
             ),
             "  var pred = nn.argmax(activation);",
-            "  io.print(pred);",
+            "  io.println(pred);",
             "  return 0;",
         ]
     )

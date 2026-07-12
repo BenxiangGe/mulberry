@@ -22,11 +22,11 @@ fn main(): UInt64 {
   var testY0 = test.label(0);
   var testY1 = test.label(1);
 
-  io.print(trainX0.numel());
-  io.print(testX0.numel());
-  io.print(nn.argmax(trainY0));
-  io.print(nn.argmax(testY0));
-  io.print(nn.argmax(testY1));
+  io.println(trainX0.numel());
+  io.println(testX0.numel());
+  io.println(nn.argmax(trainY0));
+  io.println(nn.argmax(testY0));
+  io.println(nn.argmax(testY1));
   return 0;
 }
 

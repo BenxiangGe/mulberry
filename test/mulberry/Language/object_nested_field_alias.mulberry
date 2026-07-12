@@ -27,14 +27,14 @@ fn main(): UInt64 {
   var first = Counter { 1 };
   var box = makeBox(first);
   setValue(box.counter, 11);
-  io.print(first.value);
+  io.println(first.value);
 
   var alias = box;
   var second = Counter { 2 };
   replace(alias, second);
   setValue(box.counter, 22);
-  io.print(second.value);
-  io.print(first.value);
+  io.println(second.value);
+  io.println(first.value);
   return 0;
 }
 

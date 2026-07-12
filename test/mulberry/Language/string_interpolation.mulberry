@@ -1,0 +1,41 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Label {
+  text: String
+}
+
+fn decorate<T>(value: T): String {
+  return "<{$value}>";
+}
+
+fn main(): UInt64 {
+  const name = "world";
+  const values = ["zero", "one"];
+  const labels = [Label { "first" }];
+  const message =
+      "hello {$name}; {$labels[0].text}; {$values[1]}; \{literal\}; \{$name}; \\";
+  io.writeText(message);
+  io.writeText("\n");
+  io.writeText(decorate(name));
+  io.writeText("\n");
+  return 0;
+}
+
+# TOKENS: string_literal '"hello {$name}; {$labels[0].text}; {$values[1]}; \{literal\}; \{$name}; \\"'
+
+# AST: InterpolatedStringExpr {{.*}}type=std.string.String
+# AST-SAME: callee=std.string.concat
+# AST: MemberExpr {{.*}}type=std.string.String field=text
+# AST: IndexExpr {{.*}}type=Label kind=array
+# AST: IndexExpr {{.*}}type=std.string.String kind=array
+# AST: InterpolatedStringExpr {{.*}}type=std.string.String
+
+# MLIR: call @std.string.concat
+# MLIR: call @std.io.writeText
+
+# JIT: hello world; first; one; {literal}; {$name}; \
+# JIT-NEXT: <world>

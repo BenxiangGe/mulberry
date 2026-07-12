@@ -11,11 +11,11 @@ fn main(): UInt64 {
   const count = io.read(input, inputTensor);
   io.close(input);
 
-  io.print(count);
-  io.print(boolToUInt64(inputTensor[0] == outputBytes[0]));
-  io.print(boolToUInt64(inputTensor[1] == outputBytes[1]));
-  io.print(boolToUInt64(inputTensor[2] == outputBytes[2]));
-  io.print(boolToUInt64(inputTensor[3] == outputBytes[3]));
+  io.println(count);
+  io.println(boolToUInt64(inputTensor[0] == outputBytes[0]));
+  io.println(boolToUInt64(inputTensor[1] == outputBytes[1]));
+  io.println(boolToUInt64(inputTensor[2] == outputBytes[2]));
+  io.println(boolToUInt64(inputTensor[3] == outputBytes[3]));
   return 0;
 }
 

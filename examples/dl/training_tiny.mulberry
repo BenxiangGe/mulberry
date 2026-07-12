@@ -57,7 +57,7 @@ fn main(): UInt64 {
         nn.matmul(finalWeights[layer], activation0),
         finalBiases[layer]));
   }
-  io.print(nn.argmax(activation0));
+  io.println(nn.argmax(activation0));
 
   var activation1 = xs[1];
   for layer in 0 .. finalWeights.size() {
@@ -65,7 +65,7 @@ fn main(): UInt64 {
         nn.matmul(finalWeights[layer], activation1),
         finalBiases[layer]));
   }
-  io.print(nn.argmax(activation1));
+  io.println(nn.argmax(activation1));
 
   return 0;
 }

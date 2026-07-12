@@ -5,7 +5,7 @@
 fn main(): UInt64 {
   var tensor2d: Tensor<Float32> =
       tensor.from([[1.0, 2.0], [3.0, 4.0]]);
-  io.print(tensor2d.shape().size());
+  io.println(tensor2d.shape().size());
   return tensor2d.numel();
 }
 

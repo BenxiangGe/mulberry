@@ -14,7 +14,7 @@ fn main(): UInt64 {
   ]);
 
   var last = values[7, 7];
-  io.print(boolToUInt64(last > 62.5));
+  io.println(boolToUInt64(last > 62.5));
   return 0;
 }
 

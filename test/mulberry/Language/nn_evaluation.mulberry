@@ -21,10 +21,10 @@ fn main(): UInt64 {
 
   const evaluation =
       nn.evaluateDataset(weights, biases, dataset);
-  io.print(evaluation.correct);
-  io.print(evaluation.total);
-  io.print(evaluation.accuracyBasisPoints);
-  io.print(nn.accuracyBasisPoints(1, 4));
+  io.println(evaluation.correct);
+  io.println(evaluation.total);
+  io.println(evaluation.accuracyBasisPoints);
+  io.println(nn.accuracyBasisPoints(1, 4));
   return 0;
 }
 

@@ -32,16 +32,16 @@ fn main(): UInt64 {
 
   const prediction = nn.argmax(probabilities);
   const referencePrediction = nn.argmax(reference);
-  io.print(input.ndim());
-  io.print(convolved.dim(1));
-  io.print(convolved.dim(2));
-  io.print(pooled.dim(2));
-  io.print(features.dim(1));
-  io.print(probabilities.dim(1));
-  io.print(prediction);
-  io.print(referencePrediction);
-  io.print(boolToUInt64(prediction == referencePrediction));
-  io.print(nn.argmax(label));
+  io.println(input.ndim());
+  io.println(convolved.dim(1));
+  io.println(convolved.dim(2));
+  io.println(pooled.dim(2));
+  io.println(features.dim(1));
+  io.println(probabilities.dim(1));
+  io.println(prediction);
+  io.println(referencePrediction);
+  io.println(boolToUInt64(prediction == referencePrediction));
+  io.println(nn.argmax(label));
   return 0;
 }
 

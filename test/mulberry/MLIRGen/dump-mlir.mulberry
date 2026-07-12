@@ -3,10 +3,10 @@
 # CHECK-LABEL: func.func @main() -> i64
 # CHECK: arith.constant 1 : i64
 # CHECK: arith.constant 2 : i64
-# CHECK: call @std.io.print
+# CHECK: call @std_io_println__UInt64
 # CHECK-NOT: cir.
 fn main(): UInt64 {
 	1;
-	io.print(2);
+	io.println(2);
 	return 0;
 }

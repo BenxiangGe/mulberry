@@ -11,9 +11,9 @@ fn main(): UInt64 {
   const readCount = io.read(input, inputTensor);
   io.close(input);
 
-  io.print(writeCount);
-  io.print(readCount);
-  io.print(boolToUInt64(inputTensor[1] > 6.5));
+  io.println(writeCount);
+  io.println(readCount);
+  io.println(boolToUInt64(inputTensor[1] > 6.5));
   return 0;
 }
 

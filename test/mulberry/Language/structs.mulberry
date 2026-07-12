@@ -35,13 +35,13 @@ fn main(): UInt64 {
   # A { false, 20, C { true } };
   # B { 10, A { false, 20, C { true } } };
 
-  # io.print(value.k);
+  # io.println(value.k);
   # CHECK: 10
 
-  # io.print(boolToUInt64(value.a.x));
+  # io.println(boolToUInt64(value.a.x));
   # CHECK: 0
   
-  # io.print(value.a.y);
+  # io.println(value.a.y);
   # CHECK: 20
 
   # var x: C = value.a.c;

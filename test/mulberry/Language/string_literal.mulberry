@@ -17,8 +17,10 @@ fn main(): UInt64 {
 
 # TOKENS: string_literal '"data/mnist.bin"'
 
-# AST: StringLiteralExpr
+# AST: VariableStat const (id=path
+# AST-NEXT: StringLiteralExpr
 # AST-SAME: type=std.string.String
+# AST-SAME: value="data/mnist.bin"
 
 # MLIR: func.func @id(%arg0: !mulberry_core.ptr<!mulberry_core.record<std.string.String {length: i64, data: !mulberry_core.ptr<i8>}>>) -> !mulberry_core.ptr<!mulberry_core.record<std.string.String {length: i64, data: !mulberry_core.ptr<i8>}>> {
 # MLIR: mulberry_core.heap.alloc i8

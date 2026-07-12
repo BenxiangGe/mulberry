@@ -69,11 +69,11 @@ fn main(): UInt64 {
   const evaluation =
       nn.evaluateDataset(finalWeights, finalBiases, train);
 
-  io.print(trainingSize);
-  io.print(batchCount);
-  io.print(lastBatchEnd);
-  io.print(processedSamples);
-  io.print(evaluation.total);
+  io.println(trainingSize);
+  io.println(batchCount);
+  io.println(lastBatchEnd);
+  io.println(processedSamples);
+  io.println(evaluation.total);
   return 0;
 }
 

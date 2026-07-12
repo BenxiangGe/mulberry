@@ -12,7 +12,7 @@ fn make(): List<UInt64> {
 
 fn main(): UInt64 {
   var numbers = list.from([4, 5, 6]);
-  io.print(first(numbers));
+  io.println(first(numbers));
   return make().size();
 }
 

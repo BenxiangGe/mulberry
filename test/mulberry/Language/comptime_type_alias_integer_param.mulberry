@@ -7,7 +7,7 @@ comptime RankedBox<T, Rank: UInt64> = struct {
 
 fn main(): UInt64 {
   var box: RankedBox<UInt64, 2> = RankedBox<UInt64, 2> { 42 };
-  io.print(box.value);
+  io.println(box.value);
   return 0;
 }
 

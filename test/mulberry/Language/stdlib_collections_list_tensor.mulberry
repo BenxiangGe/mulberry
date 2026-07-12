@@ -9,8 +9,8 @@ fn main(): UInt64 {
   var weights: List<Tensor<Float32>> = list.from([w1, w2]);
   const first: Tensor<Float32> = weights[0];
 
-  io.print(weights.size());
-  io.print(first.numel());
+  io.println(weights.size());
+  io.println(first.numel());
   return 0;
 }
 

@@ -6,12 +6,12 @@ fn main(): UInt64 {
 
   list.shufflePair(xs, ys, 123);
 
-  io.print(xs.size());
-  io.print(ys.size());
-  io.print(xs[0] + ys[0] * 100);
-  io.print(xs[1] + ys[1] * 100);
-  io.print(xs[2] + ys[2] * 100);
-  io.print(xs[3] + ys[3] * 100);
+  io.println(xs.size());
+  io.println(ys.size());
+  io.println(xs[0] + ys[0] * 100);
+  io.println(xs[1] + ys[1] * 100);
+  io.println(xs[2] + ys[2] * 100);
+  io.println(xs[3] + ys[3] * 100);
   return 0;
 }
 

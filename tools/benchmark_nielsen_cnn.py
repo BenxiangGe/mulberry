@@ -44,14 +44,14 @@ fn main(): UInt64 {
 EVALUATION_BODIES = {
     "accuracy": """\
   const evaluation = nn.cnnEvaluateDataset(parameters, test);
-  io.print(evaluation.correct);""",
+  io.println(evaluation.correct);""",
     "loss": """\
   const loss = nn.cnnMeanCrossEntropy(parameters, test);
   var valid = 0;
   if loss >= 0.0 {
     valid = 1;
   }
-  io.print(valid);""",
+  io.println(valid);""",
     "accuracy+loss": """\
   const evaluation = nn.cnnEvaluateDataset(parameters, test);
   const loss = nn.cnnMeanCrossEntropy(parameters, test);
@@ -59,8 +59,8 @@ EVALUATION_BODIES = {
   if loss >= 0.0 {
     valid = 1;
   }
-  io.print(evaluation.correct);
-  io.print(valid);""",
+  io.println(evaluation.correct);
+  io.println(valid);""",
 }
 
 TRAIN_SOURCE = """\
@@ -88,7 +88,7 @@ fn main(): UInt64 {
     parameters = nn.cnnTrainEpoch(
         parameters, train, @BATCH_SIZE@, 0.01, 0.01, 12345 + epoch);
   }
-  io.print(nn.cnnPredict(parameters, test.input(0)));
+  io.println(nn.cnnPredict(parameters, test.input(0)));
   return 0;
 }
 """

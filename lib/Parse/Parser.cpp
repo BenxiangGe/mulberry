@@ -34,6 +34,113 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
   }
   return expr;
 }
+
+class InterpolationAccessParser {
+public:
+  InterpolationAccessParser(llvm::StringRef source,
+                            llvm::SourceMgr &sourceManager)
+      : _lexer(source, Lexer::Mode::StringInterpolation),
+        _token(_lexer.lexToken()),
+        _sourceManager(sourceManager) {}
+
+  auto parse(std::unique_ptr<Expr> &expr) -> MulberryResult {
+    if (parseAccess(expr))
+      return failure();
+    if (!_token.is(Token::eof))
+      return emitError(diag::invalid_string_interpolation_access);
+    return success();
+  }
+
+private:
+  Lexer _lexer;
+  Token _token;
+  llvm::SourceMgr &_sourceManager;
+
+  auto emitError(const llvm::Twine &message) -> MulberryResult {
+    _sourceManager.PrintMessage(_token.getLoc(),
+                                llvm::SourceMgr::DiagKind::DK_Error,
+                                message);
+    return failure();
+  }
+
+  auto consume(Token::Kind kind) -> void {
+    assert(_token.is(kind) && "consumed an unexpected interpolation token");
+    _token = _lexer.lexToken();
+  }
+
+  auto parseAccess(std::unique_ptr<Expr> &expr) -> MulberryResult {
+    if (!_token.is(Token::identifier))
+      return emitError(diag::expected_string_interpolation_access);
+
+    auto location = _token.getLoc();
+    auto name = _token.getSpelling().str();
+    consume(Token::identifier);
+    expr = make_unique<VariableExpr>(location, name);
+
+    while (_token.is(Token::dot) || _token.is(Token::l_square)) {
+      if (_token.is(Token::dot)) {
+        if (parseMember(expr))
+          return failure();
+      } else if (parseIndex(expr)) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  auto parseMember(std::unique_ptr<Expr> &expr) -> MulberryResult {
+    auto location = _token.getLoc();
+    consume(Token::dot);
+    if (!_token.is(Token::identifier))
+      return emitError(diag::expected_id);
+
+    auto fieldName = _token.getSpelling().str();
+    consume(Token::identifier);
+    expr = make_unique<MemberExpr>(location, std::move(expr), fieldName);
+    return success();
+  }
+
+  auto parseIndex(std::unique_ptr<Expr> &expr) -> MulberryResult {
+    auto location = expr->location();
+    consume(Token::l_square);
+    if (_token.is(Token::r_square))
+      return emitError(diag::expected_string_interpolation_access);
+
+    std::vector<std::unique_ptr<Expr>> indices;
+    while (true) {
+      std::unique_ptr<Expr> index;
+      if (parseIndexValue(index))
+        return failure();
+      indices.push_back(std::move(index));
+
+      if (!_token.is(Token::comma))
+        break;
+      consume(Token::comma);
+      if (_token.is(Token::r_square))
+        break;
+    }
+
+    if (!_token.is(Token::r_square))
+      return emitError(diag::invalid_string_interpolation_access);
+    consume(Token::r_square);
+    expr = make_unique<IndexExpr>(location, std::move(expr),
+                                  std::move(indices));
+    return success();
+  }
+
+  auto parseIndexValue(std::unique_ptr<Expr> &expr) -> MulberryResult {
+    if (!_token.is(Token::decimal))
+      return parseAccess(expr);
+
+    auto location = _token.getLoc();
+    auto value = _token.getUInt64IntegerValue();
+    if (!value)
+      return emitError(diag::integer_literal_overflows);
+    consume(Token::decimal);
+    expr = make_unique<DecimalLiteralExpr>(location, *value);
+    return success();
+  }
+};
 } // namespace
 
 auto Parser::parseModule(unique_ptr<Module> &module) -> MulberryResult {
@@ -800,12 +907,40 @@ auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> MulberryResult {
 
 auto Parser::parseString(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
-  if (auto value = token().getStringLiteralValue()) {
+  auto spelling = token().getSpelling();
+  auto segments = token().getStringLiteralSegments();
+  if (!segments)
+    return emitError(diag::string_literal_invalid);
+
+  if (segments->size() == 1 &&
+      segments->front().kind == StringLiteralSegment::Kind::Text) {
+    auto value = std::move(segments->front().value);
     consume(Token::string_literal);
-    expr = make_unique<StringLiteralExpr>(loc, std::move(*value));
+    expr = make_unique<StringLiteralExpr>(loc, std::move(value));
     return success();
   }
-  return emitError(diag::string_literal_invalid);
+
+  VectorUniquePtr<Expr> expressions;
+  for (auto &segment : *segments) {
+    auto segmentLocation = llvm::SMLoc::getFromPointer(
+        spelling.data() + segment.sourceOffset);
+    if (segment.kind == StringLiteralSegment::Kind::Text) {
+      expressions.push_back(make_unique<StringLiteralExpr>(
+          segmentLocation, std::move(segment.value)));
+      continue;
+    }
+
+    unique_ptr<Expr> access;
+    auto source = spelling.substr(segment.sourceOffset, segment.sourceLength);
+    InterpolationAccessParser parser(source, _sourceManager);
+    if (parser.parse(access))
+      return failure();
+    expressions.push_back(std::move(access));
+  }
+
+  consume(Token::string_literal);
+  expr = make_unique<InterpolatedStringExpr>(loc, std::move(expressions));
+  return success();
 }
 
 auto Parser::parseChar(unique_ptr<Expr> &expr) -> MulberryResult {

@@ -19,12 +19,12 @@ fn sum(xs: UInt64[3]): UInt64 {
 
 fn main(): UInt64 {
   var literal = makeLiteral();
-  io.print(sum(literal));
+  io.println(sum(literal));
 
   var local = makeLocal();
-  io.print(sum(local));
+  io.println(sum(local));
 
-  io.print(sum(makeLiteral()));
+  io.println(sum(makeLiteral()));
   return 0;
 }
 

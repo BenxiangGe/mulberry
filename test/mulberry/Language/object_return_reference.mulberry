@@ -17,7 +17,7 @@ fn main(): UInt64 {
   var original = makeCounter();
   var returned = alias(original);
   returned.value = 42;
-  io.print(original.value);
+  io.println(original.value);
   return 0;
 }
 
