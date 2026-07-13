@@ -4,7 +4,11 @@
   length: i64,
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
+!tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  data: !mulberry_core.ptr<f32>,
+  disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {
+  _storage: !mulberry_core.ptr<!tensor_storage_f32>,
   data: !mulberry_core.ptr<f32>,
   rank: i64,
   numel: i64,
@@ -25,6 +29,5 @@ module {
 // CHECK: %[[VIEW:.*]] = mulberry_core.tensor.view
 // CHECK: %[[CALL:.*]] = call @mulberry.nn.__tensor.sigmoid(%[[VIEW]])
 // CHECK: %[[PACK:.*]] = mulberry_core.tensor.pack %[[CALL]]
-// CHECK-NEXT: mulberry_core.tensor.release %[[CALL]]
 // CHECK: return %[[PACK]]
 // CHECK-NOT: call @mulberry.nn.sigmoid

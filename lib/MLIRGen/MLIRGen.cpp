@@ -82,6 +82,12 @@ struct VariableBinding {
   mlir::Value mlirValue;
 };
 
+struct TensorLocal {
+  mlir::Value referenceSlot;
+  mlir::Value initializedFlag;
+  bool escaped = false;
+};
+
 struct WhileControl {
   mlir::Value breakFlag;
   mlir::Value continueFlag;
@@ -140,6 +146,17 @@ auto isObjectReferenceType(const Type *type) -> bool {
   return mulberry::getStructType(type) || mulberry::getArrayType(type);
 }
 
+auto isTensorObjectType(const Type *type) -> bool {
+  auto *structType = mulberry::getStructType(type);
+  auto *origin = structType ? structType->origin() : nullptr;
+  return origin && origin->aliasName() == "std.tensor.Tensor";
+}
+
+auto startsWith(std::string_view value, std::string_view prefix) -> bool {
+  return value.size() >= prefix.size() &&
+         value.substr(0, prefix.size()) == prefix;
+}
+
 auto isObjectReferenceParameter(const Type *type, bool isExtern) -> bool {
   return !isExtern && isObjectReferenceType(type);
 }
@@ -168,6 +185,7 @@ private:
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<VariableBinding>> _variableScopes;
+  ScopeStack<NameMap<TensorLocal>> _tensorLocalScopes;
   std::vector<WhileControl> _whileControls;
   std::vector<FunctionReturnControl> _functionReturnControls;
   NameMap<DeclaredFunction> _functionsByName;
@@ -242,12 +260,20 @@ private:
 
   void resetVariableScopes() {
     _variableScopes.reset();
+    _tensorLocalScopes.reset();
     enterVariableScope();
   }
 
-  void enterVariableScope() { _variableScopes.enterScope(); }
+  void enterVariableScope() {
+    _variableScopes.enterScope();
+    _tensorLocalScopes.enterScope();
+  }
 
-  void leaveVariableScope() { _variableScopes.leaveScope(); }
+  void leaveVariableScope(mlir::Location location) {
+    disposeCurrentTensorLocals(location);
+    _tensorLocalScopes.leaveScope();
+    _variableScopes.leaveScope();
+  }
 
   void setVariable(std::string_view name, VariableBinding binding) {
     if (_variableScopes.empty())
@@ -279,6 +305,23 @@ private:
   auto getCurrentVariableBinding(std::string_view name) -> VariableBinding * {
     return _variableScopes.lookupCurrent(name);
   }
+
+  auto getTensorLocal(std::string_view name) -> TensorLocal * {
+    return _tensorLocalScopes.lookup(name);
+  }
+
+  void registerTensorLocal(std::string_view name, mlir::Value referenceSlot,
+                           mlir::Value initializedFlag) {
+    setSymbol(_tensorLocalScopes.currentScope(), name,
+              TensorLocal{referenceSlot, initializedFlag});
+  }
+
+  void disposeCurrentTensorLocals(mlir::Location location);
+  void disposeTensorLocal(std::string_view name, const TensorLocal& local,
+                          mlir::Location location);
+  void markTensorReferencesEscaped(const Expr *expr);
+  auto isFreshTensorExpression(const Expr *expr) const -> bool;
+  auto tensorCallDoesNotRetain(std::string_view name) const -> bool;
 
   auto getVariableAddress(std::string_view name,
                           mlir::Location location) -> mlir::Value {
@@ -361,6 +404,9 @@ private:
                              mlir::mulberry_core::RecordType arrayType)
       -> mlir::Value;
   auto genTensorFromArray(const CallExpr *expr) -> mlir::Value;
+  auto genTensorDispose(const CallExpr *expr) -> mlir::Value;
+  void createTensorAssertAlive(mlir::Value tensor,
+                               mlir::Location location);
   auto createTensorObject(mlir::mulberry_core::RecordType resultType,
                           mlir::Value data,
                           const std::vector<int64_t> &shape,
@@ -432,6 +478,11 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
       "std.tensor.from",
       [this](const Expr *node) {
         return genTensorFromArray(cast<CallExpr>(node));
+      });
+  registerBuiltinHandler(
+      "std.tensor.__dispose",
+      [this](const Expr *node) {
+        return genTensorDispose(cast<CallExpr>(node));
       });
   registerBuiltinHandler(
       "std.core.toUInt8",
@@ -624,7 +675,7 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
 
     enterVariableScope();
     genStatements(body->statements());
-    leaveVariableScope();
+    leaveVariableScope(location);
 
     auto returnControl = _functionReturnControls.back();
     _functionReturnControls.pop_back();
@@ -738,7 +789,7 @@ auto MLIRGenImpl::gen(const UnitExpr *node) -> mlir::Value { return nullptr; }
 auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
   enterVariableScope();
   genStatements(node->statements());
-  leaveVariableScope();
+  leaveVariableScope(loc(node));
   return nullptr;
 }
 
@@ -822,6 +873,8 @@ auto MLIRGenImpl::gen(const ReturnStat *node) -> void {
   auto &control = _functionReturnControls.back();
   if (node->hasExpression()) {
     auto *expression = node->expression().get();
+    if (isObjectReferenceType(expression->type()))
+      markTensorReferencesEscaped(expression);
     if (mulberry::isUnitType(control.sourceReturnType)) {
       gen(expression);
     } else {
@@ -863,7 +916,7 @@ auto MLIRGenImpl::gen(const ForStat *node) -> void {
         mlir::scf::YieldOp::create(builder, location);
       },
       /*unsignedCmp=*/true);
-  leaveVariableScope();
+  leaveVariableScope(forLocation);
 }
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
@@ -931,6 +984,11 @@ auto MLIRGenImpl::genDeclaredCall(std::string_view name,
 }
 
 auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
+  if (!tensorCallDoesNotRetain(node->name()))
+    for (auto &expr : node->expressions())
+      if (isTensorObjectType(expr->type()))
+        markTensorReferencesEscaped(expr.get());
+
   llvm::SmallVector<const Expr *, 4> args;
   for (auto &expr : node->expressions())
     args.push_back(expr.get());
@@ -963,6 +1021,9 @@ auto MLIRGenImpl::gen(const StructLiteralExpr *node) -> mlir::Value {
 
   DBG("use Mulberry struct literal `{0}`",
       formatType(structType));
+  for (auto &expression : node->expressions())
+    if (isTensorObjectType(expression->type()))
+      markTensorReferencesEscaped(expression.get());
   return genStructLiteral(node, structType);
 }
 
@@ -1172,8 +1233,12 @@ auto MLIRGenImpl::genRecordPtrForMember(const MemberExpr *memberExpr)
       return gen(base);
   }
 
-  if (isObjectReferenceType(base->type()))
-    return genObjectReference(base);
+  if (isObjectReferenceType(base->type())) {
+    auto reference = genObjectReference(base);
+    if (isTensorObjectType(base->type()))
+      createTensorAssertAlive(reference, loc(memberExpr));
+    return reference;
+  }
 
   return genLValue(base);
 }
@@ -1300,6 +1365,10 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
 }
 
 auto MLIRGenImpl::gen(const AssignExpr *node) -> mlir::Value {
+  if (isTensorObjectType(node->lhs()->type())) {
+    markTensorReferencesEscaped(node->lhs().get());
+    markTensorReferencesEscaped(node->rhs().get());
+  }
   llvm::TypeSwitch<const Expr *>(node->lhs().get())
       .Case<VariableExpr>([&](const auto *var) {
         auto name = var->name();
@@ -1378,6 +1447,138 @@ auto MLIRGenImpl::createFalseValue(mlir::Location location) -> mlir::Value {
   return mlir::arith::ConstantIntOp::create(_builder, location, 0, 1);
 }
 
+void MLIRGenImpl::disposeCurrentTensorLocals(mlir::Location location) {
+  for (auto &[name, local] : _tensorLocalScopes.currentScope()) {
+    if (local.escaped)
+      continue;
+
+    if (!local.initializedFlag) {
+      disposeTensorLocal(name, local, location);
+      continue;
+    }
+
+    auto initialized = createLoad(local.initializedFlag,
+                                  _builder.getI1Type(), location);
+    auto ifOp = mlir::scf::IfOp::create(
+        _builder, location, initialized, /*withElseRegion=*/false);
+    mlir::OpBuilder::InsertionGuard guard(_builder);
+    _builder.setInsertionPointToStart(ifOp.thenBlock());
+    disposeTensorLocal(name, local, location);
+  }
+}
+
+void MLIRGenImpl::disposeTensorLocal(std::string_view name,
+                                     const TensorLocal& local,
+                                     mlir::Location location) {
+  auto slotType = llvm::cast<mlir::mulberry_core::PtrType>(
+      local.referenceSlot.getType());
+  auto tensor = createLoad(local.referenceSlot, slotType.getPointeeType(),
+                           location);
+  DBG("automatically dispose local Tensor `{0}`", name);
+  mlir::mulberry_core::TensorDisposeOp::create(_builder, location, tensor);
+}
+
+auto MLIRGenImpl::isFreshTensorExpression(const Expr *expr) const -> bool {
+  if (!isTensorObjectType(expr->type()))
+    return false;
+
+  auto *call = llvm::dyn_cast<CallExpr>(expr);
+  if (!call)
+    return false;
+
+  auto name = call->name();
+  if (name == "std.tensor.from" || startsWith(name, "std_tensor_zeros"))
+    return true;
+
+  // Extern Tensor ABI borrows arguments and transfers ownership of Tensor
+  // results. Package names do not participate in the lifetime decision.
+  auto function = _functionsByName.find(name);
+  return function != _functionsByName.end() && function->second.isExtern;
+}
+
+auto MLIRGenImpl::tensorCallDoesNotRetain(std::string_view name) const
+    -> bool {
+  auto function = _functionsByName.find(name);
+  if (function != _functionsByName.end() && function->second.isExtern)
+    return true;
+
+  constexpr std::string_view observers[] = {
+      "std_tensor_Tensor_ndim__", "std_tensor_Tensor_numel__",
+      "std_tensor_Tensor_shape__", "std_tensor_Tensor_dim__",
+      "std_tensor_Tensor_stride__", "std_tensor_Tensor_dispose__",
+  };
+  for (auto observer : observers)
+    if (startsWith(name, observer))
+      return true;
+  return false;
+}
+
+void MLIRGenImpl::markTensorReferencesEscaped(const Expr *expr) {
+  // This analysis is deliberately path-insensitive. Any possible alias or
+  // retained reference leaves the payload under GC management.
+  if (!expr)
+    return;
+
+  if (auto *variable = llvm::dyn_cast<VariableExpr>(expr)) {
+    if (isTensorObjectType(variable->type())) {
+      if (auto *local = getTensorLocal(variable->name())) {
+        DBG("Tensor local `{0}` escapes automatic disposal", variable->name());
+        local->escaped = true;
+      }
+    }
+    return;
+  }
+
+  if (auto *member = llvm::dyn_cast<MemberExpr>(expr)) {
+    markTensorReferencesEscaped(member->base().get());
+    return;
+  }
+  if (auto *call = llvm::dyn_cast<CallExpr>(expr)) {
+    if (call->hasReceiver())
+      markTensorReferencesEscaped(call->receiver().get());
+    for (auto &argument : call->expressions())
+      markTensorReferencesEscaped(argument.get());
+    return;
+  }
+  if (auto *literal = llvm::dyn_cast<StructLiteralExpr>(expr)) {
+    for (auto &value : literal->expressions())
+      markTensorReferencesEscaped(value.get());
+    return;
+  }
+  if (auto *array = llvm::dyn_cast<ArrayLiteralExpr>(expr)) {
+    for (auto &value : array->getElements())
+      markTensorReferencesEscaped(value.get());
+    return;
+  }
+  if (auto *index = llvm::dyn_cast<IndexExpr>(expr)) {
+    markTensorReferencesEscaped(index->base().get());
+    for (auto &value : index->indices())
+      markTensorReferencesEscaped(value.get());
+    return;
+  }
+  if (auto *assign = llvm::dyn_cast<AssignExpr>(expr)) {
+    markTensorReferencesEscaped(assign->lhs().get());
+    markTensorReferencesEscaped(assign->rhs().get());
+    return;
+  }
+  if (auto *binary = llvm::dyn_cast<BinaryExpr>(expr)) {
+    markTensorReferencesEscaped(binary->lhs().get());
+    markTensorReferencesEscaped(binary->rhs().get());
+    return;
+  }
+  if (auto *interpolated = llvm::dyn_cast<InterpolatedStringExpr>(expr)) {
+    for (auto &segment : interpolated->segments())
+      markTensorReferencesEscaped(segment.get());
+    return;
+  }
+  if (auto *identity = llvm::dyn_cast<ObjectIdentityExpr>(expr)) {
+    markTensorReferencesEscaped(identity->value().get());
+    return;
+  }
+  if (auto *allocation = llvm::dyn_cast<HeapAllocExpr>(expr))
+    markTensorReferencesEscaped(allocation->count().get());
+}
+
 auto MLIRGenImpl::currentFunctionReturnAllowed(mlir::Location location)
     -> mlir::Value {
   auto trueValue = createTrueValue(location);
@@ -1433,6 +1634,13 @@ auto MLIRGenImpl::declareLocalVariableSlot(const VariableStat *node) -> void {
   if (isObjectReferenceType(varType)) {
     auto referenceSlot = createAlloca(getSourceMLIRType(varType), loc(node));
     setVariableObjectReference(node->variable()->name(), referenceSlot);
+    if (isTensorObjectType(varType) &&
+        isFreshTensorExpression(node->init().get())) {
+      auto initializedFlag = createAlloca(_builder.getI1Type(), loc(node));
+      createStore(createFalseValue(loc(node)), initializedFlag, loc(node));
+      registerTensorLocal(node->variable()->name(), referenceSlot,
+                          initializedFlag);
+    }
     return;
   }
 
@@ -1692,6 +1900,7 @@ auto MLIRGenImpl::genStdlibTensorElementPtr(const IndexExpr *expr)
   auto recordType = llvm::cast<mlir::mulberry_core::RecordType>(
       getLayoutMLIRType(expr->base().get()));
   auto tensorPtr = genAddressableValue(expr->base().get(), recordType);
+  createTensorAssertAlive(tensorPtr, loc(expr));
 
   auto dataPtr = loadRecordFieldValue(tensorPtr, recordType, "data", loc(expr));
 
@@ -1783,6 +1992,8 @@ auto MLIRGenImpl::loadObjectHeaderForExternArgument(
     llvm_unreachable("extern object parameter does not use value ABI");
 
   auto objectReference = genObjectReference(expr);
+  if (isTensorObjectType(expr->type()))
+    createTensorAssertAlive(objectReference, loc(expr));
   DBG("load extern object argument header: {0} -> {1}",
       objectReference.getType(), parameterType);
   return createLoad(objectReference, parameterType, loc(expr));
@@ -1828,6 +2039,9 @@ auto MLIRGenImpl::genCallArgumentValue(const Expr *expr,
 }
 
 auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
+  for (auto &element : expr->getElements())
+    if (isTensorObjectType(element->type()))
+      markTensorReferencesEscaped(element.get());
   auto arrayType =
       llvm::cast<mlir::mulberry_core::RecordType>(getLayoutMLIRType(expr));
   return genArrayLiteralObject(expr, arrayType);
@@ -1887,6 +2101,17 @@ auto MLIRGenImpl::genTensorFromArray(const CallExpr *expr) -> mlir::Value {
   return createTensorObject(resultType, data, shape, elementCount, location);
 }
 
+auto MLIRGenImpl::genTensorDispose(const CallExpr *expr) -> mlir::Value {
+  auto tensor = genObjectReference(expr->expressions().front().get());
+  mlir::mulberry_core::TensorDisposeOp::create(_builder, loc(expr), tensor);
+  return nullptr;
+}
+
+void MLIRGenImpl::createTensorAssertAlive(mlir::Value tensor,
+                                          mlir::Location location) {
+  mlir::mulberry_core::TensorAssertAliveOp::create(_builder, location, tensor);
+}
+
 auto MLIRGenImpl::createTensorObject(
     mlir::mulberry_core::RecordType resultType,
     mlir::Value data,
@@ -1913,9 +2138,19 @@ auto MLIRGenImpl::createTensorObject(
   auto sizes = createTensorMetadataList(sizesType, shape, location);
   auto stridesValue = createTensorMetadataList(stridesType, strides, location);
 
+  auto storageReferenceType = llvm::cast<mlir::mulberry_core::PtrType>(
+      resultType.getFieldType("_storage"));
+  auto storageType = llvm::cast<mlir::mulberry_core::RecordType>(
+      storageReferenceType.getPointeeType());
+  auto storage = createHeapObject(storageType, location);
+  storeRecordFieldValue(storage, storageType, "data", data, location);
+  storeRecordFieldValue(storage, storageType, "disposed",
+                        createFalseValue(location), location);
+
   // `tensor.from` is a compiler-known source API, but it still returns a
   // normal Tensor object reference.
   auto resultPtr = createHeapObject(resultType, location);
+  storeRecordFieldValue(resultPtr, resultType, "_storage", storage, location);
   storeRecordFieldValue(resultPtr, resultType, "data", data, location);
   storeRecordFieldValue(resultPtr, resultType, "rank",
                         createUInt64Constant(shape.size(), location),
@@ -2116,15 +2351,23 @@ auto MLIRGenImpl::gen(const VariableStat *node) -> void {
 
   if (isObjectReferenceType(varType)) {
     DBG("use Mulberry object reference `{0}`", formatType(varType));
+    auto freshTensor = isFreshTensorExpression(node->init().get());
+    if (isTensorObjectType(varType) && !freshTensor)
+      markTensorReferencesEscaped(node->init().get());
     auto objectReference = genObjectReference(node->init().get());
     if (predeclaredBinding && predeclaredBinding->isObjectReference()) {
       createStore(objectReference, predeclaredBinding->mlirValue, loc(node));
+      if (auto *local = getTensorLocal(varName))
+        createStore(createTrueValue(loc(node)), local->initializedFlag,
+                    loc(node));
       return;
     }
 
     auto referenceSlot = createAlloca(objectReference.getType(), loc(node));
     createStore(objectReference, referenceSlot, loc(node));
     setVariableObjectReference(varName, referenceSlot);
+    if (freshTensor)
+      registerTensorLocal(varName, referenceSlot, nullptr);
     return;
   }
 

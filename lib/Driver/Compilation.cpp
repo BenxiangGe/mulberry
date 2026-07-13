@@ -14,7 +14,10 @@
 #include "mulberry/Sema/Sema.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Transforms/BufferDeallocationOpInterfaceImpl.h"
+#include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/ControlFlow/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/Func/Extensions/AllExtensions.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -24,6 +27,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/InitAllExtensions.h"
@@ -570,6 +574,9 @@ static auto makeContext() -> mlir::MLIRContext {
   // Loading dialects alone is not enough; their ConvertToLLVM extensions must
   // also be registered before the context starts loading dialects.
   mlir::registerAllExtensions(registry);
+  mlir::arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  mlir::cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  mlir::scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
   return mlir::MLIRContext(registry);
 }
 
@@ -842,6 +849,9 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::Mulberry &&
       addBundledPackagePostCorePipelines(pm))
     return failure();
+
+  if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty())
+    mlir::bufferization::buildBufferDeallocationPipeline(pm);
 
   if (lowering >= Lowering::LLVM) {
     pm.addNestedPass<mlir::func::FuncOp>(

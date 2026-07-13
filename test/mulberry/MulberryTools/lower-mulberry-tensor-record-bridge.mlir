@@ -4,7 +4,11 @@
   length: i64,
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
+!tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  data: !mulberry_core.ptr<f32>,
+  disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {
+  _storage: !mulberry_core.ptr<!tensor_storage_f32>,
   data: !mulberry_core.ptr<f32>,
   rank: i64,
   numel: i64,
@@ -25,9 +29,15 @@ module {
     return %result : !tensor_f32
   }
 
-  func.func @release(%tensor: !mulberry_core.tensor<?x?xf32>) {
-    mulberry_core.tensor.release %tensor
-        : !mulberry_core.tensor<?x?xf32>
+  func.func @dispose(%tensor: !mulberry_core.ptr<!tensor_f32>) {
+    mulberry_core.tensor.dispose %tensor
+        : !mulberry_core.ptr<!tensor_f32>
+    return
+  }
+
+  func.func @assert_alive(%tensor: !mulberry_core.ptr<!tensor_f32>) {
+    mulberry_core.tensor.assert_alive %tensor
+        : !mulberry_core.ptr<!tensor_f32>
     return
   }
 }
@@ -45,6 +55,10 @@ module {
 // CHECK: return
 // CHECK-NOT: mulberry_core.
 
-// CHECK-LABEL: func.func @release
-// CHECK: memref.dealloc %arg0
+// CHECK-LABEL: func.func @dispose
+// CHECK: llvm.call @mulberry_boehm_free
+// CHECK: return
+
+// CHECK-LABEL: func.func @assert_alive
+// CHECK: llvm.call @mulberry_tensor_use_after_dispose
 // CHECK: return

@@ -6,6 +6,8 @@
 //===----------------------------------------------------------------------===//
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 
 #include <gc.h>
 
@@ -32,4 +34,14 @@ extern "C" void mulberry_runtime_init() {
 extern "C" void* mulberry_boehm_malloc(uint64_t size) {
   initializeRuntime();
   return GC_malloc(size);
+}
+
+extern "C" void mulberry_boehm_free(void* pointer) {
+  if (pointer)
+    GC_free(pointer);
+}
+
+extern "C" void mulberry_tensor_use_after_dispose() {
+  std::fputs("fatal: access to disposed Tensor\n", stderr);
+  std::abort();
 }

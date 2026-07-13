@@ -233,8 +233,22 @@ static auto isTensorF32RecordABI(Type type) -> bool {
 
   auto rankType = recordType.getFieldType("rank");
   auto numelType = recordType.getFieldType("numel");
+  auto storageReference = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+      recordType.getFieldType("_storage"));
+  auto storageType = storageReference
+                         ? llvm::dyn_cast<mlir::mulberry_core::RecordType>(
+                               storageReference.getPointeeType())
+                         : mlir::mulberry_core::RecordType{};
+  auto storageDataType = storageType
+                             ? llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+                                   storageType.getFieldType("data"))
+                             : mlir::mulberry_core::PtrType{};
+  auto disposedType =
+      storageType ? storageType.getFieldType("disposed") : Type{};
   return rankType && rankType.isInteger(64) && numelType &&
          numelType.isInteger(64) &&
+         storageDataType && storageDataType.getPointeeType().isF32() &&
+         disposedType && disposedType.isInteger(1) &&
          isListU64Reference(recordType.getFieldType("sizes")) &&
          isListU64Reference(recordType.getFieldType("strides"));
 }
@@ -264,10 +278,8 @@ static auto createTensorCall(PatternRewriter &rewriter, Location loc,
 
 static auto packTensor(PatternRewriter &rewriter, Location loc, Value tensor,
                        Type tensorRecordType) -> Value {
-  Value packed = mlir::mulberry_core::TensorPackOp::create(
+  return mlir::mulberry_core::TensorPackOp::create(
       rewriter, loc, tensorRecordType, tensor);
-  mlir::mulberry_core::TensorReleaseOp::create(rewriter, loc, tensor);
-  return packed;
 }
 
 enum class BinaryOperation {
