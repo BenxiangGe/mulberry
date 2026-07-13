@@ -6,7 +6,13 @@ import internal.ptr;
 
 extern fn mulberry_zero_memory(data: Ptr<UInt8>, byteSize: UInt64): ();
 
+comptime TensorStorage<T> = struct {
+  data: Ptr<T>,
+  disposed: Bool
+};
+
 comptime Tensor<T> = struct {
+  _storage: TensorStorage<T>,
   data: Ptr<T>,
   rank: UInt64,
   numel: UInt64,
@@ -31,6 +37,11 @@ comptime Tensor<T> = struct {
 
   pub fn stride(self: Tensor<T>, index: UInt64): UInt64 {
     return self.strides[index];
+  }
+
+  pub fn dispose(mut self: Tensor<T>): () {
+    std.tensor.__dispose(self);
+    return;
   }
 };
 
@@ -66,7 +77,10 @@ fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   const count = numel(shape);
   var data = heap.alloc<T>(count);
   mulberry_zero_memory(ptr.asUInt8(data), count * sizeof(T));
-  return Tensor<T> { data, shape.size(), count, shape, rowMajorStrides(shape) };
+  var storage = TensorStorage<T> { data, false };
+  return Tensor<T> {
+    storage, data, shape.size(), count, shape, rowMajorStrides(shape)
+  };
 }
 
 fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
@@ -77,7 +91,7 @@ fn reshape<T, N: UInt64>(value: Tensor<T>,
                          shape: Array<UInt64, N>): Tensor<T> {
   var sizes = list.from(shape);
   return Tensor<T> {
-    value.data, N, value.numel, sizes, rowMajorStrides(sizes)
+    value._storage, value.data, N, value.numel, sizes, rowMajorStrides(sizes)
   };
 }
 
@@ -94,7 +108,10 @@ fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
 
   const offset = index * value.strides[0];
   const count = value.numel / value.sizes[0];
-  return Tensor<T> { ptr.offset(value.data, offset), value.rank - 1, count, sizes, strides };
+  return Tensor<T> {
+    value._storage, ptr.offset(value.data, offset), value.rank - 1, count,
+    sizes, strides
+  };
 }
 
 fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {

@@ -4,7 +4,11 @@
   length: i64,
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
+!tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  data: !mulberry_core.ptr<f32>,
+  disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {
+  _storage: !mulberry_core.ptr<!tensor_storage_f32>,
   data: !mulberry_core.ptr<f32>,
   rank: i64,
   numel: i64,
@@ -96,7 +100,6 @@ module {
 // CHECK: call @mulberry.nn.__tensor.relu
 // CHECK-SAME: -> !mulberry_core.tensor<?x?x?x?xf32>
 // CHECK: mulberry_core.tensor.pack
-// CHECK-NEXT: mulberry_core.tensor.release
 
 // CHECK-LABEL: func.func @classifier
 // CHECK: mulberry_core.tensor.view
@@ -104,7 +107,6 @@ module {
 // CHECK: call @mulberry.nn.__tensor.softmax
 // CHECK-SAME: -> !mulberry_core.tensor<?x?xf32>
 // CHECK: mulberry_core.tensor.pack
-// CHECK-NEXT: mulberry_core.tensor.release
 // CHECK-NOT: call @mulberry.nn.softmax
 
 // CHECK-LABEL: func.func @cross_entropy

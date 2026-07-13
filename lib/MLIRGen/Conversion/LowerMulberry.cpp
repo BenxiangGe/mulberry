@@ -233,6 +233,25 @@ static auto callBoehmMalloc(Location location, OpBuilder& builder, Operation* op
   return mallocCall.getResult();
 }
 
+static auto callRuntimeVoid(Location location, OpBuilder& builder,
+                            Operation* op, StringRef name,
+                            ValueRange arguments = {}) -> LogicalResult {
+  auto moduleOp = op->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return failure();
+
+  std::vector<Type> argumentTypes;
+  for (auto argument : arguments)
+    argumentTypes.push_back(argument.getType());
+  auto function = LLVM::lookupOrCreateFn(builder, moduleOp, name,
+      argumentTypes, LLVM::LLVMVoidType::get(builder.getContext()));
+  if (failed(function))
+    return failure();
+
+  LLVM::CallOp::create(builder, location, *function, arguments);
+  return success();
+}
+
 static auto extractRecordField(Location location,
                                ConversionPatternRewriter& rewriter,
                                Value record,
@@ -257,6 +276,95 @@ static auto getReferencedRecordType(Type type) -> mulberry_core::RecordType {
   if (!ptrType)
     return {};
   return llvm::dyn_cast<mulberry_core::RecordType>(ptrType.getPointeeType());
+}
+
+static auto createRecordFieldAddress(
+    Location location, ConversionPatternRewriter& rewriter, Value record,
+    mulberry_core::RecordType recordType, StringRef field) -> FailureOr<Value> {
+  auto backendType = convertRecordLayoutType(recordType);
+  if (!backendType || !recordType.getFieldType(field))
+    return failure();
+
+  auto fieldIndex = static_cast<int32_t>(recordType.getFieldIndex(field));
+  return LLVM::GEPOp::create(
+             rewriter, location, getPtrType(rewriter.getContext()),
+             *backendType, record, ArrayRef<LLVM::GEPArg>{0, fieldIndex})
+      .getResult();
+}
+
+static auto loadTensorStorageReference(
+    Location location, ConversionPatternRewriter& rewriter, Value tensor,
+    mulberry_core::RecordType tensorType) -> FailureOr<Value> {
+  auto storageAddress = createRecordFieldAddress(
+      location, rewriter, tensor, tensorType, "_storage");
+  if (failed(storageAddress))
+    return failure();
+  return LLVM::LoadOp::create(rewriter, location,
+                              getPtrType(rewriter.getContext()),
+                              *storageAddress)
+      .getResult();
+}
+
+static auto getTensorStorageType(mulberry_core::RecordType tensorType)
+    -> mulberry_core::RecordType {
+  return getReferencedRecordType(tensorType.getFieldType("_storage"));
+}
+
+static auto assertTensorStorageAlive(
+    Location location, ConversionPatternRewriter& rewriter, Operation* op,
+    Value storage, mulberry_core::RecordType storageType) -> LogicalResult {
+  auto disposedAddress = createRecordFieldAddress(
+      location, rewriter, storage, storageType, "disposed");
+  if (failed(disposedAddress))
+    return failure();
+
+  auto i1Type = IntegerType::get(rewriter.getContext(), 1);
+  auto disposed = LLVM::LoadOp::create(rewriter, location, i1Type,
+                                       *disposedAddress);
+  auto ifOp = scf::IfOp::create(rewriter, location, disposed,
+                                /*withElseRegion=*/false);
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(ifOp.thenBlock());
+  if (failed(callRuntimeVoid(location, rewriter, op,
+                             "mulberry_tensor_use_after_dispose")))
+    return failure();
+  return success();
+}
+
+static auto disposeTensorStorage(
+    Location location, ConversionPatternRewriter& rewriter, Operation* op,
+    Value storage, mulberry_core::RecordType storageType) -> LogicalResult {
+  auto disposedAddress = createRecordFieldAddress(
+      location, rewriter, storage, storageType, "disposed");
+  auto dataAddress = createRecordFieldAddress(
+      location, rewriter, storage, storageType, "data");
+  if (failed(disposedAddress) || failed(dataAddress))
+    return failure();
+
+  auto context = rewriter.getContext();
+  auto i1Type = IntegerType::get(context, 1);
+  auto disposed = LLVM::LoadOp::create(rewriter, location, i1Type,
+                                       *disposedAddress);
+  auto trueValue = arith::ConstantIntOp::create(rewriter, location, 1, 1);
+  auto shouldDispose = arith::XOrIOp::create(
+      rewriter, location, disposed.getResult(), trueValue.getResult());
+  auto ifOp = scf::IfOp::create(rewriter, location, shouldDispose,
+                                /*withElseRegion=*/false);
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(ifOp.thenBlock());
+  auto pointerType = getPtrType(context);
+  auto data = LLVM::LoadOp::create(rewriter, location, pointerType,
+                                   *dataAddress);
+  LLVM::StoreOp::create(rewriter, location, trueValue.getResult(),
+                        *disposedAddress);
+  if (failed(callRuntimeVoid(location, rewriter, op, "mulberry_boehm_free",
+                             ValueRange{data.getResult()})))
+    return failure();
+  auto nullPointer = LLVM::ZeroOp::create(rewriter, location, pointerType);
+  LLVM::StoreOp::create(rewriter, location, nullPointer.getResult(),
+                        *dataAddress);
+  return success();
 }
 
 static auto loadRecordValue(Location location,
@@ -807,6 +915,16 @@ public:
       return rewriter.notifyMatchFailure(
           op, "tensor view needs a Tensor record");
 
+    auto storageType = getTensorStorageType(tensorRecordType);
+    auto storage = extractRecordField(op.getLoc(), rewriter,
+                                      adaptor.getTensorRecord(),
+                                      tensorRecordType, "_storage");
+    if (!storageType || failed(storage) ||
+        failed(assertTensorStorageAlive(op.getLoc(), rewriter, op,
+                                        *storage, storageType)))
+      return rewriter.notifyMatchFailure(
+          op, "tensor view needs live shared storage");
+
     auto tensorType = llvm::cast<mulberry_core::TensorType>(
         op.getResult().getType());
     auto layout = convertToTensorABILayout(tensorType);
@@ -872,9 +990,10 @@ public:
         getReferencedRecordType(tensorRecordType.getFieldType("sizes"));
     auto stridesType =
         getReferencedRecordType(tensorRecordType.getFieldType("strides"));
-    if (!sizesType || !stridesType)
+    auto storageType = getTensorStorageType(tensorRecordType);
+    if (!sizesType || !stridesType || !storageType)
       return rewriter.notifyMatchFailure(
-          op, "tensor pack needs List<i64> reference fields");
+          op, "tensor pack needs metadata and shared storage fields");
 
     auto layout = convertToTensorABILayout(tensorType);
     auto sourceDesc = createTensorABIDesc(op.getLoc(), rewriter, layout,
@@ -916,9 +1035,36 @@ public:
     if (failed(sizesReference) || failed(stridesReference))
       return failure();
 
+    auto storageBackendType = convertRecordLayoutType(storageType);
+    if (!storageBackendType)
+      return rewriter.notifyMatchFailure(
+          op, "tensor pack needs lowerable shared storage");
+    auto storage = LLVM::UndefOp::create(rewriter, op.getLoc(),
+                                         *storageBackendType);
+    Value storageValue = storage.getResult();
+    auto storageDataIndex =
+        static_cast<int64_t>(storageType.getFieldIndex("data"));
+    auto disposedIndex =
+        static_cast<int64_t>(storageType.getFieldIndex("disposed"));
+    auto falseValue = LLVM::ConstantOp::create(
+        rewriter, op.getLoc(), IntegerType::get(context, 1),
+        rewriter.getIntegerAttr(IntegerType::get(context, 1), 0));
+    storageValue = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), storageValue, *payload,
+        ArrayRef<int64_t>{storageDataIndex});
+    storageValue = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), storageValue, falseValue.getResult(),
+        ArrayRef<int64_t>{disposedIndex});
+    auto storageReference = createHeapRecordReference(
+        op.getLoc(), rewriter, op, storageType, storageValue);
+    if (failed(storageReference))
+      return failure();
+
     auto tensorRecord = LLVM::UndefOp::create(rewriter, op.getLoc(),
                                               *tensorRecordBackendType);
     Value current = tensorRecord.getResult();
+    auto storageIndex =
+        static_cast<int64_t>(tensorRecordType.getFieldIndex("_storage"));
     auto dataIndex =
         static_cast<int64_t>(tensorRecordType.getFieldIndex("data"));
     auto rankIndex =
@@ -929,6 +1075,9 @@ public:
         static_cast<int64_t>(tensorRecordType.getFieldIndex("sizes"));
     auto stridesIndex =
         static_cast<int64_t>(tensorRecordType.getFieldIndex("strides"));
+    current = LLVM::InsertValueOp::create(
+        rewriter, op.getLoc(), current, *storageReference,
+        ArrayRef<int64_t>{storageIndex});
     current = LLVM::InsertValueOp::create(
         rewriter, op.getLoc(), current, *payload, ArrayRef<int64_t>{dataIndex});
     current = LLVM::InsertValueOp::create(
@@ -956,20 +1105,67 @@ public:
   }
 };
 
-class TensorReleaseOpLowering
-    : public OpConversionPattern<mulberry_core::TensorReleaseOp> {
+class TensorDisposeOpLowering
+    : public OpConversionPattern<mulberry_core::TensorDisposeOp> {
 public:
-  using OpConversionPattern<
-      mulberry_core::TensorReleaseOp>::OpConversionPattern;
+  using OpConversionPattern<mulberry_core::TensorDisposeOp>::OpConversionPattern;
 
-  auto matchAndRewrite(mulberry_core::TensorReleaseOp op, OpAdaptor adaptor,
+  auto matchAndRewrite(mulberry_core::TensorDisposeOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    if (!llvm::isa<MemRefType>(adaptor.getTensor().getType()))
+    auto tensorPtrType = llvm::dyn_cast<mulberry_core::PtrType>(
+        op.getTensor().getType());
+    auto tensorType = tensorPtrType
+                          ? llvm::dyn_cast<mulberry_core::RecordType>(
+                                tensorPtrType.getPointeeType())
+                          : mulberry_core::RecordType{};
+    auto storageType = tensorType ? getTensorStorageType(tensorType)
+                                  : mulberry_core::RecordType{};
+    if (!tensorType || !storageType)
       return rewriter.notifyMatchFailure(
-          op, "tensor release needs lowered tensor storage");
+          op, "tensor dispose needs a Tensor object reference");
 
-    memref::DeallocOp::create(rewriter, op.getLoc(), adaptor.getTensor());
+    auto storage = loadTensorStorageReference(
+        op.getLoc(), rewriter, adaptor.getTensor(), tensorType);
+    if (failed(storage) ||
+        failed(disposeTensorStorage(op.getLoc(), rewriter, op,
+                                    *storage, storageType)))
+      return rewriter.notifyMatchFailure(
+          op, "tensor dispose needs lowerable shared storage");
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class TensorAssertAliveOpLowering
+    : public OpConversionPattern<mulberry_core::TensorAssertAliveOp> {
+public:
+  using OpConversionPattern<
+      mulberry_core::TensorAssertAliveOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry_core::TensorAssertAliveOp op,
+                       OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto tensorPtrType = llvm::dyn_cast<mulberry_core::PtrType>(
+        op.getTensor().getType());
+    auto tensorType = tensorPtrType
+                          ? llvm::dyn_cast<mulberry_core::RecordType>(
+                                tensorPtrType.getPointeeType())
+                          : mulberry_core::RecordType{};
+    auto storageType = tensorType ? getTensorStorageType(tensorType)
+                                  : mulberry_core::RecordType{};
+    if (!tensorType || !storageType)
+      return rewriter.notifyMatchFailure(
+          op, "tensor assertion needs a Tensor object reference");
+
+    auto storage = loadTensorStorageReference(
+        op.getLoc(), rewriter, adaptor.getTensor(), tensorType);
+    if (failed(storage) ||
+        failed(assertTensorStorageAlive(op.getLoc(), rewriter, op,
+                                        *storage, storageType)))
+      return rewriter.notifyMatchFailure(
+          op, "tensor assertion needs lowerable shared storage");
     rewriter.eraseOp(op);
     return success();
   }
@@ -1001,8 +1197,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     patterns.add<AllocaOpLowering, HeapAllocOpLowering,
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordGetFieldOpLowering, StoreOpLowering,
-                 TensorPackOpLowering, TensorReleaseOpLowering,
-                 TensorViewOpLowering>(
+                 TensorAssertAliveOpLowering, TensorDisposeOpLowering,
+                 TensorPackOpLowering, TensorViewOpLowering>(
         typeConverter, &getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);

@@ -1,4 +1,4 @@
-// RUN: mulberry-opt --load-dialect-plugin=%mulberry_libs/MulberryNNPackage%shlibext --load-pass-plugin=%mulberry_libs/MulberryNNPackage%shlibext --pass-pipeline='builtin.module(lower-mulberry-nn)' %s | FileCheck %s
+// RUN: mulberry-opt --load-dialect-plugin=%mulberry_libs/MulberryNNPackage%shlibext --load-pass-plugin=%mulberry_libs/MulberryNNPackage%shlibext --pass-pipeline='builtin.module(lower-mulberry-nn,buffer-deallocation-pipeline)' %s | FileCheck %s
 // RUN: mulberry-opt --load-dialect-plugin=%mulberry_libs/MulberryNNPackage%shlibext --load-pass-plugin=%mulberry_libs/MulberryNNPackage%shlibext --pass-pipeline='builtin.module(lower-mulberry-nn,func.func(convert-linalg-to-loops),convert-scf-to-cf)' %s | FileCheck %s --check-prefix=LOOPS
 
 module {
@@ -83,11 +83,11 @@ module {
 }
 
 // CHECK-LABEL: func.func @nielsen_block
+// CHECK: arith.constant 0xFF800000 : f32
 // CHECK: linalg.generic
 // CHECK: linalg.conv_2d_nchw_fchw
 // CHECK-SAME: dilations = dense<1> : tensor<2xi64>
 // CHECK-SAME: strides = dense<1> : tensor<2xi64>
-// CHECK: arith.constant 0xFF800000 : f32
 // CHECK: memref.alloca() : memref<2x2xf32>
 // CHECK: linalg.pooling_nchw_max
 // CHECK-SAME: dilations = dense<1> : tensor<2xi64>
@@ -104,17 +104,17 @@ module {
 // CHECK-COUNT-2: memref.dealloc
 
 // CHECK-LABEL: func.func @padded_windows
+// CHECK: arith.constant 0xFF800000 : f32
 // CHECK: %[[CONV_PAD:.*]] = memref.alloc() : memref<1x1x5x5xf32>
 // CHECK: linalg.fill
 // CHECK: %[[CONV_INTERIOR:.*]] = memref.subview %[[CONV_PAD]][0, 0, 1, 1]
 // CHECK: memref.copy %{{.*}}, %[[CONV_INTERIOR]]
 // CHECK: linalg.conv_2d_nchw_fchw
-// CHECK: memref.dealloc %[[CONV_PAD]]
-// CHECK: arith.constant 0xFF800000 : f32
 // CHECK: %[[POOL_PAD:.*]] = memref.alloc() : memref<1x1x5x5xf32>
 // CHECK: %[[POOL_INTERIOR:.*]] = memref.subview %[[POOL_PAD]][0, 0, 1, 1]
 // CHECK: memref.copy %{{.*}}, %[[POOL_INTERIOR]]
 // CHECK: linalg.pooling_nchw_max
+// CHECK: memref.dealloc %[[CONV_PAD]]
 // CHECK: memref.dealloc %[[POOL_PAD]]
 
 // CHECK-LABEL: func.func @dynamic_shapes

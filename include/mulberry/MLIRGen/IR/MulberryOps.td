@@ -128,12 +128,24 @@ def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
   let hasVerifier = 1;
 }
 
-def Mulberry_TensorReleaseOp : Mulberry_Op<"tensor.release"> {
-  let summary = "Release an owned internal tensor";
+def Mulberry_TensorDisposeOp : Mulberry_Op<"tensor.dispose"> {
+  let summary = "Dispose a source Tensor object's shared payload";
 
-  let arguments = (ins Mulberry_AnyTensorType:$tensor);
+  let arguments = (ins Mulberry_AnyPtrType:$tensor);
 
   let assemblyFormat = "$tensor attr-dict `:` type($tensor)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorAssertAliveOp : Mulberry_Op<"tensor.assert_alive"> {
+  let summary = "Reject access through a disposed source Tensor object";
+
+  let arguments = (ins Mulberry_AnyPtrType:$tensor);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor)";
+
+  let hasVerifier = 1;
 }
 
 #endif // MULBERRY_OPS

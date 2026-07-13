@@ -820,6 +820,7 @@ private:
   auto semaTensorFromArrayCall(CallExpr *node,
                                const Type *expectedType = nullptr)
       -> MulberryResult;
+  auto semaTensorDisposeCall(CallExpr *node) -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
   auto semaArrayLiteralElement(Expr *expr, const Type *type)
       -> MulberryResult;
@@ -1794,6 +1795,11 @@ auto SemaImpl::registerBuiltinHandlers() -> void {
       "std.tensor.from",
       [this](Expr *node, const Type *expectedType) {
         return semaTensorFromArrayCall(cast<CallExpr>(node), expectedType);
+      });
+  registerBuiltinHandler(
+      "std.tensor.__dispose",
+      [this](Expr *node, const Type *) {
+        return semaTensorDisposeCall(cast<CallExpr>(node));
       });
   registerBuiltinHandler(
       "std.core.toUInt8",
@@ -2942,6 +2948,24 @@ auto SemaImpl::semaTensorFromArrayCall(CallExpr *node,
     return emitError(node, diag::mismatch_type);
 
   node->setType(recordType);
+  return success();
+}
+
+auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> MulberryResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *tensor = expressions.front().get();
+  if (sema(tensor) || !tensorElementType(tensor->type()))
+    return emitError(tensor, diag::mismatch_type);
+  if (checkConstObjectUseAsMutable(tensor))
+    return failure();
+
+  setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 

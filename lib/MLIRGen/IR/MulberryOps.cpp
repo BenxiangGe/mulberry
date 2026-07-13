@@ -103,6 +103,27 @@ static auto verifyTensorMetadataListReference(Operation* op, Type type,
   return success();
 }
 
+static auto verifyTensorStorage(Operation* op, RecordType tensorType)
+    -> LogicalResult {
+  auto storagePtr = llvm::dyn_cast<PtrType>(tensorType.getFieldType("_storage"));
+  auto storageType = storagePtr
+                         ? llvm::dyn_cast<RecordType>(storagePtr.getPointeeType())
+                         : RecordType{};
+  if (!storageType)
+    return op->emitOpError(" Tensor record needs a shared `_storage` object");
+
+  auto tensorDataType = tensorType.getFieldType("data");
+  auto storageDataType = storageType.getFieldType("data");
+  auto disposedType = storageType.getFieldType("disposed");
+  if (!tensorDataType || tensorDataType != storageDataType ||
+      !getPtrPointeeType(storageDataType) || !disposedType ||
+      !disposedType.isInteger(1))
+    return op->emitOpError(
+        " Tensor storage needs matching `data` and i1 `disposed` fields");
+
+  return success();
+}
+
 static auto verifyTensorRecordABI(Operation* op, RecordType recordType,
                                   mlir::mulberry_core::TensorType tensorType,
                                   StringRef valueName) -> LogicalResult {
@@ -128,7 +149,8 @@ static auto verifyTensorRecordABI(Operation* op, RecordType recordType,
   if (failed(verifyTensorMetadataListReference(
           op, recordType.getFieldType("sizes"), "sizes")) ||
       failed(verifyTensorMetadataListReference(
-          op, recordType.getFieldType("strides"), "strides")))
+          op, recordType.getFieldType("strides"), "strides")) ||
+      failed(verifyTensorStorage(op, recordType)))
     return failure();
 
   return success();
@@ -146,4 +168,22 @@ auto TensorPackOp::verify() -> LogicalResult {
   auto tensorType = getTensorType(getTensor().getType());
   return verifyTensorRecordABI(getOperation(), recordType, tensorType,
                                "result");
+}
+
+static auto verifyTensorObject(Operation* op, Type type) -> LogicalResult {
+  auto ptrType = llvm::dyn_cast<PtrType>(type);
+  auto recordType = ptrType
+                        ? llvm::dyn_cast<RecordType>(ptrType.getPointeeType())
+                        : RecordType{};
+  if (!recordType)
+    return op->emitOpError(" operand must reference a Tensor record");
+  return verifyTensorStorage(op, recordType);
+}
+
+auto TensorDisposeOp::verify() -> LogicalResult {
+  return verifyTensorObject(getOperation(), getTensor().getType());
+}
+
+auto TensorAssertAliveOp::verify() -> LogicalResult {
+  return verifyTensorObject(getOperation(), getTensor().getType());
 }

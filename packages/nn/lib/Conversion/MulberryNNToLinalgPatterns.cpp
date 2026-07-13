@@ -532,8 +532,6 @@ public:
           linalg::YieldOp::create(builder, location, probability.getResult());
         });
 
-    memref::DeallocOp::create(rewriter, loc, rowMax);
-    memref::DeallocOp::create(rewriter, loc, rowSum);
     rewriter.eraseOp(op);
     return success();
   }
@@ -708,8 +706,6 @@ public:
         ValueRange{paddedInput.value, adaptor.getWeight()},
         ValueRange{adaptor.getOut()}, strides, dilations);
 
-    if (paddedInput.allocation)
-      memref::DeallocOp::create(rewriter, loc, paddedInput.allocation);
     rewriter.eraseOp(op);
     return success();
   }
@@ -904,8 +900,6 @@ public:
         rewriter, loc, TypeRange{}, ValueRange{paddedInput.value, window},
         ValueRange{adaptor.getOut()}, strides, dilations);
 
-    if (paddedInput.allocation)
-      memref::DeallocOp::create(rewriter, loc, paddedInput.allocation);
     rewriter.eraseOp(op);
     return success();
   }
@@ -1154,8 +1148,6 @@ public:
             .getResult();
     auto result = arith::IndexCastOp::create(
         rewriter, loc, op.getResult().getType(), resultIndex);
-    memref::DeallocOp::create(rewriter, loc, bestValue);
-    memref::DeallocOp::create(rewriter, loc, bestIndex);
     rewriter.replaceOp(op, result.getResult());
     return success();
   }

@@ -24,13 +24,17 @@ target_compile_definitions(mulberryDriver PRIVATE
 
 target_link_libraries(mulberryDriver
         MLIRAffineToStandard
+        MLIRArithTransforms
+        MLIRBufferizationPipelines
         MLIRBuiltinToLLVMIRTranslation
+        MLIRControlFlowTransforms
         MLIRExecutionEngine
         MLIRExecutionEngineUtils
         MLIRLLVMIRTransforms
         MLIRPluginsLib
         MLIRLLVMToLLVMIRTranslation
         MLIRRegisterAllExtensions
+        MLIRSCFTransforms
         MLIRTargetLLVMIRExport
         ${targets}
 )

@@ -1,0 +1,42 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn releaseSharedStorage(): () {
+  var value: Tensor<UInt8> = tensor.zeros([4]);
+  var alias = value;
+  var view = tensor.reshape(value, [4]);
+  io.println(value.numel());
+  value.dispose();
+  alias.dispose();
+  view.dispose();
+  return;
+}
+
+fn releaseAtLoopScope(): () {
+  for index in 0 .. 8 {
+    var value: Tensor<UInt8> = tensor.zeros([1024]);
+    value[0] = core.toUInt8(index);
+  }
+  return;
+}
+
+fn main(): UInt64 {
+  releaseSharedStorage();
+  releaseAtLoopScope();
+  return 0;
+}
+
+# MLIR-DAG: func.func @releaseSharedStorage
+# MLIR-DAG: func.func @releaseAtLoopScope
+# MLIR: scf.for
+# MLIR-COUNT-2: mulberry_core.tensor.dispose
+
+# LOWERED-DAG: llvm.func @mulberry_boehm_free
+# LOWERED-DAG: func.func @releaseSharedStorage
+# LOWERED-DAG: func.func @releaseAtLoopScope
+# LOWERED: scf.for
+# LOWERED-COUNT-2: llvm.call @mulberry_boehm_free
+
+# JIT: 4
