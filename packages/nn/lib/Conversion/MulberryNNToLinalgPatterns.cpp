@@ -1154,6 +1154,8 @@ public:
             .getResult();
     auto result = arith::IndexCastOp::create(
         rewriter, loc, op.getResult().getType(), resultIndex);
+    memref::DeallocOp::create(rewriter, loc, bestValue);
+    memref::DeallocOp::create(rewriter, loc, bestIndex);
     rewriter.replaceOp(op, result.getResult());
     return success();
   }

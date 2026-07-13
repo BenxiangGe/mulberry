@@ -96,6 +96,7 @@ module {
 // CHECK: call @mulberry.nn.__tensor.relu
 // CHECK-SAME: -> !mulberry_core.tensor<?x?x?x?xf32>
 // CHECK: mulberry_core.tensor.pack
+// CHECK-NEXT: mulberry_core.tensor.release
 
 // CHECK-LABEL: func.func @classifier
 // CHECK: mulberry_core.tensor.view
@@ -103,6 +104,7 @@ module {
 // CHECK: call @mulberry.nn.__tensor.softmax
 // CHECK-SAME: -> !mulberry_core.tensor<?x?xf32>
 // CHECK: mulberry_core.tensor.pack
+// CHECK-NEXT: mulberry_core.tensor.release
 // CHECK-NOT: call @mulberry.nn.softmax
 
 // CHECK-LABEL: func.func @cross_entropy

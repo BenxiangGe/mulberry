@@ -61,6 +61,7 @@ module {
 // LOWER: linalg.fill
 // LOWER: linalg.generic
 // LOWER: arith.cmpf ogt
+// LOWER-COUNT-2: memref.dealloc
 // LOWER: return
 // LOWER-NOT: mulberry_nn.
 

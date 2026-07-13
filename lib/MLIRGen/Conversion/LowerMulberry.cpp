@@ -956,6 +956,25 @@ public:
   }
 };
 
+class TensorReleaseOpLowering
+    : public OpConversionPattern<mulberry_core::TensorReleaseOp> {
+public:
+  using OpConversionPattern<
+      mulberry_core::TensorReleaseOp>::OpConversionPattern;
+
+  auto matchAndRewrite(mulberry_core::TensorReleaseOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    if (!llvm::isa<MemRefType>(adaptor.getTensor().getType()))
+      return rewriter.notifyMatchFailure(
+          op, "tensor release needs lowered tensor storage");
+
+    memref::DeallocOp::create(rewriter, op.getLoc(), adaptor.getTensor());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
@@ -982,7 +1001,8 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     patterns.add<AllocaOpLowering, HeapAllocOpLowering,
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordGetFieldOpLowering, StoreOpLowering,
-                 TensorPackOpLowering, TensorViewOpLowering>(
+                 TensorPackOpLowering, TensorReleaseOpLowering,
+                 TensorViewOpLowering>(
         typeConverter, &getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);

@@ -179,10 +179,11 @@ def createFixture(
 
     # Nielsen adds each channel's bias after pooling. A channel-constant bias
     # commutes with max pooling, so the package's fused conv bias is equivalent.
-    convOutput = conv2dNchw(testInput, convWeight, convBias)
+    referenceInput = testInput[:1]
+    convOutput = conv2dNchw(referenceInput, convWeight, convBias)
     pooled = maxPool2dNchw(convOutput)
     activated = np.maximum(pooled, np.float32(0.0))
-    features = activated.reshape((testCount, -1))
+    features = activated.reshape((1, -1))
 
     classifierShape = (features.shape[1], CLASS_COUNT)
     classifierScale = np.sqrt(1.0 / CLASS_COUNT)

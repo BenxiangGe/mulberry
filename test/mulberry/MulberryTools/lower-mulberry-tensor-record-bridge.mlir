@@ -24,6 +24,12 @@ module {
         : !mulberry_core.tensor<?x?xf32> -> !tensor_f32
     return %result : !tensor_f32
   }
+
+  func.func @release(%tensor: !mulberry_core.tensor<?x?xf32>) {
+    mulberry_core.tensor.release %tensor
+        : !mulberry_core.tensor<?x?xf32>
+    return
+  }
 }
 
 // CHECK-LABEL: func.func @view
@@ -38,3 +44,7 @@ module {
 // CHECK: llvm.insertvalue
 // CHECK: return
 // CHECK-NOT: mulberry_core.
+
+// CHECK-LABEL: func.func @release
+// CHECK: memref.dealloc %arg0
+// CHECK: return

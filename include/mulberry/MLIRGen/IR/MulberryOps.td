@@ -128,4 +128,12 @@ def Mulberry_TensorPackOp : Mulberry_Op<"tensor.pack"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_TensorReleaseOp : Mulberry_Op<"tensor.release"> {
+  let summary = "Release an owned internal tensor";
+
+  let arguments = (ins Mulberry_AnyTensorType:$tensor);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor)";
+}
+
 #endif // MULBERRY_OPS

@@ -25,5 +25,6 @@ module {
 // CHECK: %[[VIEW:.*]] = mulberry_core.tensor.view
 // CHECK: %[[CALL:.*]] = call @mulberry.nn.__tensor.sigmoid(%[[VIEW]])
 // CHECK: %[[PACK:.*]] = mulberry_core.tensor.pack %[[CALL]]
+// CHECK-NEXT: mulberry_core.tensor.release %[[CALL]]
 // CHECK: return %[[PACK]]
 // CHECK-NOT: call @mulberry.nn.sigmoid

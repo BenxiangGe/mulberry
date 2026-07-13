@@ -264,8 +264,10 @@ static auto createTensorCall(PatternRewriter &rewriter, Location loc,
 
 static auto packTensor(PatternRewriter &rewriter, Location loc, Value tensor,
                        Type tensorRecordType) -> Value {
-  return mlir::mulberry_core::TensorPackOp::create(rewriter, loc,
-                                                   tensorRecordType, tensor);
+  Value packed = mlir::mulberry_core::TensorPackOp::create(
+      rewriter, loc, tensorRecordType, tensor);
+  mlir::mulberry_core::TensorReleaseOp::create(rewriter, loc, tensor);
+  return packed;
 }
 
 enum class BinaryOperation {

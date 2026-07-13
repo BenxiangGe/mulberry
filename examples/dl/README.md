@@ -84,6 +84,23 @@ beforeTestLoss, afterTestLoss]` metrics tensor 会写入
 Mulberry checkpoint 与 NumPy reference。这些小样本数字只用于锁定训练方向与实现
 一致性，不代表模型质量。
 
+## 完整 checkpoint evaluation
+
+`tools/run_nielsen_cnn_evaluation.py` 不重新训练。它默认读取本地的
+`data/nielsen-cnn-trained-full.safetensors`，从 `mnist.pkl.gz` 临时导出独立的
+10000-sample test fixture，编译 optimized native evaluator，然后分别报告 accuracy
+和 stable cross-entropy。full checkpoint 是耗时训练产生的本地 artifact，已被 Git
+忽略，不作为源码 fixture 提交。
+
+```bash
+/usr/bin/python3 tools/run_nielsen_cnn_evaluation.py \
+  --expected-correct 9711 --expected-loss 0.092998
+```
+
+当前保存的三轮训练 checkpoint 会输出 `9711 / 10000`、`97.11%` 和
+`0.0929978937`。`--expected-*` 是可选的；不指定时 runner 可用于报告其他 checkpoint，
+指定时则作为非 LIT 的完整数据回归进行校验。
+
 `tools/benchmark_nielsen_cnn.py` 会分别测量 accuracy、stable cross-entropy、两者
 组合以及 training，并把 compiler/JIT 与短 native 进程使用的重复次数分开。可复现的
 固定 CPU 基线见 [Nielsen CNN 性能基线](../../docs/CnnPerformance.md)。
