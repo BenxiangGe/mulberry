@@ -1,3 +1,6 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
@@ -10,6 +13,20 @@ fn main(): UInt64 {
   io.println(core.toUInt64(byte));
   return 0;
 }
+
+# AST-COUNT-2: CallExpr {{.*}}type=Float32 callee=std.core.toFloat32
+# AST: CallExpr {{.*}}type=UInt8 callee=std.core.toUInt8
+# AST: CallExpr {{.*}}type=UInt64 callee=std.core.toUInt64
+
+# MLIR-NOT: mulberry_u8_to_u64
+# MLIR-NOT: mulberry_u64_to_u8
+# MLIR-NOT: mulberry_u64_to_f32
+# MLIR-COUNT-2: arith.uitofp
+# MLIR: arith.trunci
+# MLIR: arith.extui
+# MLIR-NOT: mulberry_u8_to_u64
+# MLIR-NOT: mulberry_u64_to_u8
+# MLIR-NOT: mulberry_u64_to_f32
 
 # JIT: 1
 # JIT-NEXT: 1

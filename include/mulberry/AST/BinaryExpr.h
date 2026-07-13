@@ -10,7 +10,6 @@
 
 #include "mulberry/AST/Expr.h"
 #include <memory>
-#include <string>
 #include <string_view>
 #include <utility>
 
@@ -82,19 +81,10 @@ public:
 
   auto opEnum() const -> Operator { return _op; }
 
-  auto hasFunctionName() const -> bool { return !_functionName.empty(); }
-
-  auto functionName() const -> std::string_view { return _functionName; }
-
-  auto setFunctionName(std::string_view functionName) -> void {
-    _functionName = functionName;
-  }
-
 private:
   Operator _op;
   std::unique_ptr<Expr> _lhs;
   std::unique_ptr<Expr> _rhs;
-  std::string _functionName;
 };
 
 } // end namespace mulberry

@@ -9,6 +9,9 @@
 #include "Symbols.h"
 #include "mulberry/AST/AST.h"
 #include "mulberry/Sema/DiagnosticsSema.h"
+#include "llvm/Support/Debug.h"
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -21,6 +24,9 @@ namespace {
 using namespace mulberry;
 using llvm::cast;
 using llvm::dyn_cast;
+
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "Sema"
 
 using NameSet = std::set<std::string, std::less<>>;
 
@@ -557,18 +563,14 @@ auto substituteExpr(const Expr *node,
     VectorUniquePtr<Expr> segments;
     for (auto &segment : expr->segments())
       segments.push_back(substituteExpr(segment.get(), substitutions));
-    auto result = std::make_unique<InterpolatedStringExpr>(
+    return std::make_unique<InterpolatedStringExpr>(
         expr->location(), std::move(segments));
-    if (expr->hasConcatFunctionName())
-      result->setConcatFunctionName(expr->concatFunctionName());
-    return result;
   }
   case Expr::Expr_ObjectIdentity: {
     auto *expr = cast<ObjectIdentityExpr>(node);
     auto result = std::make_unique<ObjectIdentityExpr>(
         expr->location(), substituteExpr(expr->value().get(), substitutions));
     result->setTypeName(expr->typeName());
-    result->setFunctionName(expr->functionName());
     return result;
   }
   case Expr::Expr_CharLiteral: {
@@ -618,13 +620,10 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Binary: {
     auto *expr = cast<BinaryExpr>(node);
-    auto result = std::make_unique<BinaryExpr>(
+    return std::make_unique<BinaryExpr>(
         expr->location(), expr->opEnum(),
         substituteExpr(expr->lhs().get(), substitutions),
         substituteExpr(expr->rhs().get(), substitutions));
-    if (expr->hasFunctionName())
-      result->setFunctionName(expr->functionName());
-    return result;
   }
   case Expr::Expr_Block:
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
@@ -703,12 +702,14 @@ public:
   SemaImpl(const llvm::SourceMgr &sourceManager)
       : _sourceManager{sourceManager} {
     addBuiltins();
+    registerBuiltinHandlers();
   }
 
   SemaImpl(const llvm::SourceMgr &sourceManager,
            const std::map<std::string, std::string> &importAliases)
       : _sourceManager{sourceManager}, _importAliases{importAliases} {
     addBuiltins();
+    registerBuiltinHandlers();
   }
 
   auto sema(Module &node) -> MulberryResult {
@@ -738,6 +739,9 @@ public:
   }
 
 private:
+  using BuiltinHandler =
+      std::function<MulberryResult(Expr *, const Type *)>;
+
   const llvm::SourceMgr &_sourceManager;
   TypeContext _typeContext;
   Symbols _symbols;
@@ -746,6 +750,7 @@ private:
   std::map<std::string, std::string> _functionPackages;
   std::map<std::string, std::string> _genericFunctionPackages;
   std::map<std::string, std::string> _instantiatedFunctionPackages;
+  std::map<std::string, BuiltinHandler, std::less<>> _builtinHandlers;
   VectorUniquePtr<FunctionDecl> _instantiatedFunctions;
   const std::map<std::string, std::string> &_importAliases =
       emptyImportAliases();
@@ -795,11 +800,7 @@ private:
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
-  auto resolveStringConcatFunction(Expr *node, const Type *stringType,
-                                   std::string &functionName)
-      -> MulberryResult;
-  auto resolveObjectIdentityFunction(Expr *node, const Type *stringType,
-                                     std::string &functionName)
+  auto checkStringConcatFunction(Expr *node, const Type *stringType)
       -> MulberryResult;
   auto stringifyExpression(std::unique_ptr<Expr> &expression,
                            const Type *stringType) -> MulberryResult;
@@ -833,6 +834,19 @@ private:
                             const VectorUniquePtr<FunctionDecl> &methods,
                             const std::vector<ComptimeParam> &typeParameters,
                             std::string_view packageName) -> MulberryResult;
+
+  // Compiler builtins
+  auto registerBuiltinHandlers() -> void;
+  auto registerBuiltinHandler(std::string_view name, BuiltinHandler handler)
+      -> void;
+  auto lookupBuiltinHandler(std::string_view name) const
+      -> const BuiltinHandler *;
+  auto semaToUInt8(CallExpr *node, const Type *expectedType)
+      -> MulberryResult;
+  auto semaToUInt64(CallExpr *node, const Type *expectedType)
+      -> MulberryResult;
+  auto semaToFloat32(CallExpr *node, const Type *expectedType)
+      -> MulberryResult;
 
   // Statements
   auto sema(Stat *node) -> MulberryResult;
@@ -963,10 +977,6 @@ private:
     fullName += ".";
     fullName += name;
     return fullName;
-  }
-
-  auto isTensorFromName(std::string_view name) const -> bool {
-    return canonicalizeImportedName(name) == "std.tensor.from";
   }
 
   auto lookupType(std::string_view name) -> const Type * {
@@ -1779,6 +1789,116 @@ private:
 
 } // end namespace
 
+auto SemaImpl::registerBuiltinHandlers() -> void {
+  registerBuiltinHandler(
+      "std.tensor.from",
+      [this](Expr *node, const Type *expectedType) {
+        return semaTensorFromArrayCall(cast<CallExpr>(node), expectedType);
+      });
+  registerBuiltinHandler(
+      "std.core.toUInt8",
+      [this](Expr *node, const Type *expectedType) {
+        return semaToUInt8(cast<CallExpr>(node), expectedType);
+      });
+  registerBuiltinHandler(
+      "std.core.toUInt64",
+      [this](Expr *node, const Type *expectedType) {
+        return semaToUInt64(cast<CallExpr>(node), expectedType);
+      });
+  registerBuiltinHandler(
+      "std.core.toFloat32",
+      [this](Expr *node, const Type *expectedType) {
+        return semaToFloat32(cast<CallExpr>(node), expectedType);
+      });
+}
+
+auto SemaImpl::registerBuiltinHandler(std::string_view name,
+                                      BuiltinHandler handler) -> void {
+  auto [iter, inserted] =
+      _builtinHandlers.try_emplace(std::string(name), std::move(handler));
+  if (!inserted)
+    llvm_unreachable("duplicate builtin Sema handler");
+  LLVM_DEBUG(llvm::dbgs() << "register builtin Sema handler `" << iter->first
+                          << "`\n");
+}
+
+auto SemaImpl::lookupBuiltinHandler(std::string_view name) const
+    -> const BuiltinHandler * {
+  auto iter = _builtinHandlers.find(name);
+  if (iter == _builtinHandlers.end())
+    return nullptr;
+  return &iter->second;
+}
+
+auto SemaImpl::semaToUInt8(CallExpr *node, const Type *expectedType)
+    -> MulberryResult {
+  auto &arguments = node->expressions();
+  if (arguments.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *parameterType =
+      _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  if (sema(arguments.front().get(), parameterType))
+    return failure();
+  if (!sameType(arguments.front()->type(), parameterType))
+    return emitError(arguments.front().get(), diag::mismatch_type);
+
+  auto *resultType = _typeContext.getBuiltinType(BuiltinTypeKind::UInt8);
+  if (expectedType && !sameType(expectedType, resultType))
+    return emitError(node, diag::mismatch_type);
+  node->setType(resultType);
+  return success();
+}
+
+auto SemaImpl::semaToUInt64(CallExpr *node, const Type *expectedType)
+    -> MulberryResult {
+  auto &arguments = node->expressions();
+  if (arguments.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *parameterType =
+      _typeContext.getBuiltinType(BuiltinTypeKind::UInt8);
+  if (sema(arguments.front().get(), parameterType))
+    return failure();
+  if (!sameType(arguments.front()->type(), parameterType))
+    return emitError(arguments.front().get(), diag::mismatch_type);
+
+  auto *resultType = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  if (expectedType && !sameType(expectedType, resultType))
+    return emitError(node, diag::mismatch_type);
+  node->setType(resultType);
+  return success();
+}
+
+auto SemaImpl::semaToFloat32(CallExpr *node, const Type *expectedType)
+    -> MulberryResult {
+  auto &arguments = node->expressions();
+  if (arguments.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *parameterType =
+      _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  if (sema(arguments.front().get(), parameterType))
+    return failure();
+  if (!sameType(arguments.front()->type(), parameterType))
+    return emitError(arguments.front().get(), diag::mismatch_type);
+
+  auto *resultType = _typeContext.getBuiltinType(BuiltinTypeKind::Float32);
+  if (expectedType && !sameType(expectedType, resultType))
+    return emitError(node, diag::mismatch_type);
+  node->setType(resultType);
+  return success();
+}
+
 auto SemaImpl::sema(Decl *node) -> MulberryResult {
   switch (node->getKind()) {
   case Decl::Decl_Import:
@@ -2064,9 +2184,14 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   }
 
   auto *call = dyn_cast<CallExpr>(node);
-  if (call && !call->hasReceiver() && isTensorFromName(call->name())) {
-    call->setName("std.tensor.from");
-    return semaTensorFromArrayCall(call, type);
+  if (call && !call->hasReceiver()) {
+    auto name = canonicalizeImportedName(call->name());
+    call->setName(name);
+    if (auto *handler = lookupBuiltinHandler(name)) {
+      LLVM_DEBUG(llvm::dbgs() << "dispatch builtin Sema handler `" << name
+                              << "`\n");
+      return (*handler)(call, type);
+    }
   }
 
   if (call && call->hasReceiver())
@@ -2206,8 +2331,11 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
       checkInternalFeature(node->location()))
     return failure();
 
-  if (node->name() == "std.tensor.from")
-    return semaTensorFromArrayCall(node);
+  if (auto *handler = lookupBuiltinHandler(node->name())) {
+    LLVM_DEBUG(llvm::dbgs() << "dispatch builtin Sema handler `"
+                            << node->name() << "`\n");
+    return (*handler)(node, nullptr);
+  }
 
   auto name = node->name();
 
@@ -2403,12 +2531,9 @@ auto SemaImpl::sema(InterpolatedStringExpr *node) -> MulberryResult {
       return failure();
   }
 
-  if (node->segments().size() > 1) {
-    std::string functionName;
-    if (resolveStringConcatFunction(node, stringType, functionName))
-      return failure();
-    node->setConcatFunctionName(functionName);
-  }
+  if (node->segments().size() > 1 &&
+      checkStringConcatFunction(node, stringType))
+    return failure();
   node->setType(stringType);
   return success();
 }
@@ -2425,12 +2550,24 @@ auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
   if (!stringType)
     return emitError(node, diag::undefined_type);
 
-  std::string functionName;
-  if (resolveObjectIdentityFunction(node, stringType, functionName))
-    return failure();
+  constexpr std::string_view functionName =
+      "mulberry_string_object_identity";
+  auto resolvedName = resolveFunctionName(functionName);
+  auto *signature = lookupFunction(resolvedName);
+  if (!signature || signature->parameterTypes.size() != 2 ||
+      !sameType(signature->parameterTypes[0], stringType) ||
+      !sameType(signature->returnType, stringType)) {
+    auto diagnostic = formatNameDiagnostic(diag::undefined_func, functionName);
+    return emitError(node, diagnostic);
+  }
+
+  auto *objectPtr = getPtrType(signature->parameterTypes[1]);
+  if (!objectPtr || !isUInt8Type(objectPtr->pointeeType())) {
+    auto diagnostic = formatNameDiagnostic(diag::undefined_func, functionName);
+    return emitError(node, diagnostic);
+  }
 
   node->setTypeName(formatStringificationType(valueType));
-  node->setFunctionName(functionName);
   node->setType(stringType);
   return success();
 }
@@ -2503,10 +2640,8 @@ auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
       sameType(lhsType, stringType)) {
     if (stringifyExpression(node->rhs(), stringType))
       return failure();
-    std::string functionName;
-    if (resolveStringConcatFunction(node, stringType, functionName))
+    if (checkStringConcatFunction(node, stringType))
       return failure();
-    node->setFunctionName(functionName);
     node->setType(stringType);
     return success();
   }
@@ -2559,10 +2694,10 @@ auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   llvm_unreachable("Unexpected BinaryExpr operator");
 }
 
-auto SemaImpl::resolveStringConcatFunction(
-    Expr *node, const Type *stringType, std::string &functionName)
+auto SemaImpl::checkStringConcatFunction(Expr *node,
+                                         const Type *stringType)
     -> MulberryResult {
-  functionName = resolveFunctionName("std.string.concat");
+  auto functionName = resolveFunctionName("std.string.concat");
   auto *signature = lookupFunction(functionName);
   if (signature && signature->parameterTypes.size() == 2 &&
       sameType(signature->parameterTypes[0], stringType) &&
@@ -2572,24 +2707,6 @@ auto SemaImpl::resolveStringConcatFunction(
 
   auto diagnostic =
       formatNameDiagnostic(diag::undefined_func, "std.string.concat");
-  return emitError(node, diagnostic);
-}
-
-auto SemaImpl::resolveObjectIdentityFunction(
-    Expr *node, const Type *stringType, std::string &functionName)
-    -> MulberryResult {
-  constexpr std::string_view name = "mulberry_string_object_identity";
-  functionName = resolveFunctionName(name);
-  auto *signature = lookupFunction(functionName);
-  if (signature && signature->parameterTypes.size() == 2 &&
-      sameType(signature->parameterTypes[0], stringType) &&
-      sameType(signature->returnType, stringType)) {
-    auto *objectPtr = getPtrType(signature->parameterTypes[1]);
-    if (objectPtr && isUInt8Type(objectPtr->pointeeType()))
-      return success();
-  }
-
-  auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
   return emitError(node, diagnostic);
 }
 
@@ -2824,7 +2941,6 @@ auto SemaImpl::semaTensorFromArrayCall(CallExpr *node,
   if (expectedType && !sameType(recordType, expectedType))
     return emitError(node, diag::mismatch_type);
 
-  node->setName("std.tensor.from");
   node->setType(recordType);
   return success();
 }

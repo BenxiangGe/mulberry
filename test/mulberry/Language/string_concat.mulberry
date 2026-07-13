@@ -11,8 +11,7 @@ fn main(): UInt64 {
   return 0;
 }
 
-# AST: BinaryExpr {{.*}}type=std.string.String op=`+` callee=std.string.concat
-# AST: BinaryExpr {{.*}}type=std.string.String op=`+` callee=std.string.concat
+# AST-COUNT-2: BinaryExpr {{.*}}type=std.string.String op=`+`
 
 # MLIR-COUNT-2: call @std.string.concat
 # MLIR: call @std.io.writeText

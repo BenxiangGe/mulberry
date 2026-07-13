@@ -68,10 +68,10 @@ fn main(): UInt64 {
 # AST: CallExpr {{.*}}callee=std.string.fromUInt64
 # AST: CallExpr {{.*}}callee=std.string.fromFloat32
 # AST: CallExpr {{.*}}callee=Point.toString
-# AST: ObjectIdentityExpr {{.*}}objectType=Plain callee=mulberry_string_object_identity
-# AST: ObjectIdentityExpr {{.*}}objectType=Array<UInt64, 2> callee=mulberry_string_object_identity
+# AST: ObjectIdentityExpr {{.*}}objectType=Plain
+# AST: ObjectIdentityExpr {{.*}}objectType=Array<UInt64, 2>
 # AST: CallExpr {{.*}}callee=Box_toString__UInt64
-# AST: ObjectIdentityExpr {{.*}}objectType=PlainBox<UInt64> callee=mulberry_string_object_identity
+# AST: ObjectIdentityExpr {{.*}}objectType=PlainBox<UInt64>
 
 # MLIR: call @std.string.fromBool
 # MLIR: call @std.string.fromUInt8

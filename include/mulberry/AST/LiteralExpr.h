@@ -102,21 +102,8 @@ public:
 
   auto segments() -> VectorUniquePtr<Expr> & { return _segments; }
 
-  auto hasConcatFunctionName() const -> bool {
-    return !_concatFunctionName.empty();
-  }
-
-  auto concatFunctionName() const -> std::string_view {
-    return _concatFunctionName;
-  }
-
-  auto setConcatFunctionName(std::string_view functionName) -> void {
-    _concatFunctionName = functionName;
-  }
-
 private:
   VectorUniquePtr<Expr> _segments;
-  std::string _concatFunctionName;
 };
 
 // Sema inserts this node only for the default object stringification path.
@@ -140,16 +127,9 @@ public:
     _typeName = typeName;
   }
 
-  auto functionName() const -> std::string_view { return _functionName; }
-
-  auto setFunctionName(std::string_view functionName) -> void {
-    _functionName = functionName;
-  }
-
 private:
   std::unique_ptr<Expr> _value;
   std::string _typeName;
-  std::string _functionName;
 };
 
 class CharLiteralExpr final : public Expr {

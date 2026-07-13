@@ -154,19 +154,24 @@ public:
       : _sourceManager{sourceManager}, _builder(&context),
         _fileNameIdentifier{
             _sourceManager.getMemoryBuffer(_sourceManager.getMainFileID())
-                ->getBufferIdentifier()} {}
+                ->getBufferIdentifier()} {
+    registerBuiltinHandlers();
+  }
 
   auto gen(const Module &node) -> MulberryResult;
 
   mlir::ModuleOp module;
 
 private:
+  using BuiltinHandler = std::function<mlir::Value(const Expr *)>;
+
   const llvm::SourceMgr &_sourceManager;
   mlir::OpBuilder _builder;
   ScopeStack<NameMap<VariableBinding>> _variableScopes;
   std::vector<WhileControl> _whileControls;
   std::vector<FunctionReturnControl> _functionReturnControls;
   NameMap<DeclaredFunction> _functionsByName;
+  NameMap<BuiltinHandler> _builtinHandlers;
   llvm::StringRef _fileNameIdentifier;
   MLIRTypeConverter _typeConverter{_builder};
 
@@ -204,6 +209,13 @@ private:
   auto gen(const HeapAllocExpr *node) -> mlir::Value;
   auto gen(const AssignExpr *node) -> mlir::Value;
   auto gen(const BinaryExpr *node) -> mlir::Value;
+
+  // Compiler builtins
+  auto registerBuiltinHandlers() -> void;
+  auto registerBuiltinHandler(std::string_view name, BuiltinHandler handler)
+      -> void;
+  auto lookupBuiltinHandler(std::string_view name) const
+      -> const BuiltinHandler *;
 
   // Statements
   auto gen(const Stat *node) -> void;
@@ -414,6 +426,55 @@ private:
 };
 
 } // end namespace
+
+auto MLIRGenImpl::registerBuiltinHandlers() -> void {
+  registerBuiltinHandler(
+      "std.tensor.from",
+      [this](const Expr *node) {
+        return genTensorFromArray(cast<CallExpr>(node));
+      });
+  registerBuiltinHandler(
+      "std.core.toUInt8",
+      [this](const Expr *node) {
+        auto *call = cast<CallExpr>(node);
+        auto value = gen(call->expressions().front().get());
+        return mlir::arith::TruncIOp::create(
+            _builder, loc(call), getSourceMLIRType(call), value);
+      });
+  registerBuiltinHandler(
+      "std.core.toUInt64",
+      [this](const Expr *node) {
+        auto *call = cast<CallExpr>(node);
+        auto value = gen(call->expressions().front().get());
+        return mlir::arith::ExtUIOp::create(
+            _builder, loc(call), getSourceMLIRType(call), value);
+      });
+  registerBuiltinHandler(
+      "std.core.toFloat32",
+      [this](const Expr *node) {
+        auto *call = cast<CallExpr>(node);
+        auto value = gen(call->expressions().front().get());
+        return mlir::arith::UIToFPOp::create(
+            _builder, loc(call), getSourceMLIRType(call), value);
+      });
+}
+
+auto MLIRGenImpl::registerBuiltinHandler(std::string_view name,
+                                         BuiltinHandler handler) -> void {
+  auto [iter, inserted] =
+      _builtinHandlers.try_emplace(std::string(name), std::move(handler));
+  if (!inserted)
+    llvm_unreachable("duplicate builtin MLIRGen handler");
+  DBG("register builtin MLIRGen handler `{0}`", iter->first);
+}
+
+auto MLIRGenImpl::lookupBuiltinHandler(std::string_view name) const
+    -> const BuiltinHandler * {
+  auto iter = _builtinHandlers.find(name);
+  if (iter == _builtinHandlers.end())
+    return nullptr;
+  return &iter->second;
+}
 
 auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
@@ -807,8 +868,10 @@ auto MLIRGenImpl::gen(const ForStat *node) -> void {
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   DBG("gen(CallExpr). functionName: {0}", node->name());
-  if (node->name() == "std.tensor.from")
-    return genTensorFromArray(node);
+  if (auto *handler = lookupBuiltinHandler(node->name())) {
+    DBG("dispatch builtin MLIRGen handler `{0}`", node->name());
+    return (*handler)(node);
+  }
   return genNormalCall(node);
 }
 
@@ -958,23 +1021,22 @@ auto MLIRGenImpl::gen(const InterpolatedStringExpr *node) -> mlir::Value {
   auto result = gen(segments.front().get());
   if (segments.size() == 1)
     return result;
-  if (!node->hasConcatFunctionName())
-    llvm_unreachable("interpolated String has no resolved concat function");
 
   for (size_t index = 1; index < segments.size(); ++index) {
     auto next = gen(segments[index].get());
     auto call = genDeclaredLoweredCall(
-        node->concatFunctionName(), mlir::ValueRange{result, next}, loc(node));
+        "std.string.concat", mlir::ValueRange{result, next}, loc(node));
     result = call.getResult(0);
   }
   return result;
 }
 
 auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
-  auto calleeIter = findFunction(node->functionName());
+  constexpr std::string_view functionName =
+      "mulberry_string_object_identity";
+  auto calleeIter = findFunction(functionName);
   if (calleeIter == _functionsByName.end()) {
-    ERR("object identity call `{0}` has no declared callee",
-        node->functionName());
+    ERR("object identity call `{0}` has no declared callee", functionName);
     return nullptr;
   }
 
@@ -998,9 +1060,9 @@ auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
     llvm_unreachable("object identity reference cannot use runtime ABI");
 
   DBG("format object identity `{0}` through `{1}`", node->typeName(),
-      node->functionName());
+      functionName);
   auto call = mlir::func::CallOp::create(
-      _builder, loc(node), node->functionName(), calleeType.getResults(),
+      _builder, loc(node), functionName, calleeType.getResults(),
       mlir::ValueRange{typeNameValue, objectPointer});
   return boxExternObjectResult(call.getResult(0), node->type(), loc(node));
 }
@@ -1150,9 +1212,11 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   using Operator = BinaryExpr::Operator;
   auto op = node->opEnum();
 
-  if (node->hasFunctionName()) {
+  auto *resultStructType = mulberry::getStructType(node->type());
+  if (op == Operator::Add && resultStructType &&
+      resultStructType->name() == "std.string.String") {
     const Expr *arguments[] = {node->lhs().get(), node->rhs().get()};
-    return genDeclaredCall(node->functionName(), arguments, loc(node))
+    return genDeclaredCall("std.string.concat", arguments, loc(node))
         .getResult(0);
   }
 

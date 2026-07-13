@@ -28,7 +28,6 @@ fn main(): UInt64 {
 # TOKENS: string_literal '"hello {$name}; {$labels[0].text}; {$values[1]}; \{literal\}; \{$name}; \\"'
 
 # AST: InterpolatedStringExpr {{.*}}type=std.string.String
-# AST-SAME: callee=std.string.concat
 # AST: MemberExpr {{.*}}type=std.string.String field=text
 # AST: IndexExpr {{.*}}type=Label kind=array
 # AST: IndexExpr {{.*}}type=std.string.String kind=array

@@ -429,10 +429,7 @@ auto Dumper::dump(const InterpolatedStringExpr *node) -> void {
   INDENT();
   errs() << "InterpolatedStringExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " segments=" << node->segments().size();
-  if (node->hasConcatFunctionName())
-    errs() << " callee=" << node->concatFunctionName();
-  errs() << "\n";
+         << " segments=" << node->segments().size() << "\n";
   for (auto &segment : node->segments())
     dump(segment.get());
 }
@@ -441,8 +438,7 @@ auto Dumper::dump(const ObjectIdentityExpr *node) -> void {
   INDENT();
   errs() << "ObjectIdentityExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " objectType=" << node->typeName()
-         << " callee=" << node->functionName() << "\n";
+         << " objectType=" << node->typeName() << "\n";
   dump(node->value().get());
 }
 
@@ -496,10 +492,7 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
   errs() << "BinaryExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " op=`"
-         << node->op() << "`";
-  if (node->hasFunctionName())
-    errs() << " callee=" << node->functionName();
-  errs() << "\n";
+         << node->op() << "`\n";
   dump(node->lhs().get());
   dump(node->rhs().get());
 }
