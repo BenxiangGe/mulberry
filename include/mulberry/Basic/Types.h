@@ -166,8 +166,8 @@ auto isArrayType(const Type *type) -> bool;
 auto isPtrType(const Type *type) -> bool;
 auto hasUnitType(const Type *type) -> bool;
 auto hasUnitElementType(const Type *type) -> bool;
-auto arrayLeafElementType(const Type *type, std::vector<int64_t> &shape)
-    -> const Type *;
+auto getArrayShape(const Type *type) -> std::vector<int64_t>;
+auto getArrayLeafElementType(const Type *type) -> const Type *;
 // Display-only formatter for diagnostics and dumps; not for type identity.
 auto formatType(const Type *type) -> std::string;
 auto sizeOfType(const Type *type) -> std::optional<uint64_t>;

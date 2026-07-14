@@ -92,17 +92,17 @@ static void printShapedElementType(AsmPrinter& printer,
   printer << ">";
 }
 
-Type mlir::mulberry_core::TensorType::parse(AsmParser& parser) {
+Type mulberry_core::TensorType::parse(AsmParser& parser) {
   SmallVector<int64_t> shape;
   Type elementType;
   if (parseShapedElementType(parser, shape, elementType))
     return {};
 
-  return mlir::mulberry_core::TensorType::get(parser.getContext(), shape,
-                                         elementType);
+  return mulberry_core::TensorType::get(parser.getContext(), shape,
+                                        elementType);
 }
 
-void mlir::mulberry_core::TensorType::print(AsmPrinter& printer) const {
+void mulberry_core::TensorType::print(AsmPrinter& printer) const {
   printShapedElementType(printer, getShape(), getElementType());
 }
 

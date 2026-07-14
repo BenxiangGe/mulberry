@@ -2903,8 +2903,7 @@ auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
 
   auto *arrayType =
       _typeContext.createArrayType(elementType, elements.size());
-  std::vector<int64_t> inferredShape;
-  arrayLeafElementType(arrayType, inferredShape);
+  auto inferredShape = getArrayShape(arrayType);
   expr->setInferredShape(std::move(inferredShape));
   expr->setType(arrayType);
   return success();
@@ -2935,8 +2934,8 @@ auto SemaImpl::semaTensorFromArrayCall(CallExpr *node,
     return failure();
   }
 
-  std::vector<int64_t> shape;
-  auto *elementType = arrayLeafElementType(argument->type(), shape);
+  auto shape = getArrayShape(argument->type());
+  auto *elementType = getArrayLeafElementType(argument->type());
   if (shape.empty() || !elementType || !isNumericType(elementType))
     return emitError(argument, diag::mismatch_type);
 

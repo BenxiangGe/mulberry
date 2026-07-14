@@ -428,14 +428,21 @@ auto hasUnitElementType(const Type *type) -> bool {
   return false;
 }
 
-auto arrayLeafElementType(const Type *type, std::vector<int64_t> &shape)
-    -> const Type * {
+auto getArrayShape(const Type *type) -> std::vector<int64_t> {
+  std::vector<int64_t> shape;
+  while (auto *arrayType = getArrayType(type)) {
+    shape.push_back(static_cast<int64_t>(arrayType->size()));
+    type = arrayType->elementType();
+  }
+  return shape;
+}
+
+auto getArrayLeafElementType(const Type *type) -> const Type * {
   auto *arrayType = getArrayType(type);
   if (!arrayType)
     return type;
 
-  shape.push_back(static_cast<int64_t>(arrayType->size()));
-  return arrayLeafElementType(arrayType->elementType(), shape);
+  return getArrayLeafElementType(arrayType->elementType());
 }
 
 auto formatType(const Type *type) -> std::string {

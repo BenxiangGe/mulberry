@@ -25,20 +25,30 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
+namespace LLVM = mlir::LLVM;
+namespace arith = mlir::arith;
+namespace cf = mlir::cf;
+namespace func = mlir::func;
+namespace linalg = mlir::linalg;
+namespace math = mlir::math;
+namespace memref = mlir::memref;
+namespace mulberry_core = mlir::mulberry_core;
+namespace ptr = mlir::ptr;
+namespace scf = mlir::scf;
+
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
-  mlir::mulberry_core::registerMulberryConversionPasses();
+  mulberry_core::registerMulberryConversionPasses();
 
   mlir::DialectRegistry registry;
-  registry.insert<mlir::arith::ArithDialect, mlir::cf::ControlFlowDialect,
-                  mlir::func::FuncDialect, mlir::linalg::LinalgDialect,
-                  mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
-                  mlir::memref::MemRefDialect, mlir::mulberry_core::MulberryDialect,
-                  mlir::ptr::PtrDialect,
-                  mlir::scf::SCFDialect>();
-  mlir::arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
-  mlir::cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
-  mlir::scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  registry.insert<arith::ArithDialect, cf::ControlFlowDialect,
+                  func::FuncDialect, linalg::LinalgDialect,
+                  LLVM::LLVMDialect, math::MathDialect,
+                  memref::MemRefDialect, mulberry_core::MulberryDialect,
+                  ptr::PtrDialect, scf::SCFDialect>();
+  arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
   // Add the following to include *all* MLIR Core dialects, or selectively
   // include what you need like above. You only need to register dialects that
   // will be *parsed* by the tool, not the one generated

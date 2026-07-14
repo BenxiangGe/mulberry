@@ -38,7 +38,7 @@ def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
 def Mulberry_HeapAllocOp : Mulberry_Op<"heap.alloc"> {
   let summary = "Allocate a Mulberry heap object";
 
-  let arguments = (ins TypeAttr:$elementType, Index:$count);
+  let arguments = (ins TypeAttr:$elementType, I64:$count);
   let results = (outs Mulberry_AnyPtrType:$result);
 
   let assemblyFormat = "$elementType `,` $count attr-dict `:` type($result)";
