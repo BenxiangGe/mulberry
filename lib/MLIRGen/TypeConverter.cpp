@@ -4,6 +4,8 @@
 
 namespace mulberry {
 
+namespace mulberry_core = mlir::mulberry_core;
+
 namespace {
 
 auto isObjectType(const Type *type) -> bool {
@@ -34,15 +36,13 @@ auto MLIRTypeConverter::convertLayout(const ArrayType& type) const
   if (!mlirElementType)
     return {};
 
-  std::vector<mlir::mulberry_core::RecordType::Field> fields;
+  std::vector<mulberry_core::RecordType::Field> fields;
   fields.push_back({"length", _builder.getI64Type()});
   fields.push_back({
       "data",
-      mlir::mulberry_core::PtrType::get(_builder.getContext(),
-                                        mlirElementType),
+      mulberry_core::PtrType::get(_builder.getContext(), mlirElementType),
   });
-  return mlir::mulberry_core::RecordType::get(_builder.getContext(), "array",
-                                              fields);
+  return mulberry_core::RecordType::get(_builder.getContext(), "array", fields);
 }
 
 auto MLIRTypeConverter::convertLayout(const PtrType& type) const
@@ -51,12 +51,12 @@ auto MLIRTypeConverter::convertLayout(const PtrType& type) const
   if (!pointeeType)
     return {};
 
-  return mlir::mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
+  return mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
 }
 
 auto MLIRTypeConverter::convertLayout(const StructType& type) const
-    -> mlir::mulberry_core::RecordType {
-  std::vector<mlir::mulberry_core::RecordType::Field> fields;
+    -> mulberry_core::RecordType {
+  std::vector<mulberry_core::RecordType::Field> fields;
   for (const auto& field : type.fields()) {
     auto fieldType = convertStorage(field.type());
     if (!fieldType)
@@ -64,8 +64,8 @@ auto MLIRTypeConverter::convertLayout(const StructType& type) const
     fields.push_back({std::string(field.name()), fieldType});
   }
 
-  return mlir::mulberry_core::RecordType::get(_builder.getContext(), type.name(),
-                                              fields);
+  return mulberry_core::RecordType::get(_builder.getContext(), type.name(),
+                                        fields);
 }
 
 auto MLIRTypeConverter::convertLayout(const Type *type) const -> mlir::Type {
@@ -90,7 +90,7 @@ auto MLIRTypeConverter::convertSource(const Type *type) const -> mlir::Type {
     return {};
   if (!isObjectType(type))
     return layoutType;
-  return mlir::mulberry_core::PtrType::get(_builder.getContext(), layoutType);
+  return mulberry_core::PtrType::get(_builder.getContext(), layoutType);
 }
 
 auto MLIRTypeConverter::convertStorage(const Type *type) const -> mlir::Type {

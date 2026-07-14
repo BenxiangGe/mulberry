@@ -23,8 +23,8 @@ static auto getPtrPointeeType(Type type) -> Type {
   return {};
 }
 
-static auto getTensorType(Type type) -> mlir::mulberry_core::TensorType {
-  return llvm::dyn_cast<mlir::mulberry_core::TensorType>(type);
+static auto getTensorType(Type type) -> mulberry_core::TensorType {
+  return llvm::dyn_cast<mulberry_core::TensorType>(type);
 }
 
 auto AllocaOp::verify() -> LogicalResult {
@@ -125,7 +125,7 @@ static auto verifyTensorStorage(Operation* op, RecordType tensorType)
 }
 
 static auto verifyTensorRecordABI(Operation* op, RecordType recordType,
-                                  mlir::mulberry_core::TensorType tensorType,
+                                  mulberry_core::TensorType tensorType,
                                   StringRef valueName) -> LogicalResult {
   if (!recordType)
     return op->emitOpError(valueName)
