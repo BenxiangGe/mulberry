@@ -62,6 +62,18 @@
 
 using namespace mulberry;
 
+namespace LLVM = mlir::LLVM;
+namespace arith = mlir::arith;
+namespace bufferization = mlir::bufferization;
+namespace cf = mlir::cf;
+namespace func = mlir::func;
+namespace linalg = mlir::linalg;
+namespace math = mlir::math;
+namespace memref = mlir::memref;
+namespace mulberry_core = mlir::mulberry_core;
+namespace ptr = mlir::ptr;
+namespace scf = mlir::scf;
+
 namespace {
 
 auto getRuntimeLibPath() -> std::string {
@@ -574,9 +586,9 @@ static auto makeContext() -> mlir::MLIRContext {
   // Loading dialects alone is not enough; their ConvertToLLVM extensions must
   // also be registered before the context starts loading dialects.
   mlir::registerAllExtensions(registry);
-  mlir::arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
-  mlir::cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
-  mlir::scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  cf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
   return mlir::MLIRContext(registry);
 }
 
@@ -585,16 +597,16 @@ Compilation::Compilation() : _mlirContext{makeContext()} {}
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::mulberry_core::MulberryDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::arith::ArithDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::func::FuncDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::memref::MemRefDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::scf::SCFDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::linalg::LinalgDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::math::MathDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-  compilation->_mlirContext.getOrLoadDialect<mlir::ptr::PtrDialect>();
+  compilation->_mlirContext.getOrLoadDialect<mulberry_core::MulberryDialect>();
+  compilation->_mlirContext.getOrLoadDialect<arith::ArithDialect>();
+  compilation->_mlirContext.getOrLoadDialect<cf::ControlFlowDialect>();
+  compilation->_mlirContext.getOrLoadDialect<func::FuncDialect>();
+  compilation->_mlirContext.getOrLoadDialect<memref::MemRefDialect>();
+  compilation->_mlirContext.getOrLoadDialect<scf::SCFDialect>();
+  compilation->_mlirContext.getOrLoadDialect<linalg::LinalgDialect>();
+  compilation->_mlirContext.getOrLoadDialect<math::MathDialect>();
+  compilation->_mlirContext.getOrLoadDialect<LLVM::LLVMDialect>();
+  compilation->_mlirContext.getOrLoadDialect<ptr::PtrDialect>();
 
   compilation->_inputFilename = std::string(filename);
   compilation->_enableOpt = enableOpt;
@@ -832,7 +844,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     return failure();
 
   mlir::PassManager pm(module.get()->getName());
-  mlir::OpPassManager &optPM = pm.nest<mlir::func::FuncOp>();
+  mlir::OpPassManager &optPM = pm.nest<func::FuncOp>();
   if (_enableOpt)
     optPM.addPass(mlir::createCanonicalizerPass());
 
@@ -844,23 +856,22 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     return failure();
 
   if (lowering >= Lowering::Mulberry)
-    pm.addPass(mlir::mulberry_core::createLowerMulberry());
+    pm.addPass(mulberry_core::createLowerMulberry());
 
   if (lowering >= Lowering::Mulberry &&
       addBundledPackagePostCorePipelines(pm))
     return failure();
 
   if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty())
-    mlir::bufferization::buildBufferDeallocationPipeline(pm);
+    bufferization::buildBufferDeallocationPipeline(pm);
 
   if (lowering >= Lowering::LLVM) {
-    pm.addNestedPass<mlir::func::FuncOp>(
+    pm.addNestedPass<func::FuncOp>(
         mlir::createConvertLinalgToLoopsPass());
     pm.addPass(mlir::createLowerAffinePass());
     pm.addPass(mlir::createSCFToControlFlowPass());
-    pm.addNestedPass<mlir::func::FuncOp>(
-        mlir::LLVM::createLLVMRequestCWrappersPass());
-    pm.addPass(mlir::mulberry_core::createConvertMulberryToLLVM());
+    pm.addNestedPass<func::FuncOp>(LLVM::createLLVMRequestCWrappersPass());
+    pm.addPass(mulberry_core::createConvertMulberryToLLVM());
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
   }
 

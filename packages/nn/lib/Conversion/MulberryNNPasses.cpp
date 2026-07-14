@@ -203,16 +203,16 @@ static auto getPositiveI64Constant(Value value) -> FailureOr<int64_t> {
 }
 
 static auto isListU64Reference(Type type) -> bool {
-  auto ptrType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(type);
+  auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(type);
   if (!ptrType)
     return false;
 
   auto recordType =
-      llvm::dyn_cast<mlir::mulberry_core::RecordType>(ptrType.getPointeeType());
+      llvm::dyn_cast<mulberry_core::RecordType>(ptrType.getPointeeType());
   if (!recordType)
     return false;
 
-  auto dataType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+  auto dataType = llvm::dyn_cast<mulberry_core::PtrType>(
       recordType.getFieldType("data"));
   auto lengthType = recordType.getFieldType("length");
   auto capacityType = recordType.getFieldType("capacity");
@@ -222,27 +222,27 @@ static auto isListU64Reference(Type type) -> bool {
 }
 
 static auto isTensorF32RecordABI(Type type) -> bool {
-  auto recordType = llvm::dyn_cast<mlir::mulberry_core::RecordType>(type);
+  auto recordType = llvm::dyn_cast<mulberry_core::RecordType>(type);
   if (!recordType)
     return false;
 
-  auto ptrType = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+  auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(
       recordType.getFieldType("data"));
   if (!ptrType || !ptrType.getPointeeType().isF32())
     return false;
 
   auto rankType = recordType.getFieldType("rank");
   auto numelType = recordType.getFieldType("numel");
-  auto storageReference = llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+  auto storageReference = llvm::dyn_cast<mulberry_core::PtrType>(
       recordType.getFieldType("_storage"));
   auto storageType = storageReference
-                         ? llvm::dyn_cast<mlir::mulberry_core::RecordType>(
+                         ? llvm::dyn_cast<mulberry_core::RecordType>(
                                storageReference.getPointeeType())
-                         : mlir::mulberry_core::RecordType{};
+                         : mulberry_core::RecordType{};
   auto storageDataType = storageType
-                             ? llvm::dyn_cast<mlir::mulberry_core::PtrType>(
+                             ? llvm::dyn_cast<mulberry_core::PtrType>(
                                    storageType.getFieldType("data"))
-                             : mlir::mulberry_core::PtrType{};
+                             : mulberry_core::PtrType{};
   auto disposedType =
       storageType ? storageType.getFieldType("disposed") : Type{};
   return rankType && rankType.isInteger(64) && numelType &&
@@ -254,17 +254,17 @@ static auto isTensorF32RecordABI(Type type) -> bool {
 }
 
 static auto getTensorType(MLIRContext *context, size_t rank)
-    -> mlir::mulberry_core::TensorType {
+    -> mulberry_core::TensorType {
   std::vector<int64_t> shape(rank, ShapedType::kDynamic);
-  return mlir::mulberry_core::TensorType::get(context, shape,
-                                              Float32Type::get(context));
+  return mulberry_core::TensorType::get(context, shape,
+                                        Float32Type::get(context));
 }
 
 static auto createTensorView(PatternRewriter &rewriter, Location loc,
                              Value tensorRecord, size_t rank) -> Value {
   auto tensorType = getTensorType(rewriter.getContext(), rank);
-  return mlir::mulberry_core::TensorViewOp::create(rewriter, loc, tensorType,
-                                                   tensorRecord);
+  return mulberry_core::TensorViewOp::create(rewriter, loc, tensorType,
+                                             tensorRecord);
 }
 
 static auto createTensorCall(PatternRewriter &rewriter, Location loc,
@@ -278,7 +278,7 @@ static auto createTensorCall(PatternRewriter &rewriter, Location loc,
 
 static auto packTensor(PatternRewriter &rewriter, Location loc, Value tensor,
                        Type tensorRecordType) -> Value {
-  return mlir::mulberry_core::TensorPackOp::create(
+  return mulberry_core::TensorPackOp::create(
       rewriter, loc, tensorRecordType, tensor);
 }
 
@@ -890,7 +890,7 @@ class MulberryNNTypeConverter : public TypeConverter {
 public:
   MulberryNNTypeConverter() {
     addConversion([](Type type) { return type; });
-    addConversion([](mlir::mulberry_core::TensorType type) -> Type {
+    addConversion([](mulberry_core::TensorType type) -> Type {
       return MemRefType::get(convertMemRefShape(type.getShape()),
                              type.getElementType());
     });

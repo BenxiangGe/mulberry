@@ -33,7 +33,11 @@
 #include <vector>
 
 namespace {
-using namespace mlir::arith;
+namespace arith = mlir::arith;
+namespace func = mlir::func;
+namespace mulberry_core = mlir::mulberry_core;
+namespace scf = mlir::scf;
+
 using namespace mulberry;
 using llvm::cast;
 using llvm::failure;
@@ -101,7 +105,7 @@ struct FunctionReturnControl {
 };
 
 struct DeclaredFunction {
-  mlir::func::FuncOp operation;
+  func::FuncOp operation;
   bool isExtern;
 };
 
@@ -194,9 +198,9 @@ private:
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
-  auto declareFunction(const FunctionDecl *node) -> mlir::func::FuncOp;
-  auto gen(const Prototype *node, bool isExtern) -> mlir::func::FuncOp;
-  auto gen(const FunctionDecl *node) -> mlir::func::FuncOp;
+  auto declareFunction(const FunctionDecl *node) -> func::FuncOp;
+  auto gen(const Prototype *node, bool isExtern) -> func::FuncOp;
+  auto gen(const FunctionDecl *node) -> func::FuncOp;
   auto gen(const StructDecl *node) -> void;
 
   // Expressions
@@ -204,10 +208,10 @@ private:
   auto gen(const UnitExpr *node) -> mlir::Value;
   auto gen(const BlockExpr *node) -> mlir::Value;
   auto genDeclaredCall(std::string_view name, llvm::ArrayRef<const Expr *> args,
-                       mlir::Location location) -> mlir::func::CallOp;
+                       mlir::Location location) -> func::CallOp;
   auto genDeclaredLoweredCall(std::string_view name, mlir::ValueRange args,
                               mlir::Location location)
-      -> mlir::func::CallOp;
+      -> func::CallOp;
   auto genNormalCall(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
@@ -220,7 +224,7 @@ private:
   auto gen(const InterpolatedStringExpr *node) -> mlir::Value;
   auto gen(const ObjectIdentityExpr *node) -> mlir::Value;
   auto genStringLiteral(const StringLiteralExpr *node,
-                              mlir::mulberry_core::RecordType storageType)
+                        mulberry_core::RecordType storageType)
       -> mlir::Value;
   auto gen(const CharLiteralExpr *node) -> mlir::Value;
   auto gen(const TypeLayoutExpr *node) -> mlir::Value;
@@ -330,7 +334,7 @@ private:
       llvm_unreachable("unknown variable");
     if (binding->isObjectReference()) {
       auto referenceSlotType =
-          llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
+          llvm::cast<mulberry_core::PtrType>(binding->mlirValue.getType());
       auto objectReferenceType = referenceSlotType.getPointeeType();
       return createLoad(binding->mlirValue, objectReferenceType, location);
     }
@@ -346,13 +350,13 @@ private:
       llvm_unreachable("unknown variable");
     if (binding->isObjectReference()) {
       auto referenceSlotType =
-          llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
+          llvm::cast<mulberry_core::PtrType>(binding->mlirValue.getType());
       auto objectReferenceType = referenceSlotType.getPointeeType();
       return createLoad(binding->mlirValue, objectReferenceType, location);
     }
     if (binding->isAddress()) {
       auto ptrType =
-          llvm::cast<mlir::mulberry_core::PtrType>(binding->mlirValue.getType());
+          llvm::cast<mulberry_core::PtrType>(binding->mlirValue.getType());
       return createLoad(binding->mlirValue, ptrType.getPointeeType(),
                         location);
     }
@@ -361,7 +365,7 @@ private:
     return binding->mlirValue;
   }
 
-  void setFunction(std::string_view name, mlir::func::FuncOp func,
+  void setFunction(std::string_view name, func::FuncOp func,
                    bool isExtern) {
     setSymbol(_functionsByName, name, DeclaredFunction{func, isExtern});
   }
@@ -372,7 +376,7 @@ private:
 
   auto genStructLiteral(const StructLiteralExpr *structLiteral,
                         const StructType *structType) -> mlir::Value;
-  auto getPtrType(mlir::Type pointeeType) const -> mlir::mulberry_core::PtrType;
+  auto getPtrType(mlir::Type pointeeType) const -> mulberry_core::PtrType;
   auto createIndexConstant(int64_t value, mlir::Location location)
       -> mlir::Value;
   auto createUInt64Constant(int64_t value, mlir::Location location)
@@ -386,33 +390,32 @@ private:
   void createStore(mlir::Value value, mlir::Value ptr,
                    mlir::Location location);
   auto createRecordFieldPtr(mlir::Value recordPtr,
-                            mlir::mulberry_core::RecordType recordType,
+                            mulberry_core::RecordType recordType,
                             std::string_view fieldName,
                             mlir::Location location) -> mlir::Value;
   auto loadRecordFieldValue(mlir::Value recordPtr,
-                            mlir::mulberry_core::RecordType recordType,
+                            mulberry_core::RecordType recordType,
                             std::string_view fieldName,
                             mlir::Location location) -> mlir::Value;
   void storeRecordFieldValue(mlir::Value recordPtr,
-                             mlir::mulberry_core::RecordType recordType,
+                             mulberry_core::RecordType recordType,
                              std::string_view fieldName, mlir::Value value,
                              mlir::Location location);
   auto createStructFieldPtr(mlir::Value recordPtr, const StructField& field,
                             mlir::Location location) -> mlir::Value;
   auto gen(const ArrayLiteralExpr *expr) -> mlir::Value;
   auto genArrayLiteral(const ArrayLiteralExpr *expr,
-                             mlir::mulberry_core::RecordType arrayType)
+                       mulberry_core::RecordType arrayType)
       -> mlir::Value;
   auto genTensorFromArray(const CallExpr *expr) -> mlir::Value;
   auto genTensorDispose(const CallExpr *expr) -> mlir::Value;
   void createTensorAssertAlive(mlir::Value tensor,
                                mlir::Location location);
-  auto createTensor(mlir::mulberry_core::RecordType resultType,
-                          mlir::Value data,
-                          const std::vector<int64_t> &shape,
-                          int64_t elementCount,
-                          mlir::Location location) -> mlir::Value;
-  auto createTensorMetadataList(mlir::mulberry_core::RecordType listType,
+  auto createTensor(mulberry_core::RecordType resultType,
+                    mlir::Value data, const std::vector<int64_t> &shape,
+                    int64_t elementCount, mlir::Location location)
+      -> mlir::Value;
+  auto createTensorMetadataList(mulberry_core::RecordType listType,
                                 const std::vector<int64_t> &values,
                                 mlir::Location location) -> mlir::Value;
   void storeArrayElements(const ArrayLiteralExpr *expr,
@@ -489,7 +492,7 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
       [this](const Expr *node) {
         auto *call = cast<CallExpr>(node);
         auto value = gen(call->expressions().front().get());
-        return mlir::arith::TruncIOp::create(
+        return arith::TruncIOp::create(
             _builder, loc(call), getSourceMLIRType(call), value);
       });
   registerBuiltinHandler(
@@ -497,7 +500,7 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
       [this](const Expr *node) {
         auto *call = cast<CallExpr>(node);
         auto value = gen(call->expressions().front().get());
-        return mlir::arith::ExtUIOp::create(
+        return arith::ExtUIOp::create(
             _builder, loc(call), getSourceMLIRType(call), value);
       });
   registerBuiltinHandler(
@@ -505,7 +508,7 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
       [this](const Expr *node) {
         auto *call = cast<CallExpr>(node);
         auto value = gen(call->expressions().front().get());
-        return mlir::arith::UIToFPOp::create(
+        return arith::UIToFPOp::create(
             _builder, loc(call), getSourceMLIRType(call), value);
       });
 }
@@ -579,7 +582,7 @@ auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
 }
 
 auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
-    -> mlir::func::FuncOp {
+    -> func::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
     auto *paramType = param->type();
@@ -592,9 +595,9 @@ auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
   if (!mulberry::isUnitType(returnType))
     resultTypes.push_back(getReturnMLIRType(returnType, isExtern));
   auto funcType = _builder.getFunctionType(argTypes, resultTypes);
-  mlir::OperationState state(loc(node), mlir::func::FuncOp::getOperationName());
-  mlir::func::FuncOp::build(_builder, state, funcName, funcType);
-  auto func = llvm::cast<mlir::func::FuncOp>(mlir::Operation::create(state));
+  mlir::OperationState state(loc(node), func::FuncOp::getOperationName());
+  func::FuncOp::build(_builder, state, funcName, funcType);
+  auto func = llvm::cast<func::FuncOp>(mlir::Operation::create(state));
 
   setFunction(funcName, func, isExtern);
 
@@ -604,7 +607,7 @@ auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
 }
 
 auto MLIRGenImpl::declareFunction(const FunctionDecl *node)
-    -> mlir::func::FuncOp {
+    -> func::FuncOp {
   auto func = gen(node->proto().get(), node->isExtern());
   if (node->isExtern()) {
     mlir::SymbolTable::setSymbolVisibility(
@@ -613,7 +616,7 @@ auto MLIRGenImpl::declareFunction(const FunctionDecl *node)
   return func;
 }
 
-auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
+auto MLIRGenImpl::gen(const FunctionDecl *node) -> func::FuncOp {
   resetVariableScopes();
   auto funcIter = findFunction(node->proto()->id()->name());
   if (funcIter == _functionsByName.end()) {
@@ -683,15 +686,15 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> mlir::func::FuncOp {
       auto value = createLoad(returnControl.returnSlot,
                               returnControl.returnType, location);
       llvm::SmallVector<mlir::Value, 1> returnValues{value};
-      mlir::func::ReturnOp::create(_builder, location, returnValues);
+      func::ReturnOp::create(_builder, location, returnValues);
     } else {
-      mlir::func::ReturnOp::create(_builder, location);
+      func::ReturnOp::create(_builder, location);
     }
     return func;
   }
 
   gen(node->body().get());
-  mlir::func::ReturnOp::create(_builder, location);
+  func::ReturnOp::create(_builder, location);
 
   return func;
 }
@@ -797,9 +800,8 @@ auto MLIRGenImpl::gen(const IfStat *node) -> void {
   DBG("IfStat");
   auto cond = gen(node->conditionExpr().get());
 
-  auto ifOp =
-      mlir::scf::IfOp::create(_builder, loc(node), cond,
-                              node->hasElseBlock());
+  auto ifOp = scf::IfOp::create(_builder, loc(node), cond,
+                                node->hasElseBlock());
 
   _builder.setInsertionPointToStart(ifOp.thenBlock());
   gen(node->thenBlock().get());
@@ -816,16 +818,14 @@ auto MLIRGenImpl::gen(const WhileStat *node) -> void {
   auto bodyBlock = node->bodyBlock().get();
   auto location = loc(node);
   auto flagType = _builder.getI1Type();
-  auto falseValue =
-      mlir::arith::ConstantIntOp::create(_builder, location, 0, 1);
-  auto trueValue =
-      mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
+  auto falseValue = arith::ConstantIntOp::create(_builder, location, 0, 1);
+  auto trueValue = arith::ConstantIntOp::create(_builder, location, 1, 1);
   auto breakFlag = createAlloca(flagType, location);
   auto continueFlag = createAlloca(flagType, location);
   createStore(falseValue, breakFlag, location);
   createStore(falseValue, continueFlag, location);
 
-  mlir::scf::WhileOp::create(
+  scf::WhileOp::create(
       _builder, location, mlir::TypeRange{}, mlir::ValueRange{},
       [&](mlir::OpBuilder &builder, mlir::Location location,
           mlir::ValueRange args) {
@@ -836,36 +836,33 @@ auto MLIRGenImpl::gen(const WhileStat *node) -> void {
         if (!_functionReturnControls.empty()) {
           auto returned = createLoad(_functionReturnControls.back().returnedFlag,
                                      flagType, location);
-          stopped = mlir::arith::OrIOp::create(builder, location, stopped,
-                                               returned);
+          stopped = arith::OrIOp::create(builder, location, stopped, returned);
         }
-        auto notStopped = mlir::arith::XOrIOp::create(builder, location,
-                                                      stopped, trueValue);
+        auto notStopped =
+            arith::XOrIOp::create(builder, location, stopped, trueValue);
         auto loopCond =
-            mlir::arith::AndIOp::create(builder, location, cond, notStopped);
-        mlir::scf::ConditionOp::create(builder, location, loopCond,
-                                       mlir::ValueRange{});
+            arith::AndIOp::create(builder, location, cond, notStopped);
+        scf::ConditionOp::create(builder, location, loopCond,
+                                 mlir::ValueRange{});
       },
       [&](mlir::OpBuilder &builder, mlir::Location location,
           mlir::ValueRange args) {
         _whileControls.push_back({breakFlag, continueFlag});
         gen(bodyBlock);
         _whileControls.pop_back();
-        mlir::scf::YieldOp::create(builder, location);
+        scf::YieldOp::create(builder, location);
       });
 }
 
 auto MLIRGenImpl::gen(const BreakStat *node) -> void {
   auto control = _whileControls.back();
-  auto trueValue =
-      mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
+  auto trueValue = arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
   createStore(trueValue, control.breakFlag, loc(node));
 }
 
 auto MLIRGenImpl::gen(const ContinueStat *node) -> void {
   auto control = _whileControls.back();
-  auto trueValue =
-      mlir::arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
+  auto trueValue = arith::ConstantIntOp::create(_builder, loc(node), 1, 1);
   createStore(trueValue, control.continueFlag, loc(node));
 }
 
@@ -899,21 +896,21 @@ auto MLIRGenImpl::gen(const ForStat *node) -> void {
   auto endValue =
       castToType(gen(node->endExpr().get()), inductionType, forLocation);
   auto intType = llvm::cast<mlir::IntegerType>(inductionType);
-  auto oneValue = mlir::arith::ConstantIntOp::create(
+  auto oneValue = arith::ConstantIntOp::create(
       _builder, forLocation, 1, intType.getWidth());
 
   enterVariableScope();
   setVariableAddress(node->variableName(), inductionPtr);
 
   auto bodyBlock = node->bodyBlock().get();
-  mlir::scf::ForOp::create(
+  scf::ForOp::create(
       _builder, forLocation, startValue, endValue, oneValue,
       mlir::ValueRange{},
       [&](mlir::OpBuilder &builder, mlir::Location location,
           mlir::Value inductionValue, mlir::ValueRange args) {
         createStore(inductionValue, inductionPtr, location);
         gen(bodyBlock);
-        mlir::scf::YieldOp::create(builder, location);
+        scf::YieldOp::create(builder, location);
       },
       /*unsignedCmp=*/true);
   leaveVariableScope(forLocation);
@@ -933,7 +930,7 @@ auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
 auto MLIRGenImpl::genDeclaredLoweredCall(std::string_view name,
                                         mlir::ValueRange args,
                                         mlir::Location location)
-    -> mlir::func::CallOp {
+    -> func::CallOp {
   auto calleeOpIter = findFunction(name);
   if (calleeOpIter == _functionsByName.end()) {
     ERR("call `{0}` has no declared callee", name);
@@ -953,14 +950,13 @@ auto MLIRGenImpl::genDeclaredLoweredCall(std::string_view name,
   }
 
   auto resultTypes = calleeType.getResults();
-  return mlir::func::CallOp::create(_builder, location, name,
-                                    resultTypes, operands);
+  return func::CallOp::create(_builder, location, name, resultTypes, operands);
 }
 
 auto MLIRGenImpl::genDeclaredCall(std::string_view name,
                                   llvm::ArrayRef<const Expr *> args,
                                   mlir::Location location)
-    -> mlir::func::CallOp {
+    -> func::CallOp {
   auto calleeOpIter = findFunction(name);
   if (calleeOpIter == _functionsByName.end()) {
     ERR("call `{0}` has no declared callee", name);
@@ -979,8 +975,7 @@ auto MLIRGenImpl::genDeclaredCall(std::string_view name,
   }
 
   auto resultTypes = calleeType.getResults();
-  return mlir::func::CallOp::create(_builder, location, name,
-                                    resultTypes, operands);
+  return func::CallOp::create(_builder, location, name, resultTypes, operands);
 }
 
 auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
@@ -1047,29 +1042,26 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
 auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getSourceMLIRType(node);
   auto intType = llvm::cast<mlir::IntegerType>(type);
-  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
-                                            node->value(),
-                                            intType.getWidth());
+  return arith::ConstantIntOp::create(_builder, loc(node), node->value(),
+                                      intType.getWidth());
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getSourceMLIRType(node);
-  return mlir::arith::ConstantFloatOp::create(
+  return arith::ConstantFloatOp::create(
       _builder, loc(node), llvm::cast<mlir::FloatType>(type), node->value());
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
-                                            node->value(), 1);
+  return arith::ConstantIntOp::create(_builder, loc(node), node->value(), 1);
 }
 
 auto MLIRGenImpl::gen(const CharLiteralExpr *node) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
-                                            node->value(), 8);
+  return arith::ConstantIntOp::create(_builder, loc(node), node->value(), 8);
 }
 
 auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
-  auto storageType = llvm::cast<mlir::mulberry_core::RecordType>(
+  auto storageType = llvm::cast<mulberry_core::RecordType>(
       getLayoutMLIRType(node));
   return genStringLiteral(node, storageType);
 }
@@ -1122,7 +1114,7 @@ auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
 
   DBG("format object identity `{0}` through `{1}`", node->typeName(),
       functionName);
-  auto call = mlir::func::CallOp::create(
+  auto call = func::CallOp::create(
       _builder, loc(node), functionName, calleeType.getResults(),
       mlir::ValueRange{typeNameValue, objectPointer});
   return boxExternObjectResult(call.getResult(0), node->type(), loc(node));
@@ -1130,41 +1122,41 @@ auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
 
 auto MLIRGenImpl::genStringLiteral(
     const StringLiteralExpr *node,
-    mlir::mulberry_core::RecordType storageType) -> mlir::Value {
+    mulberry_core::RecordType storageType) -> mlir::Value {
   auto location = loc(node);
 
   // String is a source object reference: the header lives on the GC heap, and
   // the bytes live in a separate NUL-terminated heap buffer for runtime/FFI.
   auto bytes = node->value();
-  auto byteCount = mlir::arith::ConstantIndexOp::create(
+  auto byteCount = arith::ConstantIndexOp::create(
       _builder, location, bytes.size() + 1);
-  auto dataBuffer = mlir::mulberry_core::HeapAllocOp::create(
+  auto dataBuffer = mulberry_core::HeapAllocOp::create(
                         _builder, location, getPtrType(_builder.getI8Type()),
                         _builder.getI8Type(), byteCount)
                         .getResult();
 
   for (size_t index = 0; index < bytes.size(); ++index) {
-    auto byteIndex = mlir::arith::ConstantIndexOp::create(
+    auto byteIndex = arith::ConstantIndexOp::create(
         _builder, location, static_cast<int64_t>(index));
-    auto bytePtr = mlir::mulberry_core::PtrIndexOp::create(
+    auto bytePtr = mulberry_core::PtrIndexOp::create(
         _builder, location, getPtrType(_builder.getI8Type()), dataBuffer,
         byteIndex);
-    auto byteValue = mlir::arith::ConstantIntOp::create(
+    auto byteValue = arith::ConstantIntOp::create(
         _builder, location,
         static_cast<int64_t>(static_cast<unsigned char>(bytes[index])), 8);
     createStore(byteValue, bytePtr, location);
   }
 
-  auto nulIndex = mlir::arith::ConstantIndexOp::create(
+  auto nulIndex = arith::ConstantIndexOp::create(
       _builder, location, static_cast<int64_t>(bytes.size()));
-  auto nulPtr = mlir::mulberry_core::PtrIndexOp::create(
+  auto nulPtr = mulberry_core::PtrIndexOp::create(
       _builder, location, getPtrType(_builder.getI8Type()), dataBuffer,
       nulIndex);
-  auto nulValue = mlir::arith::ConstantIntOp::create(_builder, location, 0, 8);
+  auto nulValue = arith::ConstantIntOp::create(_builder, location, 0, 8);
   createStore(nulValue, nulPtr, location);
 
   auto storage = createHeapObject(storageType, location);
-  auto lengthValue = mlir::arith::ConstantIntOp::create(
+  auto lengthValue = arith::ConstantIntOp::create(
       _builder, location, static_cast<int64_t>(bytes.size()), 64);
   storeRecordFieldValue(storage, storageType, "length", lengthValue, location);
   storeRecordFieldValue(storage, storageType, "data", dataBuffer, location);
@@ -1173,20 +1165,18 @@ auto MLIRGenImpl::genStringLiteral(
 }
 
 auto MLIRGenImpl::gen(const TypeLayoutExpr *node) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, loc(node),
-                                            node->value(), 64);
+  return arith::ConstantIntOp::create(_builder, loc(node), node->value(), 64);
 }
 
 auto MLIRGenImpl::gen(const HeapAllocExpr *node) -> mlir::Value {
   auto allocatedType = getStorageMLIRType(node->allocatedType());
   auto resultType =
-      llvm::cast<mlir::mulberry_core::PtrType>(getSourceMLIRType(node));
+      llvm::cast<mulberry_core::PtrType>(getSourceMLIRType(node));
   auto count = node->count()
                    ? genIndexValue(node->count().get())
-                   : mlir::arith::ConstantIndexOp::create(_builder, loc(node),
-                                                          1);
-  return mlir::mulberry_core::HeapAllocOp::create(_builder, loc(node), resultType,
-                                             allocatedType, count);
+                   : arith::ConstantIndexOp::create(_builder, loc(node), 1);
+  return mulberry_core::HeapAllocOp::create(_builder, loc(node), resultType,
+                                            allocatedType, count);
 }
 
 auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
@@ -1215,7 +1205,7 @@ auto MLIRGenImpl::genLValue(const Expr *node) -> mlir::Value {
       return genStdlibTensorElementPtr(indexExpr);
 
     auto source = gen(indexExpr->base().get());
-    if (llvm::isa<mlir::mulberry_core::PtrType>(source.getType()))
+    if (llvm::isa<mulberry_core::PtrType>(source.getType()))
       return genPtrIndex(indexExpr, source);
   }
 
@@ -1294,33 +1284,33 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   if (llvm::isa<mlir::FloatType>(lhs.getType())) {
     switch (op) {
     case Operator::Add:
-      return mlir::arith::AddFOp::create(_builder, loc(node), lhs, rhs);
+      return arith::AddFOp::create(_builder, loc(node), lhs, rhs);
     case Operator::Diff:
-      return mlir::arith::SubFOp::create(_builder, loc(node), lhs, rhs);
+      return arith::SubFOp::create(_builder, loc(node), lhs, rhs);
     case Operator::Mul:
-      return mlir::arith::MulFOp::create(_builder, loc(node), lhs, rhs);
+      return arith::MulFOp::create(_builder, loc(node), lhs, rhs);
     case Operator::Div:
-      return mlir::arith::DivFOp::create(_builder, loc(node), lhs, rhs);
+      return arith::DivFOp::create(_builder, loc(node), lhs, rhs);
     case Operator::Rem:
-      return mlir::arith::RemFOp::create(_builder, loc(node), lhs, rhs);
+      return arith::RemFOp::create(_builder, loc(node), lhs, rhs);
     case Operator::EQ:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::OEQ, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::OEQ, lhs, rhs);
     case Operator::NEQ:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::ONE, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::ONE, lhs, rhs);
     case Operator::LT:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::OLT, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::OLT, lhs, rhs);
     case Operator::LE:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::OLE, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::OLE, lhs, rhs);
     case Operator::GT:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::OGT, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::OGT, lhs, rhs);
     case Operator::GE:
-      return mlir::arith::CmpFOp::create(
-          _builder, loc(node), mlir::arith::CmpFPredicate::OGE, lhs, rhs);
+      return arith::CmpFOp::create(
+          _builder, loc(node), arith::CmpFPredicate::OGE, lhs, rhs);
     default:
       break;
     }
@@ -1328,37 +1318,37 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
 
   switch (op) {
   case Operator::Add:
-    return mlir::arith::AddIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::AddIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Diff:
-    return mlir::arith::SubIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::SubIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Mul:
-    return mlir::arith::MulIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::MulIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Div:
-    return mlir::arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Rem:
-    return mlir::arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::And:
-    return mlir::arith::AndIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::AndIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Or:
-    return mlir::arith::OrIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::OrIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::EQ:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::eq, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::eq, lhs, rhs);
   case Operator::NEQ:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::ne, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::ne, lhs, rhs);
   case Operator::LT:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::ult, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::ult, lhs, rhs);
   case Operator::LE:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::ule, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::ule, lhs, rhs);
   case Operator::GT:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::ugt, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::ugt, lhs, rhs);
   case Operator::GE:
-    return mlir::arith::CmpIOp::create(
-        _builder, loc(node), mlir::arith::CmpIPredicate::uge, lhs, rhs);
+    return arith::CmpIOp::create(
+        _builder, loc(node), arith::CmpIPredicate::uge, lhs, rhs);
   }
 
   llvm_unreachable("Unexpected statement");
@@ -1440,11 +1430,11 @@ auto MLIRGenImpl::genStatements(const VectorUniquePtr<Stat> &statements)
 }
 
 auto MLIRGenImpl::createTrueValue(mlir::Location location) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, location, 1, 1);
+  return arith::ConstantIntOp::create(_builder, location, 1, 1);
 }
 
 auto MLIRGenImpl::createFalseValue(mlir::Location location) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, location, 0, 1);
+  return arith::ConstantIntOp::create(_builder, location, 0, 1);
 }
 
 void MLIRGenImpl::disposeCurrentTensorLocals(mlir::Location location) {
@@ -1459,7 +1449,7 @@ void MLIRGenImpl::disposeCurrentTensorLocals(mlir::Location location) {
 
     auto initialized = createLoad(local.initializedFlag,
                                   _builder.getI1Type(), location);
-    auto ifOp = mlir::scf::IfOp::create(
+    auto ifOp = scf::IfOp::create(
         _builder, location, initialized, /*withElseRegion=*/false);
     mlir::OpBuilder::InsertionGuard guard(_builder);
     _builder.setInsertionPointToStart(ifOp.thenBlock());
@@ -1470,12 +1460,12 @@ void MLIRGenImpl::disposeCurrentTensorLocals(mlir::Location location) {
 void MLIRGenImpl::disposeTensorLocal(std::string_view name,
                                      const TensorLocal& local,
                                      mlir::Location location) {
-  auto slotType = llvm::cast<mlir::mulberry_core::PtrType>(
+  auto slotType = llvm::cast<mulberry_core::PtrType>(
       local.referenceSlot.getType());
   auto tensor = createLoad(local.referenceSlot, slotType.getPointeeType(),
                            location);
   DBG("automatically dispose local Tensor `{0}`", name);
-  mlir::mulberry_core::TensorDisposeOp::create(_builder, location, tensor);
+  mulberry_core::TensorDisposeOp::create(_builder, location, tensor);
 }
 
 auto MLIRGenImpl::isFreshTensorExpression(const Expr *expr) const -> bool {
@@ -1588,7 +1578,7 @@ auto MLIRGenImpl::currentFunctionReturnAllowed(mlir::Location location)
   auto flagType = _builder.getI1Type();
   auto returned = createLoad(_functionReturnControls.back().returnedFlag,
                              flagType, location);
-  return mlir::arith::XOrIOp::create(_builder, location, returned, trueValue);
+  return arith::XOrIOp::create(_builder, location, returned, trueValue);
 }
 
 auto MLIRGenImpl::currentExecutionAllowed() -> mlir::Value {
@@ -1601,12 +1591,11 @@ auto MLIRGenImpl::currentExecutionAllowed() -> mlir::Value {
     auto control = _whileControls.back();
     auto shouldBreak = createLoad(control.breakFlag, flagType, location);
     auto shouldContinue = createLoad(control.continueFlag, flagType, location);
-    auto stopped = mlir::arith::OrIOp::create(
+    auto stopped = arith::OrIOp::create(
         _builder, location, shouldBreak, shouldContinue);
     auto loopAllowed =
-        mlir::arith::XOrIOp::create(_builder, location, stopped, trueValue);
-    allowed = mlir::arith::AndIOp::create(_builder, location, allowed,
-                                          loopAllowed);
+        arith::XOrIOp::create(_builder, location, stopped, trueValue);
+    allowed = arith::AndIOp::create(_builder, location, allowed, loopAllowed);
   }
 
   return allowed;
@@ -1617,8 +1606,8 @@ auto MLIRGenImpl::genGuardedStatement(const Stat *node) -> void {
     declareLocalVariableSlot(variable);
 
   auto condition = currentExecutionAllowed();
-  auto ifOp = mlir::scf::IfOp::create(_builder, loc(node), condition,
-                                      /*withElseRegion=*/false);
+  auto ifOp = scf::IfOp::create(_builder, loc(node), condition,
+                                /*withElseRegion=*/false);
   _builder.setInsertionPointToStart(ifOp.thenBlock());
   gen(node);
   _builder.setInsertionPointAfter(ifOp);
@@ -1650,23 +1639,23 @@ auto MLIRGenImpl::declareLocalVariableSlot(const VariableStat *node) -> void {
 }
 
 auto MLIRGenImpl::getPtrType(mlir::Type pointeeType) const
-    -> mlir::mulberry_core::PtrType {
-  return mlir::mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
+    -> mulberry_core::PtrType {
+  return mulberry_core::PtrType::get(_builder.getContext(), pointeeType);
 }
 
 auto MLIRGenImpl::createIndexConstant(int64_t value,
                                       mlir::Location location) -> mlir::Value {
-  return mlir::arith::ConstantIndexOp::create(_builder, location, value);
+  return arith::ConstantIndexOp::create(_builder, location, value);
 }
 
 auto MLIRGenImpl::createUInt64Constant(int64_t value,
                                        mlir::Location location) -> mlir::Value {
-  return mlir::arith::ConstantIntOp::create(_builder, location, value, 64);
+  return arith::ConstantIntOp::create(_builder, location, value, 64);
 }
 
 auto MLIRGenImpl::createAlloca(mlir::Type mlirType,
                                mlir::Location location) -> mlir::Value {
-  auto alloca = mlir::mulberry_core::AllocaOp::create(
+  auto alloca = mulberry_core::AllocaOp::create(
       _builder, location, getPtrType(mlirType), mlirType);
   auto *parentBlock = alloca.getOperation()->getBlock();
   alloca.getOperation()->moveBefore(&parentBlock->front());
@@ -1675,7 +1664,7 @@ auto MLIRGenImpl::createAlloca(mlir::Type mlirType,
 
 auto MLIRGenImpl::createHeapObject(mlir::Type mlirType,
                                    mlir::Location location) -> mlir::Value {
-  return mlir::mulberry_core::HeapAllocOp::create(
+  return mulberry_core::HeapAllocOp::create(
              _builder, location, getPtrType(mlirType), mlirType,
              createIndexConstant(1, location))
       .getResult();
@@ -1683,25 +1672,25 @@ auto MLIRGenImpl::createHeapObject(mlir::Type mlirType,
 
 auto MLIRGenImpl::createLoad(mlir::Value ptr, mlir::Type type,
                              mlir::Location location) -> mlir::Value {
-  return mlir::mulberry_core::LoadOp::create(_builder, location, type, ptr);
+  return mulberry_core::LoadOp::create(_builder, location, type, ptr);
 }
 
 void MLIRGenImpl::createStore(mlir::Value value, mlir::Value ptr,
                               mlir::Location location) {
-  mlir::mulberry_core::StoreOp::create(_builder, location, value, ptr);
+  mulberry_core::StoreOp::create(_builder, location, value, ptr);
 }
 
 auto MLIRGenImpl::createRecordFieldPtr(
-    mlir::Value recordPtr, mlir::mulberry_core::RecordType recordType,
+    mlir::Value recordPtr, mulberry_core::RecordType recordType,
     std::string_view fieldName, mlir::Location location) -> mlir::Value {
   auto name = std::string(fieldName);
   auto fieldType = recordType.getFieldType(name);
-  return mlir::mulberry_core::RecordGetFieldOp::create(
+  return mulberry_core::RecordGetFieldOp::create(
       _builder, location, getPtrType(fieldType), recordPtr, name);
 }
 
 auto MLIRGenImpl::loadRecordFieldValue(
-    mlir::Value recordPtr, mlir::mulberry_core::RecordType recordType,
+    mlir::Value recordPtr, mulberry_core::RecordType recordType,
     std::string_view fieldName, mlir::Location location) -> mlir::Value {
   auto name = std::string(fieldName);
   auto fieldType = recordType.getFieldType(name);
@@ -1710,7 +1699,7 @@ auto MLIRGenImpl::loadRecordFieldValue(
 }
 
 void MLIRGenImpl::storeRecordFieldValue(
-    mlir::Value recordPtr, mlir::mulberry_core::RecordType recordType,
+    mlir::Value recordPtr, mulberry_core::RecordType recordType,
     std::string_view fieldName, mlir::Value value, mlir::Location location) {
   auto name = std::string(fieldName);
   auto fieldType = recordType.getFieldType(name);
@@ -1725,7 +1714,7 @@ auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
     -> mlir::Value {
   auto fieldType = getStorageMLIRType(field.type());
   auto fieldPtrType = getPtrType(fieldType);
-  return mlir::mulberry_core::RecordGetFieldOp::create(
+  return mulberry_core::RecordGetFieldOp::create(
       _builder, location, fieldPtrType, recordPtr,
       std::string(field.name()));
 }
@@ -1736,7 +1725,7 @@ auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,
   DBG("struct literal type: {0}", formatType(structType));
 
   auto recordType =
-      llvm::dyn_cast<mlir::mulberry_core::RecordType>(
+      llvm::dyn_cast<mulberry_core::RecordType>(
           getLayoutMLIRType(structType));
   if (!recordType) {
     ERR("NOT a RecordType. structType: {0}",
@@ -1818,9 +1807,9 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
   if (!value || value.getType() == type)
     return value;
 
-  if (llvm::isa<mlir::mulberry_core::PtrType>(value.getType()) &&
-      llvm::isa<mlir::mulberry_core::PtrType>(type))
-    return mlir::mulberry_core::PtrCastOp::create(_builder, location, type, value);
+  if (llvm::isa<mulberry_core::PtrType>(value.getType()) &&
+      llvm::isa<mulberry_core::PtrType>(type))
+    return mulberry_core::PtrCastOp::create(_builder, location, type, value);
 
   auto sourceIntType = llvm::dyn_cast<mlir::IntegerType>(value.getType());
   auto targetIntType = llvm::dyn_cast<mlir::IntegerType>(type);
@@ -1829,10 +1818,10 @@ auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
     // zero-extension and truncation instead of signed variants.
     if (sourceIntType.getWidth() < targetIntType.getWidth()) {
       DBG("castToType zero-extend integer {0} -> {1}", value.getType(), type);
-      return mlir::arith::ExtUIOp::create(_builder, location, type, value);
+      return arith::ExtUIOp::create(_builder, location, type, value);
     }
     DBG("castToType truncate integer {0} -> {1}", value.getType(), type);
-    return mlir::arith::TruncIOp::create(_builder, location, type, value);
+    return arith::TruncIOp::create(_builder, location, type, value);
   }
 
   return nullptr;
@@ -1864,8 +1853,8 @@ auto MLIRGenImpl::genValueForStorage(const Expr *expr, const Type *type,
 
 auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
   if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node))
-    return mlir::arith::ConstantIndexOp::create(_builder, loc(node),
-                                                decimal->value());
+    return arith::ConstantIndexOp::create(_builder, loc(node),
+                                          decimal->value());
 
   auto value = gen(node);
   if (value.getType().isIndex())
@@ -1873,31 +1862,31 @@ auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
 
   if (!llvm::isa<mlir::IntegerType>(value.getType()))
     value = castToType(value, _builder.getI64Type(), loc(node));
-  return mlir::arith::IndexCastOp::create(_builder, loc(node),
-                                          _builder.getIndexType(), value);
+  return arith::IndexCastOp::create(_builder, loc(node),
+                                    _builder.getIndexType(), value);
 }
 
 auto MLIRGenImpl::genPtrIndex(const IndexExpr *expr, mlir::Value ptr)
     -> mlir::Value {
-  auto ptrType = llvm::cast<mlir::mulberry_core::PtrType>(ptr.getType());
+  auto ptrType = llvm::cast<mulberry_core::PtrType>(ptr.getType());
   auto index = genIndexValue(expr->indices().front().get());
-  return mlir::mulberry_core::PtrIndexOp::create(_builder, loc(expr), ptrType, ptr,
-                                            index);
+  return mulberry_core::PtrIndexOp::create(_builder, loc(expr), ptrType, ptr,
+                                           index);
 }
 
 auto MLIRGenImpl::genArrayElementPtr(const IndexExpr *expr) -> mlir::Value {
-  auto recordType = llvm::cast<mlir::mulberry_core::RecordType>(
+  auto recordType = llvm::cast<mulberry_core::RecordType>(
       getLayoutMLIRType(expr->base().get()));
   auto arrayPtr = genAddressableValue(expr->base().get(), recordType);
   auto dataPtr = loadRecordFieldValue(arrayPtr, recordType, "data", loc(expr));
-  return mlir::mulberry_core::PtrIndexOp::create(
+  return mulberry_core::PtrIndexOp::create(
       _builder, loc(expr), dataPtr.getType(), dataPtr,
       genIndexValue(expr->indices().front().get()));
 }
 
 auto MLIRGenImpl::genStdlibTensorElementPtr(const IndexExpr *expr)
     -> mlir::Value {
-  auto recordType = llvm::cast<mlir::mulberry_core::RecordType>(
+  auto recordType = llvm::cast<mulberry_core::RecordType>(
       getLayoutMLIRType(expr->base().get()));
   auto tensorPtr = genAddressableValue(expr->base().get(), recordType);
   createTensorAssertAlive(tensorPtr, loc(expr));
@@ -1907,33 +1896,33 @@ auto MLIRGenImpl::genStdlibTensorElementPtr(const IndexExpr *expr)
   auto stridesReference =
       loadRecordFieldValue(tensorPtr, recordType, "strides", loc(expr));
   auto stridesReferenceType =
-      llvm::cast<mlir::mulberry_core::PtrType>(stridesReference.getType());
-  auto stridesRecordType = llvm::cast<mlir::mulberry_core::RecordType>(
+      llvm::cast<mulberry_core::PtrType>(stridesReference.getType());
+  auto stridesRecordType = llvm::cast<mulberry_core::RecordType>(
       stridesReferenceType.getPointeeType());
   auto stridesData =
       loadRecordFieldValue(stridesReference, stridesRecordType, "data",
                            loc(expr));
   auto stridesDataFieldType = stridesData.getType();
 
-  auto zero = mlir::arith::ConstantIndexOp::create(_builder, loc(expr), 0);
+  auto zero = arith::ConstantIndexOp::create(_builder, loc(expr), 0);
   mlir::Value offset = zero;
   for (size_t i = 0; i < expr->indices().size(); ++i) {
     auto dimensionIndex =
-        mlir::arith::ConstantIndexOp::create(_builder, loc(expr), i);
-    auto stridePtr = mlir::mulberry_core::PtrIndexOp::create(
+        arith::ConstantIndexOp::create(_builder, loc(expr), i);
+    auto stridePtr = mulberry_core::PtrIndexOp::create(
         _builder, loc(expr), stridesDataFieldType, stridesData,
         dimensionIndex);
     auto stride = createLoad(stridePtr, _builder.getI64Type(), loc(expr));
-    auto strideIndex = mlir::arith::IndexCastOp::create(
+    auto strideIndex = arith::IndexCastOp::create(
         _builder, loc(expr), _builder.getIndexType(), stride);
-    auto dimensionOffset = mlir::arith::MulIOp::create(
+    auto dimensionOffset = arith::MulIOp::create(
         _builder, loc(expr), genIndexValue(expr->indices()[i].get()),
         strideIndex);
-    offset = mlir::arith::AddIOp::create(_builder, loc(expr), offset,
-                                         dimensionOffset);
+    offset = arith::AddIOp::create(_builder, loc(expr), offset,
+                                   dimensionOffset);
   }
 
-  return mlir::mulberry_core::PtrIndexOp::create(
+  return mulberry_core::PtrIndexOp::create(
       _builder, loc(expr), dataPtr.getType(), dataPtr, offset);
 }
 
@@ -1971,7 +1960,7 @@ auto MLIRGenImpl::genAddressableValue(const Expr *expr,
   auto ptr = createAlloca(valueType, loc(expr));
   auto value = gen(expr);
   if (auto ptrType =
-          llvm::dyn_cast<mlir::mulberry_core::PtrType>(value.getType())) {
+          llvm::dyn_cast<mulberry_core::PtrType>(value.getType())) {
     if (ptrType.getPointeeType() == valueType)
       return value;
   }
@@ -2025,7 +2014,7 @@ auto MLIRGenImpl::genCallArgumentValue(const Expr *expr,
   auto exprType = getLayoutMLIRType(expr);
   if (!isExtern) {
     auto ptrType =
-        llvm::dyn_cast<mlir::mulberry_core::PtrType>(parameterType);
+        llvm::dyn_cast<mulberry_core::PtrType>(parameterType);
     if (!ptrType)
       return castToType(gen(expr), parameterType, loc(expr));
 
@@ -2043,18 +2032,18 @@ auto MLIRGenImpl::gen(const ArrayLiteralExpr *expr) -> mlir::Value {
     if (isTensorObjectType(element->type()))
       markTensorReferencesEscaped(element.get());
   auto arrayType =
-      llvm::cast<mlir::mulberry_core::RecordType>(getLayoutMLIRType(expr));
+      llvm::cast<mulberry_core::RecordType>(getLayoutMLIRType(expr));
   return genArrayLiteral(expr, arrayType);
 }
 
 auto MLIRGenImpl::genArrayLiteral(
     const ArrayLiteralExpr *expr,
-    mlir::mulberry_core::RecordType arrayType) -> mlir::Value {
+    mulberry_core::RecordType arrayType) -> mlir::Value {
   auto location = loc(expr);
   auto elementCount = static_cast<int64_t>(expr->getElements().size());
   auto dataFieldType = arrayType.getFieldType("data");
-  auto dataPtrType = llvm::cast<mlir::mulberry_core::PtrType>(dataFieldType);
-  auto data = mlir::mulberry_core::HeapAllocOp::create(
+  auto dataPtrType = llvm::cast<mulberry_core::PtrType>(dataFieldType);
+  auto data = mulberry_core::HeapAllocOp::create(
                   _builder, location, dataPtrType,
                   dataPtrType.getPointeeType(),
                   createIndexConstant(elementCount, location))
@@ -2081,12 +2070,12 @@ auto MLIRGenImpl::genTensorFromArray(const CallExpr *expr) -> mlir::Value {
   for (auto dimension : shape)
     elementCount *= dimension;
 
-  auto resultType = llvm::cast<mlir::mulberry_core::RecordType>(
+  auto resultType = llvm::cast<mulberry_core::RecordType>(
       getLayoutMLIRType(expr));
   auto dataFieldType = resultType.getFieldType("data");
-  auto dataPtrType = llvm::cast<mlir::mulberry_core::PtrType>(dataFieldType);
+  auto dataPtrType = llvm::cast<mulberry_core::PtrType>(dataFieldType);
   auto location = loc(expr);
-  auto data = mlir::mulberry_core::HeapAllocOp::create(
+  auto data = mulberry_core::HeapAllocOp::create(
                   _builder, location, dataPtrType,
                   dataPtrType.getPointeeType(),
                   createIndexConstant(elementCount, location))
@@ -2103,17 +2092,17 @@ auto MLIRGenImpl::genTensorFromArray(const CallExpr *expr) -> mlir::Value {
 
 auto MLIRGenImpl::genTensorDispose(const CallExpr *expr) -> mlir::Value {
   auto tensor = genObjectReference(expr->expressions().front().get());
-  mlir::mulberry_core::TensorDisposeOp::create(_builder, loc(expr), tensor);
+  mulberry_core::TensorDisposeOp::create(_builder, loc(expr), tensor);
   return nullptr;
 }
 
 void MLIRGenImpl::createTensorAssertAlive(mlir::Value tensor,
                                           mlir::Location location) {
-  mlir::mulberry_core::TensorAssertAliveOp::create(_builder, location, tensor);
+  mulberry_core::TensorAssertAliveOp::create(_builder, location, tensor);
 }
 
 auto MLIRGenImpl::createTensor(
-    mlir::mulberry_core::RecordType resultType,
+    mulberry_core::RecordType resultType,
     mlir::Value data,
     const std::vector<int64_t> &shape,
     int64_t elementCount,
@@ -2126,21 +2115,21 @@ auto MLIRGenImpl::createTensor(
   }
 
   auto sizesReferenceType =
-      llvm::cast<mlir::mulberry_core::PtrType>(resultType.getFieldType("sizes"));
-  auto stridesReferenceType = llvm::cast<mlir::mulberry_core::PtrType>(
+      llvm::cast<mulberry_core::PtrType>(resultType.getFieldType("sizes"));
+  auto stridesReferenceType = llvm::cast<mulberry_core::PtrType>(
       resultType.getFieldType("strides"));
   auto sizesType =
-      llvm::cast<mlir::mulberry_core::RecordType>(
+      llvm::cast<mulberry_core::RecordType>(
           sizesReferenceType.getPointeeType());
   auto stridesType =
-      llvm::cast<mlir::mulberry_core::RecordType>(
+      llvm::cast<mulberry_core::RecordType>(
           stridesReferenceType.getPointeeType());
   auto sizes = createTensorMetadataList(sizesType, shape, location);
   auto stridesValue = createTensorMetadataList(stridesType, strides, location);
 
-  auto storageReferenceType = llvm::cast<mlir::mulberry_core::PtrType>(
+  auto storageReferenceType = llvm::cast<mulberry_core::PtrType>(
       resultType.getFieldType("_storage"));
-  auto storageType = llvm::cast<mlir::mulberry_core::RecordType>(
+  auto storageType = llvm::cast<mulberry_core::RecordType>(
       storageReferenceType.getPointeeType());
   auto storage = createHeapObject(storageType, location);
   storeRecordFieldValue(storage, storageType, "data", data, location);
@@ -2166,20 +2155,20 @@ auto MLIRGenImpl::createTensor(
 }
 
 auto MLIRGenImpl::createTensorMetadataList(
-  mlir::mulberry_core::RecordType listType,
-  const std::vector<int64_t> &values,
-  mlir::Location location) -> mlir::Value {
+    mulberry_core::RecordType listType,
+    const std::vector<int64_t> &values,
+    mlir::Location location) -> mlir::Value {
   // This is only for Tensor<T>.sizes/strides metadata. User List<T> creation
   // is explicit stdlib code such as list.from(array).
   auto dataFieldType = listType.getFieldType("data");
-  auto dataPtrType = llvm::cast<mlir::mulberry_core::PtrType>(dataFieldType);
-  auto data = mlir::mulberry_core::HeapAllocOp::create(
+  auto dataPtrType = llvm::cast<mulberry_core::PtrType>(dataFieldType);
+  auto data = mulberry_core::HeapAllocOp::create(
                   _builder, location, dataPtrType, _builder.getI64Type(),
                   createIndexConstant(values.size(), location))
                   .getResult();
 
   for (size_t index = 0; index < values.size(); ++index) {
-    auto elementPtr = mlir::mulberry_core::PtrIndexOp::create(
+    auto elementPtr = mulberry_core::PtrIndexOp::create(
         _builder, location, dataPtrType, data,
         createIndexConstant(index, location));
     createStore(createUInt64Constant(values[index], location), elementPtr,
@@ -2202,11 +2191,11 @@ void MLIRGenImpl::storeArrayElements(const ArrayLiteralExpr *expr,
                                      const ArrayType *arrayType,
                                      mlir::Value dataPtr,
                                      mlir::Type elementType) {
-  auto ptrType = llvm::cast<mlir::mulberry_core::PtrType>(dataPtr.getType());
+  auto ptrType = llvm::cast<mulberry_core::PtrType>(dataPtr.getType());
   auto *sourceElementType = arrayType->elementType();
   for (size_t index = 0; index < expr->getElements().size(); ++index) {
     auto *element = expr->getElements()[index].get();
-    auto elementPtr = mlir::mulberry_core::PtrIndexOp::create(
+    auto elementPtr = mulberry_core::PtrIndexOp::create(
         _builder, loc(element), ptrType, dataPtr,
         createIndexConstant(index, loc(element)));
     auto value = genValueForStorage(element, sourceElementType, loc(element));
@@ -2222,17 +2211,17 @@ void MLIRGenImpl::storeTensorFromArrayPayload(
     int64_t &linearIndex,
     mlir::Location location) {
   auto recordType =
-      llvm::cast<mlir::mulberry_core::RecordType>(
+      llvm::cast<mulberry_core::RecordType>(
           getLayoutMLIRType(arrayType));
   auto sourceData = loadRecordFieldValue(arrayPtr, recordType, "data",
                                          location);
   auto sourcePtrType =
-      llvm::cast<mlir::mulberry_core::PtrType>(sourceData.getType());
+      llvm::cast<mulberry_core::PtrType>(sourceData.getType());
 
   if (auto *nestedArrayType = mulberry::getArrayType(
           arrayType->elementType())) {
     for (uint64_t index = 0; index < arrayType->size(); ++index) {
-      auto nestedArraySlot = mlir::mulberry_core::PtrIndexOp::create(
+      auto nestedArraySlot = mulberry_core::PtrIndexOp::create(
           _builder, location, sourcePtrType, sourceData,
           createIndexConstant(index, location));
       auto nestedArrayPtr =
@@ -2245,15 +2234,15 @@ void MLIRGenImpl::storeTensorFromArrayPayload(
   }
 
   auto targetPtrType =
-      llvm::cast<mlir::mulberry_core::PtrType>(dataPtr.getType());
+      llvm::cast<mulberry_core::PtrType>(dataPtr.getType());
   auto elementType = targetPtrType.getPointeeType();
   for (uint64_t index = 0; index < arrayType->size(); ++index) {
-    auto sourceElementPtr = mlir::mulberry_core::PtrIndexOp::create(
+    auto sourceElementPtr = mulberry_core::PtrIndexOp::create(
         _builder, location, sourcePtrType, sourceData,
         createIndexConstant(index, location));
     auto value = createLoad(sourceElementPtr, elementType, location);
 
-    auto targetElementPtr = mlir::mulberry_core::PtrIndexOp::create(
+    auto targetElementPtr = mulberry_core::PtrIndexOp::create(
         _builder, location, targetPtrType, dataPtr,
         createIndexConstant(linearIndex, location));
     createStore(value, targetElementPtr, location);
@@ -2276,7 +2265,7 @@ mlir::Value MLIRGenImpl::gen(const IndexExpr *expr) {
     return genStdlibListGet(expr);
 
   auto source = gen(expr->base().get());
-  if (llvm::isa<mlir::mulberry_core::PtrType>(source.getType())) {
+  if (llvm::isa<mulberry_core::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(expr, source);
     return loadSourceValueFromStorage(ptr, expr->type(), loc(expr));
   }
@@ -2311,7 +2300,7 @@ void MLIRGenImpl::genAssignment(const IndexExpr *lhs, const Expr *rhs) {
   }
 
   mlir::Value source = gen(lhs->base().get());
-  if (llvm::isa<mlir::mulberry_core::PtrType>(source.getType())) {
+  if (llvm::isa<mulberry_core::PtrType>(source.getType())) {
     auto ptr = genPtrIndex(lhs, source);
     auto rhsValue = genValueForStorage(rhs, lhs->type(), loc(lhs));
     createStore(rhsValue, ptr, loc(lhs));
