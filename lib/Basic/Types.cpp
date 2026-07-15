@@ -13,26 +13,40 @@ Type::Type(TypeKind kind) : _kind(kind) {}
 
 auto Type::kind() const -> TypeKind { return _kind; }
 
-ComptimeTypeValue::ComptimeTypeValue(const Type *type)
+ComptimeValue::ComptimeValue(const Type *type)
     : _kind(Kind::Type), _type(type) {}
 
-ComptimeTypeValue::ComptimeTypeValue(uint64_t uint64Value)
+ComptimeValue::ComptimeValue(bool boolValue)
+    : _kind(Kind::Bool), _boolValue(boolValue) {}
+
+ComptimeValue::ComptimeValue(uint64_t uint64Value)
     : _kind(Kind::UInt64), _uint64Value(uint64Value) {}
 
-auto ComptimeTypeValue::kind() const -> Kind {
+ComptimeValue::ComptimeValue(std::string_view stringValue)
+    : _kind(Kind::String), _stringValue(stringValue) {}
+
+auto ComptimeValue::kind() const -> Kind {
   return _kind;
 }
 
-auto ComptimeTypeValue::type() const -> const Type * {
+auto ComptimeValue::type() const -> const Type * {
   return _type;
 }
 
-auto ComptimeTypeValue::uint64Value() const -> uint64_t {
+auto ComptimeValue::boolValue() const -> bool {
+  return _boolValue;
+}
+
+auto ComptimeValue::uint64Value() const -> uint64_t {
   return _uint64Value;
 }
 
+auto ComptimeValue::stringValue() const -> std::string_view {
+  return _stringValue;
+}
+
 ComptimeAliasOrigin::ComptimeAliasOrigin(
-    std::string_view aliasName, std::vector<ComptimeTypeValue> arguments)
+    std::string_view aliasName, std::vector<ComptimeValue> arguments)
     : _aliasName(aliasName), _arguments(std::move(arguments)) {}
 
 auto ComptimeAliasOrigin::aliasName() const -> std::string_view {
@@ -40,7 +54,7 @@ auto ComptimeAliasOrigin::aliasName() const -> std::string_view {
 }
 
 auto ComptimeAliasOrigin::arguments() const
-    -> const std::vector<ComptimeTypeValue> & {
+    -> const std::vector<ComptimeValue> & {
   return _arguments;
 }
 

@@ -37,13 +37,12 @@ fn main(): UInt64 {
 # MLIR: call @std_io_write__UInt8
 # MLIR: call @std.io.close
 # MLIR-LABEL: func.func @main
-# MLIR: mulberry_core.heap.alloc i8
-# MLIR: mulberry_core.ptr.index
-# MLIR: mulberry_core.record.get_field {{.*}}["length"]
-# MLIR: mulberry_core.record.get_field {{.*}}["data"]
 # MLIR: call @std.io.open
-# MLIR: mulberry_core.record.get_field {{.*}}["numel"]
+# MLIR: call @std_tensor_from__Array_UInt8
 # MLIR: call @std_io_write__UInt8
+# MLIR-LABEL: func.func @std_tensor_from__Array_UInt8
+# MLIR: mulberry_core.heap.alloc i8
+# MLIR: call @std_tensor_flattenInto__Array_UInt8
 # MLIR-NOT: cir.
 
 # LOWERED-DAG: func.func private @mulberry_file_read(!llvm.ptr, !llvm.ptr, i64) -> i64

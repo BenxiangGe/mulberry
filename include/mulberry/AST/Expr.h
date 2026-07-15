@@ -40,6 +40,7 @@ public:
     Expr_Assign,
     Expr_Binary,
     Expr_Block,
+    Expr_TypeInfo,
     Expr_TypeLayout,
     Expr_HeapAlloc,
   };

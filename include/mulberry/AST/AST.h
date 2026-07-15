@@ -10,6 +10,7 @@
 
 #include "mulberry/AST/AssignExpr.h"
 #include "mulberry/AST/BinaryExpr.h"
+#include "mulberry/AST/ComptimeExpr.h"
 #include "mulberry/AST/Decl.h"
 #include "mulberry/AST/Expr.h"
 #include "mulberry/AST/HeapExpr.h"

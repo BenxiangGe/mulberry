@@ -35,37 +35,47 @@ private:
   TypeKind _kind;
 };
 
-class ComptimeTypeValue {
+// Semantic values evaluated and consumed by Sema. Type values preserve the
+// canonical Type identity; they are never represented by source-level names.
+class ComptimeValue {
 public:
   enum class Kind {
     Type,
+    Bool,
     UInt64,
+    String,
   };
 
-  explicit ComptimeTypeValue(const Type *type);
-  explicit ComptimeTypeValue(uint64_t uint64Value);
+  explicit ComptimeValue(const Type *type);
+  explicit ComptimeValue(bool boolValue);
+  explicit ComptimeValue(uint64_t uint64Value);
+  explicit ComptimeValue(std::string_view stringValue);
 
   auto kind() const -> Kind;
   auto type() const -> const Type *;
+  auto boolValue() const -> bool;
   auto uint64Value() const -> uint64_t;
+  auto stringValue() const -> std::string_view;
 
 private:
   Kind _kind;
   const Type *_type = nullptr;
+  bool _boolValue = false;
   uint64_t _uint64Value = 0;
+  std::string _stringValue;
 };
 
 class ComptimeAliasOrigin {
 public:
   ComptimeAliasOrigin(std::string_view aliasName,
-                      std::vector<ComptimeTypeValue> arguments);
+                      std::vector<ComptimeValue> arguments);
 
   auto aliasName() const -> std::string_view;
-  auto arguments() const -> const std::vector<ComptimeTypeValue> &;
+  auto arguments() const -> const std::vector<ComptimeValue> &;
 
 private:
   std::string _aliasName;
-  std::vector<ComptimeTypeValue> _arguments;
+  std::vector<ComptimeValue> _arguments;
 };
 
 class BuiltinType final : public Type {

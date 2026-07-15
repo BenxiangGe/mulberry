@@ -106,18 +106,47 @@ comptime Pair<T, U> = struct { first: T, second: U };
 comptime Buffer<T, N: UInt64> = Array<T, N>;
 ```
 
+## Comptime Reflection
+
+`typeInfo(T)` 的参数是 type，取得该类型的 semantic type；`typeOf(value)` 的参数是
+value expression，取得表达式的 semantic type。二者只产生 comptime Type，不生成
+runtime object。
+
+当前 reflection query 和求值规则见 [Reflection](Reflection.md)。
+
+comptime value 使用普通 `const` 保存，例如 `const info = typeInfo(T);`。binding 是否
+只存在于编译期由 initializer 自动决定，不增加 `comptime const` 语法。
+
 ## Types
 
 ```text
 type                      -> `(` `)`
 type                      -> identifier
 type                      -> identifier generic-argument-clause
+type                      -> computed-type-expression
 type                      -> type array-type-suffix
+computed-type-expression  -> call-expression postfix-expression*
 array-type-suffix         -> `[` integer-literal `]`
 ```
 
 `T[N]` 是固定长度 `Array<T, N>` 的 source sugar。多维或动态 ranked tensor spelling
 已删除；需要 numeric buffer 时使用 `Tensor<T>`。
+
+`computed-type-expression` 必须在 Sema 得到 comptime Type。例如 generic function
+实例化后，局部声明或函数签名可以从 Array type 计算 Tensor 的 element type：
+
+```mulberry
+var result: Tensor<typeInfo(A).arrayLeafElementType()> = tensor.from(value);
+```
+
+该 expression 只存在于 AST/Sema，不进入 MLIR。普通 runtime value 或 Bool/UInt64/String
+comptime value 都不能用作 type。
+
+generic inference 不会仅凭 reflection query 的结果猜测完整 source type。对于
+`Tensor<typeInfo(A).arrayLeafElementType()>`，单独一个 leaf type 无法确定 `A` 的
+rank 和 shape。普通 value 参数必须提供完整 `A`；Array literal 是唯一的当前特例：
+literal 已经提供 rank/shape，expected return type 再提供 leaf type，因此两者可以共同
+确定完整 Array type。Sema 随后求出 concrete 参数和返回类型并进行普通 type check。
 
 ## Expressions
 
@@ -202,6 +231,10 @@ while-statement           -> `while` condition block
 for-statement             -> `for` identifier `in` expression `..` expression block
 condition                 -> expression
 ```
+
+`if` 只有一种语法。如果 condition 能在 Sema 得到 comptime Bool，只分析并生成选中的
+block，未选 block 不参与当前 specialization 的类型检查；如果 condition 是 runtime
+Bool，则按普通控制流分析两个 block，并在 MLIR 中生成 `scf.if`。
 
 示例：
 

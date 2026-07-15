@@ -240,6 +240,7 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 - [Builtins](docs/Builtins.md)
 - [Grammar](docs/Grammar.md)
 - [数值类型设计](docs/NumericTypes.md)
+- [Comptime Reflection](docs/Reflection.md)
 - [String、字符串插值与输出设计](docs/StringFormatting.md)
 - [Deep learning examples](examples/dl/README.md)
 - [Nielsen CNN 性能基线](docs/CnnPerformance.md)
@@ -251,8 +252,8 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 - 这是学习用编译器，不是生产编译器。
 - stdlib、namespace、import、package registry 仍然是够用优先的早期实现。
 - `Ptr<T>` 仍存在于 stdlib/compiler 内部；普通用户 surface 已经隐藏它，但 FFI 设计还没完成。
-- `tensor.from(...)` 仍是 compiler-known stdlib entry，不是完全由 Mulberry stdlib
-  自己实现的普通函数。干净实现需要更强的 comptime / reflection / overload 能力。
+- comptime reflection 目前只覆盖 formatting、generic computed type 和
+  `tensor.from(...)` 所需的 semantic type query，不是完整的 comptime interpreter。
 - `mulberry.nn` 的 CNN 路径当前固定 Float32、NCHW input、OIHW weight 和显式
   backprop；通用 broadcasting、batch matmul、GPU backend 和自动求导还没实现。
 - 当前 safetensors / JSON 支持只覆盖项目需要的子集，不是完整通用库。

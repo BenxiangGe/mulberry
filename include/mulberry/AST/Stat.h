@@ -10,6 +10,8 @@
 
 #include "mulberry/AST/Node.h"
 #include "mulberry/AST/Type.h"
+#include "mulberry/Basic/Types.h"
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -84,6 +86,14 @@ public:
 
   auto canMutateObject() const -> bool { return _canMutateObject; }
 
+  auto comptimeValue() const -> const std::optional<ComptimeValue> & {
+    return _comptimeValue;
+  }
+
+  auto setComptimeValue(ComptimeValue value) -> void {
+    _comptimeValue = std::move(value);
+  }
+
 private:
   std::unique_ptr<VariableExpr> _variable;
   std::unique_ptr<TypeNode> _typeNode;
@@ -91,6 +101,7 @@ private:
   std::unique_ptr<Expr> _init;
   bool _isConstBinding;
   bool _canMutateObject;
+  std::optional<ComptimeValue> _comptimeValue;
 };
 
 // _____________________________________________________________________________
@@ -144,10 +155,17 @@ public:
 
   auto hasElseBlock() const -> bool { return static_cast<bool>(_elseBlock); }
 
+  auto comptimeValue() const -> const std::optional<bool> & {
+    return _comptimeValue;
+  }
+
+  auto setComptimeValue(bool value) -> void { _comptimeValue = value; }
+
 private:
   std::unique_ptr<Expr> _condition;
   std::unique_ptr<BlockExpr> _thenBlock;
   std::unique_ptr<BlockExpr> _elseBlock;
+  std::optional<bool> _comptimeValue;
 };
 
 // _____________________________________________________________________________

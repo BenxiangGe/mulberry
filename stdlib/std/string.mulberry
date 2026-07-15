@@ -31,6 +31,43 @@ fn fromFloat32(value: Float32): String {
   return mulberry_string_from_f32(value);
 }
 
+fn formatValue<T>(value: T): String {
+  const info = typeInfo(T);
+  const isString = info == String;
+
+  if isString {
+    return value;
+  }
+
+  if info.isBool() {
+    return fromBool(value);
+  }
+
+  if info.isUInt8() {
+    return fromUInt8(value);
+  }
+
+  if info.isUInt64() {
+    return fromUInt64(value);
+  }
+
+  if info.isFloat32() {
+    return fromFloat32(value);
+  }
+
+  const hasToString = info.hasMethod("toString");
+  if hasToString {
+    return value.toString();
+  }
+
+  const isObject = info.isStruct() or info.isArray();
+  const useIdentity = isObject and
+      isString == false and hasToString == false;
+  if useIdentity {
+    return __objectIdentity(value);
+  }
+}
+
 fn concat(left: String, right: String): String {
   const length = left.length + right.length;
   var data = heap.alloc<UInt8>(length + 1);

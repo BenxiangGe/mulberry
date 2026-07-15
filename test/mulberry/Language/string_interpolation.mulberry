@@ -32,8 +32,10 @@ fn main(): UInt64 {
 # AST: IndexExpr {{.*}}type=Label kind=array
 # AST: IndexExpr {{.*}}type=std.string.String kind=array
 # AST: InterpolatedStringExpr {{.*}}type=std.string.String
+# AST: CallExpr {{.*}}callee=std_string_formatValue__std_string_String
 
 # MLIR: call @std.string.concat
+# MLIR: call @std_string_formatValue__std_string_String
 # MLIR: call @std.io.writeText
 
 # JIT: hello world; first; one; {literal}; {$name}; \
