@@ -174,6 +174,12 @@ private:
   auto parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
                            std::unique_ptr<Expr> &expr) -> MulberryResult;
 
+  auto parseTypeInfoExpr(llvm::SMLoc location,
+                         std::unique_ptr<Expr> &expr) -> MulberryResult;
+
+  auto parseObjectIdentityExpr(llvm::SMLoc location,
+                               std::unique_ptr<Expr> &expr) -> MulberryResult;
+
   auto parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
                           std::unique_ptr<Expr> &expr) -> MulberryResult;
 

@@ -8,6 +8,7 @@
 #ifndef MULBERRY_TYPE_H
 #define MULBERRY_TYPE_H
 
+#include "mulberry/AST/Expr.h"
 #include "mulberry/AST/Node.h"
 #include <cassert>
 #include <cstdint>
@@ -41,6 +42,7 @@ public:
   enum class Kind {
     Unit,
     Named,
+    Computed,
     Array,
     Ptr,
     Generic,
@@ -81,6 +83,25 @@ public:
 
 private:
   std::string _name;
+};
+
+// A comptime expression whose result is used as a source type.
+class ComputedTypeNode final : public TypeNode {
+public:
+  ComputedTypeNode(llvm::SMLoc location, std::unique_ptr<Expr> expression)
+      : TypeNode(location, TypeNode::Kind::Computed),
+        _expression(std::move(expression)) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Computed;
+  }
+
+  auto expression() const -> const std::unique_ptr<Expr> & {
+    return _expression;
+  }
+
+private:
+  std::unique_ptr<Expr> _expression;
 };
 
 // Bracket-shaped Array type node, e.g. `Float32[10]`.

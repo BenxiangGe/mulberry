@@ -14,6 +14,7 @@
 #include "mulberry/Basic/Types.h"
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -29,6 +30,8 @@ struct VariableSymbol {
   const Type *type = nullptr;
   bool isConstBinding = false;
   bool canMutateObject = true;
+  std::optional<ComptimeValue> comptimeValue;
+  bool isComptimeOnly = false;
 };
 
 struct FunctionSymbol {
@@ -127,13 +130,17 @@ public:
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConstBinding = false,
-                       bool canMutateObject = true)
+                       bool canMutateObject = true,
+                       std::optional<ComptimeValue> comptimeValue = std::nullopt,
+                       bool isComptimeOnly = false)
       -> MulberryResult {
     if (_variableScopes.empty())
       enterVariableScope();
 
     if (declareSymbol(_variableScopes.currentScope(), name,
-                      VariableSymbol{type, isConstBinding, canMutateObject}))
+                      VariableSymbol{type, isConstBinding, canMutateObject,
+                                     std::move(comptimeValue),
+                                     isComptimeOnly}))
       return failure();
     return success();
   }

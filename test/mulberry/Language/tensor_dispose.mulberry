@@ -22,21 +22,38 @@ fn releaseAtLoopScope(): () {
   return;
 }
 
+fn releaseFromAtLoopScope(): () {
+  for index in 0 .. 8 {
+    var value: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
+    value[0] = core.toUInt8(index);
+  }
+  return;
+}
+
 fn main(): UInt64 {
   releaseSharedStorage();
   releaseAtLoopScope();
+  releaseFromAtLoopScope();
   return 0;
 }
 
-# MLIR-DAG: func.func @releaseSharedStorage
-# MLIR-DAG: func.func @releaseAtLoopScope
+# MLIR-LABEL: func.func @releaseAtLoopScope
 # MLIR: scf.for
-# MLIR-COUNT-2: mulberry_core.tensor.dispose
+# MLIR: mulberry_core.tensor.dispose
+# MLIR-LABEL: func.func @releaseFromAtLoopScope
+# MLIR: scf.for
+# MLIR: mulberry_core.tensor.dispose
+# MLIR-LABEL: func.func @std_tensor_Tensor_dispose__UInt8
+# MLIR: mulberry_core.tensor.dispose
 
 # LOWERED-DAG: llvm.func @mulberry_boehm_free
-# LOWERED-DAG: func.func @releaseSharedStorage
-# LOWERED-DAG: func.func @releaseAtLoopScope
+# LOWERED-LABEL: func.func @releaseAtLoopScope
 # LOWERED: scf.for
-# LOWERED-COUNT-2: llvm.call @mulberry_boehm_free
+# LOWERED: llvm.call @mulberry_boehm_free
+# LOWERED-LABEL: func.func @releaseFromAtLoopScope
+# LOWERED: scf.for
+# LOWERED: llvm.call @mulberry_boehm_free
+# LOWERED-LABEL: func.func @std_tensor_Tensor_dispose__UInt8
+# LOWERED: llvm.call @mulberry_boehm_free
 
 # JIT: 4

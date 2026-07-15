@@ -212,6 +212,28 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   if (parseQualifiedName(name, diag::expected_type))
     return failure();
 
+  if (tokenIs(Token::l_paren)) {
+    unique_ptr<Expr> expression;
+    if (name == builtins::sizeOf || name == builtins::alignOf) {
+      if (parseTypeLayoutExpr(location, name, expression))
+        return failure();
+    } else if (name == builtins::typeInfo) {
+      if (parseTypeInfoExpr(location, expression))
+        return failure();
+    } else if (parseFunctionCall(location, name, expression)) {
+      return failure();
+    }
+
+    while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
+      if (tokenIs(Token::dot) && parseMemberAccess(expression))
+        return failure();
+      if (tokenIs(Token::l_square) && parseIndex(expression))
+        return failure();
+    }
+    typeNode = make_unique<ComputedTypeNode>(location, std::move(expression));
+    return success();
+  }
+
   if (name == "Ptr")
     return parsePtrType(typeNode, location);
 
@@ -969,6 +991,10 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
+    if (name == builtins::typeInfo)
+      return parseTypeInfoExpr(location, expr);
+    if (name == builtins::objectIdentity)
+      return parseObjectIdentityExpr(location, expr);
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
@@ -994,6 +1020,32 @@ auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
   auto query = name == builtins::sizeOf ? TypeLayoutExpr::Query::SizeOf
                                         : TypeLayoutExpr::Query::AlignOf;
   expr = make_unique<TypeLayoutExpr>(location, query, std::move(typeNode));
+  return success();
+}
+
+auto Parser::parseTypeInfoExpr(llvm::SMLoc location, unique_ptr<Expr> &expr)
+    -> MulberryResult {
+  consume(Token::l_paren);
+
+  unique_ptr<TypeNode> typeNode;
+  if (parseType(typeNode) || parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<TypeInfoExpr>(location, std::move(typeNode));
+  return success();
+}
+
+auto Parser::parseObjectIdentityExpr(llvm::SMLoc location,
+                                     unique_ptr<Expr> &expr)
+    -> MulberryResult {
+  consume(Token::l_paren);
+
+  unique_ptr<Expr> value;
+  if (parseExpression(value) ||
+      parseToken(Token::r_paren, diag::expected_r_paren))
+    return failure();
+
+  expr = make_unique<ObjectIdentityExpr>(location, std::move(value));
   return success();
 }
 

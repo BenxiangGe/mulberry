@@ -1,0 +1,226 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR --implicit-check-not=typeInfo
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Point {
+  x: UInt64,
+  y: UInt64,
+
+  pub fn toString(self: Point): String {
+    return "point";
+  }
+}
+
+struct Plain {
+  value: UInt64
+}
+
+comptime LeafTensor<A> =
+    Tensor<typeInfo(A).arrayLeafElementType()>;
+
+fn inspect<T>(value: T): UInt64 {
+  const info = typeInfo(T);
+
+  if info.isUInt64() {
+    return value + 1;
+  }
+
+  if typeOf(value).isBool() {
+    return 20;
+  }
+
+  const isArray = info.isArray();
+  if isArray {
+    const rank = info.arrayRank();
+    const length = info.arrayLength();
+    if rank == 2 and length == 2 and
+        info.arrayElementType().isArray() and
+        info.arrayLeafElementType() == UInt64 {
+      return value[rank - 1][0];
+    }
+    return 30;
+  }
+
+  const hasToString = info.isStruct() and info.hasMethod("toString");
+  if hasToString {
+    const text = value.toString();
+    return text.length;
+  }
+
+  return 50;
+}
+
+fn choose<T>(value: T): UInt64 {
+  const info = typeInfo(T);
+  if info.isUInt64() {
+    return value;
+  } else {
+    return 60;
+  }
+}
+
+fn cachedConstant(): UInt64 {
+  const answer = 42;
+  if answer == 42 {
+    return answer;
+  }
+  return 0;
+}
+
+fn runtimeChoose(flag: Bool): UInt64 {
+  if flag {
+    return 70;
+  }
+  return 71;
+}
+
+fn reflectedArray<A>(value: A): UInt64 {
+  const row: Array<typeInfo(A).arrayLeafElementType(), 2> = value[0];
+  return row[1];
+}
+
+fn reflectedTensor<A>(value: A): UInt64 {
+  var result: Tensor<typeInfo(A).arrayLeafElementType()> = tensor.from(value);
+  return result.numel();
+}
+
+fn makeReflectedTensor<A>(value: A):
+    Tensor<typeInfo(A).arrayLeafElementType()> {
+  return tensor.from(value);
+}
+
+fn recursiveArraySum<A>(value: A): UInt64 {
+  const info = typeInfo(A);
+  if info.isArray() {
+    const length = info.arrayLength();
+    var result = 0;
+    var index = 0;
+    while index < length {
+      result = result + recursiveArraySum(value[index]);
+      index = index + 1;
+    }
+    return result;
+  } else {
+    return value;
+  }
+}
+
+fn concreteTensorBoundary(
+    value: Tensor<typeInfo(Array<UInt64, 2>).arrayLeafElementType()>):
+    Tensor<typeInfo(Array<UInt64, 2>).arrayLeafElementType()> {
+  return value;
+}
+
+fn reflectedTensorBoundary<A>(
+    value: Tensor<typeInfo(A).arrayLeafElementType()>, source: A):
+    Tensor<typeInfo(A).arrayLeafElementType()> {
+  return value;
+}
+
+fn reflectedAliasBoundary<A>(value: LeafTensor<A>, source: A): LeafTensor<A> {
+  return value;
+}
+
+fn main(): UInt64 {
+  const matrix = [[1, 2], [3, 4]];
+  const point = Point { 4, 9 };
+  const plain = Plain { 11 };
+
+  io.println(inspect(41));
+  io.println(inspect(true));
+  io.println(inspect(matrix));
+  io.println(inspect(point));
+  io.println(inspect(plain));
+  io.println(choose(false));
+  io.println(choose(61));
+  io.println(cachedConstant());
+  io.println(runtimeChoose(true));
+  io.println(reflectedArray(matrix));
+  io.println(reflectedTensor(matrix));
+  var matrixTensor: LeafTensor<Array<Array<UInt64, 2>, 2>> =
+      tensor.from(matrix);
+  const direct: Tensor<UInt64> =
+      reflectedTensorBoundary(matrixTensor, matrix);
+  const aliased: Tensor<UInt64> =
+      reflectedAliasBoundary(matrixTensor, matrix);
+  const concrete: Tensor<UInt64> = concreteTensorBoundary(aliased);
+  var bytes: Tensor<UInt8> = makeReflectedTensor([10, 20, 30]);
+  io.println(direct.numel());
+  io.println(aliased.numel());
+  io.println(concrete.numel());
+  io.println(bytes[1]);
+  io.println(recursiveArraySum(matrix));
+  return 0;
+}
+
+# AST: VariableStat comptime const {{.*}}value=UInt64
+# AST: TypeInfoExpr {{.*}}target=UInt64
+# AST: IfStat {{.*}}comptime value=true
+# AST: VariableStat comptime const {{.*}}value=false
+# AST: IfStat {{.*}}comptime value=false
+# AST: VariableStat comptime const {{.*}}value=false
+# AST: TypeInfoExpr {{.*}}target=Bool
+# AST: TypeInfoExpr {{.*}}target=Array<Array<UInt64, 2>, 2>
+# AST: VariableStat comptime const {{.*}}value=2
+# AST: VariableExpr {{.*}}name=rank comptimeValue=2
+# AST: CallExpr {{.*}}callee=Point.toString
+# AST: TypeInfoExpr {{.*}}target=Plain
+# AST: VariableStat {{.*}}id=row{{.*}}type=Array<<computed>, 2>
+# AST-NEXT: IndexExpr {{.*}}type=Array<UInt64, 2>
+# AST: VariableStat {{.*}}id=result{{.*}}type=Tensor<<computed>>
+# AST-SAME: origin=std.tensor.Tensor<UInt64>
+
+# MLIR-LABEL: func.func @cachedConstant
+# MLIR: arith.constant 42
+# MLIR-LABEL: func.func @runtimeChoose
+# MLIR: scf.if
+# MLIR-LABEL: func.func @concreteTensorBoundary
+# MLIR: return
+# MLIR-LABEL: func.func @inspect__UInt64
+# MLIR: arith.addi
+# MLIR-LABEL: func.func @inspect__Bool
+# MLIR: arith.constant 20
+# MLIR-LABEL: func.func @inspect__Array_
+# MLIR: mulberry_core.ptr.index
+# MLIR-LABEL: func.func @inspect__Point
+# MLIR: func.call @Point.toString
+# MLIR-LABEL: func.func @inspect__Plain
+# MLIR: arith.constant 50
+# MLIR-LABEL: func.func @choose__Bool
+# MLIR: arith.constant 60
+# MLIR-LABEL: func.func @choose__UInt64
+# MLIR: return
+# MLIR-LABEL: func.func @reflectedArray__Array_
+# MLIR: mulberry_core.ptr.index
+# MLIR-LABEL: func.func @reflectedTensor__Array_
+# MLIR: func.call @std_tensor_from__Array_
+# MLIR-LABEL: func.func @reflectedTensorBoundary__Array_
+# MLIR: return
+# MLIR-LABEL: func.func @reflectedAliasBoundary__Array_
+# MLIR: return
+# MLIR-LABEL: func.func @makeReflectedTensor__Array_UInt8
+# MLIR: func.call @std_tensor_from__Array_UInt8
+# MLIR-LABEL: func.func @recursiveArraySum__Array_Array_UInt64
+# MLIR: func.call @recursiveArraySum__Array_UInt64
+# MLIR-LABEL: func.func @recursiveArraySum__Array_UInt64
+# MLIR: func.call @recursiveArraySum__UInt64
+# MLIR-LABEL: func.func @recursiveArraySum__UInt64
+# MLIR: return
+
+# JIT: 42
+# JIT-NEXT: 20
+# JIT-NEXT: 3
+# JIT-NEXT: 5
+# JIT-NEXT: 50
+# JIT-NEXT: 60
+# JIT-NEXT: 61
+# JIT-NEXT: 42
+# JIT-NEXT: 70
+# JIT-NEXT: 2
+# JIT-NEXT: 4
+# JIT-NEXT: 4
+# JIT-NEXT: 4
+# JIT-NEXT: 4
+# JIT-NEXT: 20
+# JIT-NEXT: 10

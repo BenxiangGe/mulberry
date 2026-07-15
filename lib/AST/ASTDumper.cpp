@@ -74,6 +74,7 @@ private:
   auto dump(const InterpolatedStringExpr *node) -> void;
   auto dump(const ObjectIdentityExpr *node) -> void;
   auto dump(const CharLiteralExpr *node) -> void;
+  auto dump(const TypeInfoExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
@@ -105,6 +106,9 @@ private:
   auto formatTypeNode(const TypeNode *node) -> std::string {
     if (dyn_cast<UnitTypeNode>(node))
       return "()";
+
+    if (dyn_cast<ComputedTypeNode>(node))
+      return "<computed>";
 
     if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
       std::string result = formatTypeNode(arrayType->elementTypeNode());
@@ -175,6 +179,20 @@ private:
     return result;
   }
 
+  auto formatComptimeValue(const ComptimeValue &value) -> std::string {
+    switch (value.kind()) {
+    case ComptimeValue::Kind::Type:
+      return formatSourceType(value.type());
+    case ComptimeValue::Kind::Bool:
+      return value.boolValue() ? "true" : "false";
+    case ComptimeValue::Kind::UInt64:
+      return std::to_string(value.uint64Value());
+    case ComptimeValue::Kind::String:
+      return "\"" + std::string(value.stringValue()) + "\"";
+    }
+    llvm_unreachable("unexpected comptime value");
+  }
+
   auto formatOrigin(const ComptimeAliasOrigin *origin) -> std::string {
     if (!origin)
       return {};
@@ -183,10 +201,7 @@ private:
     std::string separator;
     for (auto &argument : origin->arguments()) {
       result += separator;
-      if (argument.kind() == ComptimeTypeValue::Kind::Type)
-        result += formatSourceType(argument.type());
-      else
-        result += std::to_string(argument.uint64Value());
+      result += formatComptimeValue(argument);
       separator = ", ";
     }
     result += ">";
@@ -330,7 +345,7 @@ auto Dumper::dump(const Expr *node) -> void {
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
             InterpolatedStringExpr, ObjectIdentityExpr, CharLiteralExpr,
-            TypeLayoutExpr,
+            TypeInfoExpr, TypeLayoutExpr,
             HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr,
             MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -376,7 +391,11 @@ auto Dumper::dump(const VariableExpr *node) -> void {
   INDENT();
   errs() << "VariableExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " name=" << node->name() << "\n";
+         << " name=" << node->name();
+  if (node->comptimeValue())
+    errs() << " comptimeValue="
+           << formatComptimeValue(*node->comptimeValue());
+  errs() << "\n";
 }
 
 auto Dumper::dump(const MemberExpr *node) -> void {
@@ -449,6 +468,12 @@ auto Dumper::dump(const CharLiteralExpr *node) -> void {
          << " value=" << static_cast<unsigned>(node->value()) << "\n";
 }
 
+auto Dumper::dump(const TypeInfoExpr *node) -> void {
+  INDENT();
+  errs() << "TypeInfoExpr " << loc(node)
+         << " target=" << formatTypeNode(node->typeNode()) << "\n";
+}
+
 auto Dumper::dump(const TypeLayoutExpr *node) -> void {
   INDENT();
   auto query = node->query() == TypeLayoutExpr::Query::SizeOf ? "sizeof"
@@ -510,6 +535,8 @@ auto Dumper::dump(const VariableStat *node) -> void {
   auto typeNode = node->typeNode();
   INDENT();
   errs() << "VariableStat ";
+  if (node->comptimeValue())
+    errs() << "comptime ";
   if (node->isConstBinding())
     errs() << "const ";
   else if (!node->canMutateObject())
@@ -523,6 +550,8 @@ auto Dumper::dump(const VariableStat *node) -> void {
   }
   if (auto origin = formatOrigin(originOf(node->type())); !origin.empty())
     errs() << " origin=" << origin;
+  if (node->comptimeValue())
+    errs() << " value=" << formatComptimeValue(*node->comptimeValue());
   errs() << "\n";
   if (node->init())
     dump(node->init().get());
@@ -534,7 +563,11 @@ auto Dumper::dump(const ExprStat *node) -> void {
 
 auto Dumper::dump(const IfStat *node) -> void {
   INDENT();
-  errs() << "IfStat " << loc(node) << "\n";
+  errs() << "IfStat " << loc(node);
+  if (node->comptimeValue())
+    errs() << " comptime value="
+           << (*node->comptimeValue() ? "true" : "false");
+  errs() << "\n";
   dump(node->conditionExpr().get());
   dump(node->thenBlock().get(), "thenBlock:");
   if (node->hasElseBlock())

@@ -16,17 +16,22 @@ fn main(): UInt64 {
 }
 
 # AST: VariableStat {{.*}}id=matrix{{.*}}inferredType=std.tensor.Tensor<Float32>
-# AST: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std.tensor.from
+# AST: CallExpr {{.*}}type=std_tensor_Tensor__Float32 callee=std_tensor_from__Array_Array_Float32
 # AST: VariableExpr {{.*}}type=Array<Array<Float32, 2>, 2> name=values
 # AST: VariableStat {{.*}}id=bytes{{.*}}inferredType=std.tensor.Tensor<UInt64>
-# AST: CallExpr {{.*}}type=std_tensor_Tensor__UInt64 callee=std.tensor.from
+# AST: CallExpr {{.*}}type=std_tensor_Tensor__UInt64 callee=std_tensor_from__Array_UInt64
 # AST: ArrayLiteralExpr {{.*}}type=Array<UInt64, 3>
 
-# MLIR: mulberry_core.heap.alloc f32
-# MLIR: mulberry_core.heap.alloc i64
-# MLIR: mulberry_core.record.get_field {{.*}}["data"]
-# MLIR: mulberry_core.ptr.index
+# MLIR-LABEL: func.func @main()
+# MLIR: call @std_tensor_from__Array_Array_Float32
+# MLIR: call @std_tensor_from__Array_UInt64
 # MLIR-NOT: call @std.tensor.from
+# MLIR-LABEL: func.func @std_tensor_from__Array_Array_Float32
+# MLIR: mulberry_core.heap.alloc f32
+# MLIR: call @std_tensor_flattenInto__Array_Array_Float32
+# MLIR-LABEL: func.func @std_tensor_from__Array_UInt64
+# MLIR: mulberry_core.heap.alloc i64
+# MLIR: call @std_tensor_flattenInto__Array_UInt64
 
 # JIT: 4
 # JIT-NEXT: 1

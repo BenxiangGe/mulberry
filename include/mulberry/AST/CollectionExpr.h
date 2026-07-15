@@ -9,7 +9,6 @@
 #define MULBERRY_COLLECTION_EXPR_H
 
 #include "mulberry/AST/Expr.h"
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -33,17 +32,8 @@ public:
     return _elements;
   }
 
-  auto setInferredShape(std::vector<int64_t> shape) -> void {
-    _inferredShape = std::move(shape);
-  }
-
-  auto getInferredShape() const -> const std::vector<int64_t> & {
-    return _inferredShape;
-  }
-
 private:
   std::vector<std::unique_ptr<Expr>> _elements;
-  std::vector<int64_t> _inferredShape;
 };
 
 // Source `base[...]` is type-neutral. Sema classifies it by base type.

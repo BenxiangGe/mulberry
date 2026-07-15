@@ -9,6 +9,8 @@
 #define MULBERRY_NAME_EXPR_H
 
 #include "mulberry/AST/Expr.h"
+#include "mulberry/Basic/Types.h"
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -25,10 +27,19 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
-  auto isLvalue() const -> bool override { return true; }
+  auto isLvalue() const -> bool override { return !_comptimeValue; }
+
+  auto comptimeValue() const -> const std::optional<ComptimeValue> & {
+    return _comptimeValue;
+  }
+
+  auto setComptimeValue(ComptimeValue value) -> void {
+    _comptimeValue = std::move(value);
+  }
 
 private:
   std::string _name;
+  std::optional<ComptimeValue> _comptimeValue;
 };
 
 class MemberExpr final : public Expr {

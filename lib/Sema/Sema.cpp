@@ -8,6 +8,7 @@
 #include "mulberry/Sema/Sema.h"
 #include "Symbols.h"
 #include "mulberry/AST/AST.h"
+#include "mulberry/Basic/Builtins.h"
 #include "mulberry/Sema/DiagnosticsSema.h"
 #include "llvm/Support/Debug.h"
 #include <functional>
@@ -56,6 +57,18 @@ struct InferredComptimeArgument {
   }
 };
 
+struct ComptimeEvaluation {
+  enum class Kind {
+    Runtime,
+    Value,
+    Error,
+  };
+
+  Kind kind;
+  std::optional<ComptimeValue> value;
+  bool isComptimeOnly = false;
+};
+
 auto substituteExpr(const Expr *node,
                     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<Expr>;
@@ -66,14 +79,14 @@ auto substituteBlockExpr(const BlockExpr *node,
 
 auto containsReturnStat(const BlockExpr *node) -> bool;
 
-auto toComptimeTypeValues(const std::vector<ComptimeArgument> &arguments)
-    -> std::vector<ComptimeTypeValue> {
-  std::vector<ComptimeTypeValue> values;
+auto toComptimeValues(const std::vector<ComptimeArgument> &arguments)
+    -> std::vector<ComptimeValue> {
+  std::vector<ComptimeValue> values;
   for (auto &argument : arguments) {
     if (argument.kind == ComptimeArg::Kind::Type)
-      values.push_back(ComptimeTypeValue(argument.type));
+      values.push_back(ComptimeValue(argument.type));
     else
-      values.push_back(ComptimeTypeValue(argument.uint64Value));
+      values.push_back(ComptimeValue(argument.uint64Value));
   }
   return values;
 }
@@ -136,6 +149,12 @@ auto containsReturnStat(const Stat *node) -> bool {
   if (dyn_cast<ReturnStat>(node))
     return true;
   if (auto *ifStat = dyn_cast<IfStat>(node)) {
+    if (ifStat->comptimeValue()) {
+      if (*ifStat->comptimeValue())
+        return containsReturnStat(ifStat->thenBlock().get());
+      return ifStat->hasElseBlock() &&
+             containsReturnStat(ifStat->elseBlock().get());
+    }
     if (containsReturnStat(ifStat->thenBlock().get()))
       return true;
     return ifStat->hasElseBlock() &&
@@ -195,7 +214,7 @@ auto formatStringificationType(const Type *type) -> std::string {
     std::string separator;
     for (auto &argument : origin->arguments()) {
       result += separator;
-      if (argument.kind() == ComptimeTypeValue::Kind::Type)
+      if (argument.kind() == ComptimeValue::Kind::Type)
         result += formatStringificationType(argument.type());
       else
         result += std::to_string(argument.uint64Value());
@@ -215,6 +234,12 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   if (auto *namedType = dyn_cast<NamedTypeNode>(node))
     return std::make_unique<NamedTypeNode>(namedType->location(),
                                            namedType->name());
+
+  if (auto *computedType = dyn_cast<ComputedTypeNode>(node)) {
+    return std::make_unique<ComputedTypeNode>(
+        computedType->location(),
+        substituteExpr(computedType->expression().get(), {}));
+  }
 
   if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
     return std::make_unique<ArrayTypeNode>(
@@ -286,7 +311,7 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
       // another alias; the internal mangled struct name is not a source type.
       std::vector<ComptimeArg> arguments;
       for (auto &argument : origin->arguments()) {
-        if (argument.kind() == ComptimeTypeValue::Kind::UInt64) {
+        if (argument.kind() == ComptimeValue::Kind::UInt64) {
           arguments.push_back(
               ComptimeArg(location, argument.uint64Value()));
           continue;
@@ -329,6 +354,12 @@ auto substituteTypeNode(const TypeNode *node,
         substitution.argumentTypeNode)
       return cloneTypeNode(substitution.argumentTypeNode);
     return cloneTypeNode(namedType);
+  }
+
+  if (auto *computedType = dyn_cast<ComputedTypeNode>(node)) {
+    return std::make_unique<ComputedTypeNode>(
+        computedType->location(),
+        substituteExpr(computedType->expression().get(), {substitution}));
   }
 
   if (auto *arrayType = dyn_cast<ArrayTypeNode>(node)) {
@@ -424,6 +455,9 @@ auto containsComptimeParameter(const TypeNode *node,
         return true;
     return false;
   }
+
+  if (llvm::isa<ComputedTypeNode>(node))
+    return !parameters.empty();
 
   if (auto *arrayType = dyn_cast<ArrayTypeNode>(node))
     return containsComptimeParameter(arrayType->elementTypeNode(),
@@ -569,7 +603,8 @@ auto substituteExpr(const Expr *node,
   case Expr::Expr_ObjectIdentity: {
     auto *expr = cast<ObjectIdentityExpr>(node);
     auto result = std::make_unique<ObjectIdentityExpr>(
-        expr->location(), substituteExpr(expr->value().get(), substitutions));
+        expr->location(),
+        substituteExpr(expr->value().get(), substitutions));
     result->setTypeName(expr->typeName());
     return result;
   }
@@ -591,31 +626,33 @@ auto substituteExpr(const Expr *node,
     for (auto &index : expr->indices())
       indices.push_back(substituteExpr(index.get(), substitutions));
     return std::make_unique<IndexExpr>(
-        expr->location(), substituteExpr(expr->base().get(), substitutions),
+        expr->location(),
+        substituteExpr(expr->base().get(), substitutions),
         std::move(indices));
   }
   case Expr::Expr_Member: {
     auto *expr = cast<MemberExpr>(node);
     return std::make_unique<MemberExpr>(
-        expr->location(), substituteExpr(expr->base().get(), substitutions),
+        expr->location(),
+        substituteExpr(expr->base().get(), substitutions),
         expr->fieldName());
   }
   case Expr::Expr_Variable: {
     auto *expr = cast<VariableExpr>(node);
-    // UInt64 comptime parameters are not runtime variables. Generic
-    // instantiation materializes their value as an integer literal in the
-    // cloned function body.
-    for (auto &substitution : substitutions)
-      if (expr->name() == substitution.parameterName &&
-          substitution.uint64Value)
+    for (auto &substitution : substitutions) {
+      if (expr->name() != substitution.parameterName)
+        continue;
+      if (substitution.uint64Value)
         return std::make_unique<DecimalLiteralExpr>(
             expr->location(), *substitution.uint64Value);
+    }
     return std::make_unique<VariableExpr>(expr->location(), expr->name());
   }
   case Expr::Expr_Assign: {
     auto *expr = cast<AssignExpr>(node);
     return std::make_unique<AssignExpr>(
-        expr->location(), substituteExpr(expr->lhs().get(), substitutions),
+        expr->location(),
+        substituteExpr(expr->lhs().get(), substitutions),
         substituteExpr(expr->rhs().get(), substitutions));
   }
   case Expr::Expr_Binary: {
@@ -627,6 +664,11 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Block:
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
+  case Expr::Expr_TypeInfo: {
+    auto *expr = cast<TypeInfoExpr>(node);
+    return std::make_unique<TypeInfoExpr>(
+        expr->location(), substituteTypeNode(expr->typeNode(), substitutions));
+  }
   case Expr::Expr_TypeLayout: {
     auto *expr = cast<TypeLayoutExpr>(node);
     return std::make_unique<TypeLayoutExpr>(
@@ -649,8 +691,8 @@ auto substituteExpr(const Expr *node,
       expressions.push_back(substituteExpr(argument.get(), substitutions));
     if (expr->hasReceiver()) {
       return std::make_unique<CallExpr>(
-          expr->location(), substituteExpr(expr->receiver().get(),
-                                           substitutions),
+          expr->location(),
+          substituteExpr(expr->receiver().get(), substitutions),
           expr->name(), std::move(expressions));
     }
     return std::make_unique<CallExpr>(
@@ -797,12 +839,17 @@ private:
   auto sema(InterpolatedStringExpr *node) -> MulberryResult;
   auto sema(ObjectIdentityExpr *node) -> MulberryResult;
   auto sema(CharLiteralExpr *node) -> MulberryResult;
+  auto evaluateComptime(Expr *node) -> ComptimeEvaluation;
+  auto evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation;
+  auto evaluateComptimeBinary(BinaryExpr *node) -> ComptimeEvaluation;
+  auto comptimeRuntimeType(const ComptimeValue &value) -> const Type *;
+  auto setComptimeResultType(Expr *node, const ComptimeValue &value) -> void;
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
   auto checkStringConcatFunction(Expr *node, const Type *stringType)
       -> MulberryResult;
-  auto stringifyExpression(std::unique_ptr<Expr> &expression,
+  auto semaFormatValueCall(std::unique_ptr<Expr> &expression,
                            const Type *stringType) -> MulberryResult;
   auto hasMethod(const Type *type, std::string_view methodName) -> bool;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
@@ -812,14 +859,9 @@ private:
                                   const Expr *arg) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> MulberryResult;
-  auto semaTensorSourceArrayLiteral(ArrayLiteralExpr *expr,
-                                    const Type *leafElementType,
-                                    std::vector<int64_t> &inferredShape)
-      -> MulberryResult;
+  auto arrayLiteralTypeWithLeaf(const ArrayLiteralExpr *expr,
+                                const Type *leafType) -> const ArrayType *;
   auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr) -> MulberryResult;
-  auto semaTensorFromArrayCall(CallExpr *node,
-                               const Type *expectedType = nullptr)
-      -> MulberryResult;
   auto semaTensorDisposeCall(CallExpr *node) -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
   auto semaArrayLiteralElement(Expr *expr, const Type *type)
@@ -1034,10 +1076,13 @@ private:
 
   auto declareVariable(std::string_view name, const Type *type,
                        bool isConstBinding = false,
-                       bool canMutateObject = true)
+                       bool canMutateObject = true,
+                       std::optional<ComptimeValue> comptimeValue = std::nullopt,
+                       bool isComptimeOnly = false)
       -> MulberryResult {
     return _symbols.declareVariable(name, type, isConstBinding,
-                                    canMutateObject);
+                                    canMutateObject, std::move(comptimeValue),
+                                    isComptimeOnly);
   }
 
   class VariableScope {
@@ -1223,6 +1268,52 @@ private:
     return std::nullopt;
   }
 
+  auto hasComputedType(const TypeNode *typeNode,
+                       NameSet &visitingAliases) -> bool {
+    if (llvm::isa<ComputedTypeNode>(typeNode))
+      return true;
+
+    if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
+      return hasComputedType(arrayType->elementTypeNode(), visitingAliases);
+
+    if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
+      return hasComputedType(ptrType->pointeeTypeNode(), visitingAliases);
+
+    if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode)) {
+      for (auto &argument : genericType->arguments()) {
+        if (argument.kind() == ComptimeArg::Kind::Type &&
+            hasComputedType(argument.typeNode(), visitingAliases))
+          return true;
+      }
+
+      auto aliasName = comptimeTypeAliasName(genericType->name());
+      if (aliasName.empty())
+        return false;
+      auto [iter, inserted] = visitingAliases.insert(aliasName);
+      if (!inserted)
+        return false;
+
+      auto *symbol = _symbols.lookupComptimeTypeAlias(aliasName);
+      PackageScope packageScope(_currentPackageName, symbol->packageName);
+      auto result = hasComputedType(symbol->bodyTypeNode, visitingAliases);
+      visitingAliases.erase(iter);
+      return result;
+    }
+
+    if (auto *structType = dyn_cast<StructTypeNode>(typeNode)) {
+      for (auto &field : structType->fields())
+        if (hasComputedType(field->typeNode(), visitingAliases))
+          return true;
+    }
+
+    return false;
+  }
+
+  auto hasComputedType(const TypeNode *typeNode) -> bool {
+    NameSet visitingAliases;
+    return hasComputedType(typeNode, visitingAliases);
+  }
+
   auto bindComptimeTypeArgument(
       const Type *type, InferredComptimeArgument &argument,
       llvm::SMLoc location) -> bool {
@@ -1247,17 +1338,42 @@ private:
     return *argument.uint64Value == value;
   }
 
+  auto computedArrayLeafParameterIndex(
+      const TypeNode *pattern,
+      const std::vector<ComptimeParam> &parameters) const
+      -> std::optional<size_t> {
+    auto *computedType = dyn_cast<ComputedTypeNode>(pattern);
+    auto *call = computedType
+                     ? dyn_cast<CallExpr>(computedType->expression().get())
+                     : nullptr;
+    if (!call || call->name() != "arrayLeafElementType" ||
+        !call->hasReceiver() || !call->expressions().empty())
+      return std::nullopt;
+
+    auto *typeInfo = dyn_cast<TypeInfoExpr>(call->receiver().get());
+    auto *namedType = typeInfo
+                          ? dyn_cast<NamedTypeNode>(typeInfo->typeNode())
+                          : nullptr;
+    if (!namedType)
+      return std::nullopt;
+    auto index = comptimeParameterIndex(parameters, namedType->name());
+    if (!index || parameters[*index].kind != ComptimeParam::Kind::Type)
+      return std::nullopt;
+    return index;
+  }
+
   auto matchComptimeArgument(
-      const ComptimeArg &pattern, const ComptimeTypeValue &actual,
+      const ComptimeArg &pattern, const ComptimeValue &actual,
       const std::vector<ComptimeParam> &parameters,
-      std::vector<InferredComptimeArgument> &arguments) -> bool {
+      std::vector<InferredComptimeArgument> &arguments,
+      std::vector<const Type *> *arrayLeafConstraints = nullptr) -> bool {
     if (pattern.kind() == ComptimeArg::Kind::UInt64)
-      return actual.kind() == ComptimeTypeValue::Kind::UInt64 &&
+      return actual.kind() == ComptimeValue::Kind::UInt64 &&
              pattern.uint64Value() == actual.uint64Value();
 
     if (auto *namedType = dyn_cast<NamedTypeNode>(pattern.typeNode())) {
       if (auto index = comptimeParameterIndex(parameters, namedType->name())) {
-        if (actual.kind() == ComptimeTypeValue::Kind::Type)
+        if (actual.kind() == ComptimeValue::Kind::Type)
           return bindComptimeTypeArgument(
               actual.type(), arguments[*index], namedType->location());
         return bindComptimeUInt64Argument(actual.uint64Value(),
@@ -1265,16 +1381,32 @@ private:
       }
     }
 
-    if (actual.kind() != ComptimeTypeValue::Kind::Type)
+    if (actual.kind() != ComptimeValue::Kind::Type)
       return false;
     return matchGenericType(pattern.typeNode(), actual.type(), parameters,
-                            arguments);
+                            arguments, arrayLeafConstraints);
   }
 
   auto matchGenericType(const TypeNode *pattern, const Type *actualType,
                         const std::vector<ComptimeParam> &parameters,
-                        std::vector<InferredComptimeArgument> &arguments)
+                        std::vector<InferredComptimeArgument> &arguments,
+                        std::vector<const Type *> *arrayLeafConstraints =
+                            nullptr)
       -> bool {
+    if (auto index = computedArrayLeafParameterIndex(pattern, parameters)) {
+      if (!arrayLeafConstraints)
+        return false;
+      auto *&constraint = (*arrayLeafConstraints)[*index];
+      if (!constraint) {
+        constraint = actualType;
+        return true;
+      }
+      return sameType(constraint, actualType);
+    }
+
+    if (llvm::isa<ComputedTypeNode>(pattern))
+      return false;
+
     if (llvm::isa<UnitTypeNode>(pattern))
       return isUnitType(actualType);
 
@@ -1295,14 +1427,15 @@ private:
                  arrayType->size() &&
              matchGenericType(arrayPattern->elementTypeNode(),
                               arrayType->elementType(), parameters,
-                              arguments);
+                              arguments, arrayLeafConstraints);
     }
 
     if (auto *ptrPattern = dyn_cast<PtrTypeNode>(pattern)) {
       auto *ptrType = getPtrType(actualType);
       return ptrType &&
              matchGenericType(ptrPattern->pointeeTypeNode(),
-                              ptrType->pointeeType(), parameters, arguments);
+                              ptrType->pointeeType(), parameters, arguments,
+                              arrayLeafConstraints);
     }
 
     if (auto *genericPattern = dyn_cast<GenericTypeNode>(pattern)) {
@@ -1314,11 +1447,12 @@ private:
           return false;
         if (!matchGenericType(patternArguments[0].typeNode(),
                               arrayType->elementType(), parameters,
-                              arguments))
+                              arguments, arrayLeafConstraints))
           return false;
-        auto sizeValue = ComptimeTypeValue(arrayType->size());
+        auto sizeValue = ComptimeValue(arrayType->size());
         return matchComptimeArgument(patternArguments[1], sizeValue,
-                                     parameters, arguments);
+                                     parameters, arguments,
+                                     arrayLeafConstraints);
       }
 
       auto aliasName = comptimeTypeAliasName(genericPattern->name());
@@ -1331,7 +1465,8 @@ private:
           return false;
         for (size_t i = 0; i < patternArguments.size(); ++i)
           if (!matchComptimeArgument(patternArguments[i], actualArguments[i],
-                                     parameters, arguments))
+                                     parameters, arguments,
+                                     arrayLeafConstraints))
             return false;
         return true;
       }
@@ -1377,7 +1512,7 @@ private:
       auto aliasBody = substituteTypeNode(alias->bodyTypeNode, substitutions);
       PackageScope packageScope(_currentPackageName, alias->packageName);
       return matchGenericType(aliasBody.get(), actualType, parameters,
-                              arguments);
+                              arguments, arrayLeafConstraints);
     }
 
     if (auto *structPattern = dyn_cast<StructTypeNode>(pattern)) {
@@ -1393,7 +1528,8 @@ private:
         if (patternFields[i]->variable()->name() != actualFields[i].name())
           return false;
         if (!matchGenericType(patternFields[i]->typeNode(),
-                              actualFields[i].type(), parameters, arguments))
+                              actualFields[i].type(), parameters, arguments,
+                              arrayLeafConstraints))
           return false;
       }
       return true;
@@ -1600,6 +1736,22 @@ private:
                                          std::move(origin));
   }
 
+  auto resolveType(const ComputedTypeNode *typeNode) -> const Type * {
+    auto result = evaluateComptime(typeNode->expression().get());
+    if (result.kind == ComptimeEvaluation::Kind::Error)
+      return nullptr;
+    if (result.kind != ComptimeEvaluation::Kind::Value ||
+        result.value->kind() != ComptimeValue::Kind::Type) {
+      emitError(typeNode, diag::expected_comptime_type);
+      return nullptr;
+    }
+
+    auto *type = result.value->type();
+    LLVM_DEBUG(llvm::dbgs() << "resolved computed type `"
+                            << formatType(type) << "`\n");
+    return type;
+  }
+
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
     if (typeNode->name() == "Array") {
       auto &arguments = typeNode->arguments();
@@ -1688,7 +1840,7 @@ private:
         return cached->second;
 
       auto origin = ComptimeAliasOrigin(
-          aliasName, toComptimeTypeValues(arguments));
+          aliasName, toComptimeValues(arguments));
       auto *structType = resolveType(structTypeNode, structName,
                                      std::move(origin));
       if (!structType)
@@ -1706,6 +1858,9 @@ private:
 
     if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
       return resolveType(arrayType);
+
+    if (auto *computedType = dyn_cast<ComputedTypeNode>(typeNode))
+      return resolveType(computedType);
 
     if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
       return resolveType(ptrType);
@@ -1760,15 +1915,6 @@ private:
     return dataPtrType->pointeeType();
   }
 
-  auto tensorRecordType(const Type *elementType, llvm::SMLoc location)
-      -> const Type * {
-    std::vector<ComptimeArg> arguments;
-    arguments.push_back(ComptimeArg(typeToTypeNode(elementType, location)));
-    auto typeNode = std::make_unique<GenericTypeNode>(
-        location, "std.tensor.Tensor", std::move(arguments));
-    return resolveType(typeNode.get());
-  }
-
   auto tensorElementType(const Type *type) -> const Type * {
     auto *structType = mulberry::getStructType(type);
     if (!structType)
@@ -1781,21 +1927,15 @@ private:
     auto &arguments = origin->arguments();
     if (arguments.size() != 1)
       return nullptr;
-    if (arguments[0].kind() != ComptimeTypeValue::Kind::Type)
+    if (arguments[0].kind() != ComptimeValue::Kind::Type)
       return nullptr;
     return arguments[0].type();
   }
-
 };
 
 } // end namespace
 
 auto SemaImpl::registerBuiltinHandlers() -> void {
-  registerBuiltinHandler(
-      "std.tensor.from",
-      [this](Expr *node, const Type *expectedType) {
-        return semaTensorFromArrayCall(cast<CallExpr>(node), expectedType);
-      });
   registerBuiltinHandler(
       "std.tensor.__dispose",
       [this](Expr *node, const Type *) {
@@ -2023,10 +2163,10 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   }
   FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
                                           signature->returnType);
-  auto hasReturn = containsReturnStat(node->body().get());
   if (sema(node->body().get()))
     return failure();
 
+  auto hasReturn = containsReturnStat(node->body().get());
   if (!isUnitType(signature->returnType) && !hasReturn)
     return emitError(node->proto()->id().get(), diag::wrong_return_type);
 
@@ -2155,6 +2295,8 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<ObjectIdentityExpr>(node));
   case Expr::Expr_CharLiteral:
     return sema(cast<CharLiteralExpr>(node));
+  case Expr::Expr_TypeInfo:
+    return emitError(node, diag::expected_comptime_value);
   case Expr::Expr_TypeLayout:
     return sema(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
@@ -2234,13 +2376,44 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   auto &comptimeParameters = genericProto->comptimeParameters();
   auto inferredArguments =
       makeInferredComptimeArguments(comptimeParameters);
-  if (expectedType &&
-      !matchGenericType(genericProto->returnTypeNode(), expectedType,
-                        comptimeParameters, inferredArguments))
-    return emitError(node, diag::mismatch_type);
+  std::vector<const Type *> arrayLeafConstraints(comptimeParameters.size());
+  auto returnHasComputedType =
+      hasComputedType(genericProto->returnTypeNode());
+  if (expectedType) {
+    if (!matchGenericType(genericProto->returnTypeNode(), expectedType,
+                          comptimeParameters, inferredArguments,
+                          &arrayLeafConstraints)) {
+      inferredArguments =
+          makeInferredComptimeArguments(comptimeParameters);
+      arrayLeafConstraints.assign(comptimeParameters.size(), nullptr);
+      if (!returnHasComputedType)
+        return emitError(node, diag::mismatch_type);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "defer computed return type of `" << name << "`\n");
+    }
+  }
 
   auto semaArgument = [&](Expr *argument, const TypeNode *parameterTypeNode)
       -> MulberryResult {
+    auto *literal = dyn_cast<ArrayLiteralExpr>(argument);
+    auto *namedType = dyn_cast<NamedTypeNode>(parameterTypeNode);
+    auto parameterIndex = namedType
+                              ? comptimeParameterIndex(
+                                    comptimeParameters, namedType->name())
+                              : std::nullopt;
+    if (literal && parameterIndex &&
+        !inferredArguments[*parameterIndex].isResolved() &&
+        arrayLeafConstraints[*parameterIndex]) {
+      auto *arrayType = arrayLiteralTypeWithLeaf(
+          literal, arrayLeafConstraints[*parameterIndex]);
+      if (!arrayType)
+        return emitError(literal, diag::expected_expr);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "target Array literal leaf from computed return of `"
+                 << name << "`: " << formatType(arrayType) << "\n");
+      return sema(literal, arrayType);
+    }
+
     auto knownArguments = true;
     for (auto &inferredArgument : inferredArguments)
       knownArguments = knownArguments && inferredArgument.isResolved();
@@ -2255,8 +2428,17 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     return sema(argument, parameterType);
   };
 
+  std::vector<size_t> deferredParameters;
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto *parameterTypeNode = parameters[i]->typeNode();
+    if (hasComputedType(parameterTypeNode)) {
+      deferredParameters.push_back(i);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "defer computed parameter " << i << " of `" << name
+                 << "`\n");
+      continue;
+    }
+
     if (semaArgument(expressions[i].get(), parameterTypeNode))
       return failure();
     auto matched =
@@ -2273,11 +2455,26 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (!argument.isResolved())
       return emitError(node, diag::mismatch_type);
 
+  auto substitutions =
+      comptimeSubstitutions(comptimeParameters, inferredArguments);
+  for (auto index : deferredParameters) {
+    auto *parameterType = resolveSubstitutedType(
+        parameters[index]->typeNode(), substitutions);
+    if (!parameterType)
+      return failure();
+
+    auto &argument = expressions[index];
+    if (node->isLoweredMethodCall() && index == 0) {
+      if (sema(argument.get()))
+        return failure();
+    } else if (sema(argument.get(), parameterType)) {
+      return failure();
+    }
+  }
+
   auto concreteName = genericFunctionName(name, inferredArguments);
   auto cached = _instantiatedFunctionSymbols.find(concreteName);
   if (cached == _instantiatedFunctionSymbols.end()) {
-    auto substitutions = comptimeSubstitutions(
-        comptimeParameters, inferredArguments);
     auto concreteFunction = instantiateFunctionDecl(
         genericFunction, concreteName, substitutions);
     _instantiatedFunctionPackages[concreteName] =
@@ -2297,6 +2494,9 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   }
 
   auto *signature = cached->second;
+  if (expectedType && !sameType(expectedType, signature->returnType))
+    return emitError(node, diag::mismatch_type);
+
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &arg = expressions[i];
     auto *parameterType = signature->parameterTypes[i];
@@ -2472,6 +2672,17 @@ auto SemaImpl::sema(VariableExpr *node) -> MulberryResult {
   auto *symbol = lookupVariable(node->name());
   if (!symbol)
     return emitError(node, diag::undefined_var);
+
+  if (symbol->isComptimeOnly) {
+    assert(symbol->comptimeValue && "comptime variable has no value");
+    auto *type = comptimeRuntimeType(*symbol->comptimeValue);
+    if (!type)
+      return emitError(node, diag::comptime_type_runtime);
+    node->setType(type);
+    node->setComptimeValue(*symbol->comptimeValue);
+    return success();
+  }
+
   node->setType(symbol->type);
   return success();
 }
@@ -2531,9 +2742,7 @@ auto SemaImpl::sema(InterpolatedStringExpr *node) -> MulberryResult {
     return emitError(node, diag::undefined_type);
 
   for (auto &segment : node->segments()) {
-    if (sema(segment.get()))
-      return failure();
-    if (stringifyExpression(segment, stringType))
+    if (semaFormatValueCall(segment, stringType))
       return failure();
   }
 
@@ -2545,6 +2754,9 @@ auto SemaImpl::sema(InterpolatedStringExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
+  if (checkInternalFeature(node->location()))
+    return failure();
+
   if (sema(node->value().get()))
     return failure();
 
@@ -2644,7 +2856,7 @@ auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   auto *stringType = lookupType("String");
   if (node->opEnum() == Operator::Add && stringType &&
       sameType(lhsType, stringType)) {
-    if (stringifyExpression(node->rhs(), stringType))
+    if (semaFormatValueCall(node->rhs(), stringType))
       return failure();
     if (checkStringConcatFunction(node, stringType))
       return failure();
@@ -2735,76 +2947,345 @@ auto SemaImpl::hasMethod(const Type *type, std::string_view methodName)
   return false;
 }
 
-auto SemaImpl::stringifyExpression(std::unique_ptr<Expr> &expression,
+auto SemaImpl::comptimeRuntimeType(const ComptimeValue &value) -> const Type * {
+  switch (value.kind()) {
+  case ComptimeValue::Kind::Type:
+    return nullptr;
+  case ComptimeValue::Kind::Bool:
+    return _typeContext.getBuiltinType(BuiltinTypeKind::Bool);
+  case ComptimeValue::Kind::UInt64:
+    return _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  case ComptimeValue::Kind::String:
+    return lookupType("String");
+  }
+  llvm_unreachable("unexpected comptime value");
+}
+
+auto SemaImpl::setComptimeResultType(Expr *node,
+                                      const ComptimeValue &value) -> void {
+  if (auto *type = comptimeRuntimeType(value))
+    node->setType(type);
+}
+
+auto SemaImpl::evaluateComptime(Expr *node) -> ComptimeEvaluation {
+  if (auto *typeExpr = dyn_cast<TypeInfoExpr>(node)) {
+    auto *type = resolveType(typeExpr->typeNode());
+    if (!type)
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    return {ComptimeEvaluation::Kind::Value, ComptimeValue(type), true};
+  }
+
+  if (auto *value = dyn_cast<BoolLiteralExpr>(node)) {
+    setBuiltinType(value, BuiltinTypeKind::Bool);
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(value->value())};
+  }
+
+  if (auto *value = dyn_cast<DecimalLiteralExpr>(node)) {
+    setBuiltinType(value, BuiltinTypeKind::UInt64);
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(value->value())};
+  }
+
+  if (auto *value = dyn_cast<StringLiteralExpr>(node))
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(value->value())};
+
+  if (auto *variable = dyn_cast<VariableExpr>(node)) {
+    if (auto *symbol = lookupVariable(variable->name())) {
+      if (symbol->comptimeValue) {
+        if (symbol->isComptimeOnly)
+          variable->setComptimeValue(*symbol->comptimeValue);
+        return {ComptimeEvaluation::Kind::Value, *symbol->comptimeValue,
+                symbol->isComptimeOnly};
+      }
+      return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+    }
+    if (auto *type = lookupType(variable->name()))
+      return {ComptimeEvaluation::Kind::Value, ComptimeValue(type), true};
+    return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+  }
+
+  if (auto *call = dyn_cast<CallExpr>(node)) {
+    auto result = evaluateComptimeCall(call);
+    if (result.kind == ComptimeEvaluation::Kind::Value)
+      setComptimeResultType(call, *result.value);
+    return result;
+  }
+
+  if (auto *binary = dyn_cast<BinaryExpr>(node)) {
+    auto result = evaluateComptimeBinary(binary);
+    if (result.kind == ComptimeEvaluation::Kind::Value)
+      setComptimeResultType(binary, *result.value);
+    return result;
+  }
+
+  return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+}
+
+auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
+  auto &arguments = node->expressions();
+  if (!node->hasReceiver()) {
+    if (node->name() == builtins::typeOf) {
+      if (arguments.size() != 1) {
+        auto diagnostic = formatNameSizeDiagnostic(
+            diag::func_param, node->name(), 1);
+        emitError(node, diagnostic);
+        return {ComptimeEvaluation::Kind::Error, std::nullopt};
+      }
+      auto *expression = arguments.front().get();
+      if (sema(expression))
+        return {ComptimeEvaluation::Kind::Error, std::nullopt};
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(expression->type()), true};
+    }
+
+    // The parser keeps dotted calls package-like until Sema can prove that the
+    // left side is a receiver. Reflection needs the same delayed decision.
+    auto name = std::string(node->name());
+    auto dot = name.rfind('.');
+    if (dot != std::string::npos) {
+      auto receiver = createMemberAccessChain(
+          node->location(), std::string_view(name).substr(0, dot));
+      auto receiverValue = evaluateComptime(receiver.get());
+      if (receiverValue.kind == ComptimeEvaluation::Kind::Error)
+        return receiverValue;
+      if (receiverValue.kind == ComptimeEvaluation::Kind::Value &&
+          receiverValue.value->kind() == ComptimeValue::Kind::Type) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "resolve comptime method call `" << name << "`\n");
+        node->setReceiver(std::move(receiver),
+                          std::string_view(name).substr(dot + 1));
+        return evaluateComptimeCall(node);
+      }
+    }
+
+    return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+  }
+
+  auto receiver = evaluateComptime(node->receiver().get());
+  if (receiver.kind != ComptimeEvaluation::Kind::Value)
+    return receiver;
+  if (receiver.value->kind() != ComptimeValue::Kind::Type)
+    return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+
+  auto *type = receiver.value->type();
+  auto name = node->name();
+  auto requireNoArguments = [&]() -> bool {
+    if (arguments.empty())
+      return true;
+    auto diagnostic = formatNameSizeDiagnostic(diag::func_param, name, 0);
+    emitError(node, diagnostic);
+    return false;
+  };
+
+  if (name == "isBool" || name == "isUInt8" || name == "isUInt64" ||
+      name == "isFloat32" || name == "isArray" || name == "isStruct") {
+    if (!requireNoArguments())
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    if (name == "isBool")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isBoolType(type)), true};
+    if (name == "isUInt8")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isUInt8Type(type)), true};
+    if (name == "isUInt64")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isUInt64Type(type)), true};
+    if (name == "isFloat32")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isFloat32Type(type)), true};
+    if (name == "isArray")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isArrayType(type)), true};
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(getStructType(type) != nullptr), true};
+  }
+
+  if (name == "hasMethod") {
+    if (arguments.size() != 1) {
+      auto diagnostic = formatNameSizeDiagnostic(diag::func_param, name, 1);
+      emitError(node, diagnostic);
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    }
+    auto methodName = evaluateComptime(arguments.front().get());
+    if (methodName.kind == ComptimeEvaluation::Kind::Error)
+      return methodName;
+    if (methodName.kind != ComptimeEvaluation::Kind::Value ||
+        methodName.value->kind() != ComptimeValue::Kind::String) {
+      emitError(arguments.front().get(), diag::expected_comptime_value);
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    }
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(hasMethod(type,
+                                    methodName.value->stringValue())), true};
+  }
+
+  if (name == "arrayElementType" || name == "arrayLeafElementType" ||
+      name == "arrayLength" || name == "arrayRank") {
+    if (!requireNoArguments())
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    auto *arrayType = getArrayType(type);
+    if (!arrayType) {
+      emitError(node, diag::invalid_reflection_query);
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    }
+    if (name == "arrayElementType")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(arrayType->elementType()), true};
+    if (name == "arrayLeafElementType")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(getArrayLeafElementType(type)), true};
+    if (name == "arrayLength")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(arrayType->size()), true};
+    return {ComptimeEvaluation::Kind::Value,
+            ComptimeValue(static_cast<uint64_t>(getArrayShape(type).size())),
+            true};
+  }
+
+  auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
+  emitError(node, diagnostic);
+  return {ComptimeEvaluation::Kind::Error, std::nullopt};
+}
+
+auto SemaImpl::evaluateComptimeBinary(BinaryExpr *node)
+    -> ComptimeEvaluation {
+  using EvaluationKind = ComptimeEvaluation::Kind;
+  using Operator = BinaryExpr::Operator;
+
+  auto lhs = evaluateComptime(node->lhs().get());
+  if (lhs.kind != EvaluationKind::Value)
+    return lhs;
+
+  auto op = node->opEnum();
+  if (lhs.value->kind() == ComptimeValue::Kind::Bool) {
+    if (op == Operator::And && !lhs.value->boolValue())
+      return {EvaluationKind::Value, ComptimeValue(false),
+              lhs.isComptimeOnly};
+    if (op == Operator::Or && lhs.value->boolValue())
+      return {EvaluationKind::Value, ComptimeValue(true),
+              lhs.isComptimeOnly};
+  }
+
+  auto rhs = evaluateComptime(node->rhs().get());
+  if (rhs.kind != EvaluationKind::Value)
+    return rhs;
+  auto isComptimeOnly = lhs.isComptimeOnly || rhs.isComptimeOnly;
+  auto cannotEvaluate = [&]() -> ComptimeEvaluation {
+    if (!isComptimeOnly)
+      return {EvaluationKind::Runtime, std::nullopt};
+    emitError(node, diag::expected_comptime_value);
+    return {EvaluationKind::Error, std::nullopt};
+  };
+
+  if (op == Operator::EQ || op == Operator::NEQ) {
+    if (lhs.value->kind() != rhs.value->kind())
+      return cannotEvaluate();
+
+    bool equal = false;
+    switch (lhs.value->kind()) {
+    case ComptimeValue::Kind::Type:
+      equal = sameType(lhs.value->type(), rhs.value->type());
+      break;
+    case ComptimeValue::Kind::Bool:
+      equal = lhs.value->boolValue() == rhs.value->boolValue();
+      break;
+    case ComptimeValue::Kind::UInt64:
+      equal = lhs.value->uint64Value() == rhs.value->uint64Value();
+      break;
+    case ComptimeValue::Kind::String:
+      equal = lhs.value->stringValue() == rhs.value->stringValue();
+      break;
+    }
+    return {EvaluationKind::Value,
+            ComptimeValue(op == Operator::EQ ? equal : !equal),
+            isComptimeOnly};
+  }
+
+  if (lhs.value->kind() == ComptimeValue::Kind::Bool &&
+      rhs.value->kind() == ComptimeValue::Kind::Bool) {
+    if (op == Operator::And)
+      return {EvaluationKind::Value,
+              ComptimeValue(lhs.value->boolValue() &&
+                            rhs.value->boolValue()),
+              isComptimeOnly};
+    if (op == Operator::Or)
+      return {EvaluationKind::Value,
+              ComptimeValue(lhs.value->boolValue() ||
+                            rhs.value->boolValue()),
+              isComptimeOnly};
+    return cannotEvaluate();
+  }
+
+  if (lhs.value->kind() != ComptimeValue::Kind::UInt64 ||
+      rhs.value->kind() != ComptimeValue::Kind::UInt64)
+    return cannotEvaluate();
+
+  auto left = lhs.value->uint64Value();
+  auto right = rhs.value->uint64Value();
+  switch (op) {
+  case Operator::Add:
+    return {EvaluationKind::Value, ComptimeValue(left + right),
+            isComptimeOnly};
+  case Operator::Mul:
+    return {EvaluationKind::Value, ComptimeValue(left * right),
+            isComptimeOnly};
+  case Operator::Diff:
+    return {EvaluationKind::Value, ComptimeValue(left - right),
+            isComptimeOnly};
+  case Operator::Div:
+    if (right != 0)
+      return {EvaluationKind::Value, ComptimeValue(left / right),
+              isComptimeOnly};
+    break;
+  case Operator::Rem:
+    if (right != 0)
+      return {EvaluationKind::Value, ComptimeValue(left % right),
+              isComptimeOnly};
+    break;
+  case Operator::LT:
+    return {EvaluationKind::Value, ComptimeValue(left < right),
+            isComptimeOnly};
+  case Operator::LE:
+    return {EvaluationKind::Value, ComptimeValue(left <= right),
+            isComptimeOnly};
+  case Operator::GT:
+    return {EvaluationKind::Value, ComptimeValue(left > right),
+            isComptimeOnly};
+  case Operator::GE:
+    return {EvaluationKind::Value, ComptimeValue(left >= right),
+            isComptimeOnly};
+  case Operator::And:
+  case Operator::Or:
+  case Operator::EQ:
+  case Operator::NEQ:
+    break;
+  }
+
+  return cannotEvaluate();
+}
+
+auto SemaImpl::semaFormatValueCall(std::unique_ptr<Expr> &expression,
                                    const Type *stringType)
     -> MulberryResult {
-  if (sameType(expression->type(), stringType))
-    return success();
+  if (sema(expression.get()))
+    return failure();
+  if (isUnitType(expression->type()))
+    return emitError(expression.get(), diag::mismatch_type);
 
   auto location = expression->location();
-  auto *valueType = expression->type();
-  if (isUnitType(valueType))
-    return emitError(expression.get(), diag::mismatch_type);
-
-  std::string_view formatterName;
-  if (auto *builtinType = getBuiltinType(valueType)) {
-    switch (builtinType->builtinKind()) {
-    case BuiltinTypeKind::Bool:
-      formatterName = "std.string.fromBool";
-      break;
-    case BuiltinTypeKind::UInt8:
-      formatterName = "std.string.fromUInt8";
-      break;
-    case BuiltinTypeKind::UInt64:
-      formatterName = "std.string.fromUInt64";
-      break;
-    case BuiltinTypeKind::Float32:
-      formatterName = "std.string.fromFloat32";
-      break;
-    case BuiltinTypeKind::Unit:
-      llvm_unreachable("Unit is not stringifiable");
-    }
-  }
-
-  if (!formatterName.empty()) {
-    VectorUniquePtr<Expr> arguments;
-    arguments.push_back(std::move(expression));
-    auto call = std::make_unique<CallExpr>(location, formatterName,
-                                           std::move(arguments));
-    auto *callExpr = call.get();
-    expression = std::move(call);
-    if (sema(callExpr))
-      return failure();
-    if (!sameType(callExpr->type(), stringType))
-      return emitError(callExpr, diag::mismatch_type);
-    return success();
-  }
-
-  if (!getStructType(valueType) && !getArrayType(valueType))
-    return emitError(expression.get(), diag::mismatch_type);
-
-  if (hasMethod(valueType, "toString")) {
-    auto call = std::make_unique<CallExpr>(
-        location, std::move(expression), "toString", VectorUniquePtr<Expr>{});
-    auto *callExpr = call.get();
-    expression = std::move(call);
-    if (semaMethodCall(callExpr, stringType))
-      return failure();
-
-    auto *signature = lookupFunction(callExpr->name());
-    if (!signature || signature->parameterTypes.size() != 1 ||
-        signature->parameterCanMutateObject.size() != 1 ||
-        signature->parameterCanMutateObject[0] ||
-        !sameType(signature->returnType, stringType))
-      return emitError(callExpr, diag::mismatch_type);
-    return success();
-  }
-
-  auto identity = std::make_unique<ObjectIdentityExpr>(
-      location, std::move(expression));
-  auto *identityExpr = identity.get();
-  expression = std::move(identity);
-  return sema(identityExpr);
+  VectorUniquePtr<Expr> arguments;
+  arguments.push_back(std::move(expression));
+  auto call = std::make_unique<CallExpr>(
+      location, "std.string.formatValue", std::move(arguments));
+  auto *callExpr = call.get();
+  expression = std::move(call);
+  if (sema(callExpr, stringType))
+    return failure();
+  if (!sameType(callExpr->type(), stringType))
+    return emitError(callExpr, diag::mismatch_type);
+  return success();
 }
 
 auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
@@ -2874,6 +3355,22 @@ auto SemaImpl::checkMutableObjectArgument(const FunctionSymbol *signature,
   return checkConstObjectUseAsMutable(arg);
 }
 
+auto SemaImpl::arrayLiteralTypeWithLeaf(const ArrayLiteralExpr *expr,
+                                        const Type *leafType)
+    -> const ArrayType * {
+  auto &elements = expr->getElements();
+  if (elements.empty())
+    return nullptr;
+
+  const Type *elementType = leafType;
+  if (auto *nested = dyn_cast<ArrayLiteralExpr>(elements.front().get())) {
+    elementType = arrayLiteralTypeWithLeaf(nested, leafType);
+    if (!elementType)
+      return nullptr;
+  }
+  return _typeContext.createArrayType(elementType, elements.size());
+}
+
 auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
     -> MulberryResult {
   auto &elements = expr->getElements();
@@ -2903,50 +3400,7 @@ auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
 
   auto *arrayType =
       _typeContext.createArrayType(elementType, elements.size());
-  auto inferredShape = getArrayShape(arrayType);
-  expr->setInferredShape(std::move(inferredShape));
   expr->setType(arrayType);
-  return success();
-}
-
-auto SemaImpl::semaTensorFromArrayCall(CallExpr *node,
-                                       const Type *expectedType)
-    -> MulberryResult {
-  auto &expressions = node->expressions();
-  if (expressions.size() != 1) {
-    auto diagnostic =
-        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
-    return emitError(node, diagnostic);
-  }
-
-  auto *argument = expressions.front().get();
-  if (auto *literal = dyn_cast<ArrayLiteralExpr>(argument)) {
-    auto *expectedElementType =
-        expectedType ? tensorElementType(expectedType) : nullptr;
-    std::vector<int64_t> expectedShape;
-    auto result = expectedElementType
-                      ? semaTensorSourceArrayLiteral(
-                            literal, expectedElementType, expectedShape)
-                      : semaDefaultArrayLiteral(literal);
-    if (result)
-      return failure();
-  } else if (sema(argument)) {
-    return failure();
-  }
-
-  auto shape = getArrayShape(argument->type());
-  auto *elementType = getArrayLeafElementType(argument->type());
-  if (shape.empty() || !elementType || !isNumericType(elementType))
-    return emitError(argument, diag::mismatch_type);
-
-  auto *recordType = tensorRecordType(elementType, node->location());
-  if (!recordType)
-    return failure();
-
-  if (expectedType && !sameType(recordType, expectedType))
-    return emitError(node, diag::mismatch_type);
-
-  node->setType(recordType);
   return success();
 }
 
@@ -2983,63 +3437,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
       return failure();
   }
 
-  expr->setInferredShape({static_cast<int64_t>(type->size())});
   expr->setType(type);
-  return success();
-}
-
-auto SemaImpl::semaTensorSourceArrayLiteral(
-    ArrayLiteralExpr *expr,
-    const Type *leafElementType,
-    std::vector<int64_t> &inferredShape) -> MulberryResult {
-  auto &elements = expr->getElements();
-  if (elements.empty())
-    return emitError(expr, diag::expected_expr);
-  if (!isArrayElementType(leafElementType))
-    return emitError(expr, diag::mismatch_type);
-
-  inferredShape = {static_cast<int64_t>(elements.size())};
-  auto *firstNested = dyn_cast<ArrayLiteralExpr>(elements.front().get());
-  if (!firstNested) {
-    for (auto &element : elements) {
-      if (llvm::isa<ArrayLiteralExpr>(element.get()))
-        return emitError(element.get(), diag::mismatch_type);
-      if (semaArrayLiteralElement(element.get(), leafElementType))
-        return failure();
-    }
-
-    auto *arrayType =
-        _typeContext.createArrayType(leafElementType, elements.size());
-    expr->setInferredShape(inferredShape);
-    expr->setType(arrayType);
-    return success();
-  }
-
-  std::vector<int64_t> nestedShape;
-  const Type *nestedType = nullptr;
-  for (auto &element : elements) {
-    auto *nestedLiteral = dyn_cast<ArrayLiteralExpr>(element.get());
-    if (!nestedLiteral)
-      return emitError(element.get(), diag::mismatch_type);
-
-    std::vector<int64_t> currentNestedShape;
-    if (semaTensorSourceArrayLiteral(nestedLiteral, leafElementType,
-                                     currentNestedShape))
-      return failure();
-    if (nestedShape.empty()) {
-      nestedShape = currentNestedShape;
-      nestedType = nestedLiteral->type();
-    } else if (nestedShape != currentNestedShape ||
-               !sameType(nestedType, nestedLiteral->type())) {
-      return emitError(nestedLiteral, diag::mismatch_type);
-    }
-  }
-
-  inferredShape.insert(inferredShape.end(), nestedShape.begin(),
-                       nestedShape.end());
-  auto *arrayType = _typeContext.createArrayType(nestedType, elements.size());
-  expr->setInferredShape(inferredShape);
-  expr->setType(arrayType);
   return success();
 }
 
@@ -3155,6 +3553,25 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
 }
 
 auto SemaImpl::sema(IfStat *node) -> MulberryResult {
+  auto condition = evaluateComptime(node->conditionExpr().get());
+  if (condition.kind == ComptimeEvaluation::Kind::Error)
+    return failure();
+
+  if (condition.kind == ComptimeEvaluation::Kind::Value) {
+    if (condition.value->kind() != ComptimeValue::Kind::Bool)
+      return emitError(node->conditionExpr().get(), diag::expected_bool);
+
+    auto value = condition.value->boolValue();
+    node->setComptimeValue(value);
+    LLVM_DEBUG(llvm::dbgs() << "evaluate if condition at comptime as `"
+                            << (value ? "true" : "false") << "`\n");
+    if (value)
+      return sema(node->thenBlock().get());
+    if (node->hasElseBlock())
+      return sema(node->elseBlock().get());
+    return success();
+  }
+
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
     return failure();
@@ -3250,6 +3667,41 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
 auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   auto var = node->variable().get();
   auto initExpr = node->init().get();
+
+  std::optional<ComptimeValue> comptimeValue;
+  if (node->isConstBinding()) {
+    auto evaluation = evaluateComptime(initExpr);
+    if (evaluation.kind == ComptimeEvaluation::Kind::Error)
+      return failure();
+    if (evaluation.kind == ComptimeEvaluation::Kind::Value)
+      comptimeValue = evaluation.value;
+
+    // Ordinary consts keep their runtime binding and only cache the value.
+    // Reflection-derived initializers cannot enter MLIR, so their declaration
+    // is comptime-only.
+    if (evaluation.kind == ComptimeEvaluation::Kind::Value &&
+        evaluation.isComptimeOnly) {
+      auto *valueType = comptimeRuntimeType(*evaluation.value);
+      if (node->hasExplicitType()) {
+        auto *declaredType = checkType(node->typeNode(), UnitPolicy::Allow);
+        if (!declaredType)
+          return failure();
+        if (!valueType || !sameType(declaredType, valueType))
+          return emitError(initExpr, diag::mismatch_type);
+        valueType = declaredType;
+      }
+
+      node->setType(valueType);
+      node->setComptimeValue(*evaluation.value);
+      if (declareVariable(var->name(), valueType,
+                          /*isConstBinding=*/true,
+                          /*canMutateObject=*/false, evaluation.value,
+                          /*isComptimeOnly=*/true))
+        return emitError(var, diag::redefinition_var);
+      return success();
+    }
+  }
+
   const Type *varType = nullptr;
   if (node->hasExplicitType()) {
     varType = checkType(node->typeNode(), UnitPolicy::Allow);
@@ -3271,7 +3723,7 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
       !canMutateObjectReference(initExpr))
     return emitError(initExpr, diag::readonly_to_mutable_binding);
   if (declareVariable(var->name(), varType, node->isConstBinding(),
-                      canMutateObject))
+                      canMutateObject, std::move(comptimeValue)))
     return emitError(var, diag::redefinition_var);
   return success();
 }
