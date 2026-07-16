@@ -1,0 +1,110 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Box {
+  value: UInt64
+}
+
+fn increment(value: UInt64): UInt64 {
+  return value + 1;
+}
+
+fn twice(value: UInt64): UInt64 {
+  return value * 2;
+}
+
+fn readBox(box: Box): UInt64 {
+  return box.value;
+}
+
+fn bumpBox(mut box: Box): UInt64 {
+  box.value = box.value + 1;
+  return box.value;
+}
+
+fn apply(callback: fn(UInt64): UInt64, value: UInt64): UInt64 {
+  return callback(value);
+}
+
+fn applyGeneric<T, U>(callback: fn(T): U, value: T): U {
+  return callback(value);
+}
+
+fn applyBox(callback: fn(Box): UInt64, box: Box): UInt64 {
+  return callback(box);
+}
+
+fn applyMutableBox(callback: fn(mut Box): UInt64,
+                   mut box: Box): UInt64 {
+  return callback(box);
+}
+
+fn show(value: UInt64): () {
+  io.println(value);
+}
+
+fn forOne(action: fn(UInt64): (), value: UInt64): () {
+  action(value);
+}
+
+fn select(first: fn(UInt64): UInt64,
+          second: fn(UInt64): UInt64,
+          useFirst: Bool): fn(UInt64): UInt64 {
+  if useFirst {
+    return first;
+  }
+  return second;
+}
+
+fn main(): UInt64 {
+  const explicit: fn(UInt64): UInt64 = increment;
+  io.println(apply(explicit, 40));
+
+  var callback = increment;
+  callback = twice;
+  io.println(callback(21));
+
+  const selected = select(increment, twice, true);
+  io.println(selected(41));
+  io.println(applyGeneric(twice, 21));
+
+  var box = Box { 41 };
+  io.println(applyBox(readBox, box));
+  io.println(applyMutableBox(bumpBox, box));
+  forOne(show, 7);
+  return 0;
+}
+
+# AST: VariableStat const {{.*}}id=explicit{{.*}}type=fn(UInt64): UInt64
+# AST: VariableExpr {{.*}}type=fn(UInt64): UInt64 name=increment functionValue
+# AST: VariableStat {{.*}}id=callback{{.*}}inferredType=fn(UInt64): UInt64
+# AST: CallExpr {{.*}}type=UInt64 callee=callback indirect
+# AST: VariableStat const {{.*}}id=selected{{.*}}inferredType=fn(UInt64): UInt64
+# AST: CallExpr {{.*}}type=UInt64 callee=selected indirect
+# AST: CallExpr {{.*}}callee=applyGeneric__UInt64__UInt64
+# AST: CallExpr {{.*}}type=UInt64 callee=callback indirect
+
+# MLIR-DAG: %{{.*}} = func.constant @increment : (i64) -> i64
+# MLIR-DAG: %{{.*}} = func.constant @twice : (i64) -> i64
+# MLIR-DAG: %{{.*}} = func.call_indirect %{{.*}}(%{{.*}}) : (i64) -> i64
+# MLIR-DAG: call_indirect %{{.*}}(%{{.*}}) : (i64) -> ()
+# MLIR-DAG: func.func @applyGeneric__UInt64__UInt64(%arg0: (i64) -> i64
+# MLIR-DAG: func.func @applyBox(%arg0: (!mulberry_core.ptr<!mulberry_core.record<Box
+# MLIR-DAG: func.func @applyMutableBox(%arg0: (!mulberry_core.ptr<!mulberry_core.record<Box
+
+# LLVM-DAG: call i64 %{{.*}}(i64
+# LLVM-DAG: call void %{{.*}}(i64
+# LLVM-DAG: define i64 @applyGeneric__UInt64__UInt64(ptr
+# LLVM-DAG: define i64 @applyBox(ptr
+# LLVM-DAG: define i64 @applyMutableBox(ptr
+
+# JIT: 41
+# JIT-NEXT: 42
+# JIT-NEXT: 42
+# JIT-NEXT: 42
+# JIT-NEXT: 41
+# JIT-NEXT: 42
+# JIT-NEXT: 7

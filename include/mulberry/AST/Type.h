@@ -44,6 +44,7 @@ public:
     Named,
     Computed,
     Array,
+    Function,
     Ptr,
     Generic,
     Struct,
@@ -147,6 +148,39 @@ public:
 
 private:
   std::unique_ptr<TypeNode> _pointeeType;
+};
+
+class FunctionTypeNode final : public TypeNode {
+public:
+  FunctionTypeNode(llvm::SMLoc location,
+                   VectorUniquePtr<TypeNode> parameterTypes,
+                   std::vector<bool> parameterCanMutateObject,
+                   std::unique_ptr<TypeNode> returnType)
+      : TypeNode(location, TypeNode::Kind::Function),
+        _parameterTypes(std::move(parameterTypes)),
+        _parameterCanMutateObject(std::move(parameterCanMutateObject)),
+        _returnType(std::move(returnType)) {
+    assert(_parameterTypes.size() == _parameterCanMutateObject.size());
+  }
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Function;
+  }
+
+  auto parameterTypes() const -> const VectorUniquePtr<TypeNode> & {
+    return _parameterTypes;
+  }
+
+  auto parameterCanMutateObject() const -> const std::vector<bool> & {
+    return _parameterCanMutateObject;
+  }
+
+  auto returnTypeNode() const -> const TypeNode * { return _returnType.get(); }
+
+private:
+  VectorUniquePtr<TypeNode> _parameterTypes;
+  std::vector<bool> _parameterCanMutateObject;
+  std::unique_ptr<TypeNode> _returnType;
 };
 
 class ComptimeArg final {

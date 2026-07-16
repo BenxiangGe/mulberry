@@ -143,7 +143,7 @@ auto containsReturnStat(const BlockExpr *node) -> bool {
 }
 
 auto isParameterValueType(const Type *type) -> bool {
-  return mulberry::isPtrType(type);
+  return mulberry::isPtrType(type) || mulberry::getFunctionType(type);
 }
 
 auto isObjectReferenceType(const Type *type) -> bool {
@@ -207,6 +207,7 @@ private:
   auto gen(const Expr *node) -> mlir::Value;
   auto gen(const UnitExpr *node) -> mlir::Value;
   auto gen(const BlockExpr *node) -> mlir::Value;
+  auto gen(const LambdaExpr *node) -> mlir::Value;
   auto genDeclaredCall(std::string_view name, llvm::ArrayRef<const Expr *> args,
                        mlir::Location location,
                        std::vector<mlir::Value>* disposableTensorArguments =
@@ -215,6 +216,7 @@ private:
                               mlir::Location location)
       -> func::CallOp;
   auto genNormalCall(const CallExpr *node) -> mlir::Value;
+  auto genIndirectCall(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
@@ -704,6 +706,9 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
   case Expr::Expr_Unit:
     result = gen(cast<UnitExpr>(node));
     break;
+  case Expr::Expr_Lambda:
+    result = gen(cast<LambdaExpr>(node));
+    break;
   case Expr::Expr_DecimalLiteral:
     result = gen(cast<DecimalLiteralExpr>(node));
     break;
@@ -786,6 +791,23 @@ auto MLIRGenImpl::gen(const BlockExpr *node) -> mlir::Value {
   genStatements(node->statements());
   leaveVariableScope(loc(node));
   return nullptr;
+}
+
+auto MLIRGenImpl::gen(const LambdaExpr *node) -> mlir::Value {
+  auto function = findFunction(node->functionName());
+  if (function == _functionsByName.end())
+    llvm_unreachable("lambda has no lifted function");
+  if (function->second.isExtern)
+    llvm_unreachable("lambda function cannot be extern");
+
+  DBG("materialize lambda function value `{0}`", node->functionName());
+  mlir::SymbolTable::setSymbolVisibility(
+      function->second.operation, mlir::SymbolTable::Visibility::Private);
+  auto symbol = mlir::FlatSymbolRefAttr::get(
+      _builder.getContext(), std::string(node->functionName()));
+  return func::ConstantOp::create(
+      _builder, loc(node), function->second.operation.getFunctionType(),
+      symbol);
 }
 
 auto MLIRGenImpl::gen(const IfStat *node) -> void {
@@ -919,11 +941,35 @@ auto MLIRGenImpl::gen(const ForStat *node) -> void {
 
 auto MLIRGenImpl::gen(const CallExpr *node) -> mlir::Value {
   DBG("gen(CallExpr). functionName: {0}", node->name());
+  if (node->isIndirectCall())
+    return genIndirectCall(node);
   if (auto *handler = lookupBuiltinHandler(node->name())) {
     DBG("dispatch builtin MLIRGen handler `{0}`", node->name());
     return (*handler)(node);
   }
   return genNormalCall(node);
+}
+
+auto MLIRGenImpl::genIndirectCall(const CallExpr *node) -> mlir::Value {
+  for (auto &argument : node->expressions())
+    if (isTensorObjectType(argument->type()))
+      markTensorReferencesEscaped(argument.get());
+
+  auto callee = getVariableValue(node->name(), loc(node));
+  auto calleeType = llvm::cast<mlir::FunctionType>(callee.getType());
+  llvm::SmallVector<mlir::Value, 4> operands;
+  for (const auto &indexedArgument : llvm::enumerate(node->expressions())) {
+    auto value = genCallArgumentValue(
+        indexedArgument.value().get(),
+        calleeType.getInput(indexedArgument.index()), /*isExtern=*/false);
+    operands.push_back(value);
+  }
+
+  auto call = func::CallIndirectOp::create(_builder, loc(node), callee,
+                                           operands);
+  if (mulberry::isUnitType(node->type()))
+    return nullptr;
+  return call.getResult(0);
 }
 
 // Compiler-generated calls already carry their source ABI representation.
@@ -1072,6 +1118,21 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
 
   if (mulberry::isUnitType(node->type()))
     return nullptr;
+
+  if (node->isFunctionValue()) {
+    auto function = findFunction(node->name());
+    if (function == _functionsByName.end())
+      llvm_unreachable("function value has no declared function");
+    if (function->second.isExtern)
+      llvm_unreachable("extern function value reached MLIRGen");
+
+    DBG("materialize function value `{0}`", node->name());
+    auto symbol = mlir::FlatSymbolRefAttr::get(
+        _builder.getContext(), std::string(node->name()));
+    return func::ConstantOp::create(
+        _builder, loc(node), function->second.operation.getFunctionType(),
+        symbol);
+  }
   return getVariableValue(node->name(), loc(node));
 }
 

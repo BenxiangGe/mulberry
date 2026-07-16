@@ -117,6 +117,8 @@ auto Lexer::lexToken() -> Token {
       return formToken(Token::div, tokStart);
     case '%':
       return formToken(Token::rem, tokStart);
+    case '|':
+      return formToken(Token::pipe, tokStart);
     case '"':
       return lexString(tokStart);
     case '\'':

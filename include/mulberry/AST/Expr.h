@@ -25,6 +25,7 @@ public:
   enum ExpressionKind {
     Expr_Unit,
     Expr_Call,
+    Expr_Lambda,
     Expr_StructLiteral,
     Expr_DecimalLiteral,
     Expr_FloatLiteral,

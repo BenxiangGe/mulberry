@@ -8,7 +8,7 @@ using namespace mulberry;
 namespace {
 
 TEST(LexerTest, firstTest) {
-  auto input = R"(fn ; , { } ( ) & 01 a0 a0a)";
+  auto input = R"(fn ; , { } ( ) | & 01 a0 a0a)";
   auto inputBuffer = llvm::MemoryBuffer::getMemBuffer(input, "main.mulberry");
 
   llvm::SourceMgr sourceManager;
@@ -23,6 +23,7 @@ TEST(LexerTest, firstTest) {
   ASSERT_TRUE(lexer->lexToken().is(Token::r_brace));
   ASSERT_TRUE(lexer->lexToken().is(Token::l_paren));
   ASSERT_TRUE(lexer->lexToken().is(Token::r_paren));
+  ASSERT_TRUE(lexer->lexToken().is(Token::pipe));
   ASSERT_TRUE(lexer->lexToken().is(Token::error));
   {
     auto token = lexer->lexToken();

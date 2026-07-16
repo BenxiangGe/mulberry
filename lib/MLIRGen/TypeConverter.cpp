@@ -45,6 +45,26 @@ auto MLIRTypeConverter::convertLayout(const ArrayType& type) const
   return mulberry_core::RecordType::get(_builder.getContext(), "array", fields);
 }
 
+auto MLIRTypeConverter::convertLayout(const FunctionType& type) const
+    -> mlir::FunctionType {
+  std::vector<mlir::Type> parameterTypes;
+  for (auto *parameterType : type.parameterTypes()) {
+    auto convertedType = convertSource(parameterType);
+    if (!convertedType)
+      return {};
+    parameterTypes.push_back(convertedType);
+  }
+
+  std::vector<mlir::Type> resultTypes;
+  if (!isUnitType(type.returnType())) {
+    auto resultType = convertSource(type.returnType());
+    if (!resultType)
+      return {};
+    resultTypes.push_back(resultType);
+  }
+  return _builder.getFunctionType(parameterTypes, resultTypes);
+}
+
 auto MLIRTypeConverter::convertLayout(const PtrType& type) const
     -> mlir::Type {
   auto pointeeType = convertStorage(type.pointeeType());
@@ -74,6 +94,9 @@ auto MLIRTypeConverter::convertLayout(const Type *type) const -> mlir::Type {
 
   if (auto *arrayType = mulberry::getArrayType(type))
     return convertLayout(*arrayType);
+
+  if (auto *functionType = mulberry::getFunctionType(type))
+    return convertLayout(*functionType);
 
   if (auto *ptrType = mulberry::getPtrType(type))
     return convertLayout(*ptrType);

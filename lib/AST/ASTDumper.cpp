@@ -62,6 +62,7 @@ private:
   auto dump(const Expr *node) -> void;
   auto dump(const UnitExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
+  auto dump(const LambdaExpr *node) -> void;
   auto dump(const CallExpr *node) -> void;
   auto dump(const StructLiteralExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
@@ -125,6 +126,21 @@ private:
 
     if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
       return "Ptr<" + formatTypeNode(ptrType->pointeeTypeNode()) + ">";
+
+    if (auto *functionType = dyn_cast<FunctionTypeNode>(node)) {
+      std::string result = "fn(";
+      std::string separator;
+      for (size_t i = 0; i < functionType->parameterTypes().size(); ++i) {
+        result += separator;
+        if (functionType->parameterCanMutateObject()[i])
+          result += "mut ";
+        result += formatTypeNode(functionType->parameterTypes()[i].get());
+        separator = ", ";
+      }
+      result += "): ";
+      result += formatTypeNode(functionType->returnTypeNode());
+      return result;
+    }
 
     if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
       std::string result = std::string(genericType->name()) + "<";
@@ -345,7 +361,7 @@ auto Dumper::dump(const Expr *node) -> void {
       .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
             FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
             InterpolatedStringExpr, ObjectIdentityExpr, CharLiteralExpr,
-            TypeInfoExpr, TypeLayoutExpr,
+            TypeInfoExpr, TypeLayoutExpr, LambdaExpr,
             HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr,
             MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -366,11 +382,29 @@ auto Dumper::dump(const BlockExpr *node, std::string_view string) -> void {
     dump(expr.get());
 }
 
+auto Dumper::dump(const LambdaExpr *node) -> void {
+  INDENT();
+  errs() << "LambdaExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " function=" << node->functionName() << " parameters=";
+  std::string separator;
+  for (auto &parameter : node->parameters()) {
+    errs() << separator << parameter.name << ": "
+           << formatType(parameter.type);
+    separator = ", ";
+  }
+  errs() << "\n";
+  if (node->body())
+    dump(node->body().get());
+}
+
 auto Dumper::dump(const CallExpr *node) -> void {
   INDENT();
   errs() << "CallExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " callee=" << node->name();
+  if (node->isIndirectCall())
+    errs() << " indirect";
   errs() << "\n";
   if (node->hasReceiver())
     dump(node->receiver().get());
@@ -392,6 +426,8 @@ auto Dumper::dump(const VariableExpr *node) -> void {
   errs() << "VariableExpr " << loc(node)
          << " type=" << formatType(node->type())
          << " name=" << node->name();
+  if (node->isFunctionValue())
+    errs() << " functionValue";
   if (node->comptimeValue())
     errs() << " comptimeValue="
            << formatComptimeValue(*node->comptimeValue());

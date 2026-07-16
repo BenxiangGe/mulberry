@@ -13,6 +13,7 @@ enum class TypeKind {
   Builtin,
   Struct,
   Array,
+  Function,
   Ptr,
 };
 
@@ -145,6 +146,26 @@ private:
   uint64_t _size = 0;
 };
 
+class FunctionType final : public Type {
+public:
+  FunctionType(std::vector<const Type *> parameterTypes,
+               std::vector<bool> parameterCanMutateObject,
+               const Type *returnType);
+
+  static auto classof(const Type *type) -> bool;
+
+  auto parameterTypes() const -> const std::vector<const Type *> &;
+
+  auto parameterCanMutateObject() const -> const std::vector<bool> &;
+
+  auto returnType() const -> const Type *;
+
+private:
+  std::vector<const Type *> _parameterTypes;
+  std::vector<bool> _parameterCanMutateObject;
+  const Type *_returnType = nullptr;
+};
+
 class PtrType final : public Type {
 public:
   explicit PtrType(const Type *pointeeType);
@@ -160,6 +181,7 @@ private:
 auto sameType(const Type *lhs, const Type *rhs) -> bool;
 auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getArrayType(const Type *type) -> const ArrayType *;
+auto getFunctionType(const Type *type) -> const FunctionType *;
 auto getStructType(const Type *type) -> const StructType *;
 auto getPtrType(const Type *type) -> const PtrType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
@@ -198,6 +220,11 @@ public:
 
   auto createArrayType(const Type *elementType, uint64_t size) const
       -> const ArrayType *;
+
+  auto createFunctionType(
+      std::vector<const Type *> parameterTypes,
+      std::vector<bool> parameterCanMutateObject,
+      const Type *returnType) const -> const FunctionType *;
 
   auto createPtrType(const Type *pointeeType) const -> const PtrType *;
 };

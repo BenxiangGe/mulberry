@@ -2,6 +2,7 @@
 #include "llvm/Support/Casting.h"
 
 #include <algorithm>
+#include <cassert>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -153,6 +154,33 @@ auto ArrayType::size() const -> uint64_t {
   return _size;
 }
 
+FunctionType::FunctionType(
+    std::vector<const Type *> parameterTypes,
+    std::vector<bool> parameterCanMutateObject, const Type *returnType)
+    : Type(TypeKind::Function), _parameterTypes(std::move(parameterTypes)),
+      _parameterCanMutateObject(std::move(parameterCanMutateObject)),
+      _returnType(returnType) {
+  assert(_parameterTypes.size() == _parameterCanMutateObject.size());
+}
+
+auto FunctionType::classof(const Type *type) -> bool {
+  return type && type->kind() == TypeKind::Function;
+}
+
+auto FunctionType::parameterTypes() const
+    -> const std::vector<const Type *> & {
+  return _parameterTypes;
+}
+
+auto FunctionType::parameterCanMutateObject() const
+    -> const std::vector<bool> & {
+  return _parameterCanMutateObject;
+}
+
+auto FunctionType::returnType() const -> const Type * {
+  return _returnType;
+}
+
 PtrType::PtrType(const Type *pointeeType)
     : Type(TypeKind::Ptr), _pointeeType(pointeeType) {}
 
@@ -177,6 +205,21 @@ auto formatArrayType(const ArrayType& type) -> std::string {
 
 auto formatPtrType(const PtrType& type) -> std::string {
   return "Ptr<" + formatType(type.pointeeType()) + ">";
+}
+
+auto formatFunctionType(const FunctionType& type) -> std::string {
+  std::string result = "fn(";
+  std::string separator;
+  for (size_t i = 0; i < type.parameterTypes().size(); ++i) {
+    result += separator;
+    if (type.parameterCanMutateObject()[i])
+      result += "mut ";
+    result += formatType(type.parameterTypes()[i]);
+    separator = ", ";
+  }
+  result += "): ";
+  result += isUnitType(type.returnType()) ? "()" : formatType(type.returnType());
+  return result;
 }
 
 auto alignTo(uint64_t offset, uint64_t alignment) -> uint64_t {
@@ -257,6 +300,19 @@ auto samePtrType(const PtrType& lhs, const PtrType& rhs) -> bool {
   return sameType(lhs.pointeeType(), rhs.pointeeType());
 }
 
+auto sameFunctionType(const FunctionType& lhs, const FunctionType& rhs)
+    -> bool {
+  if (lhs.parameterTypes().size() != rhs.parameterTypes().size() ||
+      lhs.parameterCanMutateObject() != rhs.parameterCanMutateObject() ||
+      !sameType(lhs.returnType(), rhs.returnType()))
+    return false;
+
+  for (size_t i = 0; i < lhs.parameterTypes().size(); ++i)
+    if (!sameType(lhs.parameterTypes()[i], rhs.parameterTypes()[i]))
+      return false;
+  return true;
+}
+
 auto structTypeStorage()
     -> std::vector<std::unique_ptr<StructType>> & {
   static auto &types = *new std::vector<std::unique_ptr<StructType>>();
@@ -275,6 +331,12 @@ auto ptrTypeStorage()
   return types;
 }
 
+auto functionTypeStorage()
+    -> std::vector<std::unique_ptr<FunctionType>> & {
+  static auto &types = *new std::vector<std::unique_ptr<FunctionType>>();
+  return types;
+}
+
 auto findArrayType(const Type *elementType, uint64_t size)
     -> const ArrayType * {
   for (const auto &type : arrayTypeStorage())
@@ -287,6 +349,24 @@ auto findPtrType(const Type *pointeeType) -> const PtrType * {
   for (const auto &type : ptrTypeStorage())
     if (type->pointeeType() == pointeeType)
       return type.get();
+  return nullptr;
+}
+
+auto findFunctionType(const std::vector<const Type *> &parameterTypes,
+                      const std::vector<bool> &parameterCanMutateObject,
+                      const Type *returnType) -> const FunctionType * {
+  for (const auto &type : functionTypeStorage()) {
+    if (type->parameterTypes().size() != parameterTypes.size() ||
+        type->parameterCanMutateObject() != parameterCanMutateObject ||
+        !sameType(type->returnType(), returnType))
+      continue;
+
+    bool matches = true;
+    for (size_t i = 0; i < parameterTypes.size(); ++i)
+      matches = matches && sameType(type->parameterTypes()[i], parameterTypes[i]);
+    if (matches)
+      return type.get();
+  }
   return nullptr;
 }
 
@@ -333,6 +413,9 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
   case TypeKind::Array:
     return sameArrayType(*llvm::cast<ArrayType>(lhs),
                          *llvm::cast<ArrayType>(rhs));
+  case TypeKind::Function:
+    return sameFunctionType(*llvm::cast<FunctionType>(lhs),
+                            *llvm::cast<FunctionType>(rhs));
   case TypeKind::Ptr:
     return samePtrType(*llvm::cast<PtrType>(lhs),
                        *llvm::cast<PtrType>(rhs));
@@ -347,6 +430,10 @@ auto getBuiltinType(const Type *type) -> const BuiltinType * {
 
 auto getArrayType(const Type *type) -> const ArrayType * {
   return llvm::dyn_cast_if_present<ArrayType>(type);
+}
+
+auto getFunctionType(const Type *type) -> const FunctionType * {
+  return llvm::dyn_cast_if_present<FunctionType>(type);
 }
 
 auto getStructType(const Type *type) -> const StructType * {
@@ -470,6 +557,8 @@ auto formatType(const Type *type) -> std::string {
     return std::string(llvm::cast<StructType>(type)->name());
   case TypeKind::Array:
     return formatArrayType(*llvm::cast<ArrayType>(type));
+  case TypeKind::Function:
+    return formatFunctionType(*llvm::cast<FunctionType>(type));
   case TypeKind::Ptr:
     return formatPtrType(*llvm::cast<PtrType>(type));
   }
@@ -545,6 +634,21 @@ auto TypeContext::createArrayType(const Type *elementType,
   auto &arrayTypes = arrayTypeStorage();
   arrayTypes.push_back(std::make_unique<ArrayType>(elementType, size));
   return arrayTypes.back().get();
+}
+
+auto TypeContext::createFunctionType(
+    std::vector<const Type *> parameterTypes,
+    std::vector<bool> parameterCanMutateObject,
+    const Type *returnType) const -> const FunctionType * {
+  if (auto *type = findFunctionType(parameterTypes, parameterCanMutateObject,
+                                    returnType))
+    return type;
+
+  auto &functionTypes = functionTypeStorage();
+  functionTypes.push_back(std::make_unique<FunctionType>(
+      std::move(parameterTypes), std::move(parameterCanMutateObject),
+      returnType));
+  return functionTypes.back().get();
 }
 
 auto TypeContext::createPtrType(const Type *pointeeType) const

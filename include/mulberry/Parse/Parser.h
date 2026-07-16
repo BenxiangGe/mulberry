@@ -107,6 +107,7 @@ private:
   auto qualifyPackageName(std::string_view name) const -> std::string;
 
   auto parseUnitType(std::unique_ptr<TypeNode> &typeNode) -> MulberryResult;
+  auto parseFunctionType(std::unique_ptr<TypeNode> &typeNode) -> MulberryResult;
   auto parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
       -> MulberryResult;
   auto parseComptimeParams(std::vector<ComptimeParam> &parameters)
@@ -162,6 +163,8 @@ private:
 
   auto parseVariableExpr(std::unique_ptr<VariableExpr> &identifier)
       -> MulberryResult;
+
+  auto parseLambdaExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
 
   auto parseDecimal(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;

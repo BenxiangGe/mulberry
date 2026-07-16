@@ -65,6 +65,7 @@ TOK_PUNCTUATION(star, "*")
 TOK_PUNCTUATION(diff, "-")
 TOK_PUNCTUATION(div, "/")
 TOK_PUNCTUATION(rem, "%")
+TOK_PUNCTUATION(pipe, "|")
 
 // Keywords
 

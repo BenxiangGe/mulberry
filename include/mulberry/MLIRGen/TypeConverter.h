@@ -21,6 +21,7 @@ public:
 private:
   auto convertLayout(const BuiltinType& type) const -> mlir::Type;
   auto convertLayout(const ArrayType& type) const -> mlir::Type;
+  auto convertLayout(const FunctionType& type) const -> mlir::FunctionType;
   auto convertLayout(const PtrType& type) const -> mlir::Type;
   auto convertLayout(const StructType& type) const
       -> mlir::mulberry_core::RecordType;

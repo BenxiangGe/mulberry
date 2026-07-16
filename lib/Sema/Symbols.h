@@ -35,9 +35,8 @@ struct VariableSymbol {
 };
 
 struct FunctionSymbol {
-  std::vector<const Type *> parameterTypes;
-  std::vector<bool> parameterCanMutateObject;
-  const Type *returnType = nullptr;
+  const FunctionType *type = nullptr;
+  bool isExtern = false;
 };
 
 struct ComptimeTypeAliasSymbol {
@@ -55,15 +54,11 @@ using NameMap = std::map<std::string, T, std::less<>>;
 
 class Symbols {
 public:
-  auto declareFunction(std::string_view name,
-                       std::vector<const Type *> parameterTypes,
-                       std::vector<bool> parameterCanMutateObject,
-                       const Type *returnType)
+  auto declareFunction(std::string_view name, const FunctionType *type,
+                       bool isExtern)
       -> MulberryResult {
-    return declareSymbol(
-        _functionsByName, name,
-        FunctionSymbol{std::move(parameterTypes),
-                       std::move(parameterCanMutateObject), returnType});
+    return declareSymbol(_functionsByName, name,
+                         FunctionSymbol{type, isExtern});
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {
@@ -147,6 +142,10 @@ public:
 
   auto lookupVariable(std::string_view name) -> const VariableSymbol * {
     return _variableScopes.lookup(name);
+  }
+
+  auto lookupCurrentVariable(std::string_view name) -> const VariableSymbol * {
+    return _variableScopes.lookupCurrent(name);
   }
 
 private:

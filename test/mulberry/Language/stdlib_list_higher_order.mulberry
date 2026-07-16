@@ -1,0 +1,82 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Box {
+  value: UInt64
+}
+
+fn double(value: UInt64): UInt64 {
+  return value * 2;
+}
+
+fn toBox(value: UInt64): Box {
+  return Box { value + 10 };
+}
+
+fn readBox(box: Box): UInt64 {
+  return box.value;
+}
+
+fn show(value: UInt64): () {
+  io.println(value);
+}
+
+fn main(): UInt64 {
+  var values = list.from([1, 2, 3, 4]);
+  var doubled = values.map(double);
+  var selected = doubled.filter(|value| value > 4);
+  var total = selected.reduce(0, |sum, value| sum + value);
+  io.println(total);
+
+  var boxes = values.map(toBox);
+  var largeBoxes = boxes.filter(|box| box.value > 11);
+  var unboxed = largeBoxes.map(readBox);
+  io.println(unboxed.reduce(0, |sum, value| sum + value));
+
+  unboxed.forEach(show);
+  values.forEach(|value| io.println(value + 20));
+
+  var empty: List<UInt64> = list.withCapacity(0);
+  var emptyMapped = empty.map(|value| Box { value });
+  var emptyFiltered = emptyMapped.filter(|box| box.value > 0);
+  emptyFiltered.forEach(|box| io.println(box.value));
+  io.println(emptyFiltered.size());
+  io.println(empty.reduce(42, |sum, value| sum + value));
+  return 0;
+}
+
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_map__UInt64__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_filter__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_reduce__UInt64__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_forEach__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_list_List_map__UInt64__Box
+# AST-DAG: LambdaExpr {{.*}}type=fn(UInt64): Bool
+# AST-DAG: LambdaExpr {{.*}}type=fn(UInt64, UInt64): UInt64
+# AST-DAG: LambdaExpr {{.*}}type=fn(Box): Bool
+
+# MLIR-DAG: func.func @std_list_List_map__UInt64__UInt64
+# MLIR-DAG: func.func @std_list_List_map__UInt64__Box
+# MLIR-DAG: func.func @std_list_List_filter__Box
+# MLIR-DAG: func.func @std_list_List_reduce__UInt64__UInt64
+# MLIR-DAG: func.func @std_list_List_forEach__UInt64
+# MLIR-DAG: func.call_indirect
+
+# LLVM-DAG: define ptr @std_list_List_map__UInt64__Box
+# LLVM-DAG: define ptr @std_list_List_filter__Box
+# LLVM-DAG: call i64 %{{.*}}(i64
+# LLVM-DAG: call ptr %{{.*}}(i64
+
+# JIT: 14
+# JIT-NEXT: 39
+# JIT-NEXT: 12
+# JIT-NEXT: 13
+# JIT-NEXT: 14
+# JIT-NEXT: 21
+# JIT-NEXT: 22
+# JIT-NEXT: 23
+# JIT-NEXT: 24
+# JIT-NEXT: 0
+# JIT-NEXT: 42

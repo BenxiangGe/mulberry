@@ -52,6 +52,49 @@ comptime List<T> = struct {
     self.length = self.length + 1;
     return 0;
   }
+
+  pub fn forEach(self: List<T>, action: fn(T): ()): () {
+    var index = 0;
+    while index < self.length {
+      action(self.data[index]);
+      index = index + 1;
+    }
+    return;
+  }
+
+  pub fn map<U>(self: List<T>, transform: fn(T): U): List<U> {
+    var result: List<U> = withCapacity(self.length);
+    var index = 0;
+    while index < self.length {
+      result.push(transform(self.data[index]));
+      index = index + 1;
+    }
+    return result;
+  }
+
+  pub fn filter(self: List<T>, predicate: fn(T): Bool): List<T> {
+    var result: List<T> = withCapacity(self.length);
+    var index = 0;
+    while index < self.length {
+      const value = self.data[index];
+      if predicate(value) {
+        result.push(value);
+      }
+      index = index + 1;
+    }
+    return result;
+  }
+
+  pub fn reduce<U>(self: List<T>, initial: U,
+                   combine: fn(U, T): U): U {
+    var result = initial;
+    var index = 0;
+    while index < self.length {
+      result = combine(result, self.data[index]);
+      index = index + 1;
+    }
+    return result;
+  }
 };
 
 fn withCapacity<T>(capacity: UInt64): List<T> {

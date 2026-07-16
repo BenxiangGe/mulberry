@@ -27,6 +27,12 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
+  auto setName(std::string_view name) -> void { _name = name; }
+
+  auto isFunctionValue() const -> bool { return _isFunctionValue; }
+
+  auto setFunctionValue() -> void { _isFunctionValue = true; }
+
   auto isLvalue() const -> bool override { return !_comptimeValue; }
 
   auto comptimeValue() const -> const std::optional<ComptimeValue> & {
@@ -40,6 +46,7 @@ public:
 private:
   std::string _name;
   std::optional<ComptimeValue> _comptimeValue;
+  bool _isFunctionValue = false;
 };
 
 class MemberExpr final : public Expr {
@@ -119,11 +126,16 @@ public:
 
   auto isLoweredMethodCall() const -> bool { return _isLoweredMethodCall; }
 
+  auto isIndirectCall() const -> bool { return _isIndirectCall; }
+
+  auto setIndirectCall() -> void { _isIndirectCall = true; }
+
 private:
   std::string _name;
   std::unique_ptr<Expr> _receiver;
   VectorUniquePtr<Expr> _expressions;
   bool _isLoweredMethodCall = false;
+  bool _isIndirectCall = false;
 
 public:
   auto begin() const -> decltype(_expressions.begin()) {

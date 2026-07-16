@@ -16,6 +16,12 @@ ERROR(internal_only, "internal feature is not available to user code")
 ERROR(expected_comptime_value, "expected a comptime value")
 ERROR(expected_comptime_type, "expected a comptime Type")
 ERROR(comptime_type_runtime, "comptime Type cannot be used as a runtime value")
+ERROR(extern_function_value,
+      "extern function cannot be used as a function value")
+ERROR(lambda_expected_function_type,
+      "lambda requires an expected function type")
+ERROR(lambda_capture,
+      "noncapturing lambda cannot capture a local variable")
 ERROR(invalid_reflection_query, "reflection query is not valid for this type")
 
 ERROR(expected_bool, "expected Bool")

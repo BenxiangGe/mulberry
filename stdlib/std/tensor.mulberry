@@ -47,13 +47,7 @@ comptime Tensor<T> = struct {
 };
 
 fn numel(shape: List<UInt64>): UInt64 {
-  var count = 1;
-  var index = 0;
-  while index < shape.size() {
-    count = count * shape[index];
-    index = index + 1;
-  }
-  return count;
+  return shape.reduce(1, |count, dimension| count * dimension);
 }
 
 fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {

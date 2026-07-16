@@ -207,6 +207,9 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   if (tokenIs(Token::l_paren))
     return parseUnitType(typeNode);
 
+  if (tokenIs(Token::kw_fn))
+    return parseFunctionType(typeNode);
+
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, diag::expected_type))
@@ -257,6 +260,40 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   }
 
   typeNode = std::move(elementTypeNode);
+  return success();
+}
+
+auto Parser::parseFunctionType(unique_ptr<TypeNode> &typeNode)
+    -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_fn);
+  if (parseToken(Token::l_paren, diag::expected_l_paren))
+    return failure();
+
+  VectorUniquePtr<TypeNode> parameterTypes;
+  std::vector<bool> parameterCanMutateObject;
+  while (!tokenIs(Token::r_paren) && !tokenIs(Token::eof)) {
+    parameterCanMutateObject.push_back(consumeIf(Token::kw_mut));
+    unique_ptr<TypeNode> parameterType;
+    if (parseType(parameterType))
+      return failure();
+    parameterTypes.push_back(std::move(parameterType));
+
+    if (tokenIs(Token::r_paren))
+      break;
+    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+      return failure();
+  }
+
+  unique_ptr<TypeNode> returnType;
+  if (parseToken(Token::r_paren, diag::expected_r_paren) ||
+      parseToken(Token::colon, diag::expected_colon) ||
+      parseType(returnType))
+    return failure();
+
+  typeNode = make_unique<FunctionTypeNode>(
+      location, std::move(parameterTypes),
+      std::move(parameterCanMutateObject), std::move(returnType));
   return success();
 }
 
@@ -766,6 +803,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
     return parseNegativeFloat(expr);
   case Token::identifier:
     return parseIdentifierExpr(expr);
+  case Token::pipe:
+    return parseLambdaExpr(expr);
   case Token::l_square:
     return parseArrayLiteral(expr);
   case Token::kw_true: {
@@ -800,6 +839,32 @@ auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
   if (parseToken(Token::identifier, diag::expected_id))
     return failure();
   identifier = make_unique<VariableExpr>(location, name);
+  return success();
+}
+
+auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::pipe);
+
+  std::vector<LambdaExpr::Parameter> parameters;
+  while (!tokenIs(Token::pipe) && !tokenIs(Token::eof)) {
+    auto parameterLocation = tokenLoc();
+    auto name = spelling();
+    if (parseToken(Token::identifier, diag::expected_id))
+      return failure();
+    parameters.push_back({parameterLocation, name.str()});
+
+    if (tokenIs(Token::pipe))
+      break;
+    if (parseToken(Token::comma, diag::expected_comma_or_pipe))
+      return failure();
+  }
+
+  unique_ptr<Expr> body;
+  if (parseToken(Token::pipe, diag::expected_pipe) || parseExpression(body))
+    return failure();
+  expr = make_unique<LambdaExpr>(location, std::move(parameters),
+                                 std::move(body));
   return success();
 }
 

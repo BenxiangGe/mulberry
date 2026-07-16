@@ -86,6 +86,9 @@ static auto convertTensorToDataMemRefType(TensorType type)
 // ABI lowering. Domain packages such as mulberry.nn are intentionally not
 // lowered here; they live outside core.
 static auto convertBackendValueType(Type type) -> std::optional<Type> {
+  if (llvm::isa<FunctionType>(type))
+    return getPtrType(type.getContext());
+
   if (auto tensorType = llvm::dyn_cast<TensorType>(type))
     return convertTensorToMemRefType(tensorType);
 
@@ -737,14 +740,64 @@ static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
 
 class MulberryTypeConverter : public TypeConverter {
 public:
-    MulberryTypeConverter() {
-      addConversion([](Type type) { return type; });
-      addConversion(rejectUnloweredMulberryType);
-      addConversion(convertRecordLayoutType);
-      addConversion(convertPointerValueType);
-      addConversion(convertTensorToMemRefType);
+  MulberryTypeConverter() {
+    addConversion([](Type type) { return type; });
+    addConversion(rejectUnloweredMulberryType);
+    addConversion(convertRecordLayoutType);
+    addConversion(convertPointerValueType);
+    addConversion(convertTensorToMemRefType);
+    addConversion([this](FunctionType type) -> std::optional<Type> {
+      SmallVector<Type> inputs;
+      SmallVector<Type> results;
+      if (failed(convertTypes(type.getInputs(), inputs)) ||
+          failed(convertTypes(type.getResults(), results)))
+        return std::nullopt;
+      return FunctionType::get(type.getContext(), inputs, results);
+    });
     // Keep unsupported Mulberry types illegal until each one has a real
     // lowering. The identity conversion above is only for non-Mulberry types.
+  }
+};
+
+class FunctionConstantTypeConversion
+    : public OpConversionPattern<func::ConstantOp> {
+public:
+  using OpConversionPattern<func::ConstantOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::ConstantOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto convertedType = llvm::dyn_cast_or_null<FunctionType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!convertedType)
+      return rewriter.notifyMatchFailure(
+          op, "function constant needs a converted function type");
+
+    auto constant = func::ConstantOp::create(
+        rewriter, op.getLoc(), convertedType, op.getValueAttr());
+    rewriter.replaceOp(op, constant.getResult());
+    return success();
+  }
+};
+
+class CallIndirectTypeConversion
+    : public OpConversionPattern<func::CallIndirectOp> {
+public:
+  using OpConversionPattern<func::CallIndirectOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::CallIndirectOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    if (!llvm::isa<FunctionType>(adaptor.getCallee().getType()))
+      return rewriter.notifyMatchFailure(
+          op, "indirect callee needs a converted function type");
+
+    auto call = func::CallIndirectOp::create(
+        rewriter, op.getLoc(), adaptor.getCallee(),
+        adaptor.getCalleeOperands());
+    call->setAttrs(op->getAttrDictionary());
+    rewriter.replaceOp(op, call.getResults());
+    return success();
   }
 };
 
@@ -929,6 +982,16 @@ public:
 
     auto load = LLVM::LoadOp::create(rewriter, op.getLoc(), *valueType,
                                      adaptor.getPtr());
+    if (llvm::isa<FunctionType>(pointeeType)) {
+      // FuncToLLVM later turns the SSA function value into the same opaque
+      // pointer already used by LLVM storage; reconciliation removes this cast.
+      auto sourceType = getTypeConverter()->convertType(pointeeType);
+      auto cast = UnrealizedConversionCastOp::create(
+          rewriter, op.getLoc(), sourceType, load.getResult());
+      rewriter.replaceOp(op, cast.getResult(0));
+      return success();
+    }
+
     rewriter.replaceOp(op, load.getResult());
     return success();
   }
@@ -956,8 +1019,14 @@ public:
       return rewriter.notifyMatchFailure(
           op, "store target must be a lowered storage slot");
 
-    LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getValue(),
-                          adaptor.getPtr());
+    auto value = adaptor.getValue();
+    if (llvm::isa<FunctionType>(pointeeType)) {
+      // This is the inverse bridge of the function-value load above.
+      value = UnrealizedConversionCastOp::create(
+                  rewriter, op.getLoc(), *valueType, value)
+                  .getResult(0);
+    }
+    LLVM::StoreOp::create(rewriter, op.getLoc(), value, adaptor.getPtr());
     rewriter.eraseOp(op);
     return success();
   }
@@ -1360,9 +1429,14 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         [&](Operation* op) {
           return typeConverter.isLegal(op);
         });
+    target.addDynamicallyLegalOp<func::ConstantOp, func::CallIndirectOp>(
+        [&](Operation* op) {
+          return typeConverter.isLegal(op);
+        });
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<AllocaOpLowering, HeapAllocOpLowering,
+    patterns.add<AllocaOpLowering, CallIndirectTypeConversion,
+                 FunctionConstantTypeConversion, HeapAllocOpLowering,
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordGetFieldOpLowering, StoreOpLowering,
                  TensorStorageAllocOpLowering,

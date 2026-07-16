@@ -1,5 +1,6 @@
 # RUN: mulberry-driver -typecheck %s
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
@@ -11,9 +12,20 @@ fn main(): UInt64 {
   return 0;
 }
 
+# MLIR-LABEL: func.func @std.tensor.numel
+# MLIR: func.constant @__mulberry_lambda_{{[0-9]+}} : (i64, i64) -> i64
+# MLIR: call @std_list_List_reduce__UInt64__UInt64
+# MLIR-LABEL: func.func @main
 # MLIR: call @std_tensor_zeros__UInt8
 # MLIR: call @std_tensor_zeros__Float32
+# MLIR-LABEL: func.func @std_list_List_reduce__UInt64__UInt64
+# MLIR: func.call_indirect
 # MLIR: call @mulberry_zero_memory
+
+# LLVM-LABEL: define i64 @std.tensor.numel
+# LLVM: call i64 @std_list_List_reduce__UInt64__UInt64
+# LLVM-LABEL: define i64 @std_list_List_reduce__UInt64__UInt64
+# LLVM: call i64 %{{.*}}(i64
 
 # JIT: 4
 # JIT-NEXT: 0

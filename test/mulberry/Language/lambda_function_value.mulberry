@@ -1,0 +1,88 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Box {
+  value: UInt64
+}
+
+fn apply(callback: fn(UInt64): UInt64,
+         value: UInt64): UInt64 {
+  return callback(value);
+}
+
+fn applyTwo(callback: fn(UInt64, UInt64): UInt64,
+            lhs: UInt64, rhs: UInt64): UInt64 {
+  return callback(lhs, rhs);
+}
+
+fn applyGeneric<T, U>(callback: fn(T): U, value: T): U {
+  return callback(value);
+}
+
+fn applyMutable(callback: fn(mut Box): UInt64,
+                mut box: Box): UInt64 {
+  return callback(box);
+}
+
+fn bump(mut box: Box): UInt64 {
+  box.value = box.value + 1;
+  return box.value;
+}
+
+fn forOne(action: fn(UInt64): (), value: UInt64): () {
+  action(value);
+}
+
+fn callZero(callback: fn(): UInt64): UInt64 {
+  return callback();
+}
+
+fn makeIncrement(): fn(UInt64): UInt64 {
+  return |value| value + 1;
+}
+
+fn main(): UInt64 {
+  const increment: fn(UInt64): UInt64 = |value| value + 1;
+  io.println(increment(40));
+  io.println(apply(|value| value * 2, 21));
+  io.println(applyTwo(|lhs, rhs| lhs + rhs, 20, 22));
+  io.println(applyGeneric(|value| value + 1, 41));
+
+  var box = Box { 41 };
+  io.println(applyMutable(|value| bump(value), box));
+  forOne(|value| io.println(value), 7);
+
+  const returned = makeIncrement();
+  io.println(returned(41));
+  io.println(callZero(|| 42));
+  return 0;
+}
+
+# AST-DAG: LambdaExpr {{.*}}type=fn(UInt64): UInt64 function=__mulberry_lambda_{{[0-9]+}} parameters=value: UInt64
+# AST-DAG: LambdaExpr {{.*}}type=fn(UInt64, UInt64): UInt64
+# AST-DAG: LambdaExpr {{.*}}type=fn(mut Box): UInt64
+# AST-DAG: LambdaExpr {{.*}}type=fn(UInt64): ()
+# AST-DAG: LambdaExpr {{.*}}type=fn(): UInt64
+# AST-DAG: CallExpr {{.*}}type=UInt64 callee=increment indirect
+# AST-DAG: CallExpr {{.*}}callee=applyGeneric__UInt64__UInt64
+
+# MLIR-DAG: func.func private @__mulberry_lambda_{{[0-9]+}}(%arg0: i64) -> i64
+# MLIR-DAG: func.func private @__mulberry_lambda_{{[0-9]+}}(%arg0: !mulberry_core.ptr<!mulberry_core.record<Box
+# MLIR-DAG: %{{.*}} = func.constant @__mulberry_lambda_{{[0-9]+}} : (i64) -> i64
+# MLIR-DAG: func.call_indirect %{{.*}}(%{{.*}}) : (i64) -> i64
+# MLIR-DAG: func.func @applyGeneric__UInt64__UInt64(%arg0: (i64) -> i64
+
+# LLVM-DAG: define i64 @__mulberry_lambda_{{[0-9]+}}(i64
+# LLVM-DAG: call i64 %{{.*}}(i64
+
+# JIT: 41
+# JIT-NEXT: 42
+# JIT-NEXT: 42
+# JIT-NEXT: 42
+# JIT-NEXT: 42
+# JIT-NEXT: 7
+# JIT-NEXT: 42
+# JIT-NEXT: 42

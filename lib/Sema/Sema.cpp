@@ -252,6 +252,16 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
         cloneTypeNode(ptrType->pointeeTypeNode()), ptrType->location());
   }
 
+  if (auto *functionType = dyn_cast<FunctionTypeNode>(node)) {
+    VectorUniquePtr<TypeNode> parameterTypes;
+    for (auto &parameterType : functionType->parameterTypes())
+      parameterTypes.push_back(cloneTypeNode(parameterType.get()));
+    return std::make_unique<FunctionTypeNode>(
+        functionType->location(), std::move(parameterTypes),
+        functionType->parameterCanMutateObject(),
+        cloneTypeNode(functionType->returnTypeNode()));
+  }
+
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
     std::vector<ComptimeArg> arguments;
     for (auto &argument : genericType->arguments()) {
@@ -335,6 +345,16 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
         location, "Array", std::move(arguments));
   }
 
+  if (auto *functionType = getFunctionType(type)) {
+    VectorUniquePtr<TypeNode> parameterTypes;
+    for (auto *parameterType : functionType->parameterTypes())
+      parameterTypes.push_back(typeToTypeNode(parameterType, location));
+    return std::make_unique<FunctionTypeNode>(
+        location, std::move(parameterTypes),
+        functionType->parameterCanMutateObject(),
+        typeToTypeNode(functionType->returnType(), location));
+  }
+
   auto *ptrType = cast<PtrType>(type);
   return std::make_unique<PtrTypeNode>(
       typeToTypeNode(ptrType->pointeeType(), location), location);
@@ -372,6 +392,18 @@ auto substituteTypeNode(const TypeNode *node,
     return std::make_unique<PtrTypeNode>(
         substituteTypeNode(ptrType->pointeeTypeNode(), substitution),
         ptrType->location());
+  }
+
+  if (auto *functionType = dyn_cast<FunctionTypeNode>(node)) {
+    VectorUniquePtr<TypeNode> parameterTypes;
+    for (auto &parameterType : functionType->parameterTypes()) {
+      parameterTypes.push_back(
+          substituteTypeNode(parameterType.get(), substitution));
+    }
+    return std::make_unique<FunctionTypeNode>(
+        functionType->location(), std::move(parameterTypes),
+        functionType->parameterCanMutateObject(),
+        substituteTypeNode(functionType->returnTypeNode(), substitution));
   }
 
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
@@ -465,6 +497,14 @@ auto containsComptimeParameter(const TypeNode *node,
 
   if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
     return containsComptimeParameter(ptrType->pointeeTypeNode(), parameters);
+
+  if (auto *functionType = dyn_cast<FunctionTypeNode>(node)) {
+    for (auto &parameterType : functionType->parameterTypes())
+      if (containsComptimeParameter(parameterType.get(), parameters))
+        return true;
+    return containsComptimeParameter(functionType->returnTypeNode(),
+                                     parameters);
+  }
 
   if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
     for (auto &argument : genericType->arguments()) {
@@ -573,6 +613,15 @@ auto substituteExpr(const Expr *node,
   switch (node->getKind()) {
   case Expr::Expr_Unit:
     return std::make_unique<UnitExpr>(node->location());
+  case Expr::Expr_Lambda: {
+    auto *expr = cast<LambdaExpr>(node);
+    std::vector<LambdaExpr::Parameter> parameters;
+    for (auto &parameter : expr->parameters())
+      parameters.push_back({parameter.location, parameter.name});
+    return std::make_unique<LambdaExpr>(
+        expr->location(), std::move(parameters),
+        substituteExpr(expr->body().get(), substitutions));
+  }
   case Expr::Expr_DecimalLiteral: {
     auto *expr = cast<DecimalLiteralExpr>(node);
     return std::make_unique<DecimalLiteralExpr>(expr->location(),
@@ -767,6 +816,8 @@ public:
     auto declarations = node.takeDeclarations();
     for (auto &function : _instantiatedFunctions)
       declarations.push_back(std::move(function));
+    for (auto &function : _lambdaFunctions)
+      declarations.push_back(std::move(function));
     node.setDeclarations(std::move(declarations));
 
     std::string mainName = node.packageName().empty()
@@ -774,8 +825,8 @@ public:
                                : std::string(node.packageName()) + ".main";
     auto *mainSignature = lookupFunction(mainName);
     if (!mainSignature ||
-        !mainSignature->parameterTypes.empty() ||
-        !isUInt64Type(mainSignature->returnType))
+        !mainSignature->type->parameterTypes().empty() ||
+        !isUInt64Type(mainSignature->type->returnType()))
       return emitError(llvm::SMLoc{}, diag::undefined_main);
     return success();
   }
@@ -794,11 +845,14 @@ private:
   std::map<std::string, std::string> _instantiatedFunctionPackages;
   std::map<std::string, BuiltinHandler, std::less<>> _builtinHandlers;
   VectorUniquePtr<FunctionDecl> _instantiatedFunctions;
+  VectorUniquePtr<FunctionDecl> _lambdaFunctions;
   const std::map<std::string, std::string> &_importAliases =
       emptyImportAliases();
   std::string _currentPackageName;
   const Type *_currentFunctionReturnType = nullptr;
   int _whileDepth = 0;
+  int _noncapturingLambdaDepth = 0;
+  uint64_t _lambdaCounter = 0;
 
   enum class UnitPolicy {
     Allow,
@@ -817,7 +871,8 @@ private:
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
       -> MulberryResult;
-  auto semaFunctionSignature(Prototype *node) -> MulberryResult;
+  auto semaFunctionSignature(Prototype *node, bool isExtern = false)
+      -> MulberryResult;
   auto sema(FunctionDecl *node) -> MulberryResult;
   auto sema(StructDecl *node) -> MulberryResult;
   auto sema(ComptimeTypeAliasDecl *node) -> MulberryResult;
@@ -827,7 +882,17 @@ private:
   auto sema(Expr *node, const Type *type) -> MulberryResult;
   auto sema(UnitExpr *node) -> MulberryResult;
   auto sema(BlockExpr *node) -> MulberryResult;
+  auto sema(LambdaExpr *node) -> MulberryResult;
+  auto sema(LambdaExpr *node, const FunctionType *functionType)
+      -> MulberryResult;
+  auto semaLambda(LambdaExpr *node,
+                  const std::vector<const Type *> &parameterTypes,
+                  const std::vector<bool> &parameterCanMutateObject,
+                  const Type *expectedReturnType,
+                  std::string_view packageName) -> MulberryResult;
   auto sema(CallExpr *node) -> MulberryResult;
+  auto semaIndirectCall(CallExpr *node, const FunctionType *functionType,
+                        const Type *expectedType = nullptr) -> MulberryResult;
   auto sema(StructLiteralExpr *node) -> MulberryResult;
   auto sema(VariableExpr *node) -> MulberryResult;
   auto sema(MemberExpr *node) -> MulberryResult;
@@ -855,7 +920,7 @@ private:
   auto checkAssignable(const Expr *expr) -> MulberryResult;
   auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
   auto canMutateObjectReference(const Expr *expr) -> bool;
-  auto checkMutableObjectArgument(const FunctionSymbol *signature, size_t index,
+  auto checkMutableObjectArgument(const FunctionType *functionType, size_t index,
                                   const Expr *arg) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
   auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> MulberryResult;
@@ -1126,6 +1191,16 @@ private:
     int &_whileDepth;
   };
 
+  class NoncapturingLambdaScope {
+  public:
+    explicit NoncapturingLambdaScope(int &depth) : _depth(depth) { ++_depth; }
+
+    ~NoncapturingLambdaScope() { --_depth; }
+
+  private:
+    int &_depth;
+  };
+
   class FunctionReturnTypeScope {
   public:
     FunctionReturnTypeScope(const Type *&currentFunctionReturnType,
@@ -1144,18 +1219,14 @@ private:
     const Type *_oldFunctionReturnType;
   };
 
-  auto declareFunction(std::string_view name,
-                       std::vector<const Type *> parameterTypes,
-                       std::vector<bool> parameterCanMutateObject,
-                       const Type *returnType,
+  auto declareFunction(std::string_view name, const FunctionType *type,
+                       bool isExtern,
                        std::string_view packageName = {})
       -> MulberryResult {
     if (packageName.empty())
       packageName = _currentPackageName;
     _functionPackages[std::string(name)] = std::string(packageName);
-    return _symbols.declareFunction(name, std::move(parameterTypes),
-                                    std::move(parameterCanMutateObject),
-                                    returnType);
+    return _symbols.declareFunction(name, type, isExtern);
   }
 
   auto declareGenericFunction(std::string_view name,
@@ -1280,6 +1351,13 @@ private:
 
     if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
       return hasComputedType(ptrType->pointeeTypeNode(), visitingAliases);
+
+    if (auto *functionType = dyn_cast<FunctionTypeNode>(typeNode)) {
+      for (auto &parameterType : functionType->parameterTypes())
+        if (hasComputedType(parameterType.get(), visitingAliases))
+          return true;
+      return hasComputedType(functionType->returnTypeNode(), visitingAliases);
+    }
 
     if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode)) {
       for (auto &argument : genericType->arguments()) {
@@ -1438,6 +1516,26 @@ private:
              matchGenericType(ptrPattern->pointeeTypeNode(),
                               ptrType->pointeeType(), parameters, arguments,
                               arrayLeafConstraints);
+    }
+
+    if (auto *functionPattern = dyn_cast<FunctionTypeNode>(pattern)) {
+      auto *functionType = getFunctionType(actualType);
+      if (!functionType ||
+          functionPattern->parameterTypes().size() !=
+              functionType->parameterTypes().size() ||
+          functionPattern->parameterCanMutateObject() !=
+              functionType->parameterCanMutateObject())
+        return false;
+
+      for (size_t i = 0; i < functionPattern->parameterTypes().size(); ++i) {
+        if (!matchGenericType(functionPattern->parameterTypes()[i].get(),
+                              functionType->parameterTypes()[i], parameters,
+                              arguments, arrayLeafConstraints))
+          return false;
+      }
+      return matchGenericType(functionPattern->returnTypeNode(),
+                              functionType->returnType(), parameters,
+                              arguments, arrayLeafConstraints);
     }
 
     if (auto *genericPattern = dyn_cast<GenericTypeNode>(pattern)) {
@@ -1700,6 +1798,24 @@ private:
     return _typeContext.createPtrType(pointeeType);
   }
 
+  auto resolveType(const FunctionTypeNode *typeNode) -> const Type * {
+    std::vector<const Type *> parameterTypes;
+    for (auto &parameterTypeNode : typeNode->parameterTypes()) {
+      auto *parameterType =
+          checkType(parameterTypeNode.get(), UnitPolicy::Reject);
+      if (!parameterType)
+        return nullptr;
+      parameterTypes.push_back(parameterType);
+    }
+
+    auto *returnType = checkType(typeNode->returnTypeNode(), UnitPolicy::Allow);
+    if (!returnType)
+      return nullptr;
+    return _typeContext.createFunctionType(
+        std::move(parameterTypes), typeNode->parameterCanMutateObject(),
+        returnType);
+  }
+
   auto resolveStructFields(const StructTypeNode *typeNode)
       -> std::optional<std::vector<StructField>> {
     std::vector<StructField> fields;
@@ -1866,6 +1982,9 @@ private:
 
     if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
       return resolveType(ptrType);
+
+    if (auto *functionType = dyn_cast<FunctionTypeNode>(typeNode))
+      return resolveType(functionType);
 
     if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode))
       return resolveType(genericType);
@@ -2114,18 +2233,20 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
   auto &parameters = node->parameters();
   for (size_t i = 0; i < parameters.size(); ++i) {
     auto &parameter = parameters[i];
-    auto *parameterType = signature->parameterTypes[i];
-    auto canMutateObject = signature->parameterCanMutateObject[i];
+    auto *parameterType = signature->type->parameterTypes()[i];
+    auto canMutateObject =
+        signature->type->parameterCanMutateObject()[i];
     parameter->setType(parameterType);
     if (declareVariable(parameter->variable()->name(), parameterType,
                         !canMutateObject, canMutateObject))
       return emitError(parameter->variable().get(), diag::redefinition_var);
   }
-  node->setType(signature->returnType);
+  node->setType(signature->type->returnType());
   return success();
 }
 
-auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
+auto SemaImpl::semaFunctionSignature(Prototype *node, bool isExtern)
+    -> MulberryResult {
   std::vector<const Type *> parameterTypes;
   std::vector<bool> parameterCanMutateObject;
   if (semaFunctionParameters(node, parameterTypes, parameterCanMutateObject))
@@ -2137,8 +2258,10 @@ auto SemaImpl::semaFunctionSignature(Prototype *node) -> MulberryResult {
   node->setType(returnType);
 
   auto name = node->id()->name();
-  if (declareFunction(name, std::move(parameterTypes),
-                      std::move(parameterCanMutateObject), returnType)) {
+  auto *functionType = _typeContext.createFunctionType(
+      std::move(parameterTypes), std::move(parameterCanMutateObject),
+      returnType);
+  if (declareFunction(name, functionType, isExtern)) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return emitError(node->id().get(), diagnostic);
   }
@@ -2154,7 +2277,7 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
     if (node->proto()->isGeneric())
       return emitError(node->proto()->id().get(), diag::mismatch_type);
     _symbols.resetVariables();
-    auto result = sema(node->proto().get());
+    auto result = semaFunctionSignature(node->proto().get(), true);
     _symbols.resetVariables();
     return result;
   }
@@ -2185,12 +2308,12 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
       return failure();
   }
   FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
-                                          signature->returnType);
+                                          signature->type->returnType());
   if (sema(node->body().get()))
     return failure();
 
   auto hasReturn = containsReturnStat(node->body().get());
-  if (!isUnitType(signature->returnType) && !hasReturn)
+  if (!isUnitType(signature->type->returnType()) && !hasReturn)
     return emitError(node->proto()->id().get(), diag::wrong_return_type);
 
   return success();
@@ -2214,10 +2337,14 @@ auto SemaImpl::declareStructMethods(
     auto fullName = methodFunctionName(ownerName, methodName);
     prototype->id()->setName(fullName);
     prototype->setIsMethod(true);
-    if (!prototype->isGeneric() && !typeParameters.empty())
-      prototype->setComptimeParameters(
-          std::vector<ComptimeParam>(typeParameters.begin(),
-                                     typeParameters.end()));
+    if (!typeParameters.empty()) {
+      std::vector<ComptimeParam> parameters(typeParameters.begin(),
+                                            typeParameters.end());
+      parameters.insert(parameters.end(),
+                        prototype->comptimeParameters().begin(),
+                        prototype->comptimeParameters().end());
+      prototype->setComptimeParameters(std::move(parameters));
+    }
 
     if (prototype->isGeneric()) {
       if (declareGenericFunction(fullName, method.get(), packageName)) {
@@ -2304,6 +2431,8 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
   switch (node->getKind()) {
   case Expr::Expr_Unit:
     return sema(cast<UnitExpr>(node));
+  case Expr::Expr_Lambda:
+    return sema(cast<LambdaExpr>(node));
   case Expr::Expr_DecimalLiteral:
     return sema(cast<DecimalLiteralExpr>(node));
   case Expr::Expr_FloatLiteral:
@@ -2346,6 +2475,13 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
+  if (auto *lambda = dyn_cast<LambdaExpr>(node)) {
+    auto *functionType = getFunctionType(type);
+    if (!functionType)
+      return emitError(lambda, diag::mismatch_type);
+    return sema(lambda, functionType);
+  }
+
   auto *arrayLiteral = dyn_cast<ArrayLiteralExpr>(node);
   if (arrayLiteral) {
     // Source `[...]` defaults to Array. Explicit Array annotations keep
@@ -2356,6 +2492,13 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
 
   auto *call = dyn_cast<CallExpr>(node);
   if (call && !call->hasReceiver()) {
+    if (auto *callee = lookupVariable(call->name())) {
+      auto *functionType = getFunctionType(callee->type);
+      if (!functionType)
+        return emitError(call, diag::mismatch_type);
+      return semaIndirectCall(call, functionType, type);
+    }
+
     auto name = canonicalizeImportedName(call->name());
     call->setName(name);
     if (auto *handler = lookupBuiltinHandler(name)) {
@@ -2386,6 +2529,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   auto *genericFunction = symbol->decl;
   auto *genericProto = genericFunction->proto().get();
   auto name = genericProto->id()->name();
+  auto callerPackageName = _currentPackageName;
   PackageScope packageScope(_currentPackageName,
                             genericFunctionPackageName(name));
   auto &expressions = node->expressions();
@@ -2451,9 +2595,21 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     return sema(argument, parameterType);
   };
 
+  // Sibling arguments often determine a lambda's generic parameter types.
+  // Analyze ordinary arguments first, then infer the callback result from its
+  // body and feed that type back into generic matching.
+  std::vector<size_t> deferredLambdas;
   std::vector<size_t> deferredParameters;
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto *parameterTypeNode = parameters[i]->typeNode();
+    if (dyn_cast<LambdaExpr>(expressions[i].get())) {
+      deferredLambdas.push_back(i);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "defer lambda parameter " << i << " of `" << name
+                 << "`\n");
+      continue;
+    }
+
     if (hasComputedType(parameterTypeNode)) {
       deferredParameters.push_back(i);
       LLVM_DEBUG(llvm::dbgs()
@@ -2472,6 +2628,42 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
                                comptimeParameters, inferredArguments);
     if (!matched)
       return emitError(expressions[i].get(), diag::mismatch_type);
+  }
+
+  for (auto index : deferredLambdas) {
+    auto *functionPattern =
+        dyn_cast<FunctionTypeNode>(parameters[index]->typeNode());
+    if (!functionPattern)
+      return emitError(expressions[index].get(), diag::mismatch_type);
+
+    std::vector<ComptimeParam> unresolvedParameters;
+    for (size_t i = 0; i < comptimeParameters.size(); ++i)
+      if (!inferredArguments[i].isResolved())
+        unresolvedParameters.push_back(comptimeParameters[i]);
+
+    auto substitutions =
+        comptimeSubstitutions(comptimeParameters, inferredArguments);
+    std::vector<const Type *> lambdaParameterTypes;
+    for (auto &parameterTypeNode : functionPattern->parameterTypes()) {
+      if (containsComptimeParameter(parameterTypeNode.get(),
+                                    unresolvedParameters))
+        return emitError(expressions[index].get(), diag::mismatch_type);
+
+      auto *parameterType =
+          resolveSubstitutedType(parameterTypeNode.get(), substitutions);
+      if (!parameterType)
+        return failure();
+      lambdaParameterTypes.push_back(parameterType);
+    }
+
+    auto *lambda = cast<LambdaExpr>(expressions[index].get());
+    if (semaLambda(lambda, lambdaParameterTypes,
+                   functionPattern->parameterCanMutateObject(),
+                   /*expectedReturnType=*/nullptr, callerPackageName))
+      return failure();
+    if (!matchGenericType(functionPattern, lambda->type(),
+                          comptimeParameters, inferredArguments))
+      return emitError(lambda, diag::mismatch_type);
   }
 
   for (auto &argument : inferredArguments)
@@ -2517,22 +2709,22 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   }
 
   auto *signature = cached->second;
-  if (expectedType && !sameType(expectedType, signature->returnType))
+  if (expectedType &&
+      !sameType(expectedType, signature->type->returnType()))
     return emitError(node, diag::mismatch_type);
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &arg = expressions[i];
-    auto *parameterType = signature->parameterTypes[i];
+    auto *parameterType = signature->type->parameterTypes()[i];
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (checkMutableObjectArgument(signature, i, arg.get()))
+    if (checkMutableObjectArgument(signature->type, i, arg.get()))
       return failure();
   }
 
   node->setName(concreteName);
-  if (signature->returnType)
-    node->setType(signature->returnType);
+  node->setType(signature->type->returnType());
   return success();
 }
 
@@ -2551,9 +2743,118 @@ auto SemaImpl::sema(BlockExpr *node) -> MulberryResult {
   return success();
 }
 
+auto SemaImpl::sema(LambdaExpr *node) -> MulberryResult {
+  return emitError(node, diag::lambda_expected_function_type);
+}
+
+auto SemaImpl::sema(LambdaExpr *node, const FunctionType *functionType)
+    -> MulberryResult {
+  auto packageName = _currentPackageName;
+  return semaLambda(node, functionType->parameterTypes(),
+                    functionType->parameterCanMutateObject(),
+                    functionType->returnType(), packageName);
+}
+
+auto SemaImpl::semaLambda(
+    LambdaExpr *node, const std::vector<const Type *> &parameterTypes,
+    const std::vector<bool> &parameterCanMutateObject,
+    const Type *expectedReturnType, std::string_view packageName)
+    -> MulberryResult {
+  auto &parameters = node->parameters();
+  if (parameters.size() != parameterTypes.size())
+    return emitError(node, diag::wrong_num_arg);
+
+  PackageScope packageScope(_currentPackageName, packageName);
+  VariableScope variableScope(_symbols);
+  NoncapturingLambdaScope lambdaScope(_noncapturingLambdaDepth);
+  for (size_t i = 0; i < parameters.size(); ++i) {
+    auto &parameter = parameters[i];
+    parameter.type = parameterTypes[i];
+    auto canMutateObject = parameterCanMutateObject[i];
+    if (declareVariable(parameter.name, parameter.type,
+                        /*isConstBinding=*/!canMutateObject,
+                        canMutateObject))
+      return emitError(parameter.location, diag::redefinition_var);
+  }
+
+  auto *body = node->body().get();
+  if (sema(body))
+    return failure();
+  auto *returnType = body->type();
+  if (!returnType)
+    return emitError(body, diag::mismatch_type);
+  if (expectedReturnType && !sameReturnType(expectedReturnType, returnType))
+    return emitError(body, diag::wrong_return_type);
+
+  auto *functionType = _typeContext.createFunctionType(
+      std::vector<const Type *>(parameterTypes.begin(), parameterTypes.end()),
+      parameterCanMutateObject, returnType);
+  node->setType(functionType);
+
+  // A noncapturing lambda is a normal private function plus a function value;
+  // no closure environment or lambda-specific lowering is needed.
+  std::string functionName =
+      "__mulberry_lambda_" + std::to_string(_lambdaCounter++);
+  node->setFunctionName(functionName);
+
+  VectorUniquePtr<ParameterDecl> parameterDecls;
+  for (size_t i = 0; i < parameters.size(); ++i) {
+    auto &parameter = parameters[i];
+    auto variable = std::make_unique<VariableExpr>(parameter.location,
+                                                   parameter.name);
+    variable->setType(parameter.type);
+    auto parameterDecl = std::make_unique<ParameterDecl>(
+        parameter.location, std::move(variable),
+        typeToTypeNode(parameter.type, parameter.location),
+        parameterCanMutateObject[i]);
+    parameterDecl->setType(parameter.type);
+    parameterDecls.push_back(std::move(parameterDecl));
+  }
+
+  auto functionNameNode =
+      std::make_unique<FunctionName>(node->location(), functionName);
+  auto prototype = std::make_unique<Prototype>(
+      node->location(), std::move(functionNameNode),
+      std::move(parameterDecls), typeToTypeNode(returnType, node->location()));
+  prototype->setType(returnType);
+
+  VectorUniquePtr<Stat> statements;
+  auto bodyExpression = node->takeBody();
+  if (isUnitType(returnType)) {
+    statements.push_back(std::make_unique<ExprStat>(
+        bodyExpression->location(), std::move(bodyExpression)));
+  } else {
+    statements.push_back(std::make_unique<ReturnStat>(
+        bodyExpression->location(), std::move(bodyExpression)));
+  }
+  auto functionBody =
+      std::make_unique<BlockExpr>(node->location(), std::move(statements));
+  functionBody->setType(_typeContext.getBuiltinType(BuiltinTypeKind::Unit));
+
+  if (declareFunction(functionName, functionType, /*isExtern=*/false,
+                      packageName)) {
+    auto diagnostic =
+        formatNameDiagnostic(diag::redefinition_func, functionName);
+    return emitError(node, diagnostic);
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "lift lambda to `" << functionName << "` as `"
+                          << formatType(functionType) << "`\n");
+  _lambdaFunctions.push_back(std::make_unique<FunctionDecl>(
+      node->location(), std::move(prototype), std::move(functionBody)));
+  return success();
+}
+
 auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
   if (node->hasReceiver())
     return semaMethodCall(node);
+
+  if (auto *callee = lookupVariable(node->name())) {
+    auto *functionType = getFunctionType(callee->type);
+    if (!functionType)
+      return emitError(node, diag::mismatch_type);
+    return semaIndirectCall(node, functionType);
+  }
 
   node->setName(canonicalizeImportedName(node->name()));
   if (node->name().rfind("std.internal.", 0) == 0 &&
@@ -2581,15 +2882,15 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
   }
 
   auto &expressions = node->expressions();
-  if (expressions.size() != signature->parameterTypes.size()) {
+  if (expressions.size() != signature->type->parameterTypes().size()) {
     auto diagnostic = formatNameSizeDiagnostic(
-        diag::func_param, name, signature->parameterTypes.size());
+        diag::func_param, name, signature->type->parameterTypes().size());
     return emitError(node, diagnostic);
   }
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &arg = expressions[i];
-    auto *parameterType = signature->parameterTypes[i];
+    auto *parameterType = signature->type->parameterTypes()[i];
     if (node->isLoweredMethodCall() && i == 0) {
       if (sema(arg.get()))
         return failure();
@@ -2599,7 +2900,7 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (checkMutableObjectArgument(signature, i, arg.get()))
+    if (checkMutableObjectArgument(signature->type, i, arg.get()))
       return failure();
   }
 
@@ -2607,8 +2908,36 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
   if (!resolvedName.empty())
     node->setName(resolvedName);
 
-  if (signature->returnType)
-    node->setType(signature->returnType);
+  node->setType(signature->type->returnType());
+  return success();
+}
+
+auto SemaImpl::semaIndirectCall(CallExpr *node,
+                                const FunctionType *functionType,
+                                const Type *expectedType) -> MulberryResult {
+  auto &expressions = node->expressions();
+  auto &parameterTypes = functionType->parameterTypes();
+  if (expressions.size() != parameterTypes.size()) {
+    auto diagnostic = formatNameSizeDiagnostic(
+        diag::func_param, node->name(), parameterTypes.size());
+    return emitError(node, diagnostic);
+  }
+
+  for (size_t i = 0; i < expressions.size(); ++i) {
+    auto &argument = expressions[i];
+    if (sema(argument.get(), parameterTypes[i]))
+      return failure();
+    if (!sameType(parameterTypes[i], argument->type()))
+      return emitError(argument.get(), diag::mismatch_type);
+    if (checkMutableObjectArgument(functionType, i, argument.get()))
+      return failure();
+  }
+
+  auto *returnType = functionType->returnType();
+  if (expectedType && !sameType(expectedType, returnType))
+    return emitError(node, diag::mismatch_type);
+  node->setIndirectCall();
+  node->setType(returnType);
   return success();
 }
 
@@ -2693,8 +3022,26 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
 
 auto SemaImpl::sema(VariableExpr *node) -> MulberryResult {
   auto *symbol = lookupVariable(node->name());
-  if (!symbol)
-    return emitError(node, diag::undefined_var);
+  if (symbol && _noncapturingLambdaDepth > 0 &&
+      !_symbols.lookupCurrentVariable(node->name()))
+    return emitError(node, diag::lambda_capture);
+
+  if (!symbol) {
+    auto functionName = resolveFunctionName(node->name());
+    if (functionName.empty())
+      return emitError(node, diag::undefined_var);
+
+    auto *function = _symbols.lookupFunction(functionName);
+    if (!function)
+      return emitError(node, diag::undefined_var);
+    if (function->isExtern)
+      return emitError(node, diag::extern_function_value);
+
+    node->setName(functionName);
+    node->setFunctionValue();
+    node->setType(function->type);
+    return success();
+  }
 
   if (symbol->isComptimeOnly) {
     assert(symbol->comptimeValue && "comptime variable has no value");
@@ -2795,14 +3142,14 @@ auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
       "mulberry_string_object_identity";
   auto resolvedName = resolveFunctionName(functionName);
   auto *signature = lookupFunction(resolvedName);
-  if (!signature || signature->parameterTypes.size() != 2 ||
-      !sameType(signature->parameterTypes[0], stringType) ||
-      !sameType(signature->returnType, stringType)) {
+  if (!signature || signature->type->parameterTypes().size() != 2 ||
+      !sameType(signature->type->parameterTypes()[0], stringType) ||
+      !sameType(signature->type->returnType(), stringType)) {
     auto diagnostic = formatNameDiagnostic(diag::undefined_func, functionName);
     return emitError(node, diagnostic);
   }
 
-  auto *objectPtr = getPtrType(signature->parameterTypes[1]);
+  auto *objectPtr = getPtrType(signature->type->parameterTypes()[1]);
   if (!objectPtr || !isUInt8Type(objectPtr->pointeeType())) {
     auto diagnostic = formatNameDiagnostic(diag::undefined_func, functionName);
     return emitError(node, diagnostic);
@@ -2940,10 +3287,10 @@ auto SemaImpl::checkStringConcatFunction(Expr *node,
     -> MulberryResult {
   auto functionName = resolveFunctionName("std.string.concat");
   auto *signature = lookupFunction(functionName);
-  if (signature && signature->parameterTypes.size() == 2 &&
-      sameType(signature->parameterTypes[0], stringType) &&
-      sameType(signature->parameterTypes[1], stringType) &&
-      sameType(signature->returnType, stringType))
+  if (signature && signature->type->parameterTypes().size() == 2 &&
+      sameType(signature->type->parameterTypes()[0], stringType) &&
+      sameType(signature->type->parameterTypes()[1], stringType) &&
+      sameType(signature->type->returnType(), stringType))
     return success();
 
   auto diagnostic =
@@ -3368,12 +3715,12 @@ auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
   return success();
 }
 
-auto SemaImpl::checkMutableObjectArgument(const FunctionSymbol *signature,
+auto SemaImpl::checkMutableObjectArgument(const FunctionType *functionType,
                                           size_t index, const Expr *arg)
     -> MulberryResult {
-  if (!signature->parameterCanMutateObject[index])
+  if (!functionType->parameterCanMutateObject()[index])
     return success();
-  if (!isSourceObjectType(signature->parameterTypes[index]))
+  if (!isSourceObjectType(functionType->parameterTypes()[index]))
     return success();
   return checkConstObjectUseAsMutable(arg);
 }
