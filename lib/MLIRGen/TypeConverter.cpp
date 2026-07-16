@@ -9,7 +9,8 @@ namespace mulberry_core = mlir::mulberry_core;
 namespace {
 
 auto isObjectType(const Type *type) -> bool {
-  return mulberry::getStructType(type) || mulberry::getArrayType(type);
+  return mulberry::getStructType(type) || mulberry::getDataType(type) ||
+         mulberry::getArrayType(type);
 }
 
 } // namespace
@@ -43,6 +44,11 @@ auto MLIRTypeConverter::convertLayout(const ArrayType& type) const
       mulberry_core::PtrType::get(_builder.getContext(), mlirElementType),
   });
   return mulberry_core::RecordType::get(_builder.getContext(), "array", fields);
+}
+
+auto MLIRTypeConverter::convertLayout(const DataType& type) const
+    -> mulberry_core::DataType {
+  return mulberry_core::DataType::get(_builder.getContext(), type.name());
 }
 
 auto MLIRTypeConverter::convertLayout(const FunctionType& type) const
@@ -94,6 +100,9 @@ auto MLIRTypeConverter::convertLayout(const Type *type) const -> mlir::Type {
 
   if (auto *arrayType = mulberry::getArrayType(type))
     return convertLayout(*arrayType);
+
+  if (auto *dataType = mulberry::getDataType(type))
+    return convertLayout(*dataType);
 
   if (auto *functionType = mulberry::getFunctionType(type))
     return convertLayout(*functionType);

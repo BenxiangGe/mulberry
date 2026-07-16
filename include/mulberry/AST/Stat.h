@@ -32,6 +32,7 @@ public:
     Stat_VariableDecl,
     Stat_Expression,
     Stat_If,
+    Stat_Match,
     Stat_While,
     Stat_For,
     Stat_Break,
@@ -166,6 +167,80 @@ private:
   std::unique_ptr<BlockExpr> _thenBlock;
   std::unique_ptr<BlockExpr> _elseBlock;
   std::optional<bool> _comptimeValue;
+};
+
+// _____________________________________________________________________________
+// Match statement
+
+class DataPattern final : public Node {
+public:
+  DataPattern(llvm::SMLoc location, std::string_view constructorName,
+              VectorUniquePtr<VariableExpr> bindings)
+      : Node(location), _constructorName(constructorName),
+        _bindings(std::move(bindings)) {}
+
+  auto constructorName() const -> std::string_view {
+    return _constructorName;
+  }
+
+  auto setConstructorName(std::string_view constructorName) -> void {
+    _constructorName = constructorName;
+  }
+
+  auto bindings() const -> const VectorUniquePtr<VariableExpr> & {
+    return _bindings;
+  }
+
+  auto constructorIndex() const -> unsigned { return _constructorIndex; }
+
+  auto setConstructorIndex(unsigned constructorIndex) -> void {
+    _constructorIndex = constructorIndex;
+  }
+
+private:
+  std::string _constructorName;
+  VectorUniquePtr<VariableExpr> _bindings;
+  unsigned _constructorIndex = 0;
+};
+
+class MatchArm final : public Node {
+public:
+  MatchArm(llvm::SMLoc location, std::unique_ptr<DataPattern> pattern,
+           std::unique_ptr<BlockExpr> bodyBlock)
+      : Node(location), _pattern(std::move(pattern)),
+        _bodyBlock(std::move(bodyBlock)) {}
+
+  auto pattern() const -> const std::unique_ptr<DataPattern> & {
+    return _pattern;
+  }
+
+  auto bodyBlock() const -> const std::unique_ptr<BlockExpr> & {
+    return _bodyBlock;
+  }
+
+private:
+  std::unique_ptr<DataPattern> _pattern;
+  std::unique_ptr<BlockExpr> _bodyBlock;
+};
+
+class MatchStat final : public Stat {
+public:
+  MatchStat(llvm::SMLoc location, std::unique_ptr<Expr> value,
+            VectorUniquePtr<MatchArm> arms)
+      : Stat(Stat_Match, location), _value(std::move(value)),
+        _arms(std::move(arms)) {}
+
+  static auto classof(const Stat *node) -> bool {
+    return node->getKind() == Stat_Match;
+  }
+
+  auto value() const -> const std::unique_ptr<Expr> & { return _value; }
+
+  auto arms() const -> const VectorUniquePtr<MatchArm> & { return _arms; }
+
+private:
+  std::unique_ptr<Expr> _value;
+  VectorUniquePtr<MatchArm> _arms;
 };
 
 // _____________________________________________________________________________

@@ -8,6 +8,7 @@
 identifier                -> identifier-head identifier-character*
 identifier-head           -> `A` ... `Z` | `a` ... `z` | `_`
 identifier-character      -> identifier-head | `0` ... `9`
+uppercase-identifier      -> (`A` ... `Z`) identifier-character*
 
 unit-literal              -> `(` `)`
 boolean-literal           -> `true` | `false`
@@ -45,6 +46,7 @@ declaration               -> import-declaration
 declaration               -> function-declaration
 declaration               -> extern-function-declaration
 declaration               -> struct-declaration
+declaration               -> data-declaration
 declaration               -> comptime-type-alias-declaration
 
 import-declaration        -> `import` qualified-name `;`
@@ -65,12 +67,56 @@ struct-member             -> method-declaration
 field-declaration         -> identifier `:` type
 method-declaration        -> `pub`? function-declaration
 
+data-declaration          -> `data` identifier comptime-parameter-clause?
+                              `=` data-constructor-list `;`
+data-constructor-list     -> data-constructor (`|` data-constructor)*
+data-constructor          -> uppercase-identifier data-constructor-payload?
+data-constructor-payload  -> `(` (type (`,` type)* `,`?)? `)`
+
 comptime-type-alias-declaration
                            -> `comptime` identifier comptime-parameter-clause?
                               `=` comptime-alias-body `;`
 comptime-alias-body       -> type
 comptime-alias-body       -> `struct` `{` struct-member-list? `}`
 ```
+
+`data` 只在 declaration 起始位置作为 contextual keyword；字段、参数和局部变量仍可
+使用 `data` 作为名字。data constructor 名必须以大写字母开头，Parser 据此把
+constructor expression 和普通 function call 区分开：
+
+```mulberry
+data LookupKey =
+    ById(UInt64)
+  | ByName(String)
+  | ByIdAndName(UInt64, String);
+
+data Tree<T> =
+    Empty
+  | Node(T, Tree<T>, Tree<T>);
+```
+
+一个 constructor 可以没有 payload，也可以有一个或多个 payload；同一 data type 的
+不同 constructor、同一 constructor 内的不同 payload 都可以使用不同类型。声明中的
+零 payload constructor 不写 `()`，构造 value 时统一使用 call spelling，例如
+`Empty()`、`ById(42)` 和 `ByIdAndName(42, "Mulberry")`。
+
+generic data type 复用普通 comptime 参数。generic constructor 第一版由 expected type
+确定 specialization，不引入额外 constraint solver：
+
+```mulberry
+fn emptyTree(): Tree<UInt64> {
+  return Empty();
+}
+```
+
+data type 是 object reference。高层 MLIR 用 nominal `mulberry_core.data` type 表示
+concrete specialization，用 `mulberry_core.data.construct` 保存 constructor 名、tag 和
+payload SSA values；递归 payload 不会展开成循环的 MLIR type graph。lowering 为每个
+variant 分配独立的 GC-managed object，物理布局为 `{i64 tag, payload...}`，payload 顺序
+与 declaration 一致。不同 variant 不需要共享同一个最大 union layout；函数参数和返回值
+统一使用 object pointer。generic function inference 可以把 `Tree<T>` 与 concrete
+`Tree<UInt64>` 对应起来，并从 nominal data type 的 comptime arguments 推导 `T`。
+`Result<T, E>` 和 postfix `?` 由后续阶段实现。
 
 函数参数和 method receiver 默认是 readonly object reference。需要在 callee 里
 修改 object 时，参数前写 `mut`：
@@ -205,6 +251,7 @@ postfix-expression        -> postfix-expression `[` expression-list `]`
 primary-expression        -> literal-expression
 primary-expression        -> identifier
 primary-expression        -> call-expression
+primary-expression        -> data-constructor-expression
 primary-expression        -> lambda-expression
 primary-expression        -> struct-literal-expression
 primary-expression        -> array-literal-expression
@@ -221,12 +268,18 @@ literal-expression        -> string-literal
 literal-expression        -> char-literal
 
 call-expression           -> qualified-name call-argument-clause
+data-constructor-expression
+                           -> qualified-name call-argument-clause
 call-argument-clause      -> `(` expression-list? `)`
 expression-list           -> expression (`,` expression)* `,`?
 
 struct-literal-expression -> type `{` expression-list? `}`
 array-literal-expression  -> `[` expression-list? `]`
 ```
+
+`data-constructor-expression` 的 `qualified-name` 最后一个 component 必须以大写字母
+开头；普通 `call-expression` 的 callee 不受此限制。两者共享 `(...)` argument 语法，
+最终由 Sema 将 constructor 绑定到 expected data type 的具体 variant。
 
 第一版 lambda 只有 expression body，并且不捕获外层局部变量。参数类型来自 expected
 function type，返回类型由 body 推断：
@@ -268,6 +321,7 @@ block                     -> `{` statement* `}`
 statement                 -> variable-declaration `;`
 statement                 -> expression `;`
 statement                 -> if-statement
+statement                 -> match-statement
 statement                 -> while-statement
 statement                 -> for-statement
 statement                 -> `break` `;`?
@@ -290,6 +344,9 @@ block 不产生 value。函数返回使用 `return` statement。
 ```text
 if-statement              -> `if` condition block
 if-statement              -> `if` condition block `else` block
+match-statement           -> `match` expression `{` match-arm+ `}`
+match-arm                 -> uppercase-qualified-identifier match-bindings? block
+match-bindings            -> `(` (identifier (`,` identifier)* `,`?)? `)`
 while-statement           -> `while` condition block
 for-statement             -> `for` identifier `in` expression `..` expression block
 condition                 -> expression
@@ -298,6 +355,31 @@ condition                 -> expression
 `if` 只有一种语法。如果 condition 能在 Sema 得到 comptime Bool，只分析并生成选中的
 block，未选 block 不参与当前 specialization 的类型检查；如果 condition 是 runtime
 Bool，则按普通控制流分析两个 block，并在 MLIR 中生成 `scf.if`。
+
+`match` 第一版是 statement，不产生 value。scrutinee 必须是 `data` type，每个
+constructor 必须恰好出现一次；不接受遗漏或重复的 arm。pattern 只支持一层
+constructor 和直接 payload binding，不支持 wildcard、nested pattern、guard 或
+match expression。payload binding 默认 readonly，其 concrete type 来自 scrutinee 的
+data specialization：
+
+```mulberry
+match key {
+  ById(id) {
+    io.println(id);
+  }
+  ByName(name) {
+    io.println(name);
+  }
+  Missing {
+    io.println(0);
+  }
+}
+```
+
+零 payload pattern 可以写成 `Missing` 或 `Missing()`。scrutinee 只求值一次；高层
+MLIR 用 `mulberry_core.data.tag` 读取 tag，以 `arith.cmpi` 和 `scf.if` 选择 arm，进入
+arm 后再用 `mulberry_core.data.unpack` 取得 payload。MLIRGen 不读取物理字段；lowering
+才根据该 constructor 的 `{i64 tag, payload...}` variant layout 生成 GEP 和 load。
 
 示例：
 

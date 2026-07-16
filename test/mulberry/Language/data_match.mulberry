@@ -1,0 +1,145 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+data LookupKey =
+    ById(UInt64)
+  | ByName(String)
+  | Missing;
+
+data Tree<T> =
+    Empty
+  | Node(T, Tree<T>, Tree<T>);
+
+data Callback = Callback(fn(UInt64): UInt64);
+
+data TensorBox = TensorBox(Tensor<Float32>);
+
+fn lookup(key: LookupKey): UInt64 {
+  match key {
+    ById(id) {
+      return id;
+    }
+    ByName(name) {
+      return name.length;
+    }
+    Missing {
+      return 0;
+    }
+  }
+}
+
+fn sum(tree: Tree<UInt64>): UInt64 {
+  match tree {
+    Empty() {
+      return 0;
+    }
+    Node(value, left, right) {
+      return value + sum(left) + sum(right);
+    }
+  }
+}
+
+fn firstOr<T>(tree: Tree<T>, fallback: T): T {
+  match tree {
+    Empty {
+      return fallback;
+    }
+    Node(value, left, right) {
+      return value;
+    }
+  }
+}
+
+fn increment(value: UInt64): UInt64 {
+  return value + 1;
+}
+
+fn apply(callback: Callback): UInt64 {
+  match callback {
+    Callback(function) {
+      return function(41);
+    }
+  }
+}
+
+fn makeTensorBox(): TensorBox {
+  const value: Tensor<Float32> = tensor.zeros([2]);
+  return TensorBox(value);
+}
+
+fn boxedNumel(box: TensorBox): UInt64 {
+  match box {
+    TensorBox(value) {
+      return value.numel();
+    }
+  }
+}
+
+fn main(): UInt64 {
+  const tree: Tree<UInt64> =
+      Node(2,
+           Node(1, Empty(), Empty()),
+           Node(3, Empty(), Empty()));
+  const empty: Tree<UInt64> = Empty();
+
+  io.println(lookup(ById(42)));
+  io.println(lookup(ByName("Mulberry")));
+  io.println(lookup(Missing()));
+  io.println(sum(tree));
+  io.println(firstOr(tree, 99));
+  io.println(firstOr(empty, 99));
+  io.println(apply(Callback(increment)));
+  io.println(boxedNumel(makeTensorBox()));
+  return 0;
+}
+
+# AST-DAG: MatchStat
+# AST-DAG: DataPattern {{.*}}constructor=ById tag=0
+# AST-DAG: DataPattern {{.*}}constructor=ByName tag=1
+# AST-DAG: DataPattern {{.*}}constructor=Missing tag=2
+# AST-DAG: DataPattern {{.*}}constructor=Empty tag=0
+# AST-DAG: DataPattern {{.*}}constructor=Node tag=1
+# AST-DAG: DataPattern {{.*}}constructor=Callback tag=0
+# AST-DAG: DataPattern {{.*}}constructor=TensorBox tag=0
+# AST-DAG: VariableExpr {{.*}}type=UInt64 name=id
+# AST-DAG: VariableExpr {{.*}}type=std.string.String name=name
+# AST-DAG: VariableExpr {{.*}}type=Tree<UInt64> name=left
+# AST-DAG: VariableExpr {{.*}}type=fn(UInt64): UInt64 name=function
+# AST-DAG: VariableExpr {{.*}}type={{.*Tensor.*Float32}} name=value
+
+# MLIR-LABEL: func.func @lookup(
+# MLIR: mulberry_core.data.tag
+# MLIR: arith.cmpi eq
+# MLIR: mulberry_core.data.unpack "ById"[0]
+# MLIR: mulberry_core.data.unpack "ByName"[1]
+# MLIR: mulberry_core.data.unpack "Missing"[2]
+# MLIR-LABEL: func.func @sum(
+# MLIR: mulberry_core.data.unpack "Node"[1]
+# MLIR-SAME: -> (i64, !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>, !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>)
+# MLIR-LABEL: func.func @apply(
+# MLIR: mulberry_core.data.unpack "Callback"[0]
+# MLIR-SAME: -> ((i64) -> i64)
+# MLIR: func.call_indirect
+
+# LOWERED-LABEL: func.func @lookup(
+# LOWERED: llvm.load {{.*}} : !llvm.ptr -> i64
+# LOWERED: llvm.getelementptr
+# LOWERED: llvm.load {{.*}} : !llvm.ptr -> i64
+# LOWERED-LABEL: func.func @sum(
+# LOWERED: llvm.getelementptr
+# LOWERED: llvm.load {{.*}} : !llvm.ptr -> !llvm.ptr
+# LOWERED-LABEL: func.func @apply(
+# LOWERED: func.call_indirect
+# LOWERED-NOT: mulberry_core.
+
+# JIT: 42
+# JIT-NEXT: 8
+# JIT-NEXT: 0
+# JIT-NEXT: 6
+# JIT-NEXT: 2
+# JIT-NEXT: 99
+# JIT-NEXT: 42
+# JIT-NEXT: 2

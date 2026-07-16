@@ -12,6 +12,7 @@ namespace mulberry {
 enum class TypeKind {
   Builtin,
   Struct,
+  Data,
   Array,
   Function,
   Ptr,
@@ -131,6 +132,45 @@ private:
   std::optional<ComptimeAliasOrigin> _origin;
 };
 
+class DataConstructor {
+public:
+  DataConstructor(std::string_view name,
+                  std::vector<const Type *> payloadTypes);
+
+  auto name() const -> std::string_view;
+
+  auto payloadTypes() const -> const std::vector<const Type *> &;
+
+private:
+  std::string _name;
+  std::vector<const Type *> _payloadTypes;
+};
+
+class DataType final : public Type {
+public:
+  DataType(std::string_view name, std::string_view declarationName,
+           std::vector<ComptimeValue> arguments);
+
+  static auto classof(const Type *type) -> bool;
+
+  auto name() const -> std::string_view;
+
+  auto declarationName() const -> std::string_view;
+
+  auto arguments() const -> const std::vector<ComptimeValue> &;
+
+  auto constructors() const -> const std::vector<DataConstructor> &;
+
+  auto setConstructors(std::vector<DataConstructor> constructors) -> void;
+
+private:
+  std::string _name;
+  std::string _declarationName;
+  std::vector<ComptimeValue> _arguments;
+  std::vector<DataConstructor> _constructors;
+  bool _isComplete = false;
+};
+
 class ArrayType final : public Type {
 public:
   ArrayType(const Type *elementType, uint64_t size);
@@ -183,6 +223,7 @@ auto getBuiltinType(const Type *type) -> const BuiltinType *;
 auto getArrayType(const Type *type) -> const ArrayType *;
 auto getFunctionType(const Type *type) -> const FunctionType *;
 auto getStructType(const Type *type) -> const StructType *;
+auto getDataType(const Type *type) -> const DataType *;
 auto getPtrType(const Type *type) -> const PtrType *;
 auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
@@ -212,6 +253,11 @@ public:
   auto createStructType(std::string_view name,
                         std::vector<StructField> fields) const
       -> const StructType *;
+
+  auto createDataType(std::string_view name,
+                      std::string_view declarationName,
+                      std::vector<ComptimeValue> arguments) const
+      -> DataType *;
 
   auto createStructType(std::string_view name,
                         std::vector<StructField> fields,

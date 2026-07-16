@@ -27,6 +27,33 @@ static auto getTensorType(Type type) -> mulberry_core::TensorType {
   return llvm::dyn_cast<mulberry_core::TensorType>(type);
 }
 
+static auto isDataReference(Type type) -> bool {
+  auto ptrType = llvm::dyn_cast<PtrType>(type);
+  return ptrType && llvm::isa<DataType>(ptrType.getPointeeType());
+}
+
+auto DataConstructOp::verify() -> LogicalResult {
+  if (!isDataReference(getResult().getType()))
+    return emitOpError("result must be a pointer to a Mulberry data type");
+  if (getConstructor().empty())
+    return emitOpError("constructor name cannot be empty");
+  return success();
+}
+
+auto DataTagOp::verify() -> LogicalResult {
+  if (!isDataReference(getValue().getType()))
+    return emitOpError("value must be a pointer to a Mulberry data type");
+  return success();
+}
+
+auto DataUnpackOp::verify() -> LogicalResult {
+  if (!isDataReference(getValue().getType()))
+    return emitOpError("value must be a pointer to a Mulberry data type");
+  if (getConstructor().empty())
+    return emitOpError("constructor name cannot be empty");
+  return success();
+}
+
 auto AllocaOp::verify() -> LogicalResult {
   auto resultPointeeType = getPtrPointeeType(getResult().getType());
   if (resultPointeeType != getElementType())

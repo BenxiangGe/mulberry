@@ -716,6 +716,8 @@ static auto convertRecordLayoutType(RecordType type)
 static auto convertPointerValueType(PtrType type)
     -> std::optional<Type> {
   auto pointeeType = type.getPointeeType();
+  if (llvm::isa<DataType>(pointeeType))
+    return getPtrType(type.getContext());
   if (llvm::isa<TensorType>(pointeeType) ||
       !convertBackendValueType(pointeeType))
     return std::nullopt;
@@ -727,6 +729,9 @@ static auto convertPointerValueType(PtrType type)
 // conversion after their specific lowering conversion fails.
 static auto rejectUnloweredMulberryType(Type type, SmallVectorImpl<Type>&)
     -> std::optional<LogicalResult> {
+  if (llvm::isa<DataType>(type))
+    return failure();
+
   if (auto recordType = llvm::dyn_cast<RecordType>(type))
     if (!convertRecordLayoutType(recordType))
       return failure();
@@ -797,6 +802,144 @@ public:
         adaptor.getCalleeOperands());
     call->setAttrs(op->getAttrDictionary());
     rewriter.replaceOp(op, call.getResults());
+    return success();
+  }
+};
+
+class DataConstructOpLowering
+    : public OpConversionPattern<DataConstructOp> {
+public:
+  using OpConversionPattern<DataConstructOp>::OpConversionPattern;
+
+  auto matchAndRewrite(DataConstructOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto resultPtrType = llvm::dyn_cast<PtrType>(op.getResult().getType());
+    if (!resultPtrType ||
+        !llvm::isa<DataType>(resultPtrType.getPointeeType()))
+      return rewriter.notifyMatchFailure(
+          op, "data constructor result must reference a data type");
+
+    auto context = op.getContext();
+    auto i64Type = getI64Type(context);
+    std::vector<Type> fieldTypes{i64Type};
+    std::vector<Value> payloads;
+    for (auto [source, converted] :
+         llvm::zip(op.getPayloads(), adaptor.getPayloads())) {
+      auto fieldType = convertBackendValueType(source.getType());
+      if (!fieldType || llvm::isa<TensorType>(source.getType()))
+        return rewriter.notifyMatchFailure(
+            op, "data constructor has an unsupported payload type");
+
+      Value payload = converted;
+      if (payload.getType() != *fieldType) {
+        if (!llvm::isa<FunctionType>(source.getType()))
+          return rewriter.notifyMatchFailure(
+              op, "converted data payload does not match its storage type");
+        payload = UnrealizedConversionCastOp::create(
+                      rewriter, op.getLoc(), *fieldType, payload)
+                      .getResult(0);
+      }
+      fieldTypes.push_back(*fieldType);
+      payloads.push_back(payload);
+    }
+
+    auto layout = LLVM::LLVMStructType::getLiteral(context, fieldTypes);
+    auto objectBytes = createSizeOf(op.getLoc(), rewriter, layout);
+    auto object = callBoehmMalloc(op.getLoc(), rewriter, op, objectBytes);
+    if (failed(object))
+      return failure();
+
+    auto tag = LLVM::ConstantOp::create(
+        rewriter, op.getLoc(), i64Type,
+        rewriter.getI64IntegerAttr(static_cast<int64_t>(op.getTag())));
+    Value value = LLVM::UndefOp::create(rewriter, op.getLoc(), layout);
+    value = LLVM::InsertValueOp::create(
+                rewriter, op.getLoc(), value, tag,
+                ArrayRef<int64_t>{0})
+                .getResult();
+    for (const auto& indexedPayload : llvm::enumerate(payloads)) {
+      value = LLVM::InsertValueOp::create(
+                  rewriter, op.getLoc(), value, indexedPayload.value(),
+                  ArrayRef<int64_t>{
+                      static_cast<int64_t>(indexedPayload.index() + 1)})
+                  .getResult();
+    }
+    LLVM::StoreOp::create(rewriter, op.getLoc(), value, *object);
+    rewriter.replaceOp(op, *object);
+    return success();
+  }
+};
+
+class DataTagOpLowering : public OpConversionPattern<DataTagOp> {
+public:
+  using OpConversionPattern<DataTagOp>::OpConversionPattern;
+
+  auto matchAndRewrite(DataTagOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto valuePtrType = llvm::dyn_cast<PtrType>(op.getValue().getType());
+    if (!valuePtrType ||
+        !llvm::isa<DataType>(valuePtrType.getPointeeType()))
+      return rewriter.notifyMatchFailure(
+          op, "data tag value must reference a data type");
+
+    auto tag = LLVM::LoadOp::create(
+        rewriter, op.getLoc(), getI64Type(op.getContext()),
+        adaptor.getValue());
+    rewriter.replaceOp(op, tag.getResult());
+    return success();
+  }
+};
+
+class DataUnpackOpLowering : public OpConversionPattern<DataUnpackOp> {
+public:
+  using OpConversionPattern<DataUnpackOp>::OpConversionPattern;
+
+  auto matchAndRewrite(DataUnpackOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto valuePtrType = llvm::dyn_cast<PtrType>(op.getValue().getType());
+    if (!valuePtrType ||
+        !llvm::isa<DataType>(valuePtrType.getPointeeType()))
+      return rewriter.notifyMatchFailure(
+          op, "data unpack value must reference a data type");
+
+    std::vector<Type> fieldTypes{getI64Type(op.getContext())};
+    std::vector<Type> convertedResultTypes;
+    for (auto result : op.getPayloads()) {
+      auto sourceType = result.getType();
+      auto fieldType = convertBackendValueType(sourceType);
+      auto convertedType = getTypeConverter()->convertType(sourceType);
+      if (!fieldType || !convertedType || llvm::isa<TensorType>(sourceType))
+        return rewriter.notifyMatchFailure(
+            op, "data unpack has an unsupported payload type");
+      fieldTypes.push_back(*fieldType);
+      convertedResultTypes.push_back(convertedType);
+    }
+
+    auto layout = LLVM::LLVMStructType::getLiteral(op.getContext(),
+                                                   fieldTypes);
+    std::vector<Value> payloads;
+    for (size_t i = 0; i < op.getNumResults(); ++i) {
+      auto fieldPtr = LLVM::GEPOp::create(
+          rewriter, op.getLoc(), getPtrType(op.getContext()), layout,
+          adaptor.getValue(),
+          ArrayRef<LLVM::GEPArg>{0, static_cast<int32_t>(i + 1)});
+      Value payload = LLVM::LoadOp::create(
+          rewriter, op.getLoc(), fieldTypes[i + 1], fieldPtr);
+      if (payload.getType() != convertedResultTypes[i]) {
+        if (!llvm::isa<FunctionType>(op.getResult(i).getType()))
+          return rewriter.notifyMatchFailure(
+              op, "unpacked payload does not match its converted type");
+        payload = UnrealizedConversionCastOp::create(
+                      rewriter, op.getLoc(), convertedResultTypes[i], payload)
+                      .getResult(0);
+      }
+      payloads.push_back(payload);
+    }
+
+    rewriter.replaceOp(op, payloads);
     return success();
   }
 };
@@ -1436,10 +1579,11 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
 
     RewritePatternSet patterns(&getContext());
     patterns.add<AllocaOpLowering, CallIndirectTypeConversion,
-                 FunctionConstantTypeConversion, HeapAllocOpLowering,
-                 LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
-                 RecordGetFieldOpLowering, StoreOpLowering,
-                 TensorStorageAllocOpLowering,
+                 DataConstructOpLowering, DataTagOpLowering,
+                 DataUnpackOpLowering, FunctionConstantTypeConversion,
+                 HeapAllocOpLowering, LoadOpLowering, PtrCastOpLowering,
+                 PtrIndexOpLowering, RecordGetFieldOpLowering,
+                 StoreOpLowering, TensorStorageAllocOpLowering,
                  TensorAssertAliveOpLowering, TensorDisposeOpLowering,
                  TensorPackOpLowering, TensorViewOpLowering>(
         typeConverter, &getContext());

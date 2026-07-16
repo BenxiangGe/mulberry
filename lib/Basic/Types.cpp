@@ -139,6 +139,52 @@ auto StructType::origin() const -> const ComptimeAliasOrigin * {
   return &*_origin;
 }
 
+DataConstructor::DataConstructor(std::string_view name,
+                                 std::vector<const Type *> payloadTypes)
+    : _name(name), _payloadTypes(std::move(payloadTypes)) {}
+
+auto DataConstructor::name() const -> std::string_view {
+  return _name;
+}
+
+auto DataConstructor::payloadTypes() const
+    -> const std::vector<const Type *> & {
+  return _payloadTypes;
+}
+
+DataType::DataType(std::string_view name, std::string_view declarationName,
+                   std::vector<ComptimeValue> arguments)
+    : Type(TypeKind::Data), _name(name),
+      _declarationName(declarationName), _arguments(std::move(arguments)) {}
+
+auto DataType::classof(const Type *type) -> bool {
+  return type && type->kind() == TypeKind::Data;
+}
+
+auto DataType::name() const -> std::string_view {
+  return _name;
+}
+
+auto DataType::declarationName() const -> std::string_view {
+  return _declarationName;
+}
+
+auto DataType::arguments() const -> const std::vector<ComptimeValue> & {
+  return _arguments;
+}
+
+auto DataType::constructors() const
+    -> const std::vector<DataConstructor> & {
+  return _constructors;
+}
+
+auto DataType::setConstructors(std::vector<DataConstructor> constructors)
+    -> void {
+  assert(!_isComplete);
+  _constructors = std::move(constructors);
+  _isComplete = true;
+}
+
 ArrayType::ArrayType(const Type *elementType, uint64_t size)
     : Type(TypeKind::Array), _elementType(elementType), _size(size) {}
 
@@ -337,6 +383,12 @@ auto functionTypeStorage()
   return types;
 }
 
+auto dataTypeStorage()
+    -> std::vector<std::unique_ptr<DataType>> & {
+  static auto &types = *new std::vector<std::unique_ptr<DataType>>();
+  return types;
+}
+
 auto findArrayType(const Type *elementType, uint64_t size)
     -> const ArrayType * {
   for (const auto &type : arrayTypeStorage())
@@ -410,6 +462,8 @@ auto sameType(const Type *lhs, const Type *rhs) -> bool {
                            *llvm::cast<BuiltinType>(rhs));
   case TypeKind::Struct:
     return lhs == rhs;
+  case TypeKind::Data:
+    return lhs == rhs;
   case TypeKind::Array:
     return sameArrayType(*llvm::cast<ArrayType>(lhs),
                          *llvm::cast<ArrayType>(rhs));
@@ -438,6 +492,10 @@ auto getFunctionType(const Type *type) -> const FunctionType * {
 
 auto getStructType(const Type *type) -> const StructType * {
   return llvm::dyn_cast_if_present<StructType>(type);
+}
+
+auto getDataType(const Type *type) -> const DataType * {
+  return llvm::dyn_cast_if_present<DataType>(type);
 }
 
 auto getPtrType(const Type *type) -> const PtrType * {
@@ -555,6 +613,24 @@ auto formatType(const Type *type) -> std::string {
     return formatBuiltinType(*llvm::cast<BuiltinType>(type));
   case TypeKind::Struct:
     return std::string(llvm::cast<StructType>(type)->name());
+  case TypeKind::Data: {
+    auto &dataType = *llvm::cast<DataType>(type);
+    std::string result(dataType.declarationName());
+    if (dataType.arguments().empty())
+      return result;
+    result += "<";
+    std::string separator;
+    for (auto &argument : dataType.arguments()) {
+      result += separator;
+      if (argument.kind() == ComptimeValue::Kind::Type)
+        result += formatType(argument.type());
+      else if (argument.kind() == ComptimeValue::Kind::UInt64)
+        result += std::to_string(argument.uint64Value());
+      separator = ", ";
+    }
+    result += ">";
+    return result;
+  }
   case TypeKind::Array:
     return formatArrayType(*llvm::cast<ArrayType>(type));
   case TypeKind::Function:
@@ -614,6 +690,15 @@ auto TypeContext::createStructType(std::string_view name,
   structTypes.push_back(std::make_unique<StructType>(
       name, std::move(fields)));
   return structTypes.back().get();
+}
+
+auto TypeContext::createDataType(
+    std::string_view name, std::string_view declarationName,
+    std::vector<ComptimeValue> arguments) const -> DataType * {
+  auto &dataTypes = dataTypeStorage();
+  dataTypes.push_back(std::make_unique<DataType>(
+      name, declarationName, std::move(arguments)));
+  return dataTypes.back().get();
 }
 
 auto TypeContext::createStructType(std::string_view name,

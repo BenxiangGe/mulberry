@@ -160,6 +160,12 @@ auto containsReturnStat(const Stat *node) -> bool {
     return ifStat->hasElseBlock() &&
            containsReturnStat(ifStat->elseBlock().get());
   }
+  if (auto *matchStat = dyn_cast<MatchStat>(node)) {
+    for (auto &arm : matchStat->arms())
+      if (containsReturnStat(arm->bodyBlock().get()))
+        return true;
+    return false;
+  }
   if (auto *whileStat = dyn_cast<WhileStat>(node))
     return containsReturnStat(whileStat->bodyBlock().get());
   if (auto *forStat = dyn_cast<ForStat>(node))
@@ -187,7 +193,7 @@ auto methodFunctionName(std::string_view ownerName,
 auto isSourceObjectType(const Type *type) -> bool {
   if (auto *ptrType = getPtrType(type))
     type = ptrType->pointeeType();
-  return getStructType(type) || getArrayType(type);
+  return getStructType(type) || getDataType(type) || getArrayType(type);
 }
 
 auto unqualifiedTypeName(std::string_view name) -> std::string_view {
@@ -334,6 +340,24 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
     }
 
     return std::make_unique<NamedTypeNode>(location, structType->name());
+  }
+
+  if (auto *dataType = getDataType(type)) {
+    if (dataType->arguments().empty())
+      return std::make_unique<NamedTypeNode>(
+          location, dataType->declarationName());
+
+    std::vector<ComptimeArg> arguments;
+    for (auto &argument : dataType->arguments()) {
+      if (argument.kind() == ComptimeValue::Kind::UInt64) {
+        arguments.push_back(ComptimeArg(location, argument.uint64Value()));
+        continue;
+      }
+      arguments.push_back(
+          ComptimeArg(typeToTypeNode(argument.type(), location)));
+    }
+    return std::make_unique<GenericTypeNode>(
+        location, dataType->declarationName(), std::move(arguments));
   }
 
   if (auto *arrayType = getArrayType(type)) {
@@ -559,6 +583,28 @@ auto substituteBlockExpr(const BlockExpr *node,
       continue;
     }
 
+    if (auto *matchStat = dyn_cast<MatchStat>(statement.get())) {
+      VectorUniquePtr<MatchArm> arms;
+      for (auto &arm : matchStat->arms()) {
+        auto *pattern = arm->pattern().get();
+        VectorUniquePtr<VariableExpr> bindings;
+        for (auto &binding : pattern->bindings())
+          bindings.push_back(std::make_unique<VariableExpr>(
+              binding->location(), binding->name()));
+        auto clonedPattern = std::make_unique<DataPattern>(
+            pattern->location(), pattern->constructorName(),
+            std::move(bindings));
+        arms.push_back(std::make_unique<MatchArm>(
+            arm->location(), std::move(clonedPattern),
+            substituteBlockExpr(arm->bodyBlock().get(), substitutions)));
+      }
+      statements.push_back(std::make_unique<MatchStat>(
+          matchStat->location(),
+          substituteExpr(matchStat->value().get(), substitutions),
+          std::move(arms)));
+      continue;
+    }
+
     if (auto *whileStat = dyn_cast<WhileStat>(statement.get())) {
       statements.push_back(std::make_unique<WhileStat>(
           whileStat->location(),
@@ -747,6 +793,14 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<CallExpr>(
         expr->location(), expr->name(), std::move(expressions));
   }
+  case Expr::Expr_DataConstructor: {
+    auto *expr = cast<DataConstructorExpr>(node);
+    VectorUniquePtr<Expr> expressions;
+    for (auto &argument : expr->expressions())
+      expressions.push_back(substituteExpr(argument.get(), substitutions));
+    return std::make_unique<DataConstructorExpr>(
+        expr->location(), expr->name(), std::move(expressions));
+  }
   case Expr::Expr_StructLiteral: {
     auto *expr = cast<StructLiteralExpr>(node);
     VectorUniquePtr<Expr> expressions;
@@ -839,6 +893,7 @@ private:
   TypeContext _typeContext;
   Symbols _symbols;
   std::map<std::string, const StructType *> _genericStructTypes;
+  std::map<std::string, DataType *> _dataTypes;
   std::map<std::string, const FunctionSymbol *> _instantiatedFunctionSymbols;
   std::map<std::string, std::string> _functionPackages;
   std::map<std::string, std::string> _genericFunctionPackages;
@@ -875,6 +930,7 @@ private:
       -> MulberryResult;
   auto sema(FunctionDecl *node) -> MulberryResult;
   auto sema(StructDecl *node) -> MulberryResult;
+  auto sema(DataDecl *node) -> MulberryResult;
   auto sema(ComptimeTypeAliasDecl *node) -> MulberryResult;
 
   // Expressions
@@ -891,6 +947,9 @@ private:
                   const Type *expectedReturnType,
                   std::string_view packageName) -> MulberryResult;
   auto sema(CallExpr *node) -> MulberryResult;
+  auto sema(DataConstructorExpr *node) -> MulberryResult;
+  auto sema(DataConstructorExpr *node, const DataType *dataType)
+      -> MulberryResult;
   auto semaIndirectCall(CallExpr *node, const FunctionType *functionType,
                         const Type *expectedType = nullptr) -> MulberryResult;
   auto sema(StructLiteralExpr *node) -> MulberryResult;
@@ -963,6 +1022,7 @@ private:
   auto sema(VariableStat *node) -> MulberryResult;
   auto sema(ExprStat *node) -> MulberryResult;
   auto sema(IfStat *node) -> MulberryResult;
+  auto sema(MatchStat *node) -> MulberryResult;
   auto sema(WhileStat *node) -> MulberryResult;
   auto sema(ForStat *node) -> MulberryResult;
   auto sema(BreakStat *node) -> MulberryResult;
@@ -1127,6 +1187,46 @@ private:
     return _symbols.lookupComptimeTypeAlias(aliasName);
   }
 
+  auto dataDeclName(std::string_view name) -> std::string {
+    if (_symbols.lookupDataDecl(name))
+      return std::string(name);
+
+    auto importedName = canonicalizeImportedName(name);
+    if (_symbols.lookupDataDecl(importedName))
+      return importedName;
+
+    auto packageName = qualifyCurrentPackageName(name);
+    if (_symbols.lookupDataDecl(packageName))
+      return packageName;
+
+    return {};
+  }
+
+  auto lookupDataConstructor(std::string_view name,
+                             std::string &resolvedName)
+      -> const DataConstructorSymbol * {
+    if (auto *constructor = _symbols.lookupDataConstructor(name)) {
+      resolvedName = std::string(name);
+      return constructor;
+    }
+
+    auto importedName = canonicalizeImportedName(name);
+    if (auto *constructor =
+            _symbols.lookupDataConstructor(importedName)) {
+      resolvedName = importedName;
+      return constructor;
+    }
+
+    auto packageName = qualifyCurrentPackageName(name);
+    if (auto *constructor =
+            _symbols.lookupDataConstructor(packageName)) {
+      resolvedName = packageName;
+      return constructor;
+    }
+
+    return nullptr;
+  }
+
   auto resolveType(const NamedTypeNode *typeNode) -> const Type * {
     auto *type = lookupType(typeNode->name());
     if (!type) {
@@ -1264,10 +1364,10 @@ private:
     return name;
   }
 
-  auto genericStructName(std::string_view aliasName,
-                         const std::vector<ComptimeArgument> &arguments) const
+  auto genericTypeName(std::string_view declarationName,
+                       const std::vector<ComptimeArgument> &arguments) const
       -> std::string {
-    std::string name = mangleTypeName(std::string(aliasName));
+    std::string name = mangleTypeName(std::string(declarationName));
     for (auto &argument : arguments) {
       name += "__";
       if (argument.kind == ComptimeArg::Kind::Type)
@@ -1555,10 +1655,24 @@ private:
                                      arrayLeafConstraints);
       }
 
+      auto dataName = dataDeclName(genericPattern->name());
+      auto *dataType = getDataType(actualType);
+      auto &patternArguments = genericPattern->arguments();
+      if (dataType && dataType->declarationName() == dataName) {
+        auto &actualArguments = dataType->arguments();
+        if (patternArguments.size() != actualArguments.size())
+          return false;
+        for (size_t i = 0; i < patternArguments.size(); ++i)
+          if (!matchComptimeArgument(patternArguments[i], actualArguments[i],
+                                     parameters, arguments,
+                                     arrayLeafConstraints))
+            return false;
+        return true;
+      }
+
       auto aliasName = comptimeTypeAliasName(genericPattern->name());
       auto *structType = getStructType(actualType);
       auto *origin = structType ? structType->origin() : nullptr;
-      auto &patternArguments = genericPattern->arguments();
       if (origin && origin->aliasName() == aliasName) {
         auto &actualArguments = origin->arguments();
         if (patternArguments.size() != actualArguments.size())
@@ -1870,6 +1984,51 @@ private:
     return type;
   }
 
+  auto completeDataType(const DataDecl *decl, DataType *dataType,
+                        const std::vector<TypeSubstitution> &substitutions)
+      -> MulberryResult {
+    std::vector<DataConstructor> constructors;
+    for (auto &constructorDecl : decl->constructors()) {
+      std::vector<const Type *> payloadTypes;
+      for (auto &payloadTypeNode : constructorDecl->payloadTypes()) {
+        auto concreteTypeNode =
+            substituteTypeNode(payloadTypeNode.get(), substitutions);
+        auto *payloadType =
+            checkType(concreteTypeNode.get(), UnitPolicy::Reject);
+        if (!payloadType)
+          return failure();
+        payloadTypes.push_back(payloadType);
+      }
+      constructors.push_back(DataConstructor(
+          constructorDecl->name(), std::move(payloadTypes)));
+    }
+    dataType->setConstructors(std::move(constructors));
+    return success();
+  }
+
+  auto instantiateDataType(
+      const DataDecl *decl, const std::vector<ComptimeArgument> &arguments,
+      const std::vector<TypeSubstitution> &substitutions) -> DataType * {
+    auto concreteName = genericTypeName(decl->name(), arguments);
+    auto cached = _dataTypes.find(concreteName);
+    if (cached != _dataTypes.end())
+      return cached->second;
+
+    // Cache the shell before resolving payloads so a recursive constructor
+    // such as Node(T, Tree<T>, Tree<T>) resolves to this canonical DataType.
+    auto *dataType = _typeContext.createDataType(
+        concreteName, decl->name(), toComptimeValues(arguments));
+    _dataTypes[concreteName] = dataType;
+    LLVM_DEBUG(llvm::dbgs() << "instantiate data type `"
+                            << formatType(dataType) << "`\n");
+
+    PackageScope packageScope(_currentPackageName,
+                              packageNameOf(decl->name()));
+    if (completeDataType(decl, dataType, substitutions))
+      return nullptr;
+    return dataType;
+  }
+
   auto resolveType(const GenericTypeNode *typeNode) -> const Type * {
     if (typeNode->name() == "Array") {
       auto &arguments = typeNode->arguments();
@@ -1889,6 +2048,53 @@ private:
       }
       return _typeContext.createArrayType(elementType,
                                           arguments[1].uint64Value());
+    }
+
+    auto declarationName = dataDeclName(typeNode->name());
+    if (!declarationName.empty()) {
+      auto *decl = _symbols.lookupDataDecl(declarationName)->decl;
+      if (typeNode->arguments().size() != decl->parameters().size()) {
+        emitError(typeNode, diag::mismatch_type);
+        return nullptr;
+      }
+
+      std::vector<ComptimeArgument> arguments;
+      std::vector<TypeSubstitution> substitutions;
+      for (size_t i = 0; i < typeNode->arguments().size(); ++i) {
+        auto &argument = typeNode->arguments()[i];
+        auto &parameter = decl->parameters()[i];
+        if (argument.kind() == ComptimeArg::Kind::Type &&
+            parameter.kind == ComptimeParam::Kind::Type) {
+          auto *argumentType = resolveType(argument.typeNode());
+          if (!argumentType)
+            return nullptr;
+          auto argumentTypeNode =
+              typeToTypeNode(argumentType, argument.typeNode()->location());
+          substitutions.push_back(TypeSubstitution{
+              parameter.name, argumentTypeNode.get(), std::nullopt});
+          ComptimeArgument resolvedArgument;
+          resolvedArgument.kind = argument.kind();
+          resolvedArgument.type = argumentType;
+          resolvedArgument.typeNode = std::move(argumentTypeNode);
+          arguments.push_back(std::move(resolvedArgument));
+          continue;
+        }
+
+        if (argument.kind() == ComptimeArg::Kind::UInt64 &&
+            parameter.kind == ComptimeParam::Kind::UInt64) {
+          substitutions.push_back(TypeSubstitution{
+              parameter.name, nullptr, argument.uint64Value()});
+          ComptimeArgument resolvedArgument;
+          resolvedArgument.kind = argument.kind();
+          resolvedArgument.uint64Value = argument.uint64Value();
+          arguments.push_back(std::move(resolvedArgument));
+          continue;
+        }
+
+        emitError(typeNode, diag::mismatch_type);
+        return nullptr;
+      }
+      return instantiateDataType(decl, arguments, substitutions);
     }
 
     auto aliasName = comptimeTypeAliasName(typeNode->name());
@@ -1952,7 +2158,7 @@ private:
     PackageScope packageScope(_currentPackageName, alias->packageName);
     if (auto *structTypeNode =
             dyn_cast<StructTypeNode>(instantiatedTypeNode.get())) {
-      auto structName = genericStructName(aliasName, arguments);
+      auto structName = genericTypeName(aliasName, arguments);
       auto cached = _genericStructTypes.find(structName);
       if (cached != _genericStructTypes.end())
         return cached->second;
@@ -2195,6 +2401,8 @@ auto SemaImpl::sema(Decl *node) -> MulberryResult {
     return sema(cast<FunctionDecl>(node));
   case Decl::Decl_Struct:
     return sema(cast<StructDecl>(node));
+  case Decl::Decl_Data:
+    return sema(cast<DataDecl>(node));
   case Decl::Decl_ComptimeTypeAlias:
     return sema(cast<ComptimeTypeAliasDecl>(node));
   }
@@ -2394,6 +2602,42 @@ auto SemaImpl::sema(StructDecl *node) -> MulberryResult {
   return success();
 }
 
+auto SemaImpl::sema(DataDecl *node) -> MulberryResult {
+  if (_symbols.lookupType(node->name()) ||
+      _symbols.lookupComptimeTypeAlias(node->name()) ||
+      _symbols.lookupDataDecl(node->name()))
+    return emitError(node, diag::redefinition_type);
+
+  if (_symbols.declareDataDecl(node->name(), node))
+    return emitError(node, diag::redefinition_type);
+
+  for (const auto &indexedConstructor :
+       llvm::enumerate(node->constructors())) {
+    auto &constructor = indexedConstructor.value();
+    if (_symbols.declareDataConstructor(
+            constructor->name(), node, indexedConstructor.index()))
+      return emitError(constructor.get(),
+                       diag::redefinition_data_constructor);
+  }
+
+  if (node->isGeneric())
+    return success();
+
+  std::vector<ComptimeArgument> arguments;
+  auto concreteName = genericTypeName(node->name(), arguments);
+  auto *dataType = _typeContext.createDataType(
+      concreteName, node->name(), {});
+  _dataTypes[concreteName] = dataType;
+
+  // Publish a non-generic shell before resolving its constructors so direct
+  // self-reference can resolve through the ordinary type symbol table.
+  if (declareType(node->name(), dataType))
+    return emitError(node, diag::redefinition_type);
+  PackageScope packageScope(_currentPackageName,
+                            packageNameOf(node->name()));
+  return completeDataType(node, dataType, {});
+}
+
 auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
   auto packageName = packageNameOf(node->name());
   PackageScope packageScope(_currentPackageName, packageName);
@@ -2433,6 +2677,8 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<UnitExpr>(node));
   case Expr::Expr_Lambda:
     return sema(cast<LambdaExpr>(node));
+  case Expr::Expr_DataConstructor:
+    return sema(cast<DataConstructorExpr>(node));
   case Expr::Expr_DecimalLiteral:
     return sema(cast<DecimalLiteralExpr>(node));
   case Expr::Expr_FloatLiteral:
@@ -2475,6 +2721,13 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
+  if (auto *constructor = dyn_cast<DataConstructorExpr>(node)) {
+    auto *dataType = getDataType(type);
+    if (!dataType)
+      return emitError(constructor, diag::mismatch_type);
+    return sema(constructor, dataType);
+  }
+
   if (auto *lambda = dyn_cast<LambdaExpr>(node)) {
     auto *functionType = getFunctionType(type);
     if (!functionType)
@@ -2520,6 +2773,54 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   }
 
   return sema(node);
+}
+
+auto SemaImpl::sema(DataConstructorExpr *node) -> MulberryResult {
+  std::string resolvedName;
+  auto *symbol = lookupDataConstructor(node->name(), resolvedName);
+  if (!symbol)
+    return emitError(node, diag::undefined_data_constructor);
+  if (symbol->decl->isGeneric())
+    return emitError(node, diag::mismatch_type);
+
+  auto *dataType = getDataType(lookupType(symbol->decl->name()));
+  if (!dataType)
+    return emitError(node, diag::mismatch_type);
+  return sema(node, dataType);
+}
+
+auto SemaImpl::sema(DataConstructorExpr *node,
+                    const DataType *dataType) -> MulberryResult {
+  std::string resolvedName;
+  auto *symbol = lookupDataConstructor(node->name(), resolvedName);
+  if (!symbol)
+    return emitError(node, diag::undefined_data_constructor);
+  if (symbol->decl->name() != dataType->declarationName())
+    return emitError(node, diag::mismatch_type);
+
+  auto &constructors = dataType->constructors();
+  if (symbol->index >= constructors.size())
+    return emitError(node, diag::mismatch_type);
+  auto &constructor = constructors[symbol->index];
+  auto &expressions = node->expressions();
+  if (expressions.size() != constructor.payloadTypes().size())
+    return emitError(node, diag::wrong_num_arg);
+
+  for (size_t i = 0; i < expressions.size(); ++i) {
+    auto *payloadType = constructor.payloadTypes()[i];
+    if (sema(expressions[i].get(), payloadType))
+      return failure();
+    if (!sameType(expressions[i]->type(), payloadType))
+      return emitError(expressions[i].get(), diag::mismatch_type);
+  }
+
+  node->setName(resolvedName);
+  node->setConstructorIndex(symbol->index);
+  node->setType(dataType);
+  LLVM_DEBUG(llvm::dbgs() << "bind data constructor `" << resolvedName
+                          << "` as " << formatType(dataType) << " tag "
+                          << symbol->index << "\n");
+  return success();
 }
 
 auto SemaImpl::semaGenericCall(CallExpr *node,
@@ -3986,6 +4287,61 @@ auto SemaImpl::sema(IfStat *node) -> MulberryResult {
   return success();
 }
 
+auto SemaImpl::sema(MatchStat *node) -> MulberryResult {
+  auto *value = node->value().get();
+  if (sema(value))
+    return failure();
+
+  auto *dataType = getDataType(value->type());
+  if (!dataType)
+    return emitError(value, diag::match_expected_data_type);
+
+  auto &constructors = dataType->constructors();
+  std::vector<bool> covered(constructors.size(), false);
+  for (auto &arm : node->arms()) {
+    auto *pattern = arm->pattern().get();
+    std::string resolvedName;
+    auto *symbol = lookupDataConstructor(pattern->constructorName(),
+                                         resolvedName);
+    if (!symbol)
+      return emitError(pattern, diag::undefined_data_constructor);
+    if (symbol->decl->name() != dataType->declarationName() ||
+        symbol->index >= constructors.size())
+      return emitError(pattern, diag::match_constructor_type);
+    if (covered[symbol->index])
+      return emitError(pattern, diag::duplicate_match_constructor);
+
+    auto &constructor = constructors[symbol->index];
+    if (pattern->bindings().size() != constructor.payloadTypes().size())
+      return emitError(pattern, diag::match_binding_count);
+
+    pattern->setConstructorName(resolvedName);
+    pattern->setConstructorIndex(symbol->index);
+    covered[symbol->index] = true;
+    LLVM_DEBUG(llvm::dbgs() << "bind match pattern `" << resolvedName
+                            << "` as " << formatType(dataType) << " tag "
+                            << symbol->index << "\n");
+
+    VariableScope armScope(_symbols);
+    for (size_t i = 0; i < pattern->bindings().size(); ++i) {
+      auto *binding = pattern->bindings()[i].get();
+      auto *payloadType = constructor.payloadTypes()[i];
+      binding->setType(payloadType);
+      if (declareVariable(binding->name(), payloadType,
+                          /*isConstBinding=*/true,
+                          /*canMutateObject=*/false))
+        return emitError(binding, diag::redefinition_var);
+    }
+    if (sema(arm->bodyBlock().get()))
+      return failure();
+  }
+
+  for (auto isCovered : covered)
+    if (!isCovered)
+      return emitError(node, diag::non_exhaustive_match);
+  return success();
+}
+
 auto SemaImpl::sema(WhileStat *node) -> MulberryResult {
   auto conditionExpr = node->conditionExpr().get();
   if (sema(conditionExpr))
@@ -4044,6 +4400,8 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
     return sema(cast<ExprStat>(node));
   case Stat::Stat_If:
     return sema(cast<IfStat>(node));
+  case Stat::Stat_Match:
+    return sema(cast<MatchStat>(node));
   case Stat::Stat_While:
     return sema(cast<WhileStat>(node));
   case Stat::Stat_For:

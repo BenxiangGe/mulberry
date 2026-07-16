@@ -106,6 +106,13 @@ void mulberry_core::TensorType::print(AsmPrinter& printer) const {
   printShapedElementType(printer, getShape(), getElementType());
 }
 
+LogicalResult DataType::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringRef name) {
+  if (name.empty())
+    return emitError() << "data type name cannot be empty";
+  return success();
+}
+
 LogicalResult RecordType::verify(
     llvm::function_ref<InFlightDiagnostic()> emitError, StringRef name,
     ArrayRef<Field> fields) {

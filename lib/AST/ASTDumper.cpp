@@ -56,6 +56,8 @@ private:
   auto dump(const FieldDecl *node) -> void;
   auto dump(const FunctionDecl *node) -> void;
   auto dump(const StructDecl *node) -> void;
+  auto dump(const DataDecl *node) -> void;
+  auto dump(const DataConstructorDecl *node) -> void;
   auto dump(const ComptimeTypeAliasDecl *node) -> void;
 
   // Expressions
@@ -64,6 +66,7 @@ private:
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const LambdaExpr *node) -> void;
   auto dump(const CallExpr *node) -> void;
+  auto dump(const DataConstructorExpr *node) -> void;
   auto dump(const StructLiteralExpr *node) -> void;
   auto dump(const VariableExpr *node) -> void;
   auto dump(const MemberExpr *node) -> void;
@@ -87,6 +90,9 @@ private:
   auto dump(const VariableStat *node) -> void;
   auto dump(const ExprStat *node) -> void;
   auto dump(const IfStat *node) -> void;
+  auto dump(const MatchStat *node) -> void;
+  auto dump(const MatchArm *node) -> void;
+  auto dump(const DataPattern *node) -> void;
   auto dump(const WhileStat *node) -> void;
   auto dump(const ForStat *node) -> void;
   auto dump(const BreakStat *node) -> void;
@@ -271,7 +277,8 @@ auto Dumper::dump(const Module *node) -> void {
 
 auto Dumper::dump(const Decl *node) -> void {
   llvm::TypeSwitch<const Decl *>(node)
-      .Case<ImportDecl, FunctionDecl, StructDecl, ComptimeTypeAliasDecl>(
+      .Case<ImportDecl, FunctionDecl, StructDecl, DataDecl,
+            ComptimeTypeAliasDecl>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Decl *) { llvm_unreachable("Unexpected declaration"); });
@@ -348,6 +355,29 @@ auto Dumper::dump(const StructDecl *node) -> void {
     dump(method.get());
 }
 
+auto Dumper::dump(const DataDecl *node) -> void {
+  INDENT();
+  errs() << "DataDecl " << loc(node)
+         << " (name=" << node->name();
+  if (node->isGeneric())
+    errs() << " parameter=" << formatComptimeParams(node->parameters());
+  errs() << ")\n";
+  for (auto &constructor : node->constructors())
+    dump(constructor.get());
+}
+
+auto Dumper::dump(const DataConstructorDecl *node) -> void {
+  INDENT();
+  errs() << "DataConstructorDecl " << loc(node)
+         << " name=" << node->name() << " payloadTypes=";
+  std::string separator;
+  for (auto &payloadType : node->payloadTypes()) {
+    errs() << separator << formatTypeNode(payloadType.get());
+    separator = ", ";
+  }
+  errs() << "\n";
+}
+
 auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
   INDENT();
   errs() << "ComptimeTypeAliasDecl " << loc(node)
@@ -358,12 +388,12 @@ auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
 
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
-      .Case<UnitExpr, CallExpr, StructLiteralExpr, DecimalLiteralExpr,
-            FloatLiteralExpr, BoolLiteralExpr, StringLiteralExpr,
-            InterpolatedStringExpr, ObjectIdentityExpr, CharLiteralExpr,
-            TypeInfoExpr, TypeLayoutExpr, LambdaExpr,
-            HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr,
-            MemberExpr, AssignExpr, BinaryExpr>(
+      .Case<UnitExpr, CallExpr, DataConstructorExpr, StructLiteralExpr,
+            DecimalLiteralExpr, FloatLiteralExpr, BoolLiteralExpr,
+            StringLiteralExpr, InterpolatedStringExpr, ObjectIdentityExpr,
+            CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr, LambdaExpr,
+            HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
+            AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -410,6 +440,16 @@ auto Dumper::dump(const CallExpr *node) -> void {
     dump(node->receiver().get());
   for (auto &expr : *node)
     dump(expr.get());
+}
+
+auto Dumper::dump(const DataConstructorExpr *node) -> void {
+  INDENT();
+  errs() << "DataConstructorExpr " << loc(node)
+         << " type=" << formatType(node->type())
+         << " constructor=" << node->name()
+         << " tag=" << node->constructorIndex() << "\n";
+  for (auto &expression : node->expressions())
+    dump(expression.get());
 }
 
 auto Dumper::dump(const StructLiteralExpr *node) -> void {
@@ -560,8 +600,8 @@ auto Dumper::dump(const BinaryExpr *node) -> void {
 
 auto Dumper::dump(const Stat *node) -> void {
   llvm::TypeSwitch<const Stat *>(node)
-      .Case<VariableStat, ExprStat, IfStat, WhileStat, ForStat, BreakStat,
-            ContinueStat, ReturnStat>(
+      .Case<VariableStat, ExprStat, IfStat, MatchStat, WhileStat, ForStat,
+            BreakStat, ContinueStat, ReturnStat>(
           [&](auto *node) { this->dump(node); })
       .Default([&](const Stat *) { llvm_unreachable("Unexpected statement"); });
 }
@@ -608,6 +648,30 @@ auto Dumper::dump(const IfStat *node) -> void {
   dump(node->thenBlock().get(), "thenBlock:");
   if (node->hasElseBlock())
     dump(node->elseBlock().get(), "elseBlock:");
+}
+
+auto Dumper::dump(const MatchStat *node) -> void {
+  INDENT();
+  errs() << "MatchStat " << loc(node) << "\n";
+  dump(node->value().get());
+  for (auto &arm : node->arms())
+    dump(arm.get());
+}
+
+auto Dumper::dump(const MatchArm *node) -> void {
+  INDENT();
+  errs() << "MatchArm " << loc(node) << "\n";
+  dump(node->pattern().get());
+  dump(node->bodyBlock().get(), "bodyBlock:");
+}
+
+auto Dumper::dump(const DataPattern *node) -> void {
+  INDENT();
+  errs() << "DataPattern " << loc(node)
+         << " constructor=" << node->constructorName()
+         << " tag=" << node->constructorIndex() << "\n";
+  for (auto &binding : node->bindings())
+    dump(binding.get());
 }
 
 auto Dumper::dump(const WhileStat *node) -> void {

@@ -35,16 +35,25 @@ ERROR(readonly_to_mutable_reference,
       "cannot use readonly object as mutable reference")
 ERROR(loop_control_outside_loop, "`break` or `continue` outside loop")
 ERROR(return_outside_function, "`return` outside function")
+ERROR(match_expected_data_type, "match value must have a data type")
+ERROR(match_constructor_type,
+      "match constructor does not belong to the matched data type")
+ERROR(match_binding_count,
+      "match pattern has the wrong number of payload bindings")
+ERROR(duplicate_match_constructor, "duplicate constructor in match")
+ERROR(non_exhaustive_match, "match must cover every constructor exactly once")
 
 ERROR(undefined_field, "undefined field")
 ERROR(undefined_func, "cannot find function `%s`")
 ERROR(undefined_main, "undefined symbol `main` : () -> UInt64")
 ERROR(undefined_type, "undefined type")
 ERROR(undefined_var, "undefined variable")
+ERROR(undefined_data_constructor, "undefined data constructor")
 
 ERROR(redefinition_func, "redefinition of `%s`")
 ERROR(redefinition_type, "redefinition of type")
 ERROR(redefinition_var, "redefinition of variable")
+ERROR(redefinition_data_constructor, "redefinition of data constructor")
 
 // ___________________________________________________________________________
 #undef ERROR

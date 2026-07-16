@@ -1,0 +1,107 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+data LookupKey =
+    ById(UInt64)
+  | ByName(String)
+  | ByIdAndName(UInt64, String);
+
+data Tree<T> =
+    Empty
+  | Node(T, Tree<T>, Tree<T>);
+
+data Either<L, R> =
+    Left(L)
+  | Right(R);
+
+fn idKey(): LookupKey {
+  return ById(42);
+}
+
+fn nameKey(): LookupKey {
+  return ByName("Mulberry");
+}
+
+fn pairKey(): LookupKey {
+  return ByIdAndName(42, "Mulberry");
+}
+
+fn tree(): Tree<UInt64> {
+  return Node(2,
+              Node(1, Empty(), Empty()),
+              Node(3, Empty(), Empty()));
+}
+
+fn left(): Either<UInt64, String> {
+  return Left(42);
+}
+
+fn right(): Either<UInt64, String> {
+  return Right("Mulberry");
+}
+
+fn passthrough(key: LookupKey): LookupKey {
+  return key;
+}
+
+fn main(): UInt64 {
+  const byId: LookupKey = passthrough(idKey());
+  const byName: LookupKey = nameKey();
+  const byBoth: LookupKey = pairKey();
+  const numbers: Tree<UInt64> = tree();
+  const leftValue: Either<UInt64, String> = left();
+  const rightValue: Either<UInt64, String> = right();
+  io.println(42);
+  return 0;
+}
+
+# AST: DataDecl {{.*}}name=LookupKey
+# AST-DAG: DataConstructorDecl {{.*}}name=ById payloadTypes=UInt64
+# AST-DAG: DataConstructorDecl {{.*}}name=ByName payloadTypes=String
+# AST-DAG: DataConstructorDecl {{.*}}name=ByIdAndName payloadTypes=UInt64, String
+# AST: DataDecl {{.*}}name=Tree parameter=T
+# AST-DAG: DataConstructorDecl {{.*}}name=Empty payloadTypes=
+# AST-DAG: DataConstructorDecl {{.*}}name=Node payloadTypes=T, Tree<T>, Tree<T>
+# AST: DataDecl {{.*}}name=Either parameter=L, R
+# AST-DAG: DataConstructorDecl {{.*}}name=Left payloadTypes=L
+# AST-DAG: DataConstructorDecl {{.*}}name=Right payloadTypes=R
+# AST-DAG: DataConstructorExpr {{.*}}type=LookupKey constructor=ById tag=0
+# AST-DAG: DataConstructorExpr {{.*}}type=LookupKey constructor=ByName tag=1
+# AST-DAG: DataConstructorExpr {{.*}}type=LookupKey constructor=ByIdAndName tag=2
+# AST-DAG: DataConstructorExpr {{.*}}type=Tree<UInt64> constructor=Node tag=1
+# AST-DAG: DataConstructorExpr {{.*}}type=Tree<UInt64> constructor=Empty tag=0
+# AST-DAG: DataConstructorExpr {{.*}}type=Either<UInt64, std.string.String> constructor=Left tag=0
+# AST-DAG: DataConstructorExpr {{.*}}type=Either<UInt64, std.string.String> constructor=Right tag=1
+
+# MLIR-LABEL: func.func @idKey() -> !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>
+# MLIR: mulberry_core.data.construct "ById"[0] ({{.*}}) : (i64) -> !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>
+# MLIR-LABEL: func.func @nameKey() -> !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>
+# MLIR: mulberry_core.data.construct "ByName"[1]
+# MLIR-SAME: !mulberry_core.ptr<!mulberry_core.record<std.string.String
+# MLIR-LABEL: func.func @pairKey() -> !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>
+# MLIR: mulberry_core.data.construct "ByIdAndName"[2]
+# MLIR-SAME: (i64, !mulberry_core.ptr<!mulberry_core.record<std.string.String
+# MLIR-LABEL: func.func @tree() -> !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>
+# MLIR: mulberry_core.data.construct "Empty"[0] () : () -> !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>
+# MLIR: mulberry_core.data.construct "Node"[1]
+# MLIR-SAME: (i64, !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>, !mulberry_core.ptr<!mulberry_core.data<"Tree__UInt64">>)
+# MLIR-LABEL: func.func @passthrough(%arg0: !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>) -> !mulberry_core.ptr<!mulberry_core.data<"LookupKey">>
+
+# LOWERED-LABEL: func.func @idKey() -> !llvm.ptr
+# LOWERED: llvm.call @mulberry_boehm_malloc
+# LOWERED: llvm.insertvalue {{.*}}[0] : !llvm.struct<(i64, i64)>
+# LOWERED: llvm.insertvalue {{.*}}[1] : !llvm.struct<(i64, i64)>
+# LOWERED-LABEL: func.func @nameKey() -> !llvm.ptr
+# LOWERED: llvm.store {{.*}} : !llvm.struct<(i64, ptr)>, !llvm.ptr
+# LOWERED-LABEL: func.func @pairKey() -> !llvm.ptr
+# LOWERED: llvm.store {{.*}} : !llvm.struct<(i64, i64, ptr)>, !llvm.ptr
+# LOWERED-LABEL: func.func @tree() -> !llvm.ptr
+# LOWERED: llvm.store {{.*}} : !llvm.struct<(i64)>, !llvm.ptr
+# LOWERED: llvm.store {{.*}} : !llvm.struct<(i64, i64, ptr, ptr)>, !llvm.ptr
+# LOWERED-LABEL: func.func @passthrough(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED-NOT: mulberry_core.
+
+# JIT: 42

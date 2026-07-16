@@ -31,6 +31,7 @@ public:
     Decl_Import,
     Decl_Function,
     Decl_Struct,
+    Decl_Data,
     Decl_ComptimeTypeAlias,
   };
 
@@ -170,6 +171,58 @@ public:
     return _fields.begin();
   }
   auto end() const -> decltype(_fields.end()) { return _fields.end(); }
+};
+
+// _____________________________________________________________________________
+// Data declaration
+
+class DataConstructorDecl final : public Node {
+public:
+  DataConstructorDecl(llvm::SMLoc location, std::string_view name,
+                      VectorUniquePtr<TypeNode> payloadTypes)
+      : Node(location), _name(name),
+        _payloadTypes(std::move(payloadTypes)) {}
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto payloadTypes() const -> const VectorUniquePtr<TypeNode> & {
+    return _payloadTypes;
+  }
+
+private:
+  std::string _name;
+  VectorUniquePtr<TypeNode> _payloadTypes;
+};
+
+class DataDecl final : public Decl {
+public:
+  DataDecl(llvm::SMLoc location, std::string_view name,
+           std::vector<ComptimeParam> parameters,
+           VectorUniquePtr<DataConstructorDecl> constructors)
+      : Decl(Decl_Data, location), _name(name),
+        _parameters(std::move(parameters)),
+        _constructors(std::move(constructors)) {}
+
+  static auto classof(const Decl *node) -> bool {
+    return node->getKind() == Decl_Data;
+  }
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto parameters() const -> const std::vector<ComptimeParam> & {
+    return _parameters;
+  }
+
+  auto isGeneric() const -> bool { return !_parameters.empty(); }
+
+  auto constructors() const -> const VectorUniquePtr<DataConstructorDecl> & {
+    return _constructors;
+  }
+
+private:
+  std::string _name;
+  std::vector<ComptimeParam> _parameters;
+  VectorUniquePtr<DataConstructorDecl> _constructors;
 };
 
 // Type-level comptime alias. It can be generic, e.g.

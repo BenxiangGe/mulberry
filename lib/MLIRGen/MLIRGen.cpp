@@ -126,6 +126,12 @@ auto containsReturnStat(const Stat *node) -> bool {
     return ifStat->hasElseBlock() &&
            containsReturnStat(ifStat->elseBlock().get());
   }
+  if (auto *matchStat = llvm::dyn_cast<MatchStat>(node)) {
+    for (auto &arm : matchStat->arms())
+      if (containsReturnStat(arm->bodyBlock().get()))
+        return true;
+    return false;
+  }
   if (auto *whileStat = llvm::dyn_cast<WhileStat>(node))
     return containsReturnStat(whileStat->bodyBlock().get());
   if (auto *forStat = llvm::dyn_cast<ForStat>(node))
@@ -147,7 +153,8 @@ auto isParameterValueType(const Type *type) -> bool {
 }
 
 auto isObjectReferenceType(const Type *type) -> bool {
-  return mulberry::getStructType(type) || mulberry::getArrayType(type);
+  return mulberry::getStructType(type) || mulberry::getDataType(type) ||
+         mulberry::getArrayType(type);
 }
 
 auto isTensorObjectType(const Type *type) -> bool {
@@ -218,6 +225,7 @@ private:
   auto genNormalCall(const CallExpr *node) -> mlir::Value;
   auto genIndirectCall(const CallExpr *node) -> mlir::Value;
   auto gen(const CallExpr *node) -> mlir::Value;
+  auto gen(const DataConstructorExpr *node) -> mlir::Value;
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const MemberExpr *node) -> mlir::Value;
@@ -248,6 +256,7 @@ private:
   auto gen(const VariableStat *node) -> void;
   auto gen(const ExprStat *node) -> void;
   auto gen(const IfStat *node) -> void;
+  auto gen(const MatchStat *node) -> void;
   auto gen(const WhileStat *node) -> void;
   auto gen(const ForStat *node) -> void;
   auto gen(const BreakStat *node) -> void;
@@ -741,6 +750,9 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
   case Expr::Expr_Call:
     result = gen(cast<CallExpr>(node));
     break;
+  case Expr::Expr_DataConstructor:
+    result = gen(cast<DataConstructorExpr>(node));
+    break;
   case Expr::Expr_StructLiteral:
     result = gen(cast<StructLiteralExpr>(node));
     break;
@@ -835,6 +847,64 @@ auto MLIRGenImpl::gen(const IfStat *node) -> void {
   }
 
   _builder.setInsertionPointAfter(ifOp);
+}
+
+auto MLIRGenImpl::gen(const MatchStat *node) -> void {
+  auto location = loc(node);
+  auto value = gen(node->value().get());
+  auto tag = mulberry_core::DataTagOp::create(
+      _builder, location, _builder.getI64Type(), value).getTag();
+  auto *dataType = mulberry::getDataType(node->value()->type());
+  if (!dataType)
+    llvm_unreachable("match value has no semantic data type");
+
+  DBG("match data value `{0}` with {1} arms", formatType(dataType),
+      node->arms().size());
+  for (auto &arm : node->arms()) {
+    auto *pattern = arm->pattern().get();
+    if (pattern->constructorIndex() >= dataType->constructors().size())
+      llvm_unreachable("match pattern has no semantic constructor");
+    auto &constructor =
+        dataType->constructors()[pattern->constructorIndex()];
+
+    auto expectedTag = createUInt64Constant(
+        pattern->constructorIndex(), loc(pattern));
+    auto isMatch = arith::CmpIOp::create(
+        _builder, loc(pattern), arith::CmpIPredicate::eq, tag, expectedTag);
+    auto ifOp = scf::IfOp::create(
+        _builder, loc(pattern), isMatch, /*withElseRegion=*/false);
+    _builder.setInsertionPointToStart(ifOp.thenBlock());
+
+    std::vector<mlir::Type> payloadTypes;
+    for (auto *payloadType : constructor.payloadTypes())
+      payloadTypes.push_back(getStorageMLIRType(payloadType));
+    auto unpack = mulberry_core::DataUnpackOp::create(
+        _builder, loc(pattern), payloadTypes,
+        std::string(pattern->constructorName()),
+        static_cast<uint64_t>(pattern->constructorIndex()), value);
+
+    enterVariableScope();
+    for (size_t i = 0; i < pattern->bindings().size(); ++i) {
+      auto *binding = pattern->bindings()[i].get();
+      auto *payloadType = constructor.payloadTypes()[i];
+      auto payload = unpack.getPayloads()[i];
+      if (isObjectReferenceType(payloadType)) {
+        auto referenceSlot = createAlloca(payload.getType(), loc(binding));
+        createStore(payload, referenceSlot, loc(binding));
+        setVariableObjectReference(binding->name(), referenceSlot);
+      } else if (isParameterValueType(payloadType)) {
+        setVariableValue(binding->name(), payload);
+      } else {
+        auto address = createAlloca(payload.getType(), loc(binding));
+        createStore(payload, address, loc(binding));
+        setVariableAddress(binding->name(), address);
+      }
+    }
+    gen(arm->bodyBlock().get());
+    leaveVariableScope(loc(arm.get()));
+
+    _builder.setInsertionPointAfter(ifOp);
+  }
 }
 
 auto MLIRGenImpl::gen(const WhileStat *node) -> void {
@@ -1513,6 +1583,8 @@ auto MLIRGenImpl::gen(const Stat *node) -> void {
     return gen(cast<ExprStat>(node));
   case Stat::Stat_If:
     return gen(cast<IfStat>(node));
+  case Stat::Stat_Match:
+    return gen(cast<MatchStat>(node));
   case Stat::Stat_While:
     return gen(cast<WhileStat>(node));
   case Stat::Stat_For:
@@ -1643,6 +1715,11 @@ void MLIRGenImpl::markTensorReferencesEscaped(const Expr *expr) {
   }
   if (auto *literal = llvm::dyn_cast<StructLiteralExpr>(expr)) {
     for (auto &value : literal->expressions())
+      markTensorReferencesEscaped(value.get());
+    return;
+  }
+  if (auto *constructor = llvm::dyn_cast<DataConstructorExpr>(expr)) {
+    for (auto &value : constructor->expressions())
       markTensorReferencesEscaped(value.get());
     return;
   }
@@ -1834,6 +1911,34 @@ auto MLIRGenImpl::createStructFieldPtr(mlir::Value recordPtr,
   return mulberry_core::RecordGetFieldOp::create(
       _builder, location, fieldPtrType, recordPtr,
       std::string(field.name()));
+}
+
+auto MLIRGenImpl::gen(const DataConstructorExpr *node) -> mlir::Value {
+  auto *dataType = mulberry::getDataType(node->type());
+  if (!dataType || node->constructorIndex() >= dataType->constructors().size())
+    llvm_unreachable("data constructor has no semantic variant");
+
+  auto &constructor = dataType->constructors()[node->constructorIndex()];
+  if (constructor.payloadTypes().size() != node->expressions().size())
+    llvm_unreachable("data constructor payload count changed after Sema");
+
+  std::vector<mlir::Value> payloads;
+  for (size_t i = 0; i < node->expressions().size(); ++i) {
+    auto &expression = node->expressions()[i];
+    if (isTensorObjectType(expression->type()))
+      markTensorReferencesEscaped(expression.get());
+    payloads.push_back(genValueForStorage(
+        expression.get(), constructor.payloadTypes()[i],
+        loc(expression.get())));
+  }
+
+  auto resultType = llvm::cast<mulberry_core::PtrType>(
+      getSourceMLIRType(node));
+  DBG("construct data variant `{0}` tag {1} as {2}", node->name(),
+      node->constructorIndex(), resultType);
+  return mulberry_core::DataConstructOp::create(
+      _builder, loc(node), resultType, std::string(node->name()),
+      static_cast<uint64_t>(node->constructorIndex()), payloads);
 }
 
 auto MLIRGenImpl::genStructLiteral(const StructLiteralExpr *structLiteral,

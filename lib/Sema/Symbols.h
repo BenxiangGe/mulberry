@@ -21,6 +21,7 @@
 #include <vector>
 
 namespace mulberry {
+class DataDecl;
 class FunctionDecl;
 class TypeNode;
 using llvm::failure;
@@ -47,6 +48,15 @@ struct ComptimeTypeAliasSymbol {
 
 struct GenericFunctionSymbol {
   const FunctionDecl *decl = nullptr;
+};
+
+struct DataDeclSymbol {
+  const DataDecl *decl = nullptr;
+};
+
+struct DataConstructorSymbol {
+  const DataDecl *decl = nullptr;
+  unsigned index = 0;
 };
 
 template <typename T>
@@ -78,6 +88,32 @@ public:
       -> const GenericFunctionSymbol * {
     auto symbol = _genericFunctionsByName.find(name);
     if (symbol == _genericFunctionsByName.end())
+      return nullptr;
+    return &symbol->second;
+  }
+
+  auto declareDataDecl(std::string_view name, const DataDecl *decl)
+      -> MulberryResult {
+    return declareSymbol(_dataDeclsByName, name, DataDeclSymbol{decl});
+  }
+
+  auto lookupDataDecl(std::string_view name) -> const DataDeclSymbol * {
+    auto symbol = _dataDeclsByName.find(name);
+    if (symbol == _dataDeclsByName.end())
+      return nullptr;
+    return &symbol->second;
+  }
+
+  auto declareDataConstructor(std::string_view name, const DataDecl *decl,
+                              unsigned index) -> MulberryResult {
+    return declareSymbol(_dataConstructorsByName, name,
+                         DataConstructorSymbol{decl, index});
+  }
+
+  auto lookupDataConstructor(std::string_view name)
+      -> const DataConstructorSymbol * {
+    auto symbol = _dataConstructorsByName.find(name);
+    if (symbol == _dataConstructorsByName.end())
       return nullptr;
     return &symbol->second;
   }
@@ -160,6 +196,8 @@ private:
 
   NameMap<FunctionSymbol> _functionsByName;
   NameMap<GenericFunctionSymbol> _genericFunctionsByName;
+  NameMap<DataDeclSymbol> _dataDeclsByName;
+  NameMap<DataConstructorSymbol> _dataConstructorsByName;
   NameMap<const Type *> _typesByName;
   NameMap<ComptimeTypeAliasSymbol> _comptimeTypeAliasesByName;
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;

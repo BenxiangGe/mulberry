@@ -431,6 +431,10 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> MulberryResult {
     return parseFunctionDecl(decl);
   case Token::kw_struct:
     return parseStructDecl(decl);
+  case Token::identifier:
+    if (spelling() == "data")
+      return parseDataDecl(decl);
+    return emitError(diag::expected_fun_struct);
   case Token::kw_comptime:
     return parseComptimeTypeAliasDecl(decl);
   default:
@@ -674,6 +678,57 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
   return success();
 }
 
+auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+  auto location = tokenLoc();
+  // `data` is contextual so existing fields and parameters named data remain
+  // ordinary identifiers outside declaration position.
+  assert(spelling() == "data");
+  consume(Token::identifier);
+
+  std::string name = std::string(spelling());
+  if (parseToken(Token::identifier, diag::expected_id))
+    return failure();
+  name = qualifyPackageName(name);
+
+  std::vector<ComptimeParam> parameters;
+  if (tokenIs(Token::less) && parseComptimeParams(parameters))
+    return failure();
+  if (parseToken(Token::assign, diag::expected_assign))
+    return failure();
+
+  VectorUniquePtr<DataConstructorDecl> constructors;
+  while (true) {
+    auto constructorLocation = tokenLoc();
+    if (!tokenIs(Token::identifier) || !isTypeLikeName(spelling()))
+      return emitError(diag::expected_data_constructor_name);
+    std::string constructorName = std::string(spelling());
+    consume(Token::identifier);
+    constructorName = qualifyPackageName(constructorName);
+
+    VectorUniquePtr<TypeNode> payloadTypes;
+    if (consumeIf(Token::l_paren)) {
+      if (parseList(Token::comma, Token::r_paren,
+                    diag::expected_comma_or_r_paren,
+                    diag::expected_r_paren, payloadTypes,
+                    [this](unique_ptr<TypeNode> &typeNode) {
+                      return parseType(typeNode);
+                    }))
+        return failure();
+    }
+
+    constructors.push_back(std::make_unique<DataConstructorDecl>(
+        constructorLocation, constructorName, std::move(payloadTypes)));
+    if (!consumeIf(Token::pipe))
+      break;
+  }
+
+  if (parseToken(Token::semi, diag::expected_semi))
+    return failure();
+  decl = std::make_unique<DataDecl>(location, name, std::move(parameters),
+                                    std::move(constructors));
+  return success();
+}
+
 auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
     -> MulberryResult {
   auto location = tokenLoc();
@@ -890,6 +945,52 @@ auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   return success();
 }
 
+auto Parser::parseMatchStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_match);
+
+  unique_ptr<Expr> value;
+  if (parseBlockCondition(value) ||
+      parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+
+  VectorUniquePtr<MatchArm> arms;
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    auto patternLocation = tokenLoc();
+    std::string constructorName;
+    if (parseQualifiedName(constructorName,
+                           diag::expected_data_constructor_name))
+      return failure();
+    if (!isTypeLikeName(constructorName))
+      return emitError(diag::expected_data_constructor_name);
+
+    VectorUniquePtr<VariableExpr> bindings;
+    if (consumeIf(Token::l_paren) &&
+        parseList(Token::comma, Token::r_paren,
+                  diag::expected_comma_or_r_paren, diag::expected_r_paren,
+                  bindings,
+                  [this](unique_ptr<VariableExpr> &binding) {
+                    return parseVariableExpr(binding);
+                  }))
+      return failure();
+
+    unique_ptr<BlockExpr> bodyBlock;
+    if (parseToken(Token::l_brace, diag::expected_l_brace) ||
+        parseBlockExpr(bodyBlock))
+      return failure();
+
+    auto pattern = make_unique<DataPattern>(
+        patternLocation, constructorName, std::move(bindings));
+    arms.push_back(make_unique<MatchArm>(
+        patternLocation, std::move(pattern), std::move(bodyBlock)));
+  }
+
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
+    return failure();
+  stat = make_unique<MatchStat>(location, std::move(value), std::move(arms));
+  return success();
+}
+
 auto Parser::parseWhileStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_while);
@@ -1060,6 +1161,8 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
       return parseTypeInfoExpr(location, expr);
     if (name == builtins::objectIdentity)
       return parseObjectIdentityExpr(location, expr);
+    if (isTypeLikeName(name))
+      return parseDataConstructorExpr(location, name, expr);
     return parseFunctionCall(location, name, expr);
   case Token::l_brace:
     if (_stopBeforeStructLiteral) {
@@ -1145,6 +1248,21 @@ auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
                        diag::expected_comma_or_r_paren, diag::expected_r_paren))
     return failure();
   expr = make_unique<CallExpr>(location, name, std::move(expressions));
+  return success();
+}
+
+auto Parser::parseDataConstructorExpr(llvm::SMLoc location,
+                                      std::string_view name,
+                                      unique_ptr<Expr> &expr)
+    -> MulberryResult {
+  consume(Token::l_paren);
+  VectorUniquePtr<Expr> expressions;
+  if (parseExpressions(expressions, Token::comma, Token::r_paren,
+                       diag::expected_comma_or_r_paren,
+                       diag::expected_r_paren))
+    return failure();
+  expr = std::make_unique<DataConstructorExpr>(
+      location, name, std::move(expressions));
   return success();
 }
 
@@ -1341,6 +1459,8 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult
     return parseConstDecl(stat);
   case Token::kw_if:
     return parseIfStat(stat);
+  case Token::kw_match:
+    return parseMatchStat(stat);
   case Token::kw_while:
     return parseWhileStat(stat);
   case Token::kw_for:

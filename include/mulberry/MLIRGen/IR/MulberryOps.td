@@ -25,6 +25,53 @@ def Mulberry_AnyRecordType : Type<
     CPred<"::llvm::isa<::mlir::mulberry_core::RecordType>($_self)">,
     "Mulberry record type">;
 
+def Mulberry_DataConstructOp : Mulberry_Op<"data.construct"> {
+  let summary = "Construct a Mulberry algebraic data value";
+  let description = [{
+    Creates one variant of a nominal data type. The operation preserves the
+    semantic constructor name, numeric tag, and payload SSA values while
+    leaving the physical tagged-object layout to lowering.
+  }];
+
+  let arguments = (ins StrAttr:$constructor, I64Attr:$tag,
+                       Variadic<AnyType>:$payloads);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$constructor `[` $tag `]` `(` $payloads `)` "
+                       "attr-dict `:` functional-type($payloads, $result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_DataTagOp : Mulberry_Op<"data.tag"> {
+  let summary = "Read the constructor tag of a Mulberry algebraic data value";
+
+  let arguments = (ins Mulberry_AnyPtrType:$value);
+  let results = (outs I64:$tag);
+
+  let assemblyFormat = "$value attr-dict `:` type($value) `->` type($tag)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_DataUnpackOp : Mulberry_Op<"data.unpack"> {
+  let summary = "Extract the payloads of a matched algebraic data variant";
+  let description = [{
+    Extracts the payloads of one constructor after control flow has checked
+    the value's tag. The operation keeps the constructor identity visible in
+    high-level IR while leaving field addresses and loads to lowering.
+  }];
+
+  let arguments = (ins StrAttr:$constructor, I64Attr:$tag,
+                       Mulberry_AnyPtrType:$value);
+  let results = (outs Variadic<AnyType>:$payloads);
+
+  let assemblyFormat = "$constructor `[` $tag `]` $value attr-dict `:` "
+                       "functional-type($value, $payloads)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";
 

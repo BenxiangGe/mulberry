@@ -16,6 +16,19 @@ class Mulberry_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
+def Mulberry_DataType : Mulberry_Type<"Data", "data"> {
+  let summary = "Mulberry nominal algebraic data type";
+  let description = [{
+    Concrete identity of a source-level `data` specialization. Constructor
+    payloads live on `mulberry_core.data.construct`; keeping this type nominal
+    allows recursive types without a cyclic MLIR type graph.
+  }];
+
+  let parameters = (ins StringRefParameter<"concrete data type name">:$name);
+  let assemblyFormat = "`<` $name `>`";
+  let genVerifyDecl = 1;
+}
+
 def Mulberry_RecordType : Mulberry_Type<"Record", "record"> {
   let summary = "Mulberry record type";
   let description = [{

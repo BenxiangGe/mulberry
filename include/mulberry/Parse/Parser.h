@@ -138,6 +138,7 @@ private:
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> MulberryResult;
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> MulberryResult;
+  auto parseDataDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
   auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
   auto parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
                           VectorUniquePtr<FunctionDecl> &methods)
@@ -188,6 +189,9 @@ private:
 
   auto parseFunctionCall(llvm::SMLoc location, std::string_view name,
                          std::unique_ptr<Expr> &expr) -> MulberryResult;
+  auto parseDataConstructorExpr(llvm::SMLoc location, std::string_view name,
+                                std::unique_ptr<Expr> &expr)
+      -> MulberryResult;
   auto parseStructLiteral(llvm::SMLoc location,
                           std::unique_ptr<TypeNode> typeNode,
                           std::unique_ptr<Expr> &expr) -> MulberryResult;
@@ -209,6 +213,7 @@ private:
   auto parseVarDecl(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseConstDecl(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
+  auto parseMatchStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseWhileStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseBreakStat(std::unique_ptr<Stat> &stat) -> MulberryResult;
