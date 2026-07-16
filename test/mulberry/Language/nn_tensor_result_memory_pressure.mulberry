@@ -1,0 +1,44 @@
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver --opt -o %t.exe %s
+# RUN: /usr/bin/prlimit --as=268435456 %t.exe 2>&1 | FileCheck %s --check-prefix=NATIVE
+
+import mulberry.nn;
+
+fn main(): UInt64 {
+  var input: Tensor<Float32> = tensor.zeros([1, 1, 256, 256]);
+  var completed = 0;
+
+  # The inner result dies after the borrowing extern call; the named outer
+  # result dies at loop-scope exit. Together they stream 4 GiB of payload.
+  for iteration in 0 .. 8192 {
+    var result = nn.relu(nn.relu(input));
+    if result[0, 0, 0, 0] == 0.0 {
+      completed = completed + 1;
+    }
+  }
+
+  # reshape shares storage, so this aliasing path deliberately falls back to
+  # the GC finalizer instead of lexical auto-dispose.
+  for iteration in 0 .. 8192 {
+    var result = nn.relu(input);
+    var view = tensor.reshape(result, [1, 1, 256, 256]);
+    if view[0, 0, 0, 0] == 0.0 {
+      completed = completed + 1;
+    }
+  }
+
+  io.println(completed);
+  return 0;
+}
+
+# LOWERED-LABEL: func.func @main
+# LOWERED: scf.for
+# LOWERED: memref.alloc{{.*}}{bufferization.manual_deallocation}
+# LOWERED: llvm.call @mulberry_tensor_storage_register
+# LOWERED: llvm.call @mulberry_tensor_storage_register
+# LOWERED: llvm.call @mulberry_tensor_storage_dispose
+# LOWERED: llvm.call @mulberry_tensor_storage_dispose
+# LOWERED-NOT: memref.copy
+# LOWERED: return
+
+# NATIVE: 16384

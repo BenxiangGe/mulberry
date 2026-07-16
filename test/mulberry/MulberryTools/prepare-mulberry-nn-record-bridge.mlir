@@ -1,10 +1,12 @@
 // RUN: mulberry-opt --load-dialect-plugin=%mulberry_libs/MulberryNNPackage%shlibext --load-pass-plugin=%mulberry_libs/MulberryNNPackage%shlibext --pass-pipeline='builtin.module(prepare-mulberry-nn-calls)' %s | FileCheck %s
+// RUN: mulberry-opt --load-dialect-plugin=%mulberry_libs/MulberryNNPackage%shlibext --load-pass-plugin=%mulberry_libs/MulberryNNPackage%shlibext --pass-pipeline='builtin.module(prepare-mulberry-nn-calls,lower-mulberry,prepare-mulberry-nn-calls)' %s | FileCheck %s --check-prefix=OWNED
 
 !list_u64 = !mulberry_core.record<ListU64 {
   length: i64,
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
 !tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  allocated: !mulberry_core.ptr<f32>,
   data: !mulberry_core.ptr<f32>,
   disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {
@@ -27,7 +29,15 @@ module {
 
 // CHECK-LABEL: func.func @bridge
 // CHECK: %[[VIEW:.*]] = mulberry_core.tensor.view
-// CHECK: %[[CALL:.*]] = call @mulberry.nn.__tensor.sigmoid(%[[VIEW]])
-// CHECK: %[[PACK:.*]] = mulberry_core.tensor.pack %[[CALL]]
+// CHECK: %[[CALL:.*]] = call @mulberry.nn.__tensor.sigmoid(%[[VIEW]]) {mulberry_core.transfer_tensor_result_ownership}
+// CHECK: %[[PACK:.*]] = mulberry_core.tensor.pack %[[CALL]] {mulberry_core.transfer_tensor_result_ownership}
 // CHECK: return %[[PACK]]
 // CHECK-NOT: call @mulberry.nn.sigmoid
+
+// OWNED-LABEL: func.func @bridge
+// OWNED: %[[OUT:.*]] = memref.alloc({{.*}}) {bufferization.manual_deallocation}
+// OWNED: mulberry_nn.sigmoid
+// OWNED-SAME: outs(%[[OUT]]
+// OWNED: llvm.call @mulberry_tensor_storage_register
+// OWNED-NOT: memref.copy
+// OWNED: return

@@ -208,7 +208,9 @@ private:
   auto gen(const UnitExpr *node) -> mlir::Value;
   auto gen(const BlockExpr *node) -> mlir::Value;
   auto genDeclaredCall(std::string_view name, llvm::ArrayRef<const Expr *> args,
-                       mlir::Location location) -> func::CallOp;
+                       mlir::Location location,
+                       std::vector<mlir::Value>* disposableTensorArguments =
+                           nullptr) -> func::CallOp;
   auto genDeclaredLoweredCall(std::string_view name, mlir::ValueRange args,
                               mlir::Location location)
       -> func::CallOp;
@@ -408,6 +410,7 @@ private:
                        mulberry_core::RecordType arrayType)
       -> mlir::Value;
   auto genTensorDispose(const CallExpr *expr) -> mlir::Value;
+  auto genTensorStorageAlloc(const CallExpr *expr) -> mlir::Value;
   void createTensorAssertAlive(mlir::Value tensor,
                                mlir::Location location);
   void storeArrayElements(const ArrayLiteralExpr *expr,
@@ -464,6 +467,11 @@ private:
 } // end namespace
 
 auto MLIRGenImpl::registerBuiltinHandlers() -> void {
+  registerBuiltinHandler(
+      "std.tensor.__allocate",
+      [this](const Expr *node) {
+        return genTensorStorageAlloc(cast<CallExpr>(node));
+      });
   registerBuiltinHandler(
       "std.tensor.__dispose",
       [this](const Expr *node) {
@@ -948,7 +956,9 @@ auto MLIRGenImpl::genDeclaredLoweredCall(std::string_view name,
 
 auto MLIRGenImpl::genDeclaredCall(std::string_view name,
                                   llvm::ArrayRef<const Expr *> args,
-                                  mlir::Location location)
+                                  mlir::Location location,
+                                  std::vector<mlir::Value>*
+                                      disposableTensorArguments)
     -> func::CallOp {
   auto calleeOpIter = findFunction(name);
   if (calleeOpIter == _functionsByName.end()) {
@@ -960,9 +970,23 @@ auto MLIRGenImpl::genDeclaredCall(std::string_view name,
 
   llvm::SmallVector<mlir::Value, 4> operands;
   for (const auto &indexedArg : llvm::enumerate(args)) {
-    auto value = genCallArgumentValue(
-        indexedArg.value(), calleeType.getInput(indexedArg.index()),
-        callee.isExtern);
+    auto *argument = indexedArg.value();
+    auto parameterType = calleeType.getInput(indexedArg.index());
+    mlir::Value value;
+    // Extern Tensor arguments are borrowed only until the call returns, so a
+    // fresh argument expression can be disposed immediately afterward.
+    if (disposableTensorArguments && callee.isExtern &&
+        isFreshTensorExpression(argument)) {
+      auto objectType = getLayoutMLIRType(argument);
+      if (parameterType != objectType)
+        llvm_unreachable("extern Tensor parameter does not use value ABI");
+      auto objectReference = genObjectReference(argument);
+      createTensorAssertAlive(objectReference, loc(argument));
+      value = createLoad(objectReference, parameterType, loc(argument));
+      disposableTensorArguments->push_back(objectReference);
+    } else {
+      value = genCallArgumentValue(argument, parameterType, callee.isExtern);
+    }
     DBG("genDeclaredCall. value: {0}", value);
     operands.push_back(value);
   }
@@ -980,7 +1004,13 @@ auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
   llvm::SmallVector<const Expr *, 4> args;
   for (auto &expr : node->expressions())
     args.push_back(expr.get());
-  auto callOp = genDeclaredCall(node->name(), args, loc(node));
+  std::vector<mlir::Value> disposableTensorArguments;
+  auto callOp = genDeclaredCall(node->name(), args, loc(node),
+                                &disposableTensorArguments);
+  for (auto tensor : disposableTensorArguments) {
+    DBG("automatically dispose fresh Tensor argument after extern call");
+    mulberry_core::TensorDisposeOp::create(_builder, loc(node), tensor);
+  }
 
   if (mulberry::isUnitType(node->type()))
     return nullptr;
@@ -2091,6 +2121,24 @@ auto MLIRGenImpl::genTensorDispose(const CallExpr *expr) -> mlir::Value {
   auto tensor = genObjectReference(expr->expressions().front().get());
   mulberry_core::TensorDisposeOp::create(_builder, loc(expr), tensor);
   return nullptr;
+}
+
+auto MLIRGenImpl::genTensorStorageAlloc(const CallExpr *expr) -> mlir::Value {
+  auto location = loc(expr);
+  auto storagePtrType =
+      llvm::cast<mulberry_core::PtrType>(getSourceMLIRType(expr));
+  auto storageType =
+      llvm::cast<mulberry_core::RecordType>(storagePtrType.getPointeeType());
+  auto dataPtrType = llvm::cast<mulberry_core::PtrType>(
+      storageType.getFieldType("data"));
+  auto elementType = dataPtrType.getPointeeType();
+  auto payloadType = mulberry_core::TensorType::get(
+      _builder.getContext(), {mlir::ShapedType::kDynamic}, elementType);
+  auto count = gen(expr->expressions().front().get());
+  auto allocation = mulberry_core::TensorStorageAllocOp::create(
+      _builder, location, mlir::TypeRange{storagePtrType, payloadType},
+      elementType, count);
+  return allocation.getStorage();
 }
 
 void MLIRGenImpl::createTensorAssertAlive(mlir::Value tensor,

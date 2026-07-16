@@ -20,7 +20,7 @@ fn main(): UInt64 {
 # MLIR: call @std_list_List_size__UInt64
 # MLIR: call @std_tensor_Tensor_numel__Float32
 # MLIR-LABEL: func.func @std_tensor_from__Array_Array_Float32
-# MLIR: mulberry_core.heap.alloc f32
+# MLIR: mulberry_core.tensor.storage_alloc f32
 # MLIR: mulberry_core.record.get_field {{.*}}["sizes"]
 
 # JIT: 2

@@ -1,6 +1,7 @@
 # RUN: mulberry-driver -typecheck %s
 # RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 fn main(): UInt64 {
@@ -27,11 +28,20 @@ fn main(): UInt64 {
 # MLIR: call @std_tensor_from__Array_UInt64
 # MLIR-NOT: call @std.tensor.from
 # MLIR-LABEL: func.func @std_tensor_from__Array_Array_Float32
-# MLIR: mulberry_core.heap.alloc f32
+# MLIR: mulberry_core.tensor.storage_alloc f32
 # MLIR: call @std_tensor_flattenInto__Array_Array_Float32
 # MLIR-LABEL: func.func @std_tensor_from__Array_UInt64
-# MLIR: mulberry_core.heap.alloc i64
+# MLIR: mulberry_core.tensor.storage_alloc i64
 # MLIR: call @std_tensor_flattenInto__Array_UInt64
+
+# LLVM-LABEL: define ptr @std_tensor_from__Array_Array_Float32
+# LLVM: call ptr @malloc
+# LLVM: call ptr @mulberry_boehm_malloc
+# LLVM: call void @mulberry_tensor_storage_register
+# LLVM-LABEL: define ptr @std_tensor_from__Array_UInt64
+# LLVM: call ptr @malloc
+# LLVM: call ptr @mulberry_boehm_malloc
+# LLVM: call void @mulberry_tensor_storage_register
 
 # JIT: 4
 # JIT-NEXT: 1

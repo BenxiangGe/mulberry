@@ -1,10 +1,11 @@
-// RUN: mulberry-opt --lower-mulberry %s | FileCheck %s
+// RUN: mulberry-opt --lower-mulberry --finalize-mulberry-tensor-storage %s | FileCheck %s
 
 !list_u64 = !mulberry_core.record<ListU64 {
   length: i64,
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
 !tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  allocated: !mulberry_core.ptr<f32>,
   data: !mulberry_core.ptr<f32>,
   disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {
@@ -49,6 +50,8 @@ module {
 // CHECK: return
 
 // CHECK-LABEL: func.func @pack
+// CHECK: memref.alloc
+// CHECK: llvm.call @mulberry_tensor_storage_register
 // CHECK: memref.copy
 // CHECK: llvm.store
 // CHECK: llvm.insertvalue
@@ -56,7 +59,7 @@ module {
 // CHECK-NOT: mulberry_core.
 
 // CHECK-LABEL: func.func @dispose
-// CHECK: llvm.call @mulberry_boehm_free
+// CHECK: llvm.call @mulberry_tensor_storage_dispose
 // CHECK: return
 
 // CHECK-LABEL: func.func @assert_alive

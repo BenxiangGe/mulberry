@@ -41,7 +41,7 @@ fn main(): UInt64 {
 # MLIR: call @std_tensor_from__Array_UInt8
 # MLIR: call @std_io_write__UInt8
 # MLIR-LABEL: func.func @std_tensor_from__Array_UInt8
-# MLIR: mulberry_core.heap.alloc i8
+# MLIR: mulberry_core.tensor.storage_alloc i8
 # MLIR: call @std_tensor_flattenInto__Array_UInt8
 # MLIR-NOT: cir.
 

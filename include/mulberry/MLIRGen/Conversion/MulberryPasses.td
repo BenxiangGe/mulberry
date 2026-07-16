@@ -33,4 +33,17 @@ def LowerMulberry : Pass<"lower-mulberry"> {
                            "scf::SCFDialect"];
 }
 
+def FinalizeMulberryTensorStorage
+    : Pass<"finalize-mulberry-tensor-storage", "::mlir::ModuleOp"> {
+  let summary = "Materialize source-owned Tensor storage as flat memrefs";
+  let description = [{
+    Source Tensor payloads outlive SSA memref temporaries. This pass runs after
+    ownership-based buffer deallocation, materializes each retained Tensor
+    payload with memref.alloc, and attaches its allocation to the GC-managed
+    TensorStorage owner.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "LLVM::LLVMDialect",
+                           "memref::MemRefDialect"];
+}
+
 #endif // MULBERRY_PASSES_TD

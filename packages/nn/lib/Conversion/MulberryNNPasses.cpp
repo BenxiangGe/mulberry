@@ -5,6 +5,7 @@
 #include "MulberryNN/MulberryNNOps.h"
 #include "MulberryNN/MulberryNNToLinalgPatterns.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -65,8 +66,23 @@ static auto getOrCreateTensorCallee(PatternRewriter &rewriter, Location loc,
   return SymbolRefAttr::get(rewriter.getContext(), callee);
 }
 
+static auto createOutputAllocation(PatternRewriter &rewriter, Location loc,
+                                   MemRefType resultType,
+                                   ValueRange dynamicSizes,
+                                   bool transferOwnership) -> Value {
+  auto allocation = memref::AllocOp::create(rewriter, loc, resultType,
+                                             dynamicSizes);
+  if (transferOwnership) {
+    allocation->setAttr(
+        bufferization::BufferizationDialect::kManualDeallocation,
+        rewriter.getUnitAttr());
+  }
+  return allocation;
+}
+
 static auto allocateLike(PatternRewriter &rewriter, Location loc, Value source,
-                         MemRefType resultType) -> Value {
+                         MemRefType resultType, bool transferOwnership)
+    -> Value {
   std::vector<Value> dynamicSizes;
   for (auto [index, dim] : llvm::enumerate(resultType.getShape())) {
     if (!ShapedType::isDynamic(dim))
@@ -75,7 +91,8 @@ static auto allocateLike(PatternRewriter &rewriter, Location loc, Value source,
     dynamicSizes.push_back(
         memref::DimOp::create(rewriter, loc, source, dimIndex));
   }
-  return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
+  return createOutputAllocation(rewriter, loc, resultType, dynamicSizes,
+                                transferOwnership);
 }
 
 static auto createDim(PatternRewriter &rewriter, Location loc, Value source,
@@ -85,7 +102,8 @@ static auto createDim(PatternRewriter &rewriter, Location loc, Value source,
 }
 
 static auto allocateMatmul(PatternRewriter &rewriter, Location loc, Value lhs,
-                           Value rhs, MemRefType resultType) -> Value {
+                           Value rhs, MemRefType resultType,
+                           bool transferOwnership) -> Value {
   std::vector<Value> dynamicSizes;
   for (auto [index, dim] : llvm::enumerate(resultType.getShape())) {
     if (!ShapedType::isDynamic(dim))
@@ -99,11 +117,13 @@ static auto allocateMatmul(PatternRewriter &rewriter, Location loc, Value lhs,
       return nullptr;
     }
   }
-  return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
+  return createOutputAllocation(rewriter, loc, resultType, dynamicSizes,
+                                transferOwnership);
 }
 
 static auto allocateTranspose(PatternRewriter &rewriter, Location loc,
-                              Value input, MemRefType resultType) -> Value {
+                              Value input, MemRefType resultType,
+                              bool transferOwnership) -> Value {
   std::vector<Value> dynamicSizes;
   for (auto [index, dim] : llvm::enumerate(resultType.getShape())) {
     if (!ShapedType::isDynamic(dim))
@@ -117,7 +137,8 @@ static auto allocateTranspose(PatternRewriter &rewriter, Location loc,
       return nullptr;
     }
   }
-  return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
+  return createOutputAllocation(rewriter, loc, resultType, dynamicSizes,
+                                transferOwnership);
 }
 
 static auto createWindowOutputSize(PatternRewriter &rewriter, Location loc,
@@ -134,7 +155,8 @@ static auto createWindowOutputSize(PatternRewriter &rewriter, Location loc,
 }
 
 static auto allocateConv2D(PatternRewriter &rewriter, Location loc, Value input,
-                           Value weight, MemRefType resultType) -> Value {
+                           Value weight, MemRefType resultType,
+                           bool transferOwnership) -> Value {
   auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
   auto weightType = llvm::dyn_cast<MemRefType>(weight.getType());
   if (!inputType || !weightType || inputType.getRank() != 4 ||
@@ -162,12 +184,14 @@ static auto allocateConv2D(PatternRewriter &rewriter, Location loc, Value input,
       return nullptr;
     }
   }
-  return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
+  return createOutputAllocation(rewriter, loc, resultType, dynamicSizes,
+                                transferOwnership);
 }
 
 static auto allocateMaxPool2D(PatternRewriter &rewriter, Location loc,
                               Value input, int64_t height, int64_t width,
-                              MemRefType resultType) -> Value {
+                              MemRefType resultType,
+                              bool transferOwnership) -> Value {
   auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
   if (!inputType || inputType.getRank() != 4 || resultType.getRank() != 4)
     return nullptr;
@@ -191,7 +215,8 @@ static auto allocateMaxPool2D(PatternRewriter &rewriter, Location loc,
       return nullptr;
     }
   }
-  return memref::AllocOp::create(rewriter, loc, resultType, dynamicSizes);
+  return createOutputAllocation(rewriter, loc, resultType, dynamicSizes,
+                                transferOwnership);
 }
 
 static auto getPositiveI64Constant(Value value) -> FailureOr<int64_t> {
@@ -276,10 +301,21 @@ static auto createTensorCall(PatternRewriter &rewriter, Location loc,
   return func::CallOp::create(rewriter, loc, callee, results, inputs);
 }
 
-static auto packTensor(PatternRewriter &rewriter, Location loc, Value tensor,
-                       Type tensorRecordType) -> Value {
-  return mulberry_core::TensorPackOp::create(
-      rewriter, loc, tensorRecordType, tensor);
+static auto packTensor(PatternRewriter &rewriter, Location loc,
+                       func::CallOp tensorCall, Type tensorRecordType)
+    -> Value {
+  tensorCall->setAttr(mulberry_core::kTransferTensorResultOwnershipAttr,
+                      rewriter.getUnitAttr());
+  auto pack = mulberry_core::TensorPackOp::create(
+      rewriter, loc, tensorRecordType, tensorCall.getResult(0));
+  pack->setAttr(mulberry_core::kTransferTensorResultOwnershipAttr,
+                rewriter.getUnitAttr());
+  return pack;
+}
+
+static auto transfersTensorResultOwnership(func::CallOp call) -> bool {
+  return call->hasAttr(
+      mulberry_core::kTransferTensorResultOwnershipAttr);
 }
 
 enum class BinaryOperation {
@@ -303,24 +339,28 @@ static auto rewriteBinaryCall(func::CallOp call, PatternRewriter &rewriter,
     return failure();
 
   auto loc = call.getLoc();
+  auto transferOwnership = transfersTensorResultOwnership(call);
   Value out;
   if (operation == BinaryOperation::Matmul) {
     out = allocateMatmul(rewriter, loc, call.getOperand(0), call.getOperand(1),
-                         resultType);
+                         resultType, transferOwnership);
     if (!out)
       return failure();
     MatmulOp::create(rewriter, loc, call.getOperand(0), call.getOperand(1),
                      out);
   } else if (operation == BinaryOperation::Add) {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     MataddOp::create(rewriter, loc, call.getOperand(0), call.getOperand(1),
                      out);
   } else if (operation == BinaryOperation::Subtract) {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     MatsubOp::create(rewriter, loc, call.getOperand(0), call.getOperand(1),
                      out);
   } else if (operation == BinaryOperation::Hadamard) {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     HadamardOp::create(rewriter, loc, call.getOperand(0), call.getOperand(1),
                        out);
   } else {
@@ -349,7 +389,7 @@ static auto rewriteBinaryRecordABICall(func::CallOp call,
   auto resultType = getTensorType(rewriter.getContext(), rank);
   auto result = createTensorCall(rewriter, loc, call, name,
                                  ValueRange{lhs, rhs}, TypeRange{resultType});
-  rewriter.replaceOp(call, packTensor(rewriter, loc, result.getResult(0),
+  rewriter.replaceOp(call, packTensor(rewriter, loc, result,
                                       call.getResult(0).getType()));
   return success();
 }
@@ -365,8 +405,9 @@ static auto rewriteScaleCall(func::CallOp call, PatternRewriter &rewriter,
   if (!inputType || !resultType || !call.getOperand(1).getType().isF32())
     return failure();
 
-  auto out =
-      allocateLike(rewriter, call.getLoc(), call.getOperand(0), resultType);
+  auto out = allocateLike(rewriter, call.getLoc(), call.getOperand(0),
+                          resultType,
+                          transfersTensorResultOwnership(call));
   MatscaleOp::create(rewriter, call.getLoc(), call.getOperand(0),
                      call.getOperand(1), out);
   rewriter.replaceOp(call, out);
@@ -389,7 +430,7 @@ static auto rewriteScaleRecordABICall(func::CallOp call,
   auto result = createTensorCall(rewriter, loc, call, name,
                                  ValueRange{input, call.getOperand(1)},
                                  TypeRange{resultType});
-  rewriter.replaceOp(call, packTensor(rewriter, loc, result.getResult(0),
+  rewriter.replaceOp(call, packTensor(rewriter, loc, result,
                                       call.getResult(0).getType()));
   return success();
 }
@@ -406,26 +447,33 @@ static auto rewriteUnaryCall(func::CallOp call, PatternRewriter &rewriter,
     return failure();
 
   auto loc = call.getLoc();
+  auto transferOwnership = transfersTensorResultOwnership(call);
   Value out;
   if (name == "transpose") {
-    out = allocateTranspose(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateTranspose(rewriter, loc, call.getOperand(0), resultType,
+                            transferOwnership);
     if (!out)
       return failure();
     TransposeOp::create(rewriter, loc, call.getOperand(0), out);
   } else if (name == "exp") {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     ExpOp::create(rewriter, loc, call.getOperand(0), out);
   } else if (name == "sigmoid") {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     SigmoidOp::create(rewriter, loc, call.getOperand(0), out);
   } else if (name == "sigmoidPrime") {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     SigmoidPrimeOp::create(rewriter, loc, call.getOperand(0), out);
   } else if (name == "relu") {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     ReluOp::create(rewriter, loc, call.getOperand(0), out);
   } else if (name == "softmax") {
-    out = allocateLike(rewriter, loc, call.getOperand(0), resultType);
+    out = allocateLike(rewriter, loc, call.getOperand(0), resultType,
+                       transferOwnership);
     SoftmaxOp::create(rewriter, loc, call.getOperand(0), out);
   } else {
     return failure();
@@ -450,7 +498,7 @@ static auto rewriteUnaryRecordABICall(func::CallOp call,
   auto resultType = getTensorType(rewriter.getContext(), rank);
   auto result = createTensorCall(rewriter, loc, call, name, ValueRange{input},
                                  TypeRange{resultType});
-  rewriter.replaceOp(call, packTensor(rewriter, loc, result.getResult(0),
+  rewriter.replaceOp(call, packTensor(rewriter, loc, result,
                                       call.getResult(0).getType()));
   return success();
 }
@@ -512,7 +560,8 @@ static auto rewriteConv2DCall(func::CallOp call, PatternRewriter &rewriter)
 
   auto loc = call.getLoc();
   auto out = allocateConv2D(rewriter, loc, call.getOperand(0),
-                            call.getOperand(1), resultType);
+                            call.getOperand(1), resultType,
+                            transfersTensorResultOwnership(call));
   if (!out)
     return failure();
 
@@ -545,7 +594,7 @@ static auto rewriteConv2DRecordABICall(func::CallOp call,
   auto result =
       createTensorCall(rewriter, loc, call, "conv2d",
                        ValueRange{input, weight, bias}, TypeRange{resultType});
-  rewriter.replaceOp(call, packTensor(rewriter, loc, result.getResult(0),
+  rewriter.replaceOp(call, packTensor(rewriter, loc, result,
                                       call.getResult(0).getType()));
   return success();
 }
@@ -566,7 +615,8 @@ static auto rewriteMaxPool2DCall(func::CallOp call, PatternRewriter &rewriter)
 
   auto loc = call.getLoc();
   auto out = allocateMaxPool2D(rewriter, loc, call.getOperand(0), *height,
-                               *width, resultType);
+                               *width, resultType,
+                               transfersTensorResultOwnership(call));
   if (!out)
     return failure();
 
@@ -600,7 +650,7 @@ static auto rewriteMaxPool2DRecordABICall(func::CallOp call,
       rewriter, loc, call, "maxPool2d",
       ValueRange{input, call.getOperand(1), call.getOperand(2)},
       TypeRange{resultType});
-  rewriter.replaceOp(call, packTensor(rewriter, loc, result.getResult(0),
+  rewriter.replaceOp(call, packTensor(rewriter, loc, result,
                                       call.getResult(0).getType()));
   return success();
 }

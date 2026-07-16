@@ -5,6 +5,7 @@
   capacity: i64,
   data: !mulberry_core.ptr<i64>}>
 !tensor_storage_f32 = !mulberry_core.record<TensorStorageF32 {
+  allocated: !mulberry_core.ptr<f32>,
   data: !mulberry_core.ptr<f32>,
   disposed: i1}>
 !tensor_f32 = !mulberry_core.record<TensorF32 {

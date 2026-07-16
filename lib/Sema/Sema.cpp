@@ -863,6 +863,8 @@ private:
                                 const Type *leafType) -> const ArrayType *;
   auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr) -> MulberryResult;
   auto semaTensorDisposeCall(CallExpr *node) -> MulberryResult;
+  auto semaTensorStorageAllocCall(CallExpr *node, const Type *expectedType)
+      -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
   auto semaArrayLiteralElement(Expr *expr, const Type *type)
       -> MulberryResult;
@@ -1931,11 +1933,32 @@ private:
       return nullptr;
     return arguments[0].type();
   }
+
+  auto tensorStorageElementType(const Type *type) -> const Type * {
+    auto *structType = mulberry::getStructType(type);
+    if (!structType)
+      return nullptr;
+
+    auto *origin = structType->origin();
+    if (!origin || origin->aliasName() != "std.tensor.TensorStorage")
+      return nullptr;
+
+    auto &arguments = origin->arguments();
+    if (arguments.size() != 1 ||
+        arguments[0].kind() != ComptimeValue::Kind::Type)
+      return nullptr;
+    return arguments[0].type();
+  }
 };
 
 } // end namespace
 
 auto SemaImpl::registerBuiltinHandlers() -> void {
+  registerBuiltinHandler(
+      "std.tensor.__allocate",
+      [this](Expr *node, const Type *expectedType) {
+        return semaTensorStorageAllocCall(cast<CallExpr>(node), expectedType);
+      });
   registerBuiltinHandler(
       "std.tensor.__dispose",
       [this](Expr *node, const Type *) {
@@ -3419,6 +3442,29 @@ auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> MulberryResult {
     return failure();
 
   setBuiltinType(node, BuiltinTypeKind::Unit);
+  return success();
+}
+
+auto SemaImpl::semaTensorStorageAllocCall(CallExpr *node,
+                                          const Type *expectedType)
+    -> MulberryResult {
+  if (checkInternalFeature(node->location()))
+    return failure();
+
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  if (!expectedType || !tensorStorageElementType(expectedType))
+    return emitError(node, diag::mismatch_type);
+  if (sema(expressions.front().get()) ||
+      !isUInt64Type(expressions.front()->type()))
+    return emitError(expressions.front().get(), diag::mismatch_type);
+
+  node->setType(expectedType);
   return success();
 }
 

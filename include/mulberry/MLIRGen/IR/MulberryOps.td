@@ -10,6 +10,7 @@
 
 include "mulberry/MLIRGen/IR/MulberryDialect.td"
 include "mulberry/MLIRGen/IR/MulberryTypes.td"
+include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def Mulberry_AnyPtrType : Type<
@@ -42,6 +43,35 @@ def Mulberry_HeapAllocOp : Mulberry_Op<"heap.alloc"> {
   let results = (outs Mulberry_AnyPtrType:$result);
 
   let assemblyFormat = "$elementType `,` $count attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorStorageAllocOp : Mulberry_Op<"tensor.storage_alloc"> {
+  let summary = "Allocate source-owned Tensor storage";
+
+  let arguments = (ins TypeAttr:$elementType, I64:$count);
+  let results = (outs Mulberry_AnyPtrType:$storage,
+                      Mulberry_AnyTensorType:$payload);
+
+  let assemblyFormat = "$elementType `,` $count attr-dict `:` type($storage) "
+                       "`,` type($payload)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorStorageAllocLoweredOp
+    : Mulberry_Op<"tensor.storage_alloc.lowered"> {
+  let summary = "Storage-level source-owned Tensor allocation";
+
+  let arguments = (ins TypeAttr:$storageLayout, TypeAttr:$elementType,
+                       I64:$count);
+  let results = (outs AnyType:$storage,
+                      Res<AnyMemRef, "",
+                          [MemAlloc<DefaultResource>]>:$payload);
+
+  let assemblyFormat = "$storageLayout `,` $elementType `,` $count attr-dict "
+                       "`:` type($storage) `,` type($payload)";
 
   let hasVerifier = 1;
 }

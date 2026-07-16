@@ -9,6 +9,7 @@
 #include "mulberry/MLIRGen/IR/MulberryDialect.h"
 #include "mulberry/MLIRGen/IR/MulberryOps.h"
 #include "mulberry/MLIRGen/IR/MulberryTypes.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -29,6 +30,7 @@
 
 namespace mlir::mulberry_core {
 
+#define GEN_PASS_DEF_FINALIZEMULBERRYTENSORSTORAGE
 #define GEN_PASS_DEF_LOWERMULBERRY
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h.inc"
 
@@ -144,8 +146,8 @@ static auto convertToTensorABILayout(TensorType type)
   return convertToTensorABILayout(type.getContext(), type.getShape().size());
 }
 
-static auto createMemRefDataPointer(
-    Location location, ConversionPatternRewriter& rewriter, Value storage)
+static auto createMemRefDataPointer(Location location, OpBuilder& rewriter,
+                                    Value storage)
     -> Value {
   // Runtime calls and ABI descriptors need an opaque LLVM pointer, not the full
   // memref descriptor. Extract the memref's aligned data pointer and cast that
@@ -238,6 +240,41 @@ static auto callRuntimeVoid(Location location, OpBuilder& builder,
   return success();
 }
 
+static auto createTensorStorageOwner(Location location, OpBuilder& builder,
+                                     Operation* op, Type storageLayout,
+                                     Value allocated, Value data)
+    -> FailureOr<Value> {
+  auto storageBytes = createSizeOf(location, builder, storageLayout);
+  auto storage = callBoehmMalloc(location, builder, op, storageBytes);
+  if (failed(storage))
+    return failure();
+
+  auto i1Type = IntegerType::get(builder.getContext(), 1);
+  auto falseValue = LLVM::ConstantOp::create(
+      builder, location, i1Type, builder.getIntegerAttr(i1Type, 0));
+  auto storageValue =
+      LLVM::UndefOp::create(builder, location, storageLayout).getResult();
+  storageValue = LLVM::InsertValueOp::create(
+                     builder, location, storageValue, allocated,
+                     ArrayRef<int64_t>{0})
+                     .getResult();
+  storageValue = LLVM::InsertValueOp::create(
+                     builder, location, storageValue, data,
+                     ArrayRef<int64_t>{1})
+                     .getResult();
+  storageValue = LLVM::InsertValueOp::create(
+                     builder, location, storageValue, falseValue,
+                     ArrayRef<int64_t>{2})
+                     .getResult();
+  LLVM::StoreOp::create(builder, location, storageValue, *storage);
+
+  if (failed(callRuntimeVoid(location, builder, op,
+                             "mulberry_tensor_storage_register",
+                             ValueRange{*storage})))
+    return failure();
+  return *storage;
+}
+
 static auto extractRecordField(Location location,
                                ConversionPatternRewriter& rewriter,
                                Value record,
@@ -320,37 +357,13 @@ static auto assertTensorStorageAlive(
 static auto disposeTensorStorage(
     Location location, ConversionPatternRewriter& rewriter, Operation* op,
     Value storage, RecordType storageType) -> LogicalResult {
-  auto disposedAddress = createRecordFieldAddress(
-      location, rewriter, storage, storageType, "disposed");
-  auto dataAddress = createRecordFieldAddress(
-      location, rewriter, storage, storageType, "data");
-  if (failed(disposedAddress) || failed(dataAddress))
+  if (!storageType.getFieldType("allocated") ||
+      !storageType.getFieldType("data") ||
+      !storageType.getFieldType("disposed"))
     return failure();
-
-  auto context = rewriter.getContext();
-  auto i1Type = IntegerType::get(context, 1);
-  auto disposed = LLVM::LoadOp::create(rewriter, location, i1Type,
-                                       *disposedAddress);
-  auto trueValue = arith::ConstantIntOp::create(rewriter, location, 1, 1);
-  auto shouldDispose = arith::XOrIOp::create(
-      rewriter, location, disposed.getResult(), trueValue.getResult());
-  auto ifOp = scf::IfOp::create(rewriter, location, shouldDispose,
-                                /*withElseRegion=*/false);
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointToStart(ifOp.thenBlock());
-  auto pointerType = getPtrType(context);
-  auto data = LLVM::LoadOp::create(rewriter, location, pointerType,
-                                   *dataAddress);
-  LLVM::StoreOp::create(rewriter, location, trueValue.getResult(),
-                        *disposedAddress);
-  if (failed(callRuntimeVoid(location, rewriter, op, "mulberry_boehm_free",
-                             ValueRange{data.getResult()})))
-    return failure();
-  auto nullPointer = LLVM::ZeroOp::create(rewriter, location, pointerType);
-  LLVM::StoreOp::create(rewriter, location, nullPointer.getResult(),
-                        *dataAddress);
-  return success();
+  return callRuntimeVoid(location, rewriter, op,
+                         "mulberry_tensor_storage_dispose",
+                         ValueRange{storage});
 }
 
 static auto loadRecordValue(Location location,
@@ -644,6 +657,46 @@ static auto createTensorFromABIDesc(
   return result.getResult();
 }
 
+static auto createTensorFromFlatStorage(
+    Location location, ConversionPatternRewriter& rewriter, Value storage,
+    Value desc, TensorType type) -> Value {
+  auto context = rewriter.getContext();
+  auto resultMemRefType = convertTensorToMemRefType(type);
+
+  Value offset = arith::ConstantIndexOp::create(rewriter, location, 0);
+  std::vector<Value> sizes;
+  std::vector<Value> strides;
+  for (size_t dim = 0; dim < type.getShape().size(); ++dim) {
+    auto size = LLVM::ExtractValueOp::create(
+        rewriter, location, getI64Type(context), desc,
+        ArrayRef<int64_t>{1, static_cast<int64_t>(dim)});
+    auto stride = LLVM::ExtractValueOp::create(
+        rewriter, location, getI64Type(context), desc,
+        ArrayRef<int64_t>{2, static_cast<int64_t>(dim)});
+    sizes.push_back(arith::IndexCastOp::create(
+                        rewriter, location, rewriter.getIndexType(),
+                        size.getResult())
+                        .getResult());
+    strides.push_back(arith::IndexCastOp::create(
+                          rewriter, location, rewriter.getIndexType(),
+                          stride.getResult())
+                          .getResult());
+  }
+
+  std::vector<int64_t> dynamicShape(resultMemRefType.getRank(),
+                                    ShapedType::kDynamic);
+  std::vector<int64_t> dynamicStrides(resultMemRefType.getRank(),
+                                      ShapedType::kDynamic);
+  auto stridedType = MemRefType::get(
+      dynamicShape, resultMemRefType.getElementType(),
+      StridedLayoutAttr::get(context, ShapedType::kDynamic, dynamicStrides));
+  auto stridedTensor = memref::ReinterpretCastOp::create(
+      rewriter, location, stridedType, storage, offset, sizes, strides,
+      ArrayRef<NamedAttribute>{});
+  return memref::CastOp::create(rewriter, location, resultMemRefType,
+                                stridedTensor.getResult());
+}
+
 static auto convertRecordLayoutType(RecordType type)
     -> std::optional<Type> {
   std::vector<Type> fieldTypes;
@@ -695,6 +748,35 @@ public:
   }
 };
 
+// MLIR's generic call conversion rebuilds func.call without copying extra
+// attributes, so preserve the ownership contract before converting its type.
+// https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Func/Transforms/FuncConversions.cpp
+class TensorOwnershipCallOpLowering
+    : public OpConversionPattern<func::CallOp> {
+public:
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
+
+  auto matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    if (!op->hasAttr(kTransferTensorResultOwnershipAttr))
+      return failure();
+
+    SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(op.getResultTypes(),
+                                                resultTypes)) ||
+        resultTypes.size() != op.getNumResults())
+      return rewriter.notifyMatchFailure(
+          op, "Tensor ownership call needs one-to-one result conversion");
+
+    auto call = func::CallOp::create(rewriter, op.getLoc(), op.getCallee(),
+                                     resultTypes, adaptor.getOperands());
+    call->setAttrs(op->getAttrDictionary());
+    rewriter.replaceOp(op, call.getResults());
+    return success();
+  }
+};
+
 class AllocaOpLowering : public OpConversionPattern<AllocaOp> {
 public:
   using OpConversionPattern<AllocaOp>::OpConversionPattern;
@@ -717,6 +799,40 @@ public:
         rewriter, op.getLoc(), getPtrType(op.getContext()), *storageType,
         elementCount.getResult(), /*alignment=*/0);
     rewriter.replaceOp(op, alloca.getResult());
+    return success();
+  }
+};
+
+class TensorStorageAllocOpLowering
+    : public OpConversionPattern<TensorStorageAllocOp> {
+public:
+  using OpConversionPattern<TensorStorageAllocOp>::OpConversionPattern;
+
+  auto matchAndRewrite(TensorStorageAllocOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto storagePtrType = llvm::dyn_cast<PtrType>(op.getStorage().getType());
+    auto storageType = storagePtrType
+                           ? llvm::dyn_cast<RecordType>(
+                                 storagePtrType.getPointeeType())
+                           : RecordType{};
+    auto storageLayout = storageType
+                             ? convertRecordLayoutType(storageType)
+                             : std::optional<Type>{};
+    auto payloadType = llvm::dyn_cast<TensorType>(op.getPayload().getType());
+    if (!storageLayout || !payloadType)
+      return rewriter.notifyMatchFailure(
+          op, "Tensor storage allocation needs lowerable result types");
+
+    auto memRefType = convertTensorToMemRefType(payloadType);
+    auto allocation = TensorStorageAllocLoweredOp::create(
+        rewriter, op.getLoc(),
+        TypeRange{getPtrType(op.getContext()), memRefType}, *storageLayout,
+        op.getElementType(), adaptor.getCount());
+    allocation->setAttr(
+        bufferization::BufferizationDialect::kManualDeallocation,
+        rewriter.getUnitAttr());
+    rewriter.replaceOp(op, allocation.getResults());
     return success();
   }
 };
@@ -961,9 +1077,6 @@ public:
     auto payloadBytes = createTensorByteSize(op.getLoc(), rewriter, tensor);
     if (failed(sizes) || failed(strides) || failed(payloadBytes))
       return failure();
-    auto payload = callBoehmMalloc(op.getLoc(), rewriter, op, *payloadBytes);
-    if (failed(payload))
-      return failure();
 
     auto sizesType =
         getReferencedRecordType(tensorRecordType.getFieldType("sizes"));
@@ -973,6 +1086,15 @@ public:
     if (!sizesType || !stridesType || !storageType)
       return rewriter.notifyMatchFailure(
           op, "tensor pack needs metadata and shared storage fields");
+    auto storageBackendType = convertRecordLayoutType(storageType);
+    if (!storageBackendType)
+      return rewriter.notifyMatchFailure(
+          op, "tensor pack needs lowerable shared storage");
+
+    auto elementBytes =
+        createSizeOf(op.getLoc(), rewriter, tensorType.getElementType());
+    auto elementCount = arith::DivUIOp::create(
+        rewriter, op.getLoc(), *payloadBytes, elementBytes);
 
     auto layout = convertToTensorABILayout(tensorType);
     auto sourceDesc = createTensorABIDesc(op.getLoc(), rewriter, layout,
@@ -991,13 +1113,59 @@ public:
                           stride.getResult());
     }
 
-    // NN ops allocate temporary memrefs. The returned stdlib Tensor header must
-    // own a Boehm heap payload, not point at temporary memref storage.
-    auto heapDesc = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), sourceDesc, *payload, ArrayRef<int64_t>{0});
-    auto heapTensor = createTensorFromABIDesc(op.getLoc(), rewriter,
-                                              heapDesc.getResult(), tensorType);
-    memref::CopyOp::create(rewriter, op.getLoc(), tensor, heapTensor);
+    auto transferOwnership =
+        op->hasAttr(kTransferTensorResultOwnershipAttr);
+    if (transferOwnership) {
+      auto producer = op.getTensor().getDefiningOp<func::CallOp>();
+      if (!producer || producer.getNumResults() != 1 ||
+          !producer->hasAttr(kTransferTensorResultOwnershipAttr))
+        return rewriter.notifyMatchFailure(
+            op, "ownership-transferring pack needs a marked single-result "
+                "call");
+      if (!op.getTensor().hasOneUse())
+        return rewriter.notifyMatchFailure(
+            op, "ownership-transferring call result must only feed its pack");
+    }
+
+    Value storage;
+    Value payloadPointer;
+    if (transferOwnership) {
+      // NN result allocations use memref.alloc without custom alignment, so
+      // their allocated and aligned pointers coincide.
+      payloadPointer = createMemRefDataPointer(op.getLoc(), rewriter, tensor);
+      auto owner = createTensorStorageOwner(
+          op.getLoc(), rewriter, op, *storageBackendType, payloadPointer,
+          payloadPointer);
+      if (failed(owner))
+        return failure();
+      storage = *owner;
+    } else {
+      auto flatMemRefType = MemRefType::get(
+          {ShapedType::kDynamic}, tensorType.getElementType());
+      auto allocation = TensorStorageAllocLoweredOp::create(
+          rewriter, op.getLoc(),
+          TypeRange{getPtrType(context), flatMemRefType}, *storageBackendType,
+          tensorType.getElementType(), elementCount.getResult());
+      allocation->setAttr(
+          bufferization::BufferizationDialect::kManualDeallocation,
+          rewriter.getUnitAttr());
+
+      auto ownedTensor = createTensorFromFlatStorage(
+          op.getLoc(), rewriter, allocation.getPayload(), sourceDesc,
+          tensorType);
+      memref::CopyOp::create(rewriter, op.getLoc(), tensor, ownedTensor);
+
+      auto payloadAddress = createRecordFieldAddress(
+          op.getLoc(), rewriter, allocation.getStorage(), storageType,
+          "data");
+      if (failed(payloadAddress))
+        return failure();
+      payloadPointer =
+          LLVM::LoadOp::create(rewriter, op.getLoc(), getPtrType(context),
+                               *payloadAddress)
+              .getResult();
+      storage = allocation.getStorage();
+    }
 
     auto sizesList = createListRecordValue(
         op.getLoc(), rewriter, sizesType, rankValue.getResult(), *sizes);
@@ -1012,31 +1180,6 @@ public:
     auto stridesReference = createHeapRecordReference(
         op.getLoc(), rewriter, op, stridesType, *stridesList);
     if (failed(sizesReference) || failed(stridesReference))
-      return failure();
-
-    auto storageBackendType = convertRecordLayoutType(storageType);
-    if (!storageBackendType)
-      return rewriter.notifyMatchFailure(
-          op, "tensor pack needs lowerable shared storage");
-    auto storage = LLVM::UndefOp::create(rewriter, op.getLoc(),
-                                         *storageBackendType);
-    Value storageValue = storage.getResult();
-    auto storageDataIndex =
-        static_cast<int64_t>(storageType.getFieldIndex("data"));
-    auto disposedIndex =
-        static_cast<int64_t>(storageType.getFieldIndex("disposed"));
-    auto falseValue = LLVM::ConstantOp::create(
-        rewriter, op.getLoc(), IntegerType::get(context, 1),
-        rewriter.getIntegerAttr(IntegerType::get(context, 1), 0));
-    storageValue = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), storageValue, *payload,
-        ArrayRef<int64_t>{storageDataIndex});
-    storageValue = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), storageValue, falseValue.getResult(),
-        ArrayRef<int64_t>{disposedIndex});
-    auto storageReference = createHeapRecordReference(
-        op.getLoc(), rewriter, op, storageType, storageValue);
-    if (failed(storageReference))
       return failure();
 
     auto tensorRecord = LLVM::UndefOp::create(rewriter, op.getLoc(),
@@ -1055,16 +1198,14 @@ public:
     auto stridesIndex =
         static_cast<int64_t>(tensorRecordType.getFieldIndex("strides"));
     current = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), current, *storageReference,
+        rewriter, op.getLoc(), current, storage,
         ArrayRef<int64_t>{storageIndex});
     current = LLVM::InsertValueOp::create(
-        rewriter, op.getLoc(), current, *payload, ArrayRef<int64_t>{dataIndex});
+        rewriter, op.getLoc(), current, payloadPointer,
+        ArrayRef<int64_t>{dataIndex});
     current = LLVM::InsertValueOp::create(
         rewriter, op.getLoc(), current, rankValue.getResult(),
         ArrayRef<int64_t>{rankIndex});
-    auto elementCount = arith::DivUIOp::create(
-        rewriter, op.getLoc(), *payloadBytes,
-        createSizeOf(op.getLoc(), rewriter, tensorType.getElementType()));
     current = LLVM::InsertValueOp::create(
         rewriter, op.getLoc(), current, elementCount.getResult(),
         ArrayRef<int64_t>{numelIndex});
@@ -1149,6 +1290,54 @@ public:
   }
 };
 
+class FinalizeTensorStorageAllocPattern
+    : public OpRewritePattern<TensorStorageAllocLoweredOp> {
+public:
+  using OpRewritePattern<TensorStorageAllocLoweredOp>::OpRewritePattern;
+
+  auto matchAndRewrite(TensorStorageAllocLoweredOp op,
+                       PatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto memRefType = llvm::dyn_cast<MemRefType>(op.getPayload().getType());
+    auto storageLayout =
+        llvm::dyn_cast<LLVM::LLVMStructType>(op.getStorageLayout());
+    if (!memRefType || !storageLayout)
+      return rewriter.notifyMatchFailure(
+          op, "final Tensor storage needs memref and LLVM storage types");
+
+    auto count = arith::IndexCastOp::create(
+        rewriter, op.getLoc(), rewriter.getIndexType(), op.getCount());
+    auto payload = memref::AllocOp::create(
+        rewriter, op.getLoc(), memRefType, ValueRange{count.getResult()});
+    auto data = createMemRefDataPointer(op.getLoc(), rewriter,
+                                        payload.getResult());
+
+    // This path uses memref.alloc without custom alignment, so its allocated
+    // and aligned pointers coincide. Keep both slots explicit in the owner.
+    auto storage = createTensorStorageOwner(
+        op.getLoc(), rewriter, op, storageLayout, data, data);
+    if (failed(storage))
+      return failure();
+
+    rewriter.replaceOp(op, ValueRange{*storage, payload.getResult()});
+    return success();
+  }
+};
+
+struct FinalizeMulberryTensorStorage
+    : public impl::FinalizeMulberryTensorStorageBase<
+          FinalizeMulberryTensorStorage> {
+  using impl::FinalizeMulberryTensorStorageBase<
+      FinalizeMulberryTensorStorage>::FinalizeMulberryTensorStorageBase;
+
+  auto runOnOperation() -> void final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<FinalizeTensorStorageAllocPattern>(&getContext());
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+      signalPassFailure();
+  }
+};
+
 struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
   using impl::LowerMulberryBase<LowerMulberry>::LowerMulberryBase;
 
@@ -1161,6 +1350,7 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                            math::MathDialect, memref::MemRefDialect,
                            scf::SCFDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
+    target.addLegalOp<TensorStorageAllocLoweredOp>();
     target.addIllegalDialect<MulberryDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(
         [&](func::FuncOp op) {
@@ -1175,9 +1365,12 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     patterns.add<AllocaOpLowering, HeapAllocOpLowering,
                  LoadOpLowering, PtrCastOpLowering, PtrIndexOpLowering,
                  RecordGetFieldOpLowering, StoreOpLowering,
+                 TensorStorageAllocOpLowering,
                  TensorAssertAliveOpLowering, TensorDisposeOpLowering,
                  TensorPackOpLowering, TensorViewOpLowering>(
         typeConverter, &getContext());
+    patterns.add<TensorOwnershipCallOpLowering>(
+        typeConverter, &getContext(), PatternBenefit(2));
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateCallOpTypeConversionPattern(patterns, typeConverter);

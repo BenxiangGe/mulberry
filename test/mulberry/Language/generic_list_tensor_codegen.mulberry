@@ -36,4 +36,4 @@ fn main(): UInt64 {
 # CHECK: call @make
 # CHECK: call @std_list_List_size__
 # CHECK-LABEL: func.func @std_tensor_from__Array_Array_Float32
-# CHECK: mulberry_core.heap.alloc f32
+# CHECK: mulberry_core.tensor.storage_alloc f32

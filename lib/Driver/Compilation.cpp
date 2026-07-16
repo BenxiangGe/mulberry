@@ -865,6 +865,9 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty())
     bufferization::buildBufferDeallocationPipeline(pm);
 
+  if (lowering >= Lowering::Mulberry)
+    pm.addPass(mulberry_core::createFinalizeMulberryTensorStorage());
+
   if (lowering >= Lowering::LLVM) {
     pm.addNestedPass<func::FuncOp>(
         mlir::createConvertLinalgToLoopsPass());

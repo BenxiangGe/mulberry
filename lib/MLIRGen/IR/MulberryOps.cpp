@@ -41,6 +41,70 @@ auto HeapAllocOp::verify() -> LogicalResult {
   return success();
 }
 
+static auto verifyTensorStorageRecord(Operation* op, RecordType storageType,
+                                      Type elementType) -> LogicalResult {
+  if (!storageType || !elementType)
+    return op->emitOpError(
+        " result must reference TensorStorage with an element type");
+
+  auto allocatedType = getPtrPointeeType(storageType.getFieldType("allocated"));
+  auto dataType = getPtrPointeeType(storageType.getFieldType("data"));
+  auto disposedType = storageType.getFieldType("disposed");
+  if (allocatedType != elementType || dataType != elementType ||
+      !disposedType || !disposedType.isInteger(1) ||
+      storageType.getFieldIndex("allocated") != 0 ||
+      storageType.getFieldIndex("data") != 1 ||
+      storageType.getFieldIndex("disposed") != 2)
+    return op->emitOpError(
+        " TensorStorage needs ordered `allocated`/`data` pointers and an i1 "
+        "`disposed` field");
+  return success();
+}
+
+auto TensorStorageAllocOp::verify() -> LogicalResult {
+  auto storagePtr = llvm::dyn_cast<PtrType>(getStorage().getType());
+  auto storageType = storagePtr
+                         ? llvm::dyn_cast<RecordType>(storagePtr.getPointeeType())
+                         : RecordType{};
+  if (failed(verifyTensorStorageRecord(getOperation(), storageType,
+                                       getElementType())))
+    return failure();
+
+  auto payloadType = llvm::dyn_cast<TensorType>(getPayload().getType());
+  if (!payloadType || payloadType.getShape().size() != 1 ||
+      !ShapedType::isDynamic(payloadType.getShape().front()) ||
+      payloadType.getElementType() != getElementType())
+    return emitOpError(
+        "payload must be a dynamic flat Tensor with matching element type");
+  return success();
+}
+
+auto TensorStorageAllocLoweredOp::verify() -> LogicalResult {
+  if (!llvm::isa<LLVM::LLVMPointerType>(getStorage().getType()))
+    return emitOpError("storage result must be an LLVM pointer");
+
+  auto storageLayout = llvm::dyn_cast<LLVM::LLVMStructType>(getStorageLayout());
+  if (!storageLayout || storageLayout.isOpaque() ||
+      storageLayout.getBody().size() != 3)
+    return emitOpError("storage layout must be a three-field LLVM struct");
+  auto storageFields = storageLayout.getBody();
+  if (!llvm::isa<LLVM::LLVMPointerType>(storageFields[0]) ||
+      !llvm::isa<LLVM::LLVMPointerType>(storageFields[1]) ||
+      !storageFields[2].isInteger(1))
+    return emitOpError("storage layout must be `{ptr, ptr, i1}`");
+  if (!getOperation()->hasAttr("bufferization.manual_deallocation"))
+    return emitOpError(
+        "must carry `bufferization.manual_deallocation`");
+
+  auto payloadType = llvm::dyn_cast<MemRefType>(getPayload().getType());
+  if (!payloadType || payloadType.getRank() != 1 ||
+      !payloadType.isDynamicDim(0) ||
+      payloadType.getElementType() != getElementType())
+    return emitOpError(
+        "payload must be a dynamic flat memref with matching element type");
+  return success();
+}
+
 auto PtrIndexOp::verify() -> LogicalResult {
   auto inputPointeeType = getPtrPointeeType(getPtr().getType());
   auto resultPointeeType = getPtrPointeeType(getResult().getType());
@@ -112,16 +176,8 @@ static auto verifyTensorStorage(Operation* op, RecordType tensorType)
   if (!storageType)
     return op->emitOpError(" Tensor record needs a shared `_storage` object");
 
-  auto tensorDataType = tensorType.getFieldType("data");
-  auto storageDataType = storageType.getFieldType("data");
-  auto disposedType = storageType.getFieldType("disposed");
-  if (!tensorDataType || tensorDataType != storageDataType ||
-      !getPtrPointeeType(storageDataType) || !disposedType ||
-      !disposedType.isInteger(1))
-    return op->emitOpError(
-        " Tensor storage needs matching `data` and i1 `disposed` fields");
-
-  return success();
+  auto tensorElementType = getPtrPointeeType(tensorType.getFieldType("data"));
+  return verifyTensorStorageRecord(op, storageType, tensorElementType);
 }
 
 static auto verifyTensorRecordABI(Operation* op, RecordType recordType,

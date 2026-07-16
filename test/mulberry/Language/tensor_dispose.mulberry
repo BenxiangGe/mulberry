@@ -46,14 +46,18 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @std_tensor_Tensor_dispose__UInt8
 # MLIR: mulberry_core.tensor.dispose
 
-# LOWERED-DAG: llvm.func @mulberry_boehm_free
+# LOWERED-DAG: llvm.func @mulberry_tensor_storage_dispose
+# LOWERED-DAG: llvm.func @mulberry_tensor_storage_register
 # LOWERED-LABEL: func.func @releaseAtLoopScope
 # LOWERED: scf.for
-# LOWERED: llvm.call @mulberry_boehm_free
+# LOWERED: llvm.call @mulberry_tensor_storage_dispose
 # LOWERED-LABEL: func.func @releaseFromAtLoopScope
 # LOWERED: scf.for
-# LOWERED: llvm.call @mulberry_boehm_free
+# LOWERED: llvm.call @mulberry_tensor_storage_dispose
 # LOWERED-LABEL: func.func @std_tensor_Tensor_dispose__UInt8
-# LOWERED: llvm.call @mulberry_boehm_free
+# LOWERED: llvm.call @mulberry_tensor_storage_dispose
+# LOWERED-LABEL: func.func @std_tensor_from__Array_UInt8
+# LOWERED: memref.alloc
+# LOWERED: llvm.call @mulberry_tensor_storage_register
 
 # JIT: 4

@@ -7,6 +7,7 @@ import internal.ptr;
 extern fn mulberry_zero_memory(data: Ptr<UInt8>, byteSize: UInt64): ();
 
 comptime TensorStorage<T> = struct {
+  allocated: Ptr<T>,
   data: Ptr<T>,
   disposed: Bool
 };
@@ -107,12 +108,11 @@ fn from<A>(value: A): Tensor<typeInfo(A).arrayLeafElementType()> {
   appendShape(value, sizes);
 
   const count = numel(sizes);
-  var data = heap.alloc<typeInfo(A).arrayLeafElementType()>(count);
+  var storage: TensorStorage<typeInfo(A).arrayLeafElementType()> =
+      std.tensor.__allocate(count);
+  var data = storage.data;
   flattenInto(value, data, 0);
 
-  var storage = TensorStorage<typeInfo(A).arrayLeafElementType()> {
-    data, false
-  };
   return Tensor<typeInfo(A).arrayLeafElementType()> {
     storage, data, rank, count, sizes, rowMajorStrides(sizes)
   };
@@ -120,9 +120,9 @@ fn from<A>(value: A): Tensor<typeInfo(A).arrayLeafElementType()> {
 
 fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   const count = numel(shape);
-  var data = heap.alloc<T>(count);
+  var storage: TensorStorage<T> = std.tensor.__allocate(count);
+  var data = storage.data;
   mulberry_zero_memory(ptr.asUInt8(data), count * sizeof(T));
-  var storage = TensorStorage<T> { data, false };
   return Tensor<T> {
     storage, data, shape.size(), count, shape, rowMajorStrides(shape)
   };

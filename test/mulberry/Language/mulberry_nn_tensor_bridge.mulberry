@@ -1,4 +1,5 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
 import mulberry.nn;
 
@@ -32,3 +33,9 @@ fn main(): UInt64 {
 # JIT-NEXT: 1
 # JIT-NEXT: 1
 # JIT-NEXT: 0
+
+# LOWERED-LABEL: func.func @main
+# LOWERED: memref.alloc{{.*}}{bufferization.manual_deallocation}
+# LOWERED: llvm.call @mulberry_tensor_storage_register
+# LOWERED-NOT: memref.copy
+# LOWERED: return

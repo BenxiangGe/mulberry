@@ -15,6 +15,14 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/ADT/StringRef.h"
+
+namespace mlir::mulberry_core {
+
+inline constexpr llvm::StringLiteral kTransferTensorResultOwnershipAttr =
+    "mulberry_core.transfer_tensor_result_ownership";
+
+} // namespace mlir::mulberry_core
 
 #define GET_OP_CLASSES
 #include "mulberry/MLIRGen/IR/MulberryOps.h.inc"
