@@ -11,8 +11,11 @@ add_llvm_library(MulberryNNPackage
 
         PLUGIN_TOOL
         mulberry-opt
+)
 
-        LINK_LIBS
-        MulberryNNIR
-        MulberryNNConversion
+# The package shares LLVM, MLIR, and Mulberry core code with its host. Linking
+# the static NN libraries here would pull a second LLVM copy into this module.
+target_sources(MulberryNNPackage PRIVATE
+        $<TARGET_OBJECTS:obj.MulberryNNIR>
+        $<TARGET_OBJECTS:obj.MulberryNNConversion>
 )

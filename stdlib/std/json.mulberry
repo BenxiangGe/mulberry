@@ -99,10 +99,7 @@ struct Parser {
 
   pub fn expectChar(mut self: Parser, value: Char): Result<(), JsonError> {
     self.skipSpaces();
-    if self.atEnd() {
-      return Err(UnexpectedEnd(self.position));
-    }
-    if self.currentChar() != value {
+    if self.peekChar()? != value {
       return Err(ExpectedChar(value, self.position));
     }
     self.position = self.position + 1;
@@ -112,14 +109,12 @@ struct Parser {
   pub fn consumeSeparatorOrEnd(mut self: Parser, end: Char):
       Result<Bool, JsonError> {
     self.skipSpaces();
-    if self.atEnd() {
-      return Err(UnexpectedEnd(self.position));
-    }
-    if self.currentChar() == end {
+    const current = self.peekChar()?;
+    if current == end {
       self.position = self.position + 1;
       return Ok(true);
     }
-    if self.currentChar() == ',' {
+    if current == ',' {
       self.position = self.position + 1;
       return Ok(false);
     }
@@ -215,10 +210,8 @@ struct Parser {
 
   pub fn skipBracketValue(mut self: Parser): Result<(), JsonError> {
     self.skipSpaces();
-    if self.atEnd() {
-      return Err(UnexpectedEnd(self.position));
-    }
-    if self.currentChar() != '[' and self.currentChar() != '{' {
+    const current = self.peekChar()?;
+    if current != '[' and current != '{' {
       return Err(ExpectedValue(self.position));
     }
 
@@ -267,13 +260,11 @@ struct Parser {
 
   pub fn skipValue(mut self: Parser): Result<(), JsonError> {
     self.skipSpaces();
-    if self.atEnd() {
-      return Err(UnexpectedEnd(self.position));
-    }
-    if self.currentChar() == '"' {
+    const current = self.peekChar()?;
+    if current == '"' {
       return self.skipString();
     }
-    if self.currentChar() == '[' or self.currentChar() == '{' {
+    if current == '[' or current == '{' {
       return self.skipBracketValue();
     }
     return self.skipScalarValue();

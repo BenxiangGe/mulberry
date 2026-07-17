@@ -111,7 +111,7 @@ object、Tensor view/pack 等 lowering bridge。这是内部 IR，不是用户 s
 
 - source 入口：`stdlib/mulberry/nn.mulberry`
 - dialect / pass / lowering：`packages/nn`
-- package library：`MulberryNNPackage`
+- package module：`MulberryNNPackage.so`
 
 `stdlib/mulberry/nn.mulberry` 只声明普通 extern package function 和少量 helper。
 Sema、MLIRGen 和 core `LowerMulberry` 不再硬编码 NN primitive。
@@ -169,10 +169,11 @@ makefile 当前默认使用 `release` CMake preset。
 ```
 
 `-c=<file>` 生成 native object file。`-o <file>` 会先生成临时 object file，再调用系统
-`clang`/`cc` 链接 executable。executable 会链接构建树里的 Mulberry runtime、MLIR
-runner utils 和 Boehm GC。
+`clang++`/`c++` 链接 executable。Mulberry 自有 compiler libraries 和 runtime 都使用
+static linkage；MLIR runner utils 和 Boehm GC 仍由上游构建方式决定。
 
-如果需要把 runtime `.so` 放到 executable 同目录，可以使用 `--bundle-runtime`：
+如果需要把 MLIR runner utils 和 Boehm GC 等动态 runtime dependency 放到 executable
+同目录，可以使用 `--bundle-runtime`：
 
 ```sh
 ./build/release/bin/mulberry-driver -o /tmp/driver --bundle-runtime test/mulberry/Driver/driver.mulberry

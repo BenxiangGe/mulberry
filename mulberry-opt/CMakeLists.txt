@@ -20,6 +20,7 @@ set(LIBS
         )
 
 add_llvm_executable(mulberry-opt mulberry-opt.cpp)
+set_target_properties(mulberry-opt PROPERTIES ENABLE_EXPORTS ON)
 
 llvm_update_compile_flags(mulberry-opt)
 target_link_libraries(mulberry-opt PRIVATE ${LIBS})

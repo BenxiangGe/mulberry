@@ -196,7 +196,6 @@ fn parseTensorObject(mut parser: Parser, headerLength: UInt64,
 
   mapJsonError(parser.expectChar('{'))?;
   while true {
-    parser.skipSpaces();
     if parser.consumeIfChar('}') {
       break;
     }
