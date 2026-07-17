@@ -3,10 +3,12 @@
 # RUN: test -s %t.o
 # RUN: mulberry-driver %s -o %t.exe
 # RUN: %t.exe 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: rm -rf %t.bundle
 # RUN: mkdir -p %t.bundle
 # RUN: mulberry-driver %s -o %t.bundle/driver --bundle-runtime
 # RUN: test -s %t.bundle/driver
-# RUN: test -s %t.bundle/libmulberry_runtime.so
+# RUN: test ! -e %t.bundle/libmulberry_runtime.so
+# RUN: ldd %t.bundle/driver 2>&1 | FileCheck %s --check-prefix=STATIC-RUNTIME
 # RUN: ls %t.bundle/libmlir_c_runner_utils.so* >/dev/null
 # RUN: ls %t.bundle/libmlir_apfloat_wrappers.so* >/dev/null
 # RUN: ls %t.bundle/libmlir_float16_utils.so* >/dev/null
@@ -59,3 +61,4 @@ fn main(): UInt64 {
 # JIT-NEXT: 0
 # BAD-OUTPUT: error: -c and -o cannot be used together
 # BAD-BUNDLE: error: --bundle-runtime requires -o
+# STATIC-RUNTIME-NOT: libmulberry_runtime

@@ -1,3 +1,5 @@
+set(BUILD_SHARED_LIBS OFF)
+
 add_mlir_dialect_library(MulberryNNConversion
         MulberryNNPasses.cpp
         MulberryNNToLinalgPatterns.cpp

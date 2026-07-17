@@ -74,6 +74,8 @@ namespace mulberry_core = mlir::mulberry_core;
 namespace ptr = mlir::ptr;
 namespace scf = mlir::scf;
 
+extern "C" void mulberry_runtime_init();
+
 namespace {
 
 auto getRuntimeLibPath() -> std::string {
@@ -316,16 +318,6 @@ auto createTargetMachine()
   return builder->createTargetMachine();
 }
 
-auto initializeMulberryRuntime(mlir::ExecutionEngine &engine)
-    -> llvm::Error {
-  auto runtimeInit = engine.lookup("mulberry_runtime_init");
-  if (!runtimeInit)
-    return runtimeInit.takeError();
-
-  reinterpret_cast<void (*)()>(*runtimeInit)();
-  return llvm::Error::success();
-}
-
 auto genLLVMModule(mlir::ModuleOp module, bool enableOpt,
                    std::unique_ptr<llvm::TargetMachine> &targetMachine,
                    llvm::LLVMContext &llvmContext)
@@ -451,16 +443,12 @@ auto copyRuntimeLibrary(llvm::StringRef sourcePath,
 }
 
 auto copyBundledRuntimeLibraries(llvm::StringRef outputFileName,
-                                 llvm::StringRef mulberryRuntimeLibPath,
                                  const std::vector<std::string> &mlirLibPaths,
                                  const std::vector<std::string> &boehmLibPaths)
     -> bool {
   auto outputDir = parentDir(outputFileName);
   if (outputDir.empty())
     outputDir = ".";
-
-  if (copyRuntimeLibrary(mulberryRuntimeLibPath, outputDir))
-    return true;
 
   for (auto &libPath : mlirLibPaths) {
     if (copyRuntimeLibrary(libPath, outputDir))
@@ -490,11 +478,12 @@ auto addRPath(std::vector<std::string> &argStorage,
 auto linkExecutable(llvm::StringRef objectFileName,
                     llvm::StringRef outputFileName,
                     bool bundleRuntime) -> int {
-  auto linker = findProgram("clang");
+  auto linker = findProgram("clang++");
   if (linker.empty())
-    linker = findProgram("cc");
+    linker = findProgram("c++");
   if (linker.empty()) {
-    llvm::errs() << "error: unable to find clang or cc for executable linking\n";
+    llvm::errs() << "error: unable to find clang++ or c++ for executable "
+                    "linking\n";
     return EXIT_FAILURE;
   }
 
@@ -515,7 +504,6 @@ auto linkExecutable(llvm::StringRef objectFileName,
     return EXIT_FAILURE;
   }
 
-  auto runtimeDir = parentDir(mulberryRuntimeLibPath);
   auto mlirRuntimeDir = parentDir(mlirRuntimeLibPath);
 
   auto boehmLinkLibPath = getBoehmLinkLibPath();
@@ -548,7 +536,6 @@ auto linkExecutable(llvm::StringRef objectFileName,
     argStorage.push_back("-Wl,--disable-new-dtags");
   } else {
     std::vector<std::string> rpaths;
-    addRPath(argStorage, rpaths, runtimeDir);
     addRPath(argStorage, rpaths, mlirRuntimeDir);
     for (auto &libPath : mlirRuntimeLibPaths)
       addRPath(argStorage, rpaths, parentDir(libPath));
@@ -571,8 +558,8 @@ auto linkExecutable(llvm::StringRef objectFileName,
   }
 
   if (bundleRuntime &&
-      copyBundledRuntimeLibraries(outputFileName, mulberryRuntimeLibPath,
-                                  mlirRuntimeLibPaths, boehmRuntimeLibPaths))
+      copyBundledRuntimeLibraries(outputFileName, mlirRuntimeLibPaths,
+                                  boehmRuntimeLibPaths))
     return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
@@ -921,12 +908,9 @@ auto Compilation::jit() -> int {
                  : llvm::CodeGenOptLevel::None;
 
   auto runtimeLibPath = getRuntimeLibPath();
-  auto mulberryRuntimeLibPath = getMulberryRuntimeLibPath();
   std::vector<llvm::StringRef> sharedLibPaths;
   if (!runtimeLibPath.empty())
     sharedLibPaths.push_back(runtimeLibPath);
-  if (!mulberryRuntimeLibPath.empty())
-    sharedLibPaths.push_back(mulberryRuntimeLibPath);
   options.sharedLibPaths = sharedLibPaths;
 
   auto engine = mlir::ExecutionEngine::create(*module, options,
@@ -938,11 +922,7 @@ auto Compilation::jit() -> int {
   }
 
   (*engine)->initialize();
-  if (auto error = initializeMulberryRuntime(**engine)) {
-    llvm::errs() << "error: failed to initialize Mulberry runtime: "
-                 << llvm::toString(std::move(error)) << "\n";
-    return EXIT_FAILURE;
-  }
+  mulberry_runtime_init();
 
   uint64_t result = 0;
   auto error =

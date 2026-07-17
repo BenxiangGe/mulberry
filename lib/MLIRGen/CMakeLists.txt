@@ -1,5 +1,7 @@
 set(LIB_HEADERS ${MULBERRY_SOURCE_DIR}/include/mulberry/MLIRGen)
 
+set(BUILD_SHARED_LIBS OFF)
+
 add_mlir_dialect_library(mulberryMLIRGen
         ${LIB_HEADERS}/MLIRGen.h
         MLIRGen.cpp
