@@ -1,0 +1,37 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s
+
+trait Positive {
+  fn isPositive(self): Bool;
+}
+
+impl Positive for UInt64 {
+  fn isPositive(self: UInt64): Bool {
+    return self > 0;
+  }
+}
+
+fn check<T: Positive>(value: T): Bool {
+  return value.isPositive();
+}
+
+fn main(): UInt64 {
+  if check(0) {
+    return 1;
+  }
+  if check(7) {
+    return 0;
+  }
+  return 1;
+}
+
+# AST-DAG: TraitDecl {{.*}}name=Positive
+# AST-DAG: ImplDecl {{.*}}trait=Positive target=UInt64
+# AST-DAG: Prototype {{.*}}name=check parameter=T: Positive
+# AST-DAG: CallExpr {{.*}}callee=Positive__UInt64.isPositive
+
+# MLIR-DAG: func.func @Positive__UInt64.isPositive
+# MLIR-DAG: func.func @check__UInt64
+# MLIR: call @Positive__UInt64.isPositive

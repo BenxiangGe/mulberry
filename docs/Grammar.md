@@ -50,6 +50,8 @@ declaration               -> import-declaration
 declaration               -> function-declaration
 declaration               -> extern-function-declaration
 declaration               -> struct-declaration
+declaration               -> trait-declaration
+declaration               -> impl-declaration
 declaration               -> data-declaration
 declaration               -> comptime-type-alias-declaration
 
@@ -57,7 +59,7 @@ import-declaration        -> `import` qualified-name `;`
 extern-function-declaration
                            -> `extern` function-prototype `;`
 function-declaration      -> function-prototype block
-function-prototype        -> `fn` function-name comptime-parameter-clause?
+function-prototype        -> `fn` function-name function-comptime-parameter-clause?
                               function-signature
 function-name             -> identifier
 function-signature        -> `(` parameter-list? `)` `:` type
@@ -70,6 +72,13 @@ struct-member             -> field-declaration
 struct-member             -> method-declaration
 field-declaration         -> identifier `:` type
 method-declaration        -> `pub`? function-declaration
+
+trait-declaration         -> `trait` identifier `{` trait-method-declaration* `}`
+trait-method-declaration  -> `fn` identifier `(` trait-receiver
+                              (`,` parameter)* `,`? `)` `:` type `;`
+trait-receiver            -> `mut`? `self`
+impl-declaration          -> `impl` qualified-name `for` type
+                              `{` method-declaration* `}`
 
 data-declaration          -> `data` identifier comptime-parameter-clause?
                               `=` data-constructor-list `;`
@@ -146,6 +155,15 @@ comptime-parameter-clause -> `<` comptime-parameter-list `>`
 comptime-parameter-list   -> comptime-parameter (`,` comptime-parameter)*
 comptime-parameter        -> identifier
 comptime-parameter        -> identifier `:` `UInt64`
+function-comptime-parameter-clause
+                          -> `<` function-comptime-parameter-list `>`
+function-comptime-parameter-list
+                          -> function-comptime-parameter
+                             (`,` function-comptime-parameter)*
+function-comptime-parameter
+                          -> comptime-parameter
+function-comptime-parameter
+                          -> identifier `:` qualified-name
 
 generic-argument-clause   -> `<` generic-argument-list `>`
 generic-argument-list     -> generic-argument (`,` generic-argument)*
@@ -159,6 +177,12 @@ generic-argument          -> integer-literal
 comptime Pair<T, U> = struct { first: T, second: U };
 comptime Buffer<T, N: UInt64> = Array<T, N>;
 ```
+
+函数的类型参数还可以带一个 Trait constraint，例如 `fn show<T: Show>(value: T)`。
+第一版只支持单一 constraint；type alias 和 data declaration 的 comptime 参数仍只接受
+普通类型参数或 `N: UInt64`。Trait method 的 `self` 类型由 `impl Trait for Type` 中的
+`Type` 隐式确定，不提供 `Self` source type。Trait 在 generic specialization 后静态解析
+成普通 direct call，不产生 trait object、vtable 或 runtime metadata。
 
 ## Comptime Reflection
 

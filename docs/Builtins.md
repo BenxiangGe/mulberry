@@ -32,7 +32,7 @@
 - `safetensors.find(TensorFile, String): Result<TensorInfo, safetensors.SafetensorsError>`
 - `safetensors.read(TensorFile, String): Result<Tensor<Float32>, safetensors.SafetensorsError>`
 - `safetensors.close(TensorFile): Result<(), safetensors.SafetensorsError>`
-- `string.formatValue<T>(T): String`
+- `string.formatValue<T: Show>(T): String`
 - `boolToUInt64(Bool): UInt64`
 - `core.toUInt64(UInt8): UInt64`
 - `core.toUInt8(UInt64): UInt8`
@@ -42,9 +42,11 @@
 `arith.extui`、`arith.trunci` 和 `arith.uitofp`。它们不经过 stdlib wrapper 或 runtime
 C bridge。
 
-`string.formatValue<T>()` 是普通 reflection-based stdlib generic。字符串插值和
-`String + value` 使用它静态选择 scalar formatter、`toString()` 或 object identity；
-这些选择不属于 compiler builtin registry。
+`string.formatValue<T: Show>()` 是普通 constrained stdlib generic，函数体只调用
+`value.toString()`。String 和 builtin scalar 由 stdlib 的 concrete `impl Show` 提供
+formatter；non-scalar object 自动满足 Show，有 inherent `toString()` 时优先静态调用，
+否则落到 stdlib object identity default。这些选择在 Sema specialization 中解析成普通
+direct call，不属于 compiler builtin registry，也不生成 runtime trait metadata。
 
 `tensor.from<A>()` 也是普通 reflection-based stdlib generic。它在 specialization 中
 递归构造 shape、按 row-major 顺序 flatten Array，并建立 `Tensor<T>` object；Sema 和

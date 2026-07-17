@@ -110,7 +110,8 @@ private:
   auto parseFunctionType(std::unique_ptr<TypeNode> &typeNode) -> MulberryResult;
   auto parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
       -> MulberryResult;
-  auto parseComptimeParams(std::vector<ComptimeParam> &parameters)
+  auto parseComptimeParams(std::vector<ComptimeParam> &parameters,
+                           bool allowTraitConstraint = false)
       -> MulberryResult;
   auto parsePtrType(std::unique_ptr<TypeNode> &typeNode,
                     llvm::SMLoc location) -> MulberryResult;
@@ -138,6 +139,10 @@ private:
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> MulberryResult;
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> MulberryResult;
+  auto parseTraitDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
+  auto parseTraitMethod(std::unique_ptr<TraitMethodDecl> &method)
+      -> MulberryResult;
+  auto parseImplDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
   auto parseDataDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
   auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
   auto parseStructMembers(VectorUniquePtr<FieldDecl> &fields,

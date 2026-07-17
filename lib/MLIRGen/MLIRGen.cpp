@@ -567,11 +567,20 @@ auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
     }
 
     auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get());
-    if (!structDecl)
+    if (structDecl) {
+      for (auto &method : structDecl->methods()) {
+        if (!method->proto()->isGeneric())
+          module.push_back(declareFunction(method.get()));
+      }
       continue;
-    for (auto &method : structDecl->methods()) {
-      if (!method->proto()->isGeneric())
-        module.push_back(declareFunction(method.get()));
+    }
+
+    auto *implDecl = llvm::dyn_cast<ImplDecl>(decl.get());
+    if (implDecl) {
+      for (auto &method : implDecl->methods()) {
+        if (!method->proto()->isGeneric())
+          module.push_back(declareFunction(method.get()));
+      }
     }
   }
 
@@ -583,11 +592,20 @@ auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
     }
 
     auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get());
-    if (!structDecl)
+    if (structDecl) {
+      for (auto &method : structDecl->methods()) {
+        if (!method->proto()->isGeneric() && !method->isExtern())
+          gen(method.get());
+      }
       continue;
-    for (auto &method : structDecl->methods()) {
-      if (!method->proto()->isGeneric() && !method->isExtern())
-        gen(method.get());
+    }
+
+    auto *implDecl = llvm::dyn_cast<ImplDecl>(decl.get());
+    if (implDecl) {
+      for (auto &method : implDecl->methods()) {
+        if (!method->proto()->isGeneric() && !method->isExtern())
+          gen(method.get());
+      }
     }
   }
 

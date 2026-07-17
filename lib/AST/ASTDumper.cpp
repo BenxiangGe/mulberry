@@ -55,6 +55,9 @@ private:
   auto dump(const ParameterDecl *node) -> void;
   auto dump(const FieldDecl *node) -> void;
   auto dump(const FunctionDecl *node) -> void;
+  auto dump(const TraitDecl *node) -> void;
+  auto dump(const TraitMethodDecl *node) -> void;
+  auto dump(const ImplDecl *node) -> void;
   auto dump(const StructDecl *node) -> void;
   auto dump(const DataDecl *node) -> void;
   auto dump(const DataConstructorDecl *node) -> void;
@@ -199,6 +202,10 @@ private:
       result += parameter.name;
       if (parameter.kind == ComptimeParam::Kind::UInt64)
         result += ": UInt64";
+      else if (parameter.hasTraitConstraint()) {
+        result += ": ";
+        result += parameter.traitName;
+      }
       separator = ", ";
     }
     return result;
@@ -281,7 +288,7 @@ auto Dumper::dump(const Module *node) -> void {
 auto Dumper::dump(const Decl *node) -> void {
   llvm::TypeSwitch<const Decl *>(node)
       .Case<ImportDecl, FunctionDecl, StructDecl, DataDecl,
-            ComptimeTypeAliasDecl>(
+            ComptimeTypeAliasDecl, TraitDecl, ImplDecl>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Decl *) { llvm_unreachable("Unexpected declaration"); });
@@ -345,6 +352,31 @@ auto Dumper::dump(const FunctionDecl *node) -> void {
   if (node->isExtern())
     return;
   dump(node->body().get(), "Body:");
+}
+
+auto Dumper::dump(const TraitDecl *node) -> void {
+  INDENT();
+  errs() << "TraitDecl " << loc(node) << " name=" << node->name() << "\n";
+  for (auto &method : node->methods())
+    dump(method.get());
+}
+
+auto Dumper::dump(const TraitMethodDecl *node) -> void {
+  INDENT();
+  errs() << "TraitMethodDecl " << loc(node) << " name=" << node->name()
+         << " receiver="
+         << (node->receiverCanMutateObject() ? "mut" : "readonly")
+         << " return=" << formatTypeNode(node->returnTypeNode()) << "\n";
+  for (auto &parameter : node->parameters())
+    dump(parameter.get());
+}
+
+auto Dumper::dump(const ImplDecl *node) -> void {
+  INDENT();
+  errs() << "ImplDecl " << loc(node) << " trait=" << node->traitName()
+         << " target=" << formatTypeNode(node->targetTypeNode()) << "\n";
+  for (auto &method : node->methods())
+    dump(method.get());
 }
 
 auto Dumper::dump(const StructDecl *node) -> void {

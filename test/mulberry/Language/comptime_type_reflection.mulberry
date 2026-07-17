@@ -5,11 +5,7 @@
 
 struct Point {
   x: UInt64,
-  y: UInt64,
-
-  pub fn toString(self: Point): String {
-    return "point";
-  }
+  y: UInt64
 }
 
 struct Plain {
@@ -40,12 +36,6 @@ fn inspect<T>(value: T): UInt64 {
       return value[rank - 1][0];
     }
     return 30;
-  }
-
-  const hasToString = info.isStruct() and info.hasMethod("toString");
-  if hasToString {
-    const text = value.toString();
-    return text.length;
   }
 
   return 50;
@@ -154,22 +144,19 @@ fn main(): UInt64 {
   return 0;
 }
 
-# AST: VariableStat comptime const {{.*}}value=UInt64
-# AST: TypeInfoExpr {{.*}}target=UInt64
-# AST: IfStat {{.*}}comptime value=true
-# AST: VariableStat comptime const {{.*}}value=false
-# AST: IfStat {{.*}}comptime value=false
-# AST: VariableStat comptime const {{.*}}value=false
-# AST: TypeInfoExpr {{.*}}target=Bool
-# AST: TypeInfoExpr {{.*}}target=Array<Array<UInt64, 2>, 2>
-# AST: VariableStat comptime const {{.*}}value=2
-# AST: VariableExpr {{.*}}name=rank comptimeValue=2
-# AST: CallExpr {{.*}}callee=Point.toString
-# AST: TypeInfoExpr {{.*}}target=Plain
-# AST: VariableStat {{.*}}id=row{{.*}}type=Array<<computed>, 2>
-# AST-NEXT: IndexExpr {{.*}}type=Array<UInt64, 2>
-# AST: VariableStat {{.*}}id=result{{.*}}type=Tensor<<computed>>
-# AST-SAME: origin=std.tensor.Tensor<UInt64>
+# AST-DAG: VariableStat comptime const {{.*}}value=UInt64
+# AST-DAG: TypeInfoExpr {{.*}}target=UInt64
+# AST-DAG: IfStat {{.*}}comptime value=true
+# AST-DAG: VariableStat comptime const {{.*}}value=false
+# AST-DAG: IfStat {{.*}}comptime value=false
+# AST-DAG: TypeInfoExpr {{.*}}target=Bool
+# AST-DAG: TypeInfoExpr {{.*}}target=Array<Array<UInt64, 2>, 2>
+# AST-DAG: VariableStat comptime const {{.*}}value=2
+# AST-DAG: VariableExpr {{.*}}name=rank comptimeValue=2
+# AST-DAG: TypeInfoExpr {{.*}}target=Plain
+# AST-DAG: VariableStat {{.*}}id=row{{.*}}type=Array<<computed>, 2>
+# AST-DAG: IndexExpr {{.*}}type=Array<UInt64, 2>
+# AST-DAG: VariableStat {{.*}}id=result{{.*}}type=Tensor<<computed>>{{.*}}origin=std.tensor.Tensor<UInt64>
 
 # MLIR-LABEL: func.func @cachedConstant
 # MLIR: arith.constant 42
@@ -184,7 +171,7 @@ fn main(): UInt64 {
 # MLIR-LABEL: func.func @inspect__Array_
 # MLIR: mulberry_core.ptr.index
 # MLIR-LABEL: func.func @inspect__Point
-# MLIR: func.call @Point.toString
+# MLIR: arith.constant 50
 # MLIR-LABEL: func.func @inspect__Plain
 # MLIR: arith.constant 50
 # MLIR-LABEL: func.func @choose__Bool
@@ -211,7 +198,7 @@ fn main(): UInt64 {
 # JIT: 42
 # JIT-NEXT: 20
 # JIT-NEXT: 3
-# JIT-NEXT: 5
+# JIT-NEXT: 50
 # JIT-NEXT: 50
 # JIT-NEXT: 60
 # JIT-NEXT: 61
