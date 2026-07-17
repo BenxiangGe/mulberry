@@ -37,7 +37,6 @@ fn printError(error: JsonError): () {
     ExpectedSeparator(end, position) =>
         io.println("expected comma or character {$end} at byte {$position}");
   }
-  return;
 }
 
 fn isSpace(char: Char): Bool {

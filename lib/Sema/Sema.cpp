@@ -149,6 +149,12 @@ auto formatNameSizeDiagnostic(const char *diagnostic, std::string_view name,
   return replacePlaceholder(message, "%d", std::to_string(size));
 }
 
+auto formatTypeTraitDiagnostic(const char *diagnostic, const Type *type,
+                               std::string_view traitName) -> std::string {
+  auto message = replacePlaceholder(diagnostic, "%t", formatType(type));
+  return replacePlaceholder(message, "%s", traitName);
+}
+
 auto declareName(NameSet &names, std::string_view name) -> bool {
   return names.insert(std::string(name)).second;
 }
@@ -896,6 +902,25 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
       substituteBlockExpr(node->body().get(), substitutions));
 }
 
+auto traitMethodSignatureMatches(const TraitMethodDecl *method,
+                                 const FunctionSymbol *signature,
+                                 const Type *targetType) -> bool {
+  auto &parameterTypes = signature->type->parameterTypes();
+  auto &parameterMutability = signature->type->parameterCanMutateObject();
+  auto valid =
+      parameterTypes.size() == method->parameters().size() + 1 &&
+      sameType(parameterTypes.front(), targetType) &&
+      parameterMutability.front() == method->receiverCanMutateObject() &&
+      sameType(signature->type->returnType(), method->returnType());
+  for (size_t index = 0; valid && index < method->parameters().size();
+       ++index) {
+    auto &parameter = method->parameters()[index];
+    valid = sameType(parameterTypes[index + 1], parameter->type()) &&
+            parameterMutability[index + 1] == parameter->canMutateObject();
+  }
+  return valid;
+}
+
 class SemaImpl {
 public:
   SemaImpl(const llvm::SourceMgr &sourceManager)
@@ -986,6 +1011,47 @@ private:
   auto sema(StructDecl *node) -> MulberryResult;
   auto sema(DataDecl *node) -> MulberryResult;
   auto sema(ComptimeTypeAliasDecl *node) -> MulberryResult;
+  auto sema(TraitDecl *node) -> MulberryResult;
+  auto sema(ImplDecl *node) -> MulberryResult;
+  auto resolveTraitConstraints(const Node *node,
+                               std::vector<ComptimeParam> &parameters)
+      -> MulberryResult;
+  auto traitMethodFunctionName(const TraitDecl *trait, const Type *targetType,
+                               std::string_view methodName) const
+      -> std::string;
+  auto instantiateTraitDefaultMethod(const TraitDecl *trait,
+                                     const TraitMethodDecl *method,
+                                     const Type *targetType,
+                                     std::string &functionName)
+      -> MulberryResult;
+  auto instantiateGenericTraitMethod(const ImplDecl *impl,
+                                     const FunctionDecl *method,
+                                     const TraitMethodDecl *contract,
+                                     const Type *targetType,
+                                     std::string &functionName)
+      -> MulberryResult;
+  auto genericTraitImplementationMatches(const ImplDecl *impl,
+                                         const Type *type, bool &matches)
+      -> MulberryResult;
+  auto findMatchingGenericTraitImplementations(
+      const Type *type, const TraitDecl *trait,
+      std::vector<const ImplDecl *> &implementations) -> MulberryResult;
+  auto materializeGenericTraitImplementation(const Node *diagnosticNode,
+                                             const Type *type,
+                                             const TraitDecl *trait,
+                                             bool &matched) -> MulberryResult;
+  auto materializeGenericTraitMethod(const Node *diagnosticNode,
+                                     const Type *type,
+                                     std::string_view methodName,
+                                     std::string &functionName)
+      -> MulberryResult;
+  auto checkTraitConstraints(
+      const Node *node, const std::vector<ComptimeParam> &parameters,
+      const std::vector<InferredComptimeArgument> &arguments)
+      -> MulberryResult;
+  auto typeConformsToTrait(const Node *diagnosticNode, const Type *type,
+                           const TraitDecl *trait, bool &conforms)
+      -> MulberryResult;
 
   // Expressions
   auto sema(Expr *node) -> MulberryResult;
@@ -1032,7 +1098,6 @@ private:
       -> MulberryResult;
   auto semaFormatValueCall(std::unique_ptr<Expr> &expression,
                            const Type *stringType) -> MulberryResult;
-  auto hasMethod(const Type *type, std::string_view methodName) -> bool;
   auto checkAssignable(const Expr *expr) -> MulberryResult;
   auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
   auto canMutateObjectReference(const Expr *expr) -> bool;
@@ -1225,6 +1290,21 @@ private:
       return type;
 
     return _symbols.lookupType(qualifyCurrentPackageName(name));
+  }
+
+  auto lookupTrait(std::string_view name) -> const TraitDecl * {
+    if (auto *trait = _symbols.lookupTrait(name))
+      return trait->decl;
+
+    auto importedName = canonicalizeImportedName(name);
+    if (auto *trait = _symbols.lookupTrait(importedName))
+      return trait->decl;
+
+    auto qualifiedName = qualifyCurrentPackageName(name);
+    if (auto *trait = _symbols.lookupTrait(qualifiedName))
+      return trait->decl;
+
+    return nullptr;
   }
 
   auto lookupStructType(std::string_view name) -> const StructType * {
@@ -2486,6 +2566,10 @@ auto SemaImpl::sema(Decl *node) -> MulberryResult {
     return sema(cast<DataDecl>(node));
   case Decl::Decl_ComptimeTypeAlias:
     return sema(cast<ComptimeTypeAliasDecl>(node));
+  case Decl::Decl_Trait:
+    return sema(cast<TraitDecl>(node));
+  case Decl::Decl_Impl:
+    return sema(cast<ImplDecl>(node));
   }
 }
 
@@ -2572,6 +2656,9 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   }
 
   if (node->proto()->isGeneric()) {
+    if (resolveTraitConstraints(node->proto().get(),
+                                node->proto()->comptimeParameters()))
+      return failure();
     auto name = node->proto()->id()->name();
     if (lookupFunction(name) || lookupGenericFunction(name)) {
       auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
@@ -2636,6 +2723,9 @@ auto SemaImpl::declareStructMethods(
     }
 
     if (prototype->isGeneric()) {
+      if (resolveTraitConstraints(prototype,
+                                  prototype->comptimeParameters()))
+        return failure();
       if (declareGenericFunction(fullName, method.get(), packageName)) {
         auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
                                                fullName);
@@ -2748,6 +2838,474 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
     if (declareStructMethods(node->name(), structTypeNode->methods(),
                              node->parameters(), packageName))
       return failure();
+  }
+  return success();
+}
+
+auto SemaImpl::resolveTraitConstraints(
+    const Node *node, std::vector<ComptimeParam> &parameters)
+    -> MulberryResult {
+  for (auto &parameter : parameters) {
+    if (!parameter.hasTraitConstraint())
+      continue;
+    if (parameter.kind != ComptimeParam::Kind::Type)
+      return emitError(node, diag::mismatch_type);
+
+    parameter.trait = lookupTrait(parameter.traitName);
+    if (!parameter.trait) {
+      auto diagnostic =
+          formatNameDiagnostic(diag::undefined_trait, parameter.traitName);
+      return emitError(node, diagnostic);
+    }
+  }
+  return success();
+}
+
+auto SemaImpl::sema(TraitDecl *node) -> MulberryResult {
+  if (_symbols.lookupTrait(node->name())) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_trait,
+                                           node->name());
+    return emitError(node, diagnostic);
+  }
+  if (_symbols.declareTrait(node->name(), node)) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_trait,
+                                           node->name());
+    return emitError(node, diagnostic);
+  }
+
+  PackageScope packageScope(_currentPackageName,
+                            packageNameOf(node->name()));
+  NameSet methodNames;
+  for (auto &method : node->methods()) {
+    if (!declareName(methodNames, method->name())) {
+      auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
+                                             method->name());
+      return emitError(method.get(), diagnostic);
+    }
+
+    NameSet parameterNames;
+    for (auto &parameter : method->parameters()) {
+      auto *type = checkType(parameter->typeNode(), UnitPolicy::Reject);
+      if (!type)
+        return failure();
+      parameter->setType(type);
+      if (!declareName(parameterNames, parameter->variable()->name()))
+        return emitError(parameter->variable().get(), diag::redefinition_var);
+    }
+
+    auto *returnType = resolveType(method->returnTypeNode());
+    if (!returnType)
+      return failure();
+    method->setReturnType(returnType);
+  }
+  return success();
+}
+
+auto SemaImpl::traitMethodFunctionName(const TraitDecl *trait,
+                                       const Type *targetType,
+                                       std::string_view methodName) const
+    -> std::string {
+  std::string functionName(trait->name());
+  functionName += "__";
+  functionName += mangleTypeName(formatType(targetType));
+  functionName += ".";
+  functionName += methodName;
+  return functionName;
+}
+
+auto SemaImpl::instantiateTraitDefaultMethod(
+    const TraitDecl *trait, const TraitMethodDecl *method,
+    const Type *targetType, std::string &functionName) -> MulberryResult {
+  functionName = traitMethodFunctionName(trait, targetType, method->name());
+  if (lookupFunction(functionName))
+    return success();
+
+  VectorUniquePtr<ParameterDecl> parameters;
+  auto receiver = std::make_unique<VariableExpr>(method->location(), "self");
+  parameters.push_back(std::make_unique<ParameterDecl>(
+      method->location(), std::move(receiver),
+      typeToTypeNode(targetType, method->location()),
+      method->receiverCanMutateObject()));
+  for (auto &parameter : method->parameters()) {
+    auto variable = std::make_unique<VariableExpr>(
+        parameter->variable()->location(), parameter->variable()->name());
+    parameters.push_back(std::make_unique<ParameterDecl>(
+        parameter->location(), std::move(variable),
+        cloneTypeNode(parameter->typeNode()), parameter->canMutateObject()));
+  }
+
+  auto name = std::make_unique<FunctionName>(method->location(), functionName);
+  auto prototype = std::make_unique<Prototype>(
+      method->location(), std::move(name), std::move(parameters),
+      cloneTypeNode(method->returnTypeNode()));
+  prototype->setIsMethod(true);
+  auto function = std::make_unique<FunctionDecl>(
+      method->location(), std::move(prototype),
+      substituteBlockExpr(method->body().get(), {}));
+
+  // The body belongs to the trait's package, not to the concrete impl site.
+  VariableScope signatureScope(_symbols);
+  PackageScope packageScope(_currentPackageName, packageNameOf(trait->name()));
+  if (semaFunctionSignature(function->proto().get()))
+    return failure();
+
+  LLVM_DEBUG(llvm::dbgs() << "instantiate default trait method `"
+                          << functionName << "`\n");
+  _instantiatedFunctions.push_back(std::move(function));
+  return success();
+}
+
+auto SemaImpl::instantiateGenericTraitMethod(
+    const ImplDecl *impl, const FunctionDecl *method,
+    const TraitMethodDecl *contract, const Type *targetType,
+    std::string &functionName) -> MulberryResult {
+  functionName = traitMethodFunctionName(impl->trait(), targetType,
+                                         method->proto()->id()->name());
+  if (lookupFunction(functionName))
+    return success();
+
+  auto argumentTypeNode = typeToTypeNode(targetType, method->location());
+  auto function = instantiateFunctionDecl(
+      method, functionName,
+      std::vector<TypeSubstitution>{TypeSubstitution{
+          impl->comptimeParameters().front().name, argumentTypeNode.get(),
+          std::nullopt}});
+  function->proto()->setIsMethod(true);
+  _instantiatedFunctionPackages[functionName] = impl->packageName();
+
+  VariableScope signatureScope(_symbols);
+  PackageScope packageScope(_currentPackageName, impl->packageName());
+  if (semaFunctionSignature(function->proto().get()))
+    return failure();
+  auto *signature = lookupFunction(functionName);
+  if (!signature)
+    return failure();
+  if (!traitMethodSignatureMatches(contract, signature, targetType)) {
+    auto diagnostic = formatNameDiagnostic(diag::trait_method_signature,
+                                           method->proto()->id()->name());
+    return emitError(method->proto()->id().get(), diagnostic);
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "instantiate conditional trait method `"
+                          << functionName << "`\n");
+  _instantiatedFunctions.push_back(std::move(function));
+  return success();
+}
+
+auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
+  PackageScope packageScope(_currentPackageName, node->packageName());
+  auto *trait = lookupTrait(node->traitName());
+  if (!trait) {
+    auto diagnostic = formatNameDiagnostic(diag::undefined_trait,
+                                           node->traitName());
+    return emitError(node, diagnostic);
+  }
+
+  node->setTrait(trait);
+  std::map<std::string, const TraitMethodDecl *, std::less<>> contracts;
+  for (auto &method : trait->methods())
+    contracts.insert({std::string(method->name()), method.get()});
+
+  if (node->isGeneric()) {
+    auto &parameters = node->comptimeParameters();
+    auto *targetType = dyn_cast<NamedTypeNode>(node->targetTypeNode());
+    if (parameters.size() != 1 ||
+        parameters.front().kind != ComptimeParam::Kind::Type ||
+        parameters.front().hasTraitConstraint() || !targetType ||
+        targetType->name() != parameters.front().name ||
+        !node->whereCondition())
+      return emitError(node, diag::mismatch_type);
+
+    NameSet implementedMethods;
+    for (auto &method : node->methods()) {
+      auto *prototype = method->proto().get();
+      auto methodName = std::string(prototype->id()->name());
+      if (contracts.find(methodName) == contracts.end() ||
+          !declareName(implementedMethods, methodName) ||
+          prototype->isGeneric()) {
+        auto diagnostic =
+            formatNameDiagnostic(diag::trait_method_signature, methodName);
+        return emitError(prototype->id().get(), diagnostic);
+      }
+    }
+
+    for (auto &contract : contracts) {
+      if (implementedMethods.find(contract.first) != implementedMethods.end() ||
+          contract.second->hasDefaultBody())
+        continue;
+      auto diagnostic =
+          formatNameDiagnostic(diag::missing_trait_method, contract.first);
+      return emitError(node, diagnostic);
+    }
+
+    if (_symbols.declareGenericTraitImplementation(node))
+      return emitError(node, diag::mismatch_type);
+    LLVM_DEBUG(llvm::dbgs() << "register conditional trait implementation `"
+                            << trait->name() << "` for `"
+                            << parameters.front().name << "`\n");
+    return success();
+  }
+
+  auto *targetType = checkType(node->targetTypeNode(), UnitPolicy::Reject);
+  if (!targetType)
+    return failure();
+  node->setTargetType(targetType);
+
+  if (_symbols.lookupTraitImplementation(trait, targetType)) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
+                                           trait->name());
+    return emitError(node, diagnostic);
+  }
+
+  NameSet implementedMethods;
+  std::map<std::string, std::string, std::less<>> methodFunctionNames;
+  for (auto &method : node->methods()) {
+    auto *prototype = method->proto().get();
+    auto methodName = std::string(prototype->id()->name());
+    auto contract = contracts.find(methodName);
+    if (contract == contracts.end() ||
+        !declareName(implementedMethods, methodName)) {
+      auto diagnostic =
+          formatNameDiagnostic(diag::trait_method_signature, methodName);
+      return emitError(prototype->id().get(), diagnostic);
+    }
+
+    auto fullName = traitMethodFunctionName(trait, targetType, methodName);
+    prototype->id()->setName(fullName);
+    prototype->setIsMethod(true);
+    _functionPackages[fullName] = std::string(node->packageName());
+
+    if (prototype->isGeneric()) {
+      auto diagnostic =
+          formatNameDiagnostic(diag::trait_method_signature, methodName);
+      return emitError(prototype->id().get(), diagnostic);
+    }
+    if (sema(method.get()))
+      return failure();
+
+    auto *signature = lookupFunction(fullName);
+    if (!signature) {
+      auto diagnostic =
+          formatNameDiagnostic(diag::trait_method_signature, methodName);
+      return emitError(prototype->id().get(), diagnostic);
+    }
+    if (!traitMethodSignatureMatches(contract->second, signature, targetType)) {
+      auto diagnostic =
+          formatNameDiagnostic(diag::trait_method_signature, methodName);
+      return emitError(prototype->id().get(), diagnostic);
+    }
+
+    methodFunctionNames.insert({methodName, fullName});
+  }
+
+  for (auto &contract : contracts) {
+    if (implementedMethods.find(contract.first) != implementedMethods.end())
+      continue;
+
+    if (contract.second->hasDefaultBody()) {
+      std::string functionName;
+      if (instantiateTraitDefaultMethod(trait, contract.second, targetType,
+                                        functionName))
+        return failure();
+      methodFunctionNames.insert({contract.first, std::move(functionName)});
+      continue;
+    }
+
+    auto diagnostic =
+        formatNameDiagnostic(diag::missing_trait_method, contract.first);
+    return emitError(node, diagnostic);
+  }
+
+  if (_symbols.declareTraitImplementation(
+          trait, targetType, node, std::move(methodFunctionNames))) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
+                                           trait->name());
+    return emitError(node, diagnostic);
+  }
+  LLVM_DEBUG(llvm::dbgs() << "register trait implementation `"
+                          << trait->name() << "` for `"
+                          << formatType(targetType) << "`\n");
+  return success();
+}
+
+auto SemaImpl::genericTraitImplementationMatches(const ImplDecl *impl,
+                                                 const Type *type,
+                                                 bool &matches)
+    -> MulberryResult {
+  auto &parameters = impl->comptimeParameters();
+  auto argumentTypeNode = typeToTypeNode(type, impl->location());
+  std::vector<TypeSubstitution> substitutions;
+  substitutions.push_back(TypeSubstitution{parameters.front().name,
+                                           argumentTypeNode.get(), std::nullopt});
+  auto condition =
+      substituteExpr(impl->whereCondition(), substitutions);
+
+  PackageScope packageScope(_currentPackageName, impl->packageName());
+  auto result = evaluateComptime(condition.get());
+  if (result.kind == ComptimeEvaluation::Kind::Error)
+    return failure();
+  if (result.kind != ComptimeEvaluation::Kind::Value)
+    return emitError(condition.get(), diag::expected_comptime_value);
+  if (result.value->kind() != ComptimeValue::Kind::Bool)
+    return emitError(condition.get(), diag::expected_bool);
+
+  matches = result.value->boolValue();
+  LLVM_DEBUG(llvm::dbgs() << "evaluate conditional trait implementation `"
+                          << impl->trait()->name() << "` for `"
+                          << formatType(type) << "`: "
+                          << (matches ? "match" : "no match") << "\n");
+  return success();
+}
+
+auto SemaImpl::findMatchingGenericTraitImplementations(
+    const Type *type, const TraitDecl *trait,
+    std::vector<const ImplDecl *> &implementations) -> MulberryResult {
+  for (auto *impl : _symbols.genericTraitImplementations()) {
+    if (impl->trait() != trait)
+      continue;
+
+    bool matches = false;
+    if (genericTraitImplementationMatches(impl, type, matches))
+      return failure();
+    if (matches)
+      implementations.push_back(impl);
+  }
+  return success();
+}
+
+auto SemaImpl::materializeGenericTraitImplementation(
+    const Node *diagnosticNode, const Type *type, const TraitDecl *trait,
+    bool &matched) -> MulberryResult {
+  if (_symbols.lookupTraitImplementation(trait, type)) {
+    matched = true;
+    return success();
+  }
+
+  std::vector<const ImplDecl *> implementations;
+  if (findMatchingGenericTraitImplementations(type, trait, implementations))
+    return failure();
+  if (implementations.empty()) {
+    matched = false;
+    return success();
+  }
+  if (implementations.size() != 1) {
+    auto diagnostic =
+        formatTypeTraitDiagnostic(diag::ambiguous_trait_impl, type, trait->name());
+    return emitError(diagnosticNode, diagnostic);
+  }
+
+  auto *implementation = implementations.front();
+  std::map<std::string, const TraitMethodDecl *, std::less<>> contracts;
+  for (auto &method : trait->methods())
+    contracts.insert({std::string(method->name()), method.get()});
+
+  std::map<std::string, const FunctionDecl *, std::less<>>
+      implementationMethods;
+  for (auto &method : implementation->methods()) {
+    implementationMethods.insert(
+        {std::string(method->proto()->id()->name()), method.get()});
+  }
+
+  std::map<std::string, std::string, std::less<>> methodFunctionNames;
+  for (auto &contract : contracts) {
+    std::string functionName;
+    auto method = implementationMethods.find(contract.first);
+    if (method != implementationMethods.end()) {
+      if (instantiateGenericTraitMethod(implementation, method->second,
+                                        contract.second, type, functionName))
+        return failure();
+    } else {
+      if (!contract.second->hasDefaultBody()) {
+        auto diagnostic =
+            formatNameDiagnostic(diag::missing_trait_method, contract.first);
+        return emitError(diagnosticNode, diagnostic);
+      }
+      if (instantiateTraitDefaultMethod(trait, contract.second, type,
+                                        functionName))
+        return failure();
+    }
+    methodFunctionNames.insert({contract.first, std::move(functionName)});
+  }
+
+  if (_symbols.declareTraitImplementation(
+          trait, type, implementation, std::move(methodFunctionNames))) {
+    auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
+                                           trait->name());
+    return emitError(diagnosticNode, diagnostic);
+  }
+  matched = true;
+  LLVM_DEBUG(llvm::dbgs() << "materialize conditional trait implementation `"
+                          << trait->name() << "` for `" << formatType(type)
+                          << "`\n");
+  return success();
+}
+
+auto SemaImpl::materializeGenericTraitMethod(const Node *diagnosticNode,
+                                             const Type *type,
+                                             std::string_view methodName,
+                                             std::string &functionName)
+    -> MulberryResult {
+  std::vector<const TraitDecl *> traits;
+  for (auto *impl : _symbols.genericTraitImplementations()) {
+    auto *trait = impl->trait();
+    bool declaresMethod = false;
+    for (auto &method : trait->methods())
+      if (method->name() == methodName)
+        declaresMethod = true;
+    if (!declaresMethod)
+      continue;
+
+    bool alreadySeen = false;
+    for (auto *seenTrait : traits)
+      if (seenTrait == trait)
+        alreadySeen = true;
+    if (!alreadySeen)
+      traits.push_back(trait);
+  }
+
+  for (auto *trait : traits) {
+    bool matched = false;
+    if (materializeGenericTraitImplementation(diagnosticNode, type, trait,
+                                              matched))
+      return failure();
+    if (!matched)
+      continue;
+
+    auto *implementation = _symbols.lookupTraitImplementation(trait, type);
+    auto method = implementation->methodFunctionNames.find(methodName);
+    if (method == implementation->methodFunctionNames.end())
+      continue;
+    functionName = method->second;
+    return success();
+  }
+  return success();
+}
+
+auto SemaImpl::typeConformsToTrait(const Node *diagnosticNode,
+                                   const Type *type, const TraitDecl *trait,
+                                   bool &conforms) -> MulberryResult {
+  return materializeGenericTraitImplementation(diagnosticNode, type, trait,
+                                                conforms);
+}
+
+auto SemaImpl::checkTraitConstraints(
+    const Node *node, const std::vector<ComptimeParam> &parameters,
+    const std::vector<InferredComptimeArgument> &arguments)
+    -> MulberryResult {
+  for (size_t index = 0; index < parameters.size(); ++index) {
+    auto &parameter = parameters[index];
+    if (!parameter.trait)
+      continue;
+    auto *type = arguments[index].type;
+    bool conforms = false;
+    if (type && typeConformsToTrait(node, type, parameter.trait, conforms))
+      return failure();
+    if (conforms)
+      continue;
+
+    auto diagnostic = formatTypeTraitDiagnostic(
+        diag::trait_constraint, type, parameter.trait->name());
+    return emitError(node, diagnostic);
   }
   return success();
 }
@@ -3064,6 +3622,9 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   for (auto &argument : inferredArguments)
     if (!argument.isResolved())
       return emitError(node, diag::mismatch_type);
+
+  if (checkTraitConstraints(node, comptimeParameters, inferredArguments))
+    return failure();
 
   auto substitutions =
       comptimeSubstitutions(comptimeParameters, inferredArguments);
@@ -3439,26 +4000,48 @@ auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
   auto *ptrType = mulberry::getPtrType(receiverType);
   auto *structType = ptrType ? mulberry::getStructType(ptrType->pointeeType())
                              : mulberry::getStructType(receiverType);
-  if (!structType)
-    return emitError(node->receiver().get(), diag::mismatch_type);
-
-  std::vector<std::string> owners;
-  if (auto *origin = structType->origin())
-    owners.push_back(std::string(origin->aliasName()));
-  owners.push_back(std::string(structType->name()));
-
   auto methodName = std::string(node->name());
-  for (auto &owner : owners) {
-    auto fullName = methodFunctionName(owner, methodName);
-    if (auto *genericFunction = lookupGenericFunction(fullName)) {
-      node->lowerMethodCall(fullName);
-      return semaGenericCall(node, genericFunction, expectedType);
-    }
+  if (structType) {
+    std::vector<std::string> owners;
+    if (auto *origin = structType->origin())
+      owners.push_back(std::string(origin->aliasName()));
+    owners.push_back(std::string(structType->name()));
 
-    if (lookupFunction(fullName)) {
-      node->lowerMethodCall(fullName);
-      return sema(node);
+    for (auto &owner : owners) {
+      auto fullName = methodFunctionName(owner, methodName);
+      if (auto *genericFunction = lookupGenericFunction(fullName)) {
+        node->lowerMethodCall(fullName);
+        return semaGenericCall(node, genericFunction, expectedType);
+      }
+
+      if (lookupFunction(fullName)) {
+        node->lowerMethodCall(fullName);
+        return sema(node);
+      }
     }
+  }
+
+  auto *traitReceiverType = ptrType ? ptrType->pointeeType() : receiverType;
+  if (auto *functionName =
+          _symbols.lookupTraitMethod(traitReceiverType, methodName)) {
+    LLVM_DEBUG(llvm::dbgs() << "resolve trait method `" << methodName
+                            << "` for `" << formatType(traitReceiverType)
+                            << "` to `" << *functionName << "`\n");
+    node->lowerMethodCall(*functionName);
+    return sema(node);
+  }
+
+  std::string functionName;
+  if (materializeGenericTraitMethod(node, traitReceiverType, methodName,
+                                    functionName))
+    return failure();
+  if (!functionName.empty()) {
+    LLVM_DEBUG(llvm::dbgs() << "resolve conditional trait method `"
+                            << methodName << "` for `"
+                            << formatType(traitReceiverType) << "` to `"
+                            << functionName << "`\n");
+    node->lowerMethodCall(functionName);
+    return sema(node);
   }
 
   auto diagnostic = formatNameDiagnostic(diag::undefined_func, methodName);
@@ -3617,7 +4200,7 @@ auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
     return failure();
 
   auto *valueType = node->value()->type();
-  if (!getStructType(valueType) && !getArrayType(valueType))
+  if (!isSourceObjectType(valueType))
     return emitError(node->value().get(), diag::mismatch_type);
 
   auto *stringType = lookupType("String");
@@ -3784,25 +4367,6 @@ auto SemaImpl::checkStringConcatFunction(Expr *node,
   return emitError(node, diagnostic);
 }
 
-auto SemaImpl::hasMethod(const Type *type, std::string_view methodName)
-    -> bool {
-  auto *structType = getStructType(type);
-  if (!structType)
-    return false;
-
-  std::vector<std::string> owners;
-  if (auto *origin = structType->origin())
-    owners.push_back(std::string(origin->aliasName()));
-  owners.push_back(std::string(structType->name()));
-
-  for (auto &owner : owners) {
-    auto fullName = methodFunctionName(owner, methodName);
-    if (lookupFunction(fullName) || lookupGenericFunction(fullName))
-      return true;
-  }
-  return false;
-}
-
 auto SemaImpl::comptimeRuntimeType(const ComptimeValue &value) -> const Type * {
   switch (value.kind()) {
   case ComptimeValue::Kind::Type:
@@ -3936,7 +4500,8 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
   };
 
   if (name == "isBool" || name == "isUInt8" || name == "isUInt64" ||
-      name == "isFloat32" || name == "isArray" || name == "isStruct") {
+      name == "isFloat32" || name == "isArray" || name == "isStruct" ||
+      name == "isObject") {
     if (!requireNoArguments())
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     if (name == "isBool")
@@ -3954,27 +4519,11 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
     if (name == "isArray")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isArrayType(type)), true};
+    if (name == "isObject")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isSourceObjectType(type)), true};
     return {ComptimeEvaluation::Kind::Value,
             ComptimeValue(getStructType(type) != nullptr), true};
-  }
-
-  if (name == "hasMethod") {
-    if (arguments.size() != 1) {
-      auto diagnostic = formatNameSizeDiagnostic(diag::func_param, name, 1);
-      emitError(node, diagnostic);
-      return {ComptimeEvaluation::Kind::Error, std::nullopt};
-    }
-    auto methodName = evaluateComptime(arguments.front().get());
-    if (methodName.kind == ComptimeEvaluation::Kind::Error)
-      return methodName;
-    if (methodName.kind != ComptimeEvaluation::Kind::Value ||
-        methodName.value->kind() != ComptimeValue::Kind::String) {
-      emitError(arguments.front().get(), diag::expected_comptime_value);
-      return {ComptimeEvaluation::Kind::Error, std::nullopt};
-    }
-    return {ComptimeEvaluation::Kind::Value,
-            ComptimeValue(hasMethod(type,
-                                    methodName.value->stringValue())), true};
   }
 
   if (name == "arrayElementType" || name == "arrayLeafElementType" ||

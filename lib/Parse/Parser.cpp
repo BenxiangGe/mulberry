@@ -328,7 +328,8 @@ auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
   return parseToken(Token::greater, diag::expected_greater);
 }
 
-auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
+auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
+                                 bool allowTraitConstraint)
     -> MulberryResult {
   consume(Token::less);
   if (tokenIs(Token::greater))
@@ -339,13 +340,20 @@ auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters)
     if (parseToken(Token::identifier, diag::expected_id))
       return failure();
     auto parameterKind = ComptimeParam::Kind::Type;
+    std::string traitName;
     if (consumeIf(Token::colon)) {
-      if (!tokenIs(Token::identifier) || spelling() != "UInt64")
+      std::string annotation;
+      if (parseQualifiedName(annotation, diag::expected_type))
+        return failure();
+      if (annotation == "UInt64")
+        parameterKind = ComptimeParam::Kind::UInt64;
+      else if (allowTraitConstraint)
+        traitName = std::move(annotation);
+      else
         return emitError(diag::expected_type);
-      consume(Token::identifier);
-      parameterKind = ComptimeParam::Kind::UInt64;
     }
-    parameters.push_back(ComptimeParam(parameterName.str(), parameterKind));
+    parameters.push_back(
+        ComptimeParam(parameterName.str(), parameterKind, traitName));
 
     if (tokenIs(Token::greater))
       break;
@@ -431,6 +439,10 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> MulberryResult {
     return parseFunctionDecl(decl);
   case Token::kw_struct:
     return parseStructDecl(decl);
+  case Token::kw_trait:
+    return parseTraitDecl(decl);
+  case Token::kw_impl:
+    return parseImplDecl(decl);
   case Token::identifier:
     if (spelling() == "data")
       return parseDataDecl(decl);
@@ -500,7 +512,9 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
     name = make_unique<FunctionName>(nameLocation, methodName);
   }
 
-  if (tokenIs(Token::less) && parseComptimeParams(comptimeParameters))
+  if (tokenIs(Token::less) &&
+      parseComptimeParams(comptimeParameters,
+                          /*allowTraitConstraint=*/true))
     return failure();
   if (parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
@@ -599,6 +613,122 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 
   decl = make_unique<StructDecl>(
       loc, std::move(name), std::move(fields), std::move(methods));
+  return success();
+}
+
+auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_trait);
+
+  std::string name;
+  if (parseQualifiedName(name, diag::expected_id) ||
+      parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+  name = qualifyPackageName(name);
+
+  VectorUniquePtr<TraitMethodDecl> methods;
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    unique_ptr<TraitMethodDecl> method;
+    if (parseTraitMethod(method))
+      return failure();
+    methods.push_back(std::move(method));
+  }
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
+    return failure();
+
+  decl = make_unique<TraitDecl>(location, name, std::move(methods));
+  return success();
+}
+
+auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
+    -> MulberryResult {
+  auto location = tokenLoc();
+  if (parseToken(Token::kw_fn, diag::expected_fun_struct))
+    return failure();
+
+  std::string name = spelling().str();
+  if (parseToken(Token::identifier, diag::expected_id) ||
+      parseToken(Token::l_paren, diag::expected_l_paren))
+    return failure();
+
+  auto receiverCanMutateObject = consumeIf(Token::kw_mut);
+  if (!tokenIs(Token::identifier) || spelling() != "self")
+    return emitError(diag::expected_self);
+  consume(Token::identifier);
+
+  VectorUniquePtr<ParameterDecl> parameters;
+  while (consumeIf(Token::comma)) {
+    if (tokenIs(Token::r_paren))
+      break;
+
+    auto canMutateObject = consumeIf(Token::kw_mut);
+    unique_ptr<VariableExpr> parameter;
+    unique_ptr<TypeNode> typeNode;
+    if (parseVariableExpr(parameter) ||
+        parseToken(Token::colon, diag::expected_colon) ||
+        parseType(typeNode))
+      return failure();
+    parameters.push_back(make_unique<ParameterDecl>(
+        parameter->location(), std::move(parameter), std::move(typeNode),
+        canMutateObject));
+  }
+
+  unique_ptr<TypeNode> returnTypeNode;
+  if (parseToken(Token::r_paren, diag::expected_r_paren) ||
+      parseToken(Token::colon, diag::expected_colon) ||
+      parseType(returnTypeNode))
+    return failure();
+
+  unique_ptr<BlockExpr> body;
+  if (consumeIf(Token::semi)) {
+  } else if (parseToken(Token::l_brace, diag::expected_l_brace) ||
+             parseBlockExpr(body)) {
+    return failure();
+  }
+
+  method = make_unique<TraitMethodDecl>(
+      location, name, receiverCanMutateObject, std::move(parameters),
+      std::move(returnTypeNode), std::move(body));
+  return success();
+}
+
+auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_impl);
+
+  std::string traitName;
+  std::vector<ComptimeParam> comptimeParameters;
+  unique_ptr<TypeNode> targetTypeNode;
+  if (tokenIs(Token::less) && parseComptimeParams(comptimeParameters))
+    return failure();
+  if (parseQualifiedName(traitName, diag::expected_id) ||
+      parseToken(Token::kw_for, diag::expected_for) ||
+      parseType(targetTypeNode))
+    return failure();
+
+  unique_ptr<Expr> whereCondition;
+  if (tokenIs(Token::identifier) && spelling() == "where") {
+    consume(Token::identifier);
+    if (parseExpression(whereCondition))
+      return failure();
+  }
+  if (parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+
+  VectorUniquePtr<FunctionDecl> methods;
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    unique_ptr<FunctionDecl> method;
+    if (parseStructMethod(method))
+      return failure();
+    methods.push_back(std::move(method));
+  }
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
+    return failure();
+
+  decl = make_unique<ImplDecl>(
+      location, traitName, std::move(comptimeParameters),
+      std::move(targetTypeNode), std::move(whereCondition), std::move(methods),
+      _packageName);
   return success();
 }
 

@@ -1,0 +1,35 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s
+
+trait AtLeast {
+  fn atLeast(self, minimum: UInt64): Bool {
+    return self >= minimum;
+  }
+}
+
+impl AtLeast for UInt64 {}
+
+fn check<T: AtLeast>(value: T, minimum: UInt64): Bool {
+  return value.atLeast(minimum);
+}
+
+fn main(): UInt64 {
+  if check(7, 8) {
+    return 1;
+  }
+  if check(7, 7) {
+    return 0;
+  }
+  return 1;
+}
+
+# AST-DAG: TraitDecl {{.*}}name=AtLeast
+# AST-DAG: ImplDecl {{.*}}trait=AtLeast target=UInt64
+# AST-DAG: Prototype {{.*}}name=check parameter=T: AtLeast
+# AST-DAG: CallExpr {{.*}}callee=AtLeast__UInt64.atLeast
+
+# MLIR-DAG: func.func @AtLeast__UInt64.atLeast
+# MLIR-DAG: func.func @check__UInt64
+# MLIR: call @AtLeast__UInt64.atLeast

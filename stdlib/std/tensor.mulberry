@@ -42,7 +42,6 @@ comptime Tensor<T> = struct {
 
   pub fn dispose(mut self: Tensor<T>): () {
     std.tensor.__dispose(self);
-    return;
   }
 };
 
@@ -75,7 +74,6 @@ fn appendShape<A>(value: A, mut shape: List<UInt64>): () {
     shape.push(length);
     appendShape(value[0], shape);
   }
-  return;
 }
 
 fn flattenInto<A, T>(value: A, mut data: Ptr<T>, offset: UInt64): UInt64 {

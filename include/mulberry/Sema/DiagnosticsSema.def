@@ -56,11 +56,23 @@ ERROR(undefined_main, "undefined symbol `main` : () -> UInt64")
 ERROR(undefined_type, "undefined type")
 ERROR(undefined_var, "undefined variable")
 ERROR(undefined_data_constructor, "undefined data constructor")
+ERROR(undefined_trait, "cannot find trait `%s`")
 
 ERROR(redefinition_func, "redefinition of `%s`")
 ERROR(redefinition_type, "redefinition of type")
 ERROR(redefinition_var, "redefinition of variable")
 ERROR(redefinition_data_constructor, "redefinition of data constructor")
+ERROR(redefinition_trait, "redefinition of trait `%s`")
+ERROR(redefinition_trait_impl,
+      "trait `%s` is already implemented for this type")
+ERROR(ambiguous_trait_impl,
+      "type `%t` has multiple matching implementations of trait `%s`")
+ERROR(trait_method_signature,
+      "trait method `%s` has an incompatible signature")
+ERROR(missing_trait_method,
+      "trait implementation is missing method `%s`")
+ERROR(trait_constraint,
+      "type `%t` does not satisfy trait `%s`")
 
 // ___________________________________________________________________________
 #undef ERROR

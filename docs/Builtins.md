@@ -32,7 +32,7 @@
 - `safetensors.find(TensorFile, String): Result<TensorInfo, safetensors.SafetensorsError>`
 - `safetensors.read(TensorFile, String): Result<Tensor<Float32>, safetensors.SafetensorsError>`
 - `safetensors.close(TensorFile): Result<(), safetensors.SafetensorsError>`
-- `string.formatValue<T>(T): String`
+- `string.formatValue<T: Show>(T): String`
 - `boolToUInt64(Bool): UInt64`
 - `core.toUInt64(UInt8): UInt64`
 - `core.toUInt8(UInt64): UInt8`
@@ -42,9 +42,16 @@
 `arith.extui`、`arith.trunci` 和 `arith.uitofp`。它们不经过 stdlib wrapper 或 runtime
 C bridge。
 
-`string.formatValue<T>()` 是普通 reflection-based stdlib generic。字符串插值和
-`String + value` 使用它静态选择 scalar formatter、`toString()` 或 object identity；
-这些选择不属于 compiler builtin registry。
+`string.formatValue<T: Show>()` 是普通 constrained stdlib generic，函数体只调用
+`value.toString()`。`Show` 是 special language trait：String、builtin scalar 和 source
+object 都满足它，Unit 不参与 formatting；`T: Show` 保留为显式 capability contract。
+`Show.toString()` 是纯 capability contract；String 和 builtin scalar 用 concrete `impl Show`
+提供 value formatter，source object 由 conditional generic impl 的 explicit method body 调用
+object identity formatter，user object 的 inherent `toString()` 优先。Trait default body 机制
+仍保留给适用于所有 implementation 的兜底行为。Sema 在 concrete type 上实例化匹配的
+conditional method body、Trait default body 或 concrete witness，最终都是普通 direct call，
+不属于 compiler builtin registry，也不生成 runtime trait metadata。完整语义见
+[Trait](Traits.md)。
 
 `tensor.from<A>()` 也是普通 reflection-based stdlib generic。它在 specialization 中
 递归构造 shape、按 row-major 顺序 flatten Array，并建立 `Tensor<T>` object；Sema 和

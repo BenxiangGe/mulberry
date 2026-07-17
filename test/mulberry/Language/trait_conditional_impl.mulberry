@@ -1,0 +1,67 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+trait ObjectLabel {
+  fn label(self): String;
+
+  fn fallback(self): String {
+    return "fallback";
+  }
+}
+
+impl<T> ObjectLabel for T where typeInfo(T).isObject() {
+  fn label(self: T): String {
+    return "object";
+  }
+}
+
+struct Plain {
+  value: UInt64
+}
+
+struct Direct {
+  value: UInt64
+}
+
+data Choice = Number(UInt64);
+
+fn label<T: ObjectLabel>(value: T): String {
+  return value.label();
+}
+
+fn fallback<T: ObjectLabel>(value: T): String {
+  return value.fallback();
+}
+
+fn main(): UInt64 {
+  io.println(label(Plain { 7 }));
+  io.println(label(Number(11)));
+  const direct = Direct { 13 };
+  io.println(direct.label());
+  io.println(fallback(Plain { 17 }));
+  return 0;
+}
+
+# AST-DAG: ImplDecl {{.*}}trait=ObjectLabel target=T parameter=T
+# AST-DAG: CallExpr {{.*}}callee=isObject
+# AST-DAG: TypeInfoExpr {{.*}}target=T
+# AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Plain.label
+# AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Choice.label
+# AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Direct.label
+# AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Plain.fallback
+
+# MLIR-DAG: func.func @ObjectLabel__Plain.label
+# MLIR-DAG: func.func @ObjectLabel__Choice.label
+# MLIR-DAG: func.func @ObjectLabel__Direct.label
+# MLIR-DAG: func.func @ObjectLabel__Plain.fallback
+# MLIR-DAG: call @ObjectLabel__Plain.label
+# MLIR-DAG: call @ObjectLabel__Choice.label
+# MLIR-DAG: call @ObjectLabel__Direct.label
+# MLIR-DAG: call @ObjectLabel__Plain.fallback
+
+# JIT: object
+# JIT-NEXT: object
+# JIT-NEXT: object
+# JIT-NEXT: fallback

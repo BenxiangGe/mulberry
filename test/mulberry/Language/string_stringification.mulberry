@@ -63,48 +63,60 @@ fn main(): UInt64 {
   return 0;
 }
 
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Bool
-# AST: CallExpr {{.*}}callee=std_string_formatValue__UInt8
-# AST: CallExpr {{.*}}callee=std_string_formatValue__UInt64
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Float32
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Point
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Plain
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Array_UInt64__2_
-# AST: CallExpr {{.*}}callee=std_string_formatValue__Box__UInt64
-# AST: CallExpr {{.*}}callee=std_string_formatValue__PlainBox__UInt64
-# AST: CallExpr {{.*}}callee=std.string.fromUInt64
-# AST: CallExpr {{.*}}callee=std.string.fromBool
-# AST: CallExpr {{.*}}callee=std.string.fromUInt8
-# AST: CallExpr {{.*}}callee=std.string.fromFloat32
-# AST: CallExpr {{.*}}callee=Point.toString
-# AST: ObjectIdentityExpr {{.*}}objectType=Plain
-# AST: ObjectIdentityExpr {{.*}}objectType=Array<UInt64, 2>
-# AST: CallExpr {{.*}}callee=Box_toString__UInt64
-# AST: ObjectIdentityExpr {{.*}}objectType=PlainBox<UInt64>
+# AST-DAG: TraitDecl {{.*}}name=std.string.Show
+# AST-DAG: TraitMethodDecl {{.*}}name=toString receiver=readonly return=String
+# AST-DAG: Prototype {{.*}}name=std.string.formatValue parameter=T: Show
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Bool
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__UInt8
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Float32
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Point
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Plain
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Array_UInt64__2_
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Box__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__PlainBox__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__UInt64.toString
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Bool.toString
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__UInt8.toString
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Float32.toString
+# AST-DAG: CallExpr {{.*}}callee=Point.toString
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Plain.toString
+# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__Plain
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Array_UInt64__2_.toString
+# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__Array_UInt64__2_
+# AST-DAG: CallExpr {{.*}}callee=Box_toString__UInt64
+# AST-DAG: CallExpr {{.*}}callee=std.string.Show__PlainBox__UInt64.toString
+# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__PlainBox__UInt64
 
-# MLIR: call @std_string_formatValue__Bool
-# MLIR: call @std_string_formatValue__UInt8
-# MLIR: call @std_string_formatValue__UInt64
-# MLIR: call @std_string_formatValue__Float32
-# MLIR: call @std_string_formatValue__Point
-# MLIR-LABEL: func.func @std_string_formatValue__UInt64
-# MLIR: call @std.string.fromUInt64
-# MLIR-LABEL: func.func @std_string_formatValue__Bool
-# MLIR: call @std.string.fromBool
-# MLIR-LABEL: func.func @std_string_formatValue__UInt8
-# MLIR: call @std.string.fromUInt8
-# MLIR-LABEL: func.func @std_string_formatValue__Float32
-# MLIR: call @std.string.fromFloat32
-# MLIR-LABEL: func.func @std_string_formatValue__Point
-# MLIR: call @Point.toString
-# MLIR-LABEL: func.func @std_string_formatValue__Plain
-# MLIR: call @mulberry_string_object_identity
-# MLIR-LABEL: func.func @std_string_formatValue__Array_UInt64__2_
-# MLIR: call @mulberry_string_object_identity
-# MLIR-LABEL: func.func @std_string_formatValue__Box__UInt64
-# MLIR: call @Box_toString__UInt64
-# MLIR-LABEL: func.func @std_string_formatValue__PlainBox__UInt64
-# MLIR: call @mulberry_string_object_identity
+# MLIR-DAG: call @std_string_formatValue__Bool
+# MLIR-DAG: call @std_string_formatValue__UInt8
+# MLIR-DAG: call @std_string_formatValue__UInt64
+# MLIR-DAG: call @std_string_formatValue__Float32
+# MLIR-DAG: call @std_string_formatValue__Point
+# MLIR-DAG: func.func @std.string.Show__UInt64.toString
+# MLIR-DAG: call @std.string.fromUInt64
+# MLIR-DAG: func.func @std.string.Show__Bool.toString
+# MLIR-DAG: call @std.string.fromBool
+# MLIR-DAG: func.func @std.string.Show__UInt8.toString
+# MLIR-DAG: call @std.string.fromUInt8
+# MLIR-DAG: func.func @std.string.Show__Float32.toString
+# MLIR-DAG: call @std.string.fromFloat32
+# MLIR-DAG: func.func @std_string_formatValue__Point
+# MLIR-DAG: call @Point.toString
+# MLIR-DAG: func.func @std_string_formatValue__Plain
+# MLIR-DAG: call @std.string.Show__Plain.toString
+# MLIR-DAG: func.func @std.string.Show__Plain.toString
+# MLIR-DAG: call @std_string_objectToString__Plain
+# MLIR-DAG: func.func @std_string_objectToString__Plain
+# MLIR-DAG: call @mulberry_string_object_identity
+# MLIR-DAG: func.func @std_string_formatValue__Array_UInt64__2_
+# MLIR-DAG: call @std.string.Show__Array_UInt64__2_.toString
+# MLIR-DAG: func.func @std.string.Show__Array_UInt64__2_.toString
+# MLIR-DAG: func.func @std_string_formatValue__Box__UInt64
+# MLIR-DAG: call @Box_toString__UInt64
+# MLIR-DAG: func.func @std_string_formatValue__PlainBox__UInt64
+# MLIR-DAG: call @std.string.Show__PlainBox__UInt64.toString
+# MLIR-DAG: func.func @std.string.Show__PlainBox__UInt64.toString
 
 # JIT: scalars true 7 18446744073709551615 3.5
 # JIT-NEXT: custom Point(4, 9)

@@ -50,6 +50,8 @@ declaration               -> import-declaration
 declaration               -> function-declaration
 declaration               -> extern-function-declaration
 declaration               -> struct-declaration
+declaration               -> trait-declaration
+declaration               -> impl-declaration
 declaration               -> data-declaration
 declaration               -> comptime-type-alias-declaration
 
@@ -57,7 +59,7 @@ import-declaration        -> `import` qualified-name `;`
 extern-function-declaration
                            -> `extern` function-prototype `;`
 function-declaration      -> function-prototype block
-function-prototype        -> `fn` function-name comptime-parameter-clause?
+function-prototype        -> `fn` function-name function-comptime-parameter-clause?
                               function-signature
 function-name             -> identifier
 function-signature        -> `(` parameter-list? `)` `:` type
@@ -70,6 +72,14 @@ struct-member             -> field-declaration
 struct-member             -> method-declaration
 field-declaration         -> identifier `:` type
 method-declaration        -> `pub`? function-declaration
+
+trait-declaration         -> `trait` identifier `{` trait-method-declaration* `}`
+trait-method-declaration  -> `fn` identifier `(` trait-receiver
+                              (`,` parameter)* `,`? `)` `:` type
+                              (`;` | block)
+trait-receiver            -> `mut`? `self`
+impl-declaration          -> `impl` qualified-name `for` type
+                              `{` method-declaration* `}`
 
 data-declaration          -> `data` identifier comptime-parameter-clause?
                               `=` data-constructor-list `;`
@@ -134,8 +144,8 @@ fn read(xs: List<UInt64>): UInt64 {
   return xs.size();
 }
 
-fn append(mut xs: List<UInt64>, value: UInt64): UInt64 {
-  return xs.push(value);
+fn append(mut xs: List<UInt64>, value: UInt64): () {
+  xs.push(value);
 }
 ```
 
@@ -146,6 +156,15 @@ comptime-parameter-clause -> `<` comptime-parameter-list `>`
 comptime-parameter-list   -> comptime-parameter (`,` comptime-parameter)*
 comptime-parameter        -> identifier
 comptime-parameter        -> identifier `:` `UInt64`
+function-comptime-parameter-clause
+                          -> `<` function-comptime-parameter-list `>`
+function-comptime-parameter-list
+                          -> function-comptime-parameter
+                             (`,` function-comptime-parameter)*
+function-comptime-parameter
+                          -> comptime-parameter
+function-comptime-parameter
+                          -> identifier `:` qualified-name
 
 generic-argument-clause   -> `<` generic-argument-list `>`
 generic-argument-list     -> generic-argument (`,` generic-argument)*
@@ -159,6 +178,21 @@ generic-argument          -> integer-literal
 comptime Pair<T, U> = struct { first: T, second: U };
 comptime Buffer<T, N: UInt64> = Array<T, N>;
 ```
+
+函数的类型参数还可以带一个 Trait constraint，例如 `fn show<T: Show>(value: T)`。
+第一版只支持单一 constraint；type alias 和 data declaration 的 comptime 参数仍只接受
+普通类型参数或 `N: UInt64`。Trait method 的 `self` 类型由 `impl Trait for Type` 中的
+`Type` 隐式确定，不提供 `Self` source type。Trait 在 generic specialization 后静态解析
+成普通 direct call，不产生 trait object、vtable 或 runtime metadata。
+
+Trait method 可以提供 default body。具体 `impl` 或 conditional generic `impl` 可以省略
+有 default body 的 method；Sema 会在 concrete target type 上实例化该 body，并把调用解析为
+普通 static direct call。conditional generic `impl` 也可以提供 ordinary non-generic method
+body；guard 命中后，outer type parameter 被替换为 concrete target type，再生成普通 witness。
+`Show` 是 special language trait：String、builtin scalar 和 source object 都满足
+`Show`；Unit 没有可观察值，不参与 formatting。generic API 仍显式写出 `T: Show`，
+例如 `fn formatValue<T: Show>(value: T): String`。
+完整的 Trait 语义、default witness 和当前边界见 [Trait](Traits.md)。
 
 ## Comptime Reflection
 

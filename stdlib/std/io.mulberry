@@ -34,18 +34,15 @@ extern fn writeString(value: String): ();
 
 fn writeText(value: String): () {
   writeString(value);
-  return;
 }
 
 fn print<T>(value: T): () {
   writeText("{$value}");
-  return;
 }
 
 fn println<T>(value: T): () {
   print(value);
   writeText("\n");
-  return;
 }
 
 fn open(path: String, mode: String): Result<File, FileError> {
@@ -70,7 +67,6 @@ fn printError(error: FileError): () {
     TellFailed() => println("cannot get file position");
     CloseFailed() => println("cannot close file");
   }
-  return;
 }
 
 fn close(file: File): Result<(), FileError> {

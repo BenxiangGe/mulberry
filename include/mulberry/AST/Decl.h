@@ -33,6 +33,8 @@ public:
     Decl_Struct,
     Decl_Data,
     Decl_ComptimeTypeAlias,
+    Decl_Trait,
+    Decl_Impl,
   };
 
   explicit Decl(DeclarationKind kind, llvm::SMLoc location)
@@ -79,6 +81,10 @@ public:
   auto id() const -> const std::unique_ptr<FunctionName> & { return _id; }
 
   auto comptimeParameters() const -> const std::vector<ComptimeParam> & {
+    return _comptimeParameters;
+  }
+
+  auto comptimeParameters() -> std::vector<ComptimeParam> & {
     return _comptimeParameters;
   }
 
@@ -134,6 +140,133 @@ private:
   std::unique_ptr<Prototype> _proto;
   std::unique_ptr<BlockExpr> _body;
   bool _isExtern = false;
+};
+
+// _____________________________________________________________________________
+// Trait declarations
+
+class TraitMethodDecl final : public Node {
+public:
+  TraitMethodDecl(llvm::SMLoc location, std::string_view name,
+                  bool receiverCanMutateObject,
+                  VectorUniquePtr<ParameterDecl> parameters,
+                  std::unique_ptr<TypeNode> returnTypeNode,
+                  std::unique_ptr<BlockExpr> body = nullptr)
+      : Node(location), _name(name),
+        _receiverCanMutateObject(receiverCanMutateObject),
+        _parameters(std::move(parameters)),
+        _returnTypeNode(std::move(returnTypeNode)), _body(std::move(body)) {}
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto receiverCanMutateObject() const -> bool {
+    return _receiverCanMutateObject;
+  }
+
+  auto parameters() const -> const VectorUniquePtr<ParameterDecl> & {
+    return _parameters;
+  }
+
+  auto returnTypeNode() const -> const TypeNode * {
+    return _returnTypeNode.get();
+  }
+
+  auto setReturnType(const Type *type) -> void { _returnType = type; }
+
+  auto returnType() const -> const Type * { return _returnType; }
+
+  auto hasDefaultBody() const -> bool { return static_cast<bool>(_body); }
+
+  auto body() const -> const std::unique_ptr<BlockExpr> & { return _body; }
+
+private:
+  std::string _name;
+  bool _receiverCanMutateObject = false;
+  VectorUniquePtr<ParameterDecl> _parameters;
+  std::unique_ptr<TypeNode> _returnTypeNode;
+  std::unique_ptr<BlockExpr> _body;
+  const Type *_returnType = nullptr;
+};
+
+class TraitDecl final : public Decl {
+public:
+  TraitDecl(llvm::SMLoc location, std::string_view name,
+            VectorUniquePtr<TraitMethodDecl> methods)
+      : Decl(Decl_Trait, location), _name(name),
+        _methods(std::move(methods)) {}
+
+  static auto classof(const Decl *node) -> bool {
+    return node->getKind() == Decl_Trait;
+  }
+
+  auto name() const -> std::string_view { return _name; }
+
+  auto methods() const -> const VectorUniquePtr<TraitMethodDecl> & {
+    return _methods;
+  }
+
+private:
+  std::string _name;
+  VectorUniquePtr<TraitMethodDecl> _methods;
+};
+
+class ImplDecl final : public Decl {
+public:
+  ImplDecl(llvm::SMLoc location, std::string_view traitName,
+           std::vector<ComptimeParam> comptimeParameters,
+           std::unique_ptr<TypeNode> targetTypeNode,
+           std::unique_ptr<Expr> whereCondition,
+           VectorUniquePtr<FunctionDecl> methods,
+           std::string_view packageName)
+      : Decl(Decl_Impl, location), _traitName(traitName),
+        _comptimeParameters(std::move(comptimeParameters)),
+        _targetTypeNode(std::move(targetTypeNode)),
+        _whereCondition(std::move(whereCondition)),
+        _methods(std::move(methods)), _packageName(packageName) {}
+
+  static auto classof(const Decl *node) -> bool {
+    return node->getKind() == Decl_Impl;
+  }
+
+  auto traitName() const -> std::string_view { return _traitName; }
+
+  auto comptimeParameters() const -> const std::vector<ComptimeParam> & {
+    return _comptimeParameters;
+  }
+
+  auto isGeneric() const -> bool { return !_comptimeParameters.empty(); }
+
+  auto targetTypeNode() const -> const TypeNode * {
+    return _targetTypeNode.get();
+  }
+
+  auto whereCondition() const -> const Expr * {
+    return _whereCondition.get();
+  }
+
+  auto methods() const -> const VectorUniquePtr<FunctionDecl> & {
+    return _methods;
+  }
+
+  auto packageName() const -> std::string_view { return _packageName; }
+
+  auto setTrait(const TraitDecl *trait) -> void { _trait = trait; }
+
+  auto trait() const -> const TraitDecl * { return _trait; }
+
+  auto setTargetType(const Type *type) -> void { _targetType = type; }
+
+  auto targetType() const -> const Type * { return _targetType; }
+
+private:
+  std::string _traitName;
+  std::vector<ComptimeParam> _comptimeParameters;
+  std::unique_ptr<TypeNode> _targetTypeNode;
+  std::unique_ptr<Expr> _whereCondition;
+  VectorUniquePtr<FunctionDecl> _methods;
+  std::string _packageName;
+  const TraitDecl *_trait = nullptr;
+  const Type *_targetType = nullptr;
 };
 
 // _____________________________________________________________________________

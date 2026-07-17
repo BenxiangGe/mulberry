@@ -31,41 +31,52 @@ fn fromFloat32(value: Float32): String {
   return mulberry_string_from_f32(value);
 }
 
-fn formatValue<T>(value: T): String {
-  const info = typeInfo(T);
-  const isString = info == String;
+trait Show {
+  fn toString(self): String;
+}
 
-  if isString {
-    return value;
+impl Show for String {
+  fn toString(self: String): String {
+    return self;
   }
+}
 
-  if info.isBool() {
-    return fromBool(value);
+impl Show for Bool {
+  fn toString(self: Bool): String {
+    return fromBool(self);
   }
+}
 
-  if info.isUInt8() {
-    return fromUInt8(value);
+impl Show for UInt8 {
+  fn toString(self: UInt8): String {
+    return fromUInt8(self);
   }
+}
 
-  if info.isUInt64() {
-    return fromUInt64(value);
+impl Show for UInt64 {
+  fn toString(self: UInt64): String {
+    return fromUInt64(self);
   }
+}
 
-  if info.isFloat32() {
-    return fromFloat32(value);
+impl Show for Float32 {
+  fn toString(self: Float32): String {
+    return fromFloat32(self);
   }
+}
 
-  const hasToString = info.hasMethod("toString");
-  if hasToString {
-    return value.toString();
+impl<T> Show for T where typeInfo(T).isObject() {
+  fn toString(self: T): String {
+    return objectToString(self);
   }
+}
 
-  const isObject = info.isStruct() or info.isArray();
-  const useIdentity = isObject and
-      isString == false and hasToString == false;
-  if useIdentity {
-    return __objectIdentity(value);
-  }
+fn objectToString<T>(value: T): String {
+  return __objectIdentity(value);
+}
+
+fn formatValue<T: Show>(value: T): String {
+  return value.toString();
 }
 
 fn concat(left: String, right: String): String {
