@@ -16,19 +16,17 @@ comptime List<T> = struct {
     return self.data[index];
   }
 
-  pub fn set(mut self: List<T>, index: UInt64, value: T): UInt64 {
+  pub fn set(mut self: List<T>, index: UInt64, value: T): () {
     self.data[index] = value;
-    return 0;
   }
 
-  pub fn swap(mut self: List<T>, first: UInt64, second: UInt64): UInt64 {
+  pub fn swap(mut self: List<T>, first: UInt64, second: UInt64): () {
     const value = self.data[first];
     self.data[first] = self.data[second];
     self.data[second] = value;
-    return 0;
   }
 
-  pub fn grow(mut self: List<T>, newCapacity: UInt64): UInt64 {
+  pub fn grow(mut self: List<T>, newCapacity: UInt64): () {
     var newData = heap.alloc<T>(newCapacity);
     var index = 0;
     while index < self.length {
@@ -37,10 +35,9 @@ comptime List<T> = struct {
     }
     self.data = newData;
     self.capacity = newCapacity;
-    return 0;
   }
 
-  pub fn push(mut self: List<T>, value: T): UInt64 {
+  pub fn push(mut self: List<T>, value: T): () {
     if self.length >= self.capacity {
       var newCapacity = self.capacity * 2;
       if self.capacity == 0 {
@@ -50,7 +47,6 @@ comptime List<T> = struct {
     }
     self.data[self.length] = value;
     self.length = self.length + 1;
-    return 0;
   }
 
   pub fn forEach(self: List<T>, action: fn(T): ()): () {
@@ -59,7 +55,6 @@ comptime List<T> = struct {
       action(self.data[index]);
       index = index + 1;
     }
-    return;
   }
 
   pub fn map<U>(self: List<T>, transform: fn(T): U): List<U> {
@@ -112,7 +107,7 @@ fn from<T, N: UInt64>(array: Array<T, N>): List<T> {
 }
 
 fn shufflePair<T, U>(mut first: List<T>, mut second: List<U>,
-                     seed: UInt64): UInt64 {
+                     seed: UInt64): () {
   var rng = random.seed(seed);
   var index = first.size();
   while index > 1 {
@@ -122,5 +117,4 @@ fn shufflePair<T, U>(mut first: List<T>, mut second: List<U>,
     second.swap(target, swapIndex);
     index = index - 1;
   }
-  return 0;
 }

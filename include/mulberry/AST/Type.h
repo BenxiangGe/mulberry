@@ -21,6 +21,7 @@
 namespace mulberry {
 
 class FunctionDecl;
+class TraitDecl;
 class Type;
 class VariableExpr;
 
@@ -30,11 +31,16 @@ struct ComptimeParam {
     UInt64,
   };
 
-  explicit ComptimeParam(std::string_view name, Kind kind = Kind::Type)
-      : name(name), kind(kind) {}
+  explicit ComptimeParam(std::string_view name, Kind kind = Kind::Type,
+                         std::string_view traitName = {})
+      : name(name), kind(kind), traitName(traitName) {}
+
+  auto hasTraitConstraint() const -> bool { return !traitName.empty(); }
 
   std::string name;
   Kind kind = Kind::Type;
+  std::string traitName;
+  const TraitDecl *trait = nullptr;
 };
 
 class TypeNode : public Node {

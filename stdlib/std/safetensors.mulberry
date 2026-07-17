@@ -27,7 +27,6 @@ fn printError(error: SafetensorsError): () {
     TensorNotFound(name) => io.println("tensor {$name} was not found");
     InvalidTensor(name) => io.println("tensor {$name} has invalid metadata");
   }
-  return;
 }
 
 fn mapIoError<T>(result: Result<T, io.FileError>):
@@ -69,29 +68,27 @@ struct TensorFile {
 struct ByteBuffer {
   bytes: List<UInt8>,
 
-  pub fn pushChar(mut self: ByteBuffer, value: UInt8): UInt64 {
-    return self.bytes.push(value);
+  pub fn pushChar(mut self: ByteBuffer, value: UInt8): () {
+    self.bytes.push(value);
   }
 
-  pub fn pushString(mut self: ByteBuffer, value: String): UInt64 {
+  pub fn pushString(mut self: ByteBuffer, value: String): () {
     var index = 0;
     while index < value.length {
       self.bytes.push(value.data[index]);
       index = index + 1;
     }
-    return 0;
   }
 
-  pub fn pushQuotedString(mut self: ByteBuffer, value: String): UInt64 {
+  pub fn pushQuotedString(mut self: ByteBuffer, value: String): () {
     # This writer only supports trusted ASCII tensor names. General JSON
     # escaping can be added when user-provided names become part of the API.
     self.pushChar('"');
     self.pushString(value);
     self.pushChar('"');
-    return 0;
   }
 
-  pub fn pushUInt64(mut self: ByteBuffer, value: UInt64): UInt64 {
+  pub fn pushUInt64(mut self: ByteBuffer, value: UInt64): () {
     if value == 0 {
       self.pushChar('0');
     } else {
@@ -110,10 +107,9 @@ struct ByteBuffer {
         self.pushChar(digits[index]);
       }
     }
-    return 0;
   }
 
-  pub fn pushShape(mut self: ByteBuffer, shape: List<UInt64>): UInt64 {
+  pub fn pushShape(mut self: ByteBuffer, shape: List<UInt64>): () {
     var index = 0;
     while index < shape.size() {
       if index > 0 {
@@ -122,7 +118,6 @@ struct ByteBuffer {
       self.pushUInt64(shape[index]);
       index = index + 1;
     }
-    return 0;
   }
 
   pub fn pushTensorHeader(mut self: ByteBuffer, name: String,

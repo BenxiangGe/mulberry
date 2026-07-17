@@ -104,8 +104,8 @@ struct TensorDataset {
     return self.ys[index];
   }
 
-  pub fn shuffle(mut self: TensorDataset, seed: UInt64): UInt64 {
-    return list.shufflePair(self.xs, self.ys, seed);
+  pub fn shuffle(mut self: TensorDataset, seed: UInt64): () {
+    list.shufflePair(self.xs, self.ys, seed);
   }
 }
 

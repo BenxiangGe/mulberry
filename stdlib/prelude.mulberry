@@ -11,6 +11,7 @@ import list;
 import list.List;
 import random;
 import string.String;
+import string.Show;
 import tensor;
 import tensor.Tensor;
 import types;

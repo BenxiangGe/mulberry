@@ -23,6 +23,8 @@
 namespace mulberry {
 class DataDecl;
 class FunctionDecl;
+class ImplDecl;
+class TraitDecl;
 class TypeNode;
 using llvm::failure;
 using llvm::success;
@@ -57,6 +59,15 @@ struct DataDeclSymbol {
 struct DataConstructorSymbol {
   const DataDecl *decl = nullptr;
   unsigned index = 0;
+};
+
+struct TraitSymbol {
+  const TraitDecl *decl = nullptr;
+};
+
+struct TraitImplementationSymbol {
+  const ImplDecl *decl = nullptr;
+  std::map<std::string, std::string, std::less<>> methodFunctionNames;
 };
 
 template <typename T>
@@ -116,6 +127,50 @@ public:
     if (symbol == _dataConstructorsByName.end())
       return nullptr;
     return &symbol->second;
+  }
+
+  auto declareTrait(std::string_view name, const TraitDecl *decl)
+      -> MulberryResult {
+    return declareSymbol(_traitsByName, name, TraitSymbol{decl});
+  }
+
+  auto lookupTrait(std::string_view name) -> const TraitSymbol * {
+    auto symbol = _traitsByName.find(name);
+    if (symbol == _traitsByName.end())
+      return nullptr;
+    return &symbol->second;
+  }
+
+  auto declareTraitImplementation(
+      const TraitDecl *trait, const Type *type, const ImplDecl *decl,
+      std::map<std::string, std::string, std::less<>> methodFunctionNames)
+      -> MulberryResult {
+    auto key = std::make_pair(trait, type);
+    if (_traitImplementations.find(key) != _traitImplementations.end())
+      return failure();
+    _traitImplementations.insert(std::make_pair(
+        key, TraitImplementationSymbol{decl, std::move(methodFunctionNames)}));
+    return success();
+  }
+
+  auto lookupTraitImplementation(const TraitDecl *trait, const Type *type)
+      -> const TraitImplementationSymbol * {
+    auto symbol = _traitImplementations.find(std::make_pair(trait, type));
+    if (symbol == _traitImplementations.end())
+      return nullptr;
+    return &symbol->second;
+  }
+
+  auto lookupTraitMethod(const Type *type, std::string_view methodName)
+      -> const std::string * {
+    for (auto &implementation : _traitImplementations) {
+      if (implementation.first.second != type)
+        continue;
+      auto method = implementation.second.methodFunctionNames.find(methodName);
+      if (method != implementation.second.methodFunctionNames.end())
+        return &method->second;
+    }
+    return nullptr;
   }
 
   auto declareType(std::string_view name, const Type *type) -> MulberryResult {
@@ -198,6 +253,10 @@ private:
   NameMap<GenericFunctionSymbol> _genericFunctionsByName;
   NameMap<DataDeclSymbol> _dataDeclsByName;
   NameMap<DataConstructorSymbol> _dataConstructorsByName;
+  NameMap<TraitSymbol> _traitsByName;
+  std::map<std::pair<const TraitDecl *, const Type *>,
+           TraitImplementationSymbol>
+      _traitImplementations;
   NameMap<const Type *> _typesByName;
   NameMap<ComptimeTypeAliasSymbol> _comptimeTypeAliasesByName;
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;
