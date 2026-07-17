@@ -1,0 +1,106 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn localResultSize(result: List<UInt64>): UInt64 {
+  return result.size();
+}
+
+fn consume(result: Result<File, io.FileError>):
+    Result<UInt64, io.FileError> {
+  match result {
+    Ok(file) => {
+      io.close(file)?;
+      return Ok(1);
+    }
+    Err(error) => {
+      io.printError(error);
+      return Ok(0);
+    }
+  }
+}
+
+fn consumeRead(result: Result<UInt64, io.FileError>):
+    Result<UInt64, io.FileError> {
+  match result {
+    Ok(count) => return Ok(count);
+    Err(error) => {
+      io.printError(error);
+      return Ok(0);
+    }
+  }
+}
+
+fn run(): Result<UInt64, io.FileError> {
+  const validPath = "/tmp/mulberry_result_io.bin";
+  const output = io.open(validPath, "wb")?;
+  io.close(output)?;
+
+  var oversized: Tensor<UInt8> = tensor.zeros([8]);
+  const emptyInput = io.open(validPath, "rb")?;
+  io.println(consumeRead(io.readExact(emptyInput, oversized))?);
+  io.close(emptyInput)?;
+
+  var values: List<UInt64> = list.withCapacity(1);
+  values.push(7);
+  io.println(localResultSize(values));
+  io.println(consume(io.open(validPath, "rb"))?);
+  io.println(consume(io.open(
+      "/__mulberry_missing_directory__/file.bin", "rb"))?);
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      io.printError(error);
+      yield 1;
+    }
+  };
+}
+
+# AST-DAG: DataDecl {{.*}}name=std.result.Result parameter=T, E
+# AST-DAG: DataConstructorDecl {{.*}}name=std.result.Ok payloadTypes=T
+# AST-DAG: DataConstructorDecl {{.*}}name=std.result.Err payloadTypes=E
+# AST-DAG: DataDecl {{.*}}name=std.io.FileError
+# AST-DAG: DataConstructorDecl {{.*}}name=std.io.OpenFailed payloadTypes=String, String
+# AST-DAG: DataConstructorDecl {{.*}}name=std.io.UnexpectedEnd payloadTypes=UInt64, UInt64
+# AST-DAG: Prototype {{.*}}name=std.io.open
+# AST-DAG: DataPattern {{.*}}constructor=std.result.Ok tag=0
+# AST-DAG: DataPattern {{.*}}constructor=std.result.Err tag=1
+# AST-DAG: DataPattern {{.*}}constructor=std.io.OpenFailed tag=0
+# AST-DAG: VariableExpr {{.*}}type=std.io.File name=file
+# AST-DAG: VariableExpr {{.*}}type=std.string.String name=path
+# AST-DAG: VariableExpr {{.*}}type=std.string.String name=mode
+
+# MLIR-DAG: func.func private @mulberry_file_is_valid(!mulberry_core.ptr<i8>) -> i1
+# MLIR-LABEL: func.func @std.io.open
+# MLIR: call @mulberry_file_open
+# MLIR: call @mulberry_file_is_valid
+# MLIR: mulberry_core.data.construct "std.result.Ok"[0]
+# MLIR: mulberry_core.data.construct "std.io.OpenFailed"[0]
+# MLIR: mulberry_core.data.construct "std.result.Err"[1]
+# MLIR-LABEL: func.func @consume
+# MLIR: mulberry_core.data.tag
+# MLIR: mulberry_core.data.unpack "std.result.Ok"[0]
+# MLIR: mulberry_core.data.unpack "std.result.Err"[1]
+# MLIR-LABEL: func.func @std_io_readExact__UInt8
+# MLIR: mulberry_core.data.construct "std.io.UnexpectedEnd"[2]
+
+# LOWERED-DAG: func.func private @mulberry_file_is_valid(!llvm.ptr) -> i1
+# LOWERED-LABEL: func.func @std.io.open
+# LOWERED: call @mulberry_file_is_valid
+# LOWERED: llvm.call @mulberry_boehm_malloc
+# LOWERED-LABEL: func.func @consume
+# LOWERED: llvm.load {{.*}} : !llvm.ptr -> i64
+# LOWERED-NOT: mulberry_core.
+
+# JIT: unexpected end of file after 0 of 8 bytes
+# JIT-NEXT: 0
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: cannot open /__mulberry_missing_directory__/file.bin with mode rb
+# JIT-NEXT: 0

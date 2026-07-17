@@ -22,6 +22,8 @@
 #include "mulberry/AST/Name.h"
 #include "mulberry/AST/NameExpr.h"
 #include "mulberry/AST/Stat.h"
+#include "mulberry/AST/MatchExpr.h"
+#include "mulberry/AST/TryExpr.h"
 #include "mulberry/AST/StructLiteralExpr.h"
 #include "mulberry/AST/CollectionExpr.h"
 #include "mulberry/AST/Type.h"

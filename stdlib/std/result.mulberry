@@ -1,0 +1,5 @@
+package std.result;
+
+data Result<T, E> =
+    Ok(T)
+  | Err(E);

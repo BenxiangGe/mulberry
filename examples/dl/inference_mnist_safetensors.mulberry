@@ -4,21 +4,31 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/mnist-784-30-10.safetensors");
+      safetensors.open("data/mnist-784-30-10.safetensors")?;
 
-  var w1 = safetensors.read(file, "w1");
-  var b1 = safetensors.read(file, "b1");
-  var w2 = safetensors.read(file, "w2");
-  var b2 = safetensors.read(file, "b2");
-  var x = safetensors.read(file, "x");
+  var w1 = safetensors.read(file, "w1")?;
+  var b1 = safetensors.read(file, "b1")?;
+  var w2 = safetensors.read(file, "w2")?;
+  var b2 = safetensors.read(file, "b2")?;
+  var x = safetensors.read(file, "x")?;
 
-  safetensors.close(file);
+  safetensors.close(file)?;
 
   var weights = list.from([w1, w2]);
   var biases = list.from([b1, b2]);
 
   io.println(nn.predict(weights, biases, x));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }

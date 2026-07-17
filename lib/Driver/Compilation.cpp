@@ -856,6 +856,9 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     return failure();
 
   if (lowering >= Lowering::Mulberry)
+    pm.addPass(mulberry_core::createLowerResultTry());
+
+  if (lowering >= Lowering::Mulberry)
     pm.addPass(mulberry_core::createLowerMulberry());
 
   if (lowering >= Lowering::Mulberry &&

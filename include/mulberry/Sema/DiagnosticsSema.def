@@ -42,6 +42,13 @@ ERROR(match_binding_count,
       "match pattern has the wrong number of payload bindings")
 ERROR(duplicate_match_constructor, "duplicate constructor in match")
 ERROR(non_exhaustive_match, "match must cover every constructor exactly once")
+ERROR(match_expression_arm_return,
+      "match expression arm must produce its value with terminal `yield`")
+ERROR(try_expected_result, "`?` operand must have type `Result<T, E>`")
+ERROR(try_outside_result_function,
+      "`?` requires the current function to return `Result<T, E>`")
+ERROR(try_error_type_mismatch,
+      "`?` error type must match the current function error type")
 
 ERROR(undefined_field, "undefined field")
 ERROR(undefined_func, "cannot find function `%s`")

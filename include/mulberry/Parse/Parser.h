@@ -166,6 +166,12 @@ private:
       -> MulberryResult;
 
   auto parseLambdaExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
+  auto parseMatchExpr(std::unique_ptr<Expr> &expr) -> MulberryResult;
+  auto parseMatchExprArmBlock(std::unique_ptr<BlockExpr> &bodyBlock,
+                              std::unique_ptr<Expr> &resultExpr)
+      -> MulberryResult;
+  auto parseDataPattern(std::unique_ptr<DataPattern> &pattern)
+      -> MulberryResult;
 
   auto parseDecimal(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;
@@ -208,6 +214,7 @@ private:
   // ___________________________________________________________________________
   // Parse Statements
 
+  auto parseStatement(std::unique_ptr<Stat> &stat) -> MulberryResult;
   auto parseStatementWithoutSemi(std::unique_ptr<Stat> &stat) -> MulberryResult;
 
   auto parseVarDecl(std::unique_ptr<Stat> &stat) -> MulberryResult;

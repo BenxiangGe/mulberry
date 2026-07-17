@@ -2,27 +2,37 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
-fn transfer(input: File, output: File, mut bytes: Tensor<UInt8>): UInt64 {
-  const readCount = io.read(input, bytes);
-  const writeCount = io.write(output, bytes);
-  io.close(input);
-  io.close(output);
-  return readCount + writeCount;
+fn transfer(input: File, output: File, mut bytes: Tensor<UInt8>):
+    Result<UInt64, io.FileError> {
+  const readCount = io.read(input, bytes)?;
+  const writeCount = io.write(output, bytes)?;
+  io.close(input)?;
+  io.close(output)?;
+  return Ok(readCount + writeCount);
+}
+
+fn run(): Result<UInt64, io.FileError> {
+  const input = io.open("data/mnist.bin", "rb")?;
+  io.close(input)?;
+  const output = io.open("data/out.bin", "wb")?;
+  var bytes: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
+  io.write(output, bytes)?;
+  io.close(output)?;
+  return Ok(0);
 }
 
 fn main(): UInt64 {
-  const input = io.open("data/mnist.bin", "rb");
-  const output = io.open("data/out.bin", "wb");
-  var bytes: Tensor<UInt8> = tensor.from([1, 2, 3, 4]);
-  io.write(output, bytes);
-  return io.close(input) + io.close(output);
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
 }
 
-# AST: Prototype {{.*}}name=transfer{{.*}}type=UInt64
+# AST: Prototype {{.*}}name=transfer
 # AST: ParameterDecl {{.*}}id=input{{.*}}type=File
 # AST: ParameterDecl {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
-# AST: CallExpr {{.*}}type=UInt64 callee=std_io_read__UInt8
-# AST: CallExpr {{.*}}type=UInt64 callee=std_io_write__UInt8
+# AST: CallExpr {{.*}}callee=std_io_read__UInt8
+# AST: CallExpr {{.*}}callee=std_io_write__UInt8
 # AST: VariableStat {{.*}}id=bytes{{.*}}type=Tensor<UInt8>
 
 # MLIR-DAG: func.func private @mulberry_file_open
@@ -36,7 +46,7 @@ fn main(): UInt64 {
 # MLIR: call @std_io_read__UInt8
 # MLIR: call @std_io_write__UInt8
 # MLIR: call @std.io.close
-# MLIR-LABEL: func.func @main
+# MLIR-LABEL: func.func @run
 # MLIR: call @std.io.open
 # MLIR: call @std_tensor_from__Array_UInt8
 # MLIR: call @std_io_write__UInt8
@@ -57,7 +67,7 @@ fn main(): UInt64 {
 # LOWERED: call @std_io_read__UInt8
 # LOWERED: call @std_io_write__UInt8
 # LOWERED: call @std.io.close
-# LOWERED-LABEL: func.func @main
+# LOWERED-LABEL: func.func @run
 # LOWERED: call @std.io.open
 # LOWERED: call @std_io_write__UInt8
 # LOWERED: call @mulberry_file_write

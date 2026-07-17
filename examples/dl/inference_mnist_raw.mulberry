@@ -3,32 +3,32 @@
 # implemented as compiler intrinsics.
 import mulberry.nn;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, io.FileError> {
   var w1h: Tensor<Float32> = tensor.zeros([30, 784]);
   var b1h: Tensor<Float32> = tensor.zeros([30, 1]);
   var w2h: Tensor<Float32> = tensor.zeros([10, 30]);
   var b2h: Tensor<Float32> = tensor.zeros([10, 1]);
   var xh: Tensor<Float32> = tensor.zeros([784, 1]);
 
-  const w1File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb");
-  io.read(w1File, w1h);
-  io.close(w1File);
+  const w1File = io.open("data/mnist-784-30-10-raw/w1.f32", "rb")?;
+  io.readExact(w1File, w1h)?;
+  io.close(w1File)?;
 
-  const b1File = io.open("data/mnist-784-30-10-raw/b1.f32", "rb");
-  io.read(b1File, b1h);
-  io.close(b1File);
+  const b1File = io.open("data/mnist-784-30-10-raw/b1.f32", "rb")?;
+  io.readExact(b1File, b1h)?;
+  io.close(b1File)?;
 
-  const w2File = io.open("data/mnist-784-30-10-raw/w2.f32", "rb");
-  io.read(w2File, w2h);
-  io.close(w2File);
+  const w2File = io.open("data/mnist-784-30-10-raw/w2.f32", "rb")?;
+  io.readExact(w2File, w2h)?;
+  io.close(w2File)?;
 
-  const b2File = io.open("data/mnist-784-30-10-raw/b2.f32", "rb");
-  io.read(b2File, b2h);
-  io.close(b2File);
+  const b2File = io.open("data/mnist-784-30-10-raw/b2.f32", "rb")?;
+  io.readExact(b2File, b2h)?;
+  io.close(b2File)?;
 
-  const xFile = io.open("data/mnist-784-30-10-raw/x.f32", "rb");
-  io.read(xFile, xh);
-  io.close(xFile);
+  const xFile = io.open("data/mnist-784-30-10-raw/x.f32", "rb")?;
+  io.readExact(xFile, xh)?;
+  io.close(xFile)?;
 
   var weights = list.from([w1h, w2h]);
   var biases = list.from([b1h, b2h]);
@@ -41,5 +41,15 @@ fn main(): UInt64 {
   }
 
   io.println(nn.argmax(activation));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      io.printError(error);
+      yield 1;
+    }
+  };
 }

@@ -26,6 +26,8 @@ public:
     Expr_Unit,
     Expr_Call,
     Expr_DataConstructor,
+    Expr_Match,
+    Expr_Try,
     Expr_Lambda,
     Expr_StructLiteral,
     Expr_DecimalLiteral,

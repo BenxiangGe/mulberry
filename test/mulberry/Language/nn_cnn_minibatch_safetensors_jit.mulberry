@@ -5,19 +5,19 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("/tmp/mulberry_nn_cnn_minibatch.safetensors");
+      safetensors.open("/tmp/mulberry_nn_cnn_minibatch.safetensors")?;
   var convWeight =
-      safetensors.read(file, "conv1_weight");
-  var convBias = safetensors.read(file, "conv1_bias");
+      safetensors.read(file, "conv1_weight")?;
+  var convBias = safetensors.read(file, "conv1_bias")?;
   var classifierWeight =
-      safetensors.read(file, "classifier_weight");
+      safetensors.read(file, "classifier_weight")?;
   var classifierBias =
-      safetensors.read(file, "classifier_bias");
-  var trainInput = safetensors.read(file, "train_input");
-  var trainLabel = safetensors.read(file, "train_label");
-  safetensors.close(file);
+      safetensors.read(file, "classifier_bias")?;
+  var trainInput = safetensors.read(file, "train_input")?;
+  var trainLabel = safetensors.read(file, "train_label")?;
+  safetensors.close(file)?;
 
   const parameters = nn.CnnParameters {
     convWeight, convBias, classifierWeight, classifierBias
@@ -36,19 +36,19 @@ fn main(): UInt64 {
     updated.classifierWeight, updated.classifierBias
   ]);
   safetensors.write("/tmp/mulberry_nn_cnn_checkpoint.safetensors",
-                    names, values);
+                    names, values)?;
 
   const checkpoint =
-      safetensors.open("/tmp/mulberry_nn_cnn_checkpoint.safetensors");
+      safetensors.open("/tmp/mulberry_nn_cnn_checkpoint.safetensors")?;
   var savedConvWeight =
-      safetensors.read(checkpoint, "conv1_weight");
+      safetensors.read(checkpoint, "conv1_weight")?;
   var savedConvBias =
-      safetensors.read(checkpoint, "conv1_bias");
+      safetensors.read(checkpoint, "conv1_bias")?;
   var savedClassifierWeight =
-      safetensors.read(checkpoint, "classifier_weight");
+      safetensors.read(checkpoint, "classifier_weight")?;
   var savedClassifierBias =
-      safetensors.read(checkpoint, "classifier_bias");
-  safetensors.close(checkpoint);
+      safetensors.read(checkpoint, "classifier_bias")?;
+  safetensors.close(checkpoint)?;
 
   io.println(sampleCount);
   io.println(classifierWeight.dim(0));
@@ -68,7 +68,14 @@ fn main(): UInt64 {
       savedClassifierWeight[0, 0] == updated.classifierWeight[0, 0]));
   io.println(core.boolToUInt64(
       savedClassifierBias[0, 0] == updated.classifierBias[0, 0]));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
 }
 
 # EXPORT: classifier_weight: F32[2880, 10]

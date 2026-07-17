@@ -3,17 +3,17 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("/tmp/mulberry_nn_minibatch_tail_safetensors_jit.safetensors");
+      safetensors.open("/tmp/mulberry_nn_minibatch_tail_safetensors_jit.safetensors")?;
 
-  var w1 = safetensors.read(file, "w1");
-  var b1 = safetensors.read(file, "b1");
-  var w2 = safetensors.read(file, "w2");
-  var b2 = safetensors.read(file, "b2");
-  var trainX = safetensors.read(file, "train_x");
-  var trainY = safetensors.read(file, "train_y");
-  safetensors.close(file);
+  var w1 = safetensors.read(file, "w1")?;
+  var b1 = safetensors.read(file, "b1")?;
+  var w2 = safetensors.read(file, "w2")?;
+  var b2 = safetensors.read(file, "b2")?;
+  var trainX = safetensors.read(file, "train_x")?;
+  var trainY = safetensors.read(file, "train_y")?;
+  safetensors.close(file)?;
 
   var train = nn.datasetFromBatches(trainX, trainY);
 
@@ -74,7 +74,14 @@ fn main(): UInt64 {
   io.println(lastBatchEnd);
   io.println(processedSamples);
   io.println(evaluation.total);
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
 }
 
 # JIT: 11

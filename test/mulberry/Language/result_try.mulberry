@@ -1,0 +1,222 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+data TestError = Failed(UInt64);
+
+data Choice = Use(Result<UInt64, TestError>) | Default;
+
+fn makeNumber(value: UInt64, shouldFail: Bool):
+    Result<UInt64, TestError> {
+  io.println("source={$value}");
+  if shouldFail {
+    return Err(Failed(value));
+  }
+  return Ok(value);
+}
+
+fn traced(value: UInt64): UInt64 {
+  io.println("trace={$value}");
+  return value;
+}
+
+fn addTraced(value: UInt64, shouldFail: Bool):
+    Result<UInt64, TestError> {
+  return Ok(makeNumber(value, shouldFail)? + traced(10));
+}
+
+fn addBoth(first: Result<UInt64, TestError>,
+           second: Result<UInt64, TestError>):
+    Result<UInt64, TestError> {
+  return Ok(first? + second?);
+}
+
+fn forward<T, E>(result: Result<T, E>): Result<T, E> {
+  const value = result?;
+  return Ok(value);
+}
+
+fn applyResult(
+    callback: fn(Result<UInt64, TestError>): Result<UInt64, TestError>,
+    value: Result<UInt64, TestError>): Result<UInt64, TestError> {
+  return callback(value);
+}
+
+fn choose(choice: Choice): Result<UInt64, TestError> {
+  const value = match choice {
+    Use(result) => result?,
+    Default() => 7,
+  };
+  return Ok(value + 1);
+}
+
+fn sumTwice(result: Result<UInt64, TestError>):
+    Result<UInt64, TestError> {
+  var total = 0;
+  var index = 0;
+  while index < 2 {
+    total = total + result?;
+    index = index + 1;
+  }
+  return Ok(total);
+}
+
+fn repeatAfterTry(result: Result<UInt64, TestError>):
+    Result<UInt64, TestError> {
+  const value = result?;
+  var total = 0;
+  for index in 0 .. 2 {
+    total = total + value;
+  }
+  return Ok(total);
+}
+
+fn printNumber(result: Result<UInt64, TestError>): UInt64 {
+  match result {
+    Ok(value) => io.println("ok={$value}");
+    Err(error) => {
+      match error {
+        Failed(code) => io.println("err={$code}");
+      }
+    }
+  }
+  return 0;
+}
+
+fn printText(result: Result<String, TestError>): UInt64 {
+  match result {
+    Ok(value) => io.println("text={$value}");
+    Err(error) => {
+      match error {
+        Failed(code) => io.println("text-error={$code}");
+      }
+    }
+  }
+  return 0;
+}
+
+fn finish(shouldFail: Bool): Result<(), TestError> {
+  if shouldFail {
+    return Err(Failed(14));
+  }
+  return Ok(());
+}
+
+fn forwardFinish(shouldFail: Bool): Result<(), TestError> {
+  finish(shouldFail)?;
+  return Ok(());
+}
+
+fn printFinish(result: Result<(), TestError>): UInt64 {
+  match result {
+    Ok(unit) => io.println("finished");
+    Err(error) => {
+      match error {
+        Failed(code) => io.println("finish-error={$code}");
+      }
+    }
+  }
+  return 0;
+}
+
+fn numberOrUnitError(shouldFail: Bool): Result<UInt64, ()> {
+  if shouldFail {
+    return Err(());
+  }
+  return Ok(20);
+}
+
+fn forwardUnitError(shouldFail: Bool): Result<UInt64, ()> {
+  return Ok(numberOrUnitError(shouldFail)? + 1);
+}
+
+fn printUnitError(result: Result<UInt64, ()>): UInt64 {
+  match result {
+    Ok(value) => io.println("unit-error-ok={$value}");
+    Err(unit) => io.println("unit-error");
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  printNumber(addTraced(5, false));
+  printNumber(addTraced(9, true));
+
+  const first: Result<UInt64, TestError> = Ok(3);
+  const second: Result<UInt64, TestError> = Ok(4);
+  printNumber(addBoth(first, second));
+
+  const text: Result<String, TestError> = Ok("ready");
+  printText(forward(text));
+
+  const selected: Result<UInt64, TestError> = Ok(6);
+  const rejected: Result<UInt64, TestError> = Err(Failed(12));
+  printNumber(choose(Use(selected)));
+  printNumber(choose(Use(rejected)));
+  printNumber(choose(Default()));
+  printNumber(applyResult(|value| Ok(value? + 2), selected));
+  printNumber(applyResult(|value| Ok(value? + 2), rejected));
+
+  const two: Result<UInt64, TestError> = Ok(2);
+  const stopped: Result<UInt64, TestError> = Err(Failed(13));
+  printNumber(sumTwice(two));
+  printNumber(repeatAfterTry(two));
+  printNumber(sumTwice(stopped));
+  printFinish(forwardFinish(false));
+  printFinish(forwardFinish(true));
+  printUnitError(forwardUnitError(false));
+  printUnitError(forwardUnitError(true));
+  return 0;
+}
+
+# AST-DAG: TryExpr {{.*}}type=UInt64
+# AST-DAG: TryExpr {{.*}}type=std.string.String
+# AST-DAG: TryExpr {{.*}}type=Unit
+
+# MLIR-LABEL: func.func @addTraced(
+# MLIR: func.call @makeNumber
+# MLIR: mulberry_core.result.try
+# MLIR: func.call @traced
+# MLIR-LABEL: func.func @choose(
+# MLIR: scf.if
+# MLIR: mulberry_core.result.try
+# MLIR-LABEL: func.func @forwardFinish(
+# MLIR: mulberry_core.result.try
+# MLIR-SAME: -> ()
+# MLIR-DAG: func.func @forward__std_string_String__TestError
+
+# LOWERED-LABEL: func.func @addTraced(
+# LOWERED-NOT: mulberry_core.result.try
+# LOWERED: cf.cond_br
+# LOWERED: return
+# LOWERED: call @traced
+# LOWERED-NOT: mulberry_core.result.try
+# LOWERED-LABEL: func.func @repeatAfterTry(
+# LOWERED: cf.cond_br
+# LOWERED: scf.for
+# LOWERED-NOT: mulberry_core.result.try
+# LOWERED-LABEL: func.func @forwardFinish(
+# LOWERED: cf.cond_br
+# LOWERED-NOT: mulberry_core.result.try
+
+# JIT: source=5
+# JIT-NEXT: trace=10
+# JIT-NEXT: ok=15
+# JIT-NEXT: source=9
+# JIT-NEXT: err=9
+# JIT-NEXT: ok=7
+# JIT-NEXT: text=ready
+# JIT-NEXT: ok=7
+# JIT-NEXT: err=12
+# JIT-NEXT: ok=8
+# JIT-NEXT: ok=8
+# JIT-NEXT: err=12
+# JIT-NEXT: ok=4
+# JIT-NEXT: ok=4
+# JIT-NEXT: err=13
+# JIT-NEXT: finished
+# JIT-NEXT: finish-error=14
+# JIT-NEXT: unit-error-ok=21
+# JIT-NEXT: unit-error

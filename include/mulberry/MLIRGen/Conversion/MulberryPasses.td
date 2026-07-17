@@ -20,6 +20,17 @@ def ConvertMulberryToLLVM : Pass<"convert-mulberry-to-llvm"> {
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
+def LowerResultTry : Pass<"lower-result-try", "::mlir::ModuleOp"> {
+  let summary = "Lower canonical Result propagation to function CFG";
+  let description = [{
+    Converts only SCF operations that contain result.try to CFG, then lowers
+    each try into an Ok continuation and a direct Err function return.
+  }];
+  let dependentDialects = ["arith::ArithDialect",
+                           "cf::ControlFlowDialect", "func::FuncDialect",
+                           "mulberry_core::MulberryDialect"];
+}
+
 def LowerMulberry : Pass<"lower-mulberry"> {
   let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
   let description = [{
@@ -27,7 +38,8 @@ def LowerMulberry : Pass<"lower-mulberry"> {
     LLVM scalar/record storage. It does not perform final Mulberry-to-LLVM ABI
     lowering.
   }];
-  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+  let dependentDialects = ["arith::ArithDialect",
+                           "cf::ControlFlowDialect", "func::FuncDialect",
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",
                            "scf::SCFDialect"];

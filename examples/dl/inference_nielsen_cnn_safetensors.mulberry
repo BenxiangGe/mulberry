@@ -1,22 +1,22 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/nielsen-cnn-relu.safetensors");
+      safetensors.open("data/nielsen-cnn-relu.safetensors")?;
 
-  var input = safetensors.read(file, "input");
+  var input = safetensors.read(file, "input")?;
   var convWeight =
-      safetensors.read(file, "conv1_weight");
-  var convBias = safetensors.read(file, "conv1_bias");
+      safetensors.read(file, "conv1_weight")?;
+  var convBias = safetensors.read(file, "conv1_bias")?;
   var classifierWeight =
-      safetensors.read(file, "classifier_weight");
+      safetensors.read(file, "classifier_weight")?;
   var classifierBias =
-      safetensors.read(file, "classifier_bias");
+      safetensors.read(file, "classifier_bias")?;
   var reference =
-      safetensors.read(file, "reference_probabilities");
-  var label = safetensors.read(file, "label");
-  safetensors.close(file);
+      safetensors.read(file, "reference_probabilities")?;
+  var label = safetensors.read(file, "label")?;
+  safetensors.close(file)?;
 
   var convolved =
       nn.conv2d(input, convWeight, convBias);
@@ -30,5 +30,15 @@ fn main(): UInt64 {
   io.println(nn.argmax(probabilities));
   io.println(nn.argmax(reference));
   io.println(nn.argmax(label));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }

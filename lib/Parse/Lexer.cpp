@@ -100,6 +100,10 @@ auto Lexer::lexToken() -> Token {
         ++_curPtr;
         return formToken(Token::eq, tokStart);
       }
+      if (peek() == '>') {
+        ++_curPtr;
+        return formToken(Token::fat_arrow, tokStart);
+      }
       return formToken(Token::assign, tokStart);
     case '!':
       if (peek() == '=') {

@@ -72,6 +72,23 @@ def Mulberry_DataUnpackOp : Mulberry_Op<"data.unpack"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_ResultTryOp : Mulberry_Op<"result.try"> {
+  let summary = "Propagate the error of a canonical Mulberry Result";
+  let description = [{
+    Produces the Ok payload and returns Err from the enclosing function. A
+    dedicated control-flow pass lowers this operation after flattening SCF in
+    the containing function, so the Err path is a real early return.
+  }];
+
+  let arguments = (ins Mulberry_AnyPtrType:$input, TypeAttr:$errorType);
+  let results = (outs Variadic<AnyType>:$values);
+
+  let assemblyFormat = "$input `error` $errorType attr-dict `:` "
+                       "functional-type($input, $values)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let summary = "Allocate a Mulberry value";
 

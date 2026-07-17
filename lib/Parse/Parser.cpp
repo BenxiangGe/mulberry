@@ -576,36 +576,9 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
     }
 
     unique_ptr<Stat> stat;
-    if (parseStatementWithoutSemi(stat))
+    if (parseStatement(stat))
       return failure();
-
-    auto needsSemi = stat->getKind() == Stat::Stat_VariableDecl ||
-                     stat->getKind() == Stat::Stat_Return;
-    if (needsSemi) {
-      if (parseToken(Token::semi, diag::expected_semi))
-        return failure();
-      statements.push_back(std::move(stat));
-      continue;
-    }
-
-    if (stat->getKind() == Stat::Stat_Break ||
-        stat->getKind() == Stat::Stat_Continue) {
-      consumeIf(Token::semi);
-      statements.push_back(std::move(stat));
-      continue;
-    }
-
-    if (stat->getKind() != Stat::Stat_Expression) {
-      statements.push_back(std::move(stat));
-      continue;
-    }
-
-    if (consumeIf(Token::semi)) {
-      statements.push_back(std::move(stat));
-      continue;
-    }
-
-    return parseToken(Token::semi, diag::expected_semi);
+    statements.push_back(std::move(stat));
   }
 }
 
@@ -860,6 +833,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
     return parseIdentifierExpr(expr);
   case Token::pipe:
     return parseLambdaExpr(expr);
+  case Token::kw_match:
+    return parseMatchExpr(expr);
   case Token::l_square:
     return parseArrayLiteral(expr);
   case Token::kw_true: {
@@ -923,6 +898,98 @@ auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   return success();
 }
 
+auto Parser::parseDataPattern(unique_ptr<DataPattern> &pattern)
+    -> MulberryResult {
+  auto location = tokenLoc();
+  std::string constructorName;
+  if (parseQualifiedName(constructorName,
+                         diag::expected_data_constructor_name))
+    return failure();
+  if (!isTypeLikeName(constructorName))
+    return emitError(diag::expected_data_constructor_name);
+
+  VectorUniquePtr<VariableExpr> bindings;
+  if (consumeIf(Token::l_paren) &&
+      parseList(Token::comma, Token::r_paren,
+                diag::expected_comma_or_r_paren, diag::expected_r_paren,
+                bindings,
+                [this](unique_ptr<VariableExpr> &binding) {
+                  return parseVariableExpr(binding);
+                }))
+    return failure();
+
+  pattern = make_unique<DataPattern>(
+      location, constructorName, std::move(bindings));
+  return success();
+}
+
+auto Parser::parseMatchExprArmBlock(unique_ptr<BlockExpr> &bodyBlock,
+                                    unique_ptr<Expr> &resultExpr)
+    -> MulberryResult {
+  auto location = tokenLoc();
+  VectorUniquePtr<Stat> statements;
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    if (tokenIs(Token::identifier) && spelling() == "yield") {
+      consume(Token::identifier);
+      if (parseExpression(resultExpr) ||
+          parseToken(Token::semi, diag::expected_semi) ||
+          parseToken(Token::r_brace, diag::expected_r_brace))
+        return failure();
+      bodyBlock = make_unique<BlockExpr>(location, std::move(statements));
+      return success();
+    }
+
+    unique_ptr<Stat> statement;
+    if (parseStatement(statement))
+      return failure();
+    statements.push_back(std::move(statement));
+  }
+
+  return emitError(diag::expected_terminal_yield);
+}
+
+auto Parser::parseMatchExpr(unique_ptr<Expr> &expr) -> MulberryResult {
+  auto location = tokenLoc();
+  consume(Token::kw_match);
+
+  unique_ptr<Expr> value;
+  if (parseBlockCondition(value) ||
+      parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+
+  VectorUniquePtr<MatchExprArm> arms;
+  while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
+    unique_ptr<DataPattern> pattern;
+    if (parseDataPattern(pattern) ||
+        parseToken(Token::fat_arrow, diag::expected_fat_arrow))
+      return failure();
+
+    auto armLocation = pattern->location();
+    unique_ptr<BlockExpr> bodyBlock;
+    unique_ptr<Expr> resultExpr;
+    if (consumeIf(Token::l_brace)) {
+      if (parseMatchExprArmBlock(bodyBlock, resultExpr))
+        return failure();
+      consumeIf(Token::comma);
+    } else {
+      VectorUniquePtr<Stat> statements;
+      bodyBlock = make_unique<BlockExpr>(tokenLoc(), std::move(statements));
+      if (parseExpression(resultExpr) ||
+          parseToken(Token::comma, diag::expected_comma))
+        return failure();
+    }
+
+    arms.push_back(make_unique<MatchExprArm>(
+        armLocation, std::move(pattern), std::move(bodyBlock),
+        std::move(resultExpr)));
+  }
+
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
+    return failure();
+  expr = make_unique<MatchExpr>(location, std::move(value), std::move(arms));
+  return success();
+}
+
 auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_if);
@@ -956,31 +1023,26 @@ auto Parser::parseMatchStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
 
   VectorUniquePtr<MatchArm> arms;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
-    auto patternLocation = tokenLoc();
-    std::string constructorName;
-    if (parseQualifiedName(constructorName,
-                           diag::expected_data_constructor_name))
-      return failure();
-    if (!isTypeLikeName(constructorName))
-      return emitError(diag::expected_data_constructor_name);
-
-    VectorUniquePtr<VariableExpr> bindings;
-    if (consumeIf(Token::l_paren) &&
-        parseList(Token::comma, Token::r_paren,
-                  diag::expected_comma_or_r_paren, diag::expected_r_paren,
-                  bindings,
-                  [this](unique_ptr<VariableExpr> &binding) {
-                    return parseVariableExpr(binding);
-                  }))
+    unique_ptr<DataPattern> pattern;
+    if (parseDataPattern(pattern) ||
+        parseToken(Token::fat_arrow, diag::expected_fat_arrow))
       return failure();
 
+    auto patternLocation = pattern->location();
     unique_ptr<BlockExpr> bodyBlock;
-    if (parseToken(Token::l_brace, diag::expected_l_brace) ||
-        parseBlockExpr(bodyBlock))
-      return failure();
+    if (consumeIf(Token::l_brace)) {
+      if (parseBlockExpr(bodyBlock))
+        return failure();
+    } else {
+      auto bodyLocation = tokenLoc();
+      unique_ptr<Stat> bodyStatement;
+      if (parseStatement(bodyStatement))
+        return failure();
+      VectorUniquePtr<Stat> statements;
+      statements.push_back(std::move(bodyStatement));
+      bodyBlock = make_unique<BlockExpr>(bodyLocation, std::move(statements));
+    }
 
-    auto pattern = make_unique<DataPattern>(
-        patternLocation, constructorName, std::move(bindings));
     arms.push_back(make_unique<MatchArm>(
         patternLocation, std::move(pattern), std::move(bodyBlock)));
   }
@@ -1312,6 +1374,12 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
         return failure();
       continue;
     }
+    if (t.is(Token::question)) {
+      auto location = tokenLoc();
+      consume(Token::question);
+      expr = std::make_unique<TryExpr>(location, std::move(expr));
+      continue;
+    }
 
     consume(t.getKind());
     auto location = tokenLoc();
@@ -1394,6 +1462,7 @@ auto Parser::getTokenPrecedence() -> int {
     return 700;
   case Token::dot:
   case Token::l_square:
+  case Token::question:
     return 800;
   default:
     return -1;
@@ -1450,6 +1519,20 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
 
 // _____________________________________________________________________________
 // Parse Statements
+
+auto Parser::parseStatement(unique_ptr<Stat> &stat) -> MulberryResult {
+  if (parseStatementWithoutSemi(stat))
+    return failure();
+
+  auto kind = stat->getKind();
+  if (kind == Stat::Stat_VariableDecl || kind == Stat::Stat_Return ||
+      kind == Stat::Stat_Expression)
+    return parseToken(Token::semi, diag::expected_semi);
+
+  if (kind == Stat::Stat_Break || kind == Stat::Stat_Continue)
+    consumeIf(Token::semi);
+  return success();
+}
 
 auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult {
   switch (tokenKind()) {

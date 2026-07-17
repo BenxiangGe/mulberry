@@ -7,6 +7,7 @@
 
 #include "mulberry/MLIRGen/IR/MulberryOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
@@ -51,6 +52,22 @@ auto DataUnpackOp::verify() -> LogicalResult {
     return emitOpError("value must be a pointer to a Mulberry data type");
   if (getConstructor().empty())
     return emitOpError("constructor name cannot be empty");
+  return success();
+}
+
+auto ResultTryOp::verify() -> LogicalResult {
+  if (!isDataReference(getInput().getType()))
+    return emitOpError("input must reference a Mulberry data type");
+  if (getNumResults() > 1)
+    return emitOpError("must produce zero or one payload value");
+  if (getNumResults() == 1 && llvm::isa<NoneType>(getResult(0).getType()))
+    return emitOpError("Unit payload must not produce an SSA value");
+
+  auto function = getOperation()->getParentOfType<func::FuncOp>();
+  if (!function || function.getFunctionType().getNumResults() != 1 ||
+      !isDataReference(function.getFunctionType().getResult(0)))
+    return emitOpError(
+        "enclosing function must return a Mulberry data reference");
   return success();
 }
 

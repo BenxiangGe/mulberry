@@ -1,6 +1,10 @@
 import core;
 import core.Char;
 import core.boolToUInt64;
+import result;
+import result.Result;
+import result.Ok;
+import result.Err;
 import io;
 import io.File;
 import list;

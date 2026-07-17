@@ -1,20 +1,27 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, io.FileError> {
   var outputValues = tensor.from([1.0, 7.0, 3.0, 4.0]);
-  const output = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "wb");
-  const writeCount = io.write(output, outputValues);
-  io.close(output);
+  const output = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "wb")?;
+  const writeCount = io.write(output, outputValues)?;
+  io.close(output)?;
 
   var inputTensor: Tensor<Float32> = tensor.zeros([4]);
-  const input = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "rb");
-  const readCount = io.read(input, inputTensor);
-  io.close(input);
+  const input = io.open("/tmp/mulberry_file_tensor_io_jit.bin", "rb")?;
+  const readCount = io.read(input, inputTensor)?;
+  io.close(input)?;
 
   io.println(writeCount);
   io.println(readCount);
   io.println(boolToUInt64(inputTensor[1] > 6.5));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
 }
 
 # JIT: 16

@@ -19,24 +19,18 @@ data TensorBox = TensorBox(Tensor<Float32>);
 
 fn lookup(key: LookupKey): UInt64 {
   match key {
-    ById(id) {
-      return id;
-    }
-    ByName(name) {
-      return name.length;
-    }
-    Missing {
-      return 0;
-    }
+    ById(id) => return id;
+    ByName(name) => return name.length;
+    Missing => return 0;
   }
 }
 
 fn sum(tree: Tree<UInt64>): UInt64 {
   match tree {
-    Empty() {
+    Empty() => {
       return 0;
     }
-    Node(value, left, right) {
+    Node(value, left, right) => {
       return value + sum(left) + sum(right);
     }
   }
@@ -44,12 +38,8 @@ fn sum(tree: Tree<UInt64>): UInt64 {
 
 fn firstOr<T>(tree: Tree<T>, fallback: T): T {
   match tree {
-    Empty {
-      return fallback;
-    }
-    Node(value, left, right) {
-      return value;
-    }
+    Empty => return fallback;
+    Node(value, left, right) => return value;
   }
 }
 
@@ -57,11 +47,18 @@ fn increment(value: UInt64): UInt64 {
   return value + 1;
 }
 
+fn discardLookup(key: LookupKey): () {
+  match key {
+    ById(id) => increment(id);
+    ByName(name) => increment(name.length);
+    Missing => increment(0);
+  }
+  return;
+}
+
 fn apply(callback: Callback): UInt64 {
   match callback {
-    Callback(function) {
-      return function(41);
-    }
+    Callback(function) => return function(41);
   }
 }
 
@@ -72,9 +69,7 @@ fn makeTensorBox(): TensorBox {
 
 fn boxedNumel(box: TensorBox): UInt64 {
   match box {
-    TensorBox(value) {
-      return value.numel();
-    }
+    TensorBox(value) => return value.numel();
   }
 }
 
@@ -85,6 +80,7 @@ fn main(): UInt64 {
            Node(3, Empty(), Empty()));
   const empty: Tree<UInt64> = Empty();
 
+  discardLookup(ById(1));
   io.println(lookup(ById(42)));
   io.println(lookup(ByName("Mulberry")));
   io.println(lookup(Missing()));

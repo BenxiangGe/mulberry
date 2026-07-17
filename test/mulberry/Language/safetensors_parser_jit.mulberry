@@ -1,37 +1,70 @@
 # RUN: %numpy_python %mulberry_src_root/tools/export_mnist_safetensors.py --output /tmp/mulberry_safetensors_parser_jit.safetensors > %t.export.log && mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
 import safetensors;
+import tensor;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      io.open("/tmp/mulberry_safetensors_parser_jit.safetensors", "rb");
-  const w1 = safetensors.findTensor(file, "w1");
-  const x = safetensors.findTensor(file, "x");
-  io.println(boolToUInt64(w1.found));
+      safetensors.open("/tmp/mulberry_safetensors_parser_jit.safetensors")?;
+  const w1 = safetensors.find(file, "w1")?;
+  const x = safetensors.find(file, "x")?;
   io.println(w1.headerLength);
   io.println(w1.shape.size());
   io.println(w1.shape[0]);
   io.println(w1.shape[1]);
   io.println(w1.begin);
   io.println(w1.end);
-  io.println(boolToUInt64(x.found));
   io.println(x.shape[0]);
   io.println(x.shape[1]);
   io.println(x.begin);
   io.println(x.end);
-  io.close(file);
-  return 0;
+  match safetensors.find(file, "missing") {
+    Ok(info) => io.println(info.begin);
+    Err(error) => safetensors.printError(error);
+  }
+
+  var malformedHeader = tensor.from(['{', '"', 'x', '"', ':', '{']);
+  const malformed =
+      safetensors.TensorFile { file.file, 6, malformedHeader };
+  match safetensors.find(malformed, "x") {
+    Ok(info) => io.println(info.begin);
+    Err(error) => safetensors.printError(error);
+  }
+
+  var invalidHeader =
+      tensor.from(['{', '"', 'x', '"', ':', '{', '}', '}']);
+  const invalid = safetensors.TensorFile { file.file, 8, invalidHeader };
+  match safetensors.find(invalid, "x") {
+    Ok(info) => io.println(info.begin);
+    Err(error) => safetensors.printError(error);
+  }
+
+  match safetensors.open("/__mulberry_missing_directory__/file.safetensors") {
+    Ok(opened) => safetensors.close(opened);
+    Err(error) => safetensors.printError(error);
+  }
+  safetensors.close(file)?;
+  return Ok(0);
 }
 
-# JIT: 1
-# JIT-NEXT: 325
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
+}
+
+# JIT: 325
 # JIT-NEXT: 2
 # JIT-NEXT: 30
 # JIT-NEXT: 784
 # JIT-NEXT: 0
 # JIT-NEXT: 94080
-# JIT-NEXT: 1
 # JIT-NEXT: 784
 # JIT-NEXT: 1
 # JIT-NEXT: 95440
 # JIT-NEXT: 98576
+# JIT-NEXT: tensor missing was not found
+# JIT-NEXT: unexpected end of JSON at byte 6
+# JIT-NEXT: tensor x has invalid metadata
+# JIT-NEXT: cannot open /__mulberry_missing_directory__/file.safetensors with mode rb

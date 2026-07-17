@@ -6,29 +6,59 @@ import tensor;
 import tensor.Tensor;
 import io;
 
-fn main(): UInt64 {
+fn parseValid(): Result<UInt64, json.JsonError> {
   var text: Tensor<UInt8> = tensor.from([
       '{', '"', 'a', '"', ':', '[', '1', '2', ',', '3', '4', ']', ',',
       '"', 'b', '"', ':', '{', '"', 'c', '"', ':', '5', '}', '}'
   ]);
   var parser = json.Parser { text, 0, 25 };
-  parser.consumeChar('{');
-  io.println(boolToUInt64(parser.stringEquals("a")));
-  parser.consumeChar(':');
-  var values = parser.parseIntegerArray();
+  parser.expectChar('{')?;
+  io.println(boolToUInt64(parser.stringEquals("a")?));
+  parser.expectChar(':')?;
+  var values = parser.parseIntegerArray()?;
   io.println(values.size());
   io.println(values[0]);
   io.println(values[1]);
-  parser.consumeChar(',');
-  io.println(boolToUInt64(parser.stringEquals("b")));
-  parser.consumeChar(':');
-  parser.skipValue();
+  parser.expectChar(',')?;
+  io.println(boolToUInt64(parser.stringEquals("b")?));
+  parser.expectChar(':')?;
+  parser.skipValue()?;
   io.println(parser.position);
+  return Ok(0);
+}
+
+fn parseMalformedArray(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from(['[', '1', ',', ']']);
+  var parser = json.Parser { text, 0, 4 };
+  parser.parseIntegerArray()?;
+  return Ok(0);
+}
+
+fn parseUnterminatedString(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from(['"', 'a']);
+  var parser = json.Parser { text, 0, 2 };
+  parser.skipString()?;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  match parseValid() {
+    Ok(status) => io.println(status);
+    Err(error) => json.printError(error);
+  }
+  match parseMalformedArray() {
+    Ok(status) => io.println(status);
+    Err(error) => json.printError(error);
+  }
+  match parseUnterminatedString() {
+    Ok(status) => io.println(status);
+    Err(error) => json.printError(error);
+  }
   return 0;
 }
 
 # MLIR-LABEL: func.func @std.json.Parser.peekChar
-# MLIR: mulberry_core.ptr.index
+# MLIR: mulberry_core.data.construct "std.result.Err"
 # MLIR-LABEL: func.func @std.json.Parser.isDigit
 
 # CHECK: 1
@@ -37,3 +67,6 @@ fn main(): UInt64 {
 # CHECK-NEXT: 34
 # CHECK-NEXT: 1
 # CHECK-NEXT: 24
+# CHECK-NEXT: 0
+# CHECK-NEXT: expected digit at byte 3
+# CHECK-NEXT: unterminated string at byte 0

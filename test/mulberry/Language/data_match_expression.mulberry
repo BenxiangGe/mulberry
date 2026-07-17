@@ -1,0 +1,133 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+data Maybe<T> = None | Some(T);
+
+data Label = Count(UInt64) | Text(String);
+
+data Nested = NoValue | Wrapped(Maybe<UInt64>);
+
+fn makeSome(value: UInt64): Maybe<UInt64> {
+  io.println(100);
+  return Some(value);
+}
+
+fn score(value: Maybe<UInt64>): UInt64 {
+  return match value {
+    Some(result) => result,
+    None() => 0,
+  };
+}
+
+fn scoreWithBonus(value: Maybe<UInt64>): UInt64 {
+  const result = match value {
+    Some(score) => {
+      const bonus = 5;
+      yield score + bonus;
+    }
+    None => {
+      const fallback = 3;
+      yield fallback;
+    }
+  };
+  return result;
+}
+
+fn unwrapOr<T>(value: Maybe<T>, fallback: T): T {
+  return match value {
+    Some(result) => result,
+    None => fallback,
+  };
+}
+
+fn render(value: Label): String {
+  return match value {
+    Count(count) => "count={$count}",
+    Text(text) => text,
+  };
+}
+
+fn nested(value: Nested): UInt64 {
+  return match value {
+    NoValue() => 0,
+    Wrapped(inner) => match inner {
+      Some(result) => result,
+      None() => 1,
+    },
+  };
+}
+
+fn scoreWithInnerLoop(value: Maybe<UInt64>): UInt64 {
+  return match value {
+    Some(score) => {
+      var current = 0;
+      while current < score {
+        current = current + 1;
+        if current < score {
+          continue;
+        }
+        break;
+      }
+      yield current;
+    }
+    None() => 0,
+  };
+}
+
+fn main(): UInt64 {
+  const some: Maybe<UInt64> = makeSome(95);
+  const none: Maybe<UInt64> = None();
+
+  io.println(score(some));
+  io.println(score(none));
+  io.println(scoreWithBonus(some));
+  io.println(scoreWithBonus(none));
+  io.println(unwrapOr(some, 5));
+  io.println(unwrapOr(none, 5));
+  io.println(render(Count(7)));
+  io.println(render(Text("ready")));
+  io.println(nested(Wrapped(some)));
+  io.println(nested(NoValue()));
+  io.println(scoreWithInnerLoop(Some(2)));
+  return 0;
+}
+
+# AST-DAG: MatchExpr {{.*}}type=UInt64
+# AST-DAG: MatchExpr {{.*}}type=std.string.String
+# AST-DAG: MatchExprArm
+# AST-DAG: DataPattern {{.*}}constructor=Some tag=1
+# AST-DAG: VariableStat const (id=bonus {{.*}}inferredType=UInt64
+# AST-DAG: VariableStat const (id=fallback {{.*}}inferredType=UInt64
+
+# MLIR-LABEL: func.func @score(
+# MLIR: mulberry_core.data.tag
+# MLIR: scf.if {{.*}} -> (i64)
+# MLIR: scf.yield {{.*}} : i64
+# MLIR-LABEL: func.func @render(
+# MLIR: scf.if {{.*}} -> (!mulberry_core.ptr<
+# MLIR: scf.yield {{.*}} : !mulberry_core.ptr<
+# MLIR-LABEL: func.func @nested(
+# MLIR: scf.if {{.*}} -> (i64)
+# MLIR: scf.if {{.*}} -> (i64)
+# MLIR-DAG: func.func @unwrapOr__UInt64
+
+# LOWERED-LABEL: func.func @render(
+# LOWERED: scf.if {{.*}} -> (!llvm.ptr)
+# LOWERED: scf.yield {{.*}} : !llvm.ptr
+# LOWERED-NOT: mulberry_core.
+
+# JIT: 100
+# JIT-NEXT: 95
+# JIT-NEXT: 0
+# JIT-NEXT: 100
+# JIT-NEXT: 3
+# JIT-NEXT: 95
+# JIT-NEXT: 5
+# JIT-NEXT: count=7
+# JIT-NEXT: ready
+# JIT-NEXT: 95
+# JIT-NEXT: 0
+# JIT-NEXT: 2

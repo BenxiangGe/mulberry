@@ -65,6 +65,9 @@ private:
   auto dump(const UnitExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const LambdaExpr *node) -> void;
+  auto dump(const MatchExpr *node) -> void;
+  auto dump(const MatchExprArm *node) -> void;
+  auto dump(const TryExpr *node) -> void;
   auto dump(const CallExpr *node) -> void;
   auto dump(const DataConstructorExpr *node) -> void;
   auto dump(const StructLiteralExpr *node) -> void;
@@ -389,11 +392,11 @@ auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, DataConstructorExpr, StructLiteralExpr,
-            DecimalLiteralExpr, FloatLiteralExpr, BoolLiteralExpr,
-            StringLiteralExpr, InterpolatedStringExpr, ObjectIdentityExpr,
-            CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr, LambdaExpr,
-            HeapAllocExpr, ArrayLiteralExpr, IndexExpr, VariableExpr, MemberExpr,
-            AssignExpr, BinaryExpr>(
+            MatchExpr, TryExpr, DecimalLiteralExpr, FloatLiteralExpr,
+            BoolLiteralExpr, StringLiteralExpr, InterpolatedStringExpr,
+            ObjectIdentityExpr, CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr,
+            LambdaExpr, HeapAllocExpr, ArrayLiteralExpr, IndexExpr,
+            VariableExpr, MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
           [&](const Expr *) { llvm_unreachable("Unexpected expression"); });
@@ -426,6 +429,31 @@ auto Dumper::dump(const LambdaExpr *node) -> void {
   errs() << "\n";
   if (node->body())
     dump(node->body().get());
+}
+
+auto Dumper::dump(const MatchExpr *node) -> void {
+  INDENT();
+  errs() << "MatchExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->value().get());
+  for (auto &arm : node->arms())
+    dump(arm.get());
+}
+
+auto Dumper::dump(const MatchExprArm *node) -> void {
+  INDENT();
+  errs() << "MatchExprArm " << loc(node) << "\n";
+  dump(node->pattern().get());
+  if (!node->bodyBlock()->statements().empty())
+    dump(node->bodyBlock().get(), "bodyBlock:");
+  dump(node->resultExpr().get());
+}
+
+auto Dumper::dump(const TryExpr *node) -> void {
+  INDENT();
+  errs() << "TryExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->value().get());
 }
 
 auto Dumper::dump(const CallExpr *node) -> void {

@@ -9,6 +9,7 @@ add_mlir_dialect_library(mulberryMLIRGen
         # Conversion
         ${LIB_HEADERS}/Conversion/MulberryPasses.h
         Conversion/ConvertMulberryToLLVM.cpp
+        Conversion/LowerResultTry.cpp
         Conversion/LowerMulberry.cpp
 
         # IR
@@ -26,6 +27,8 @@ add_mlir_dialect_library(mulberryMLIRGen
         LINK_LIBS PUBLIC
         mulberryBasic
         MLIRArithDialect
+        MLIRControlFlowDialect
+        MLIRControlFlowTransforms
         MLIRConvertToLLVMInterface
         MLIRLLVMCommonConversion
         MLIRIR
@@ -38,4 +41,6 @@ add_mlir_dialect_library(mulberryMLIRGen
         MLIRMemRefDialect
         MLIRPtrDialect
         MLIRSCFDialect
+        MLIRSCFToControlFlow
+        MLIRSCFTransforms
 )

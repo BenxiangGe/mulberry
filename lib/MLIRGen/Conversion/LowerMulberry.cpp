@@ -12,6 +12,8 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/ControlFlow/Transforms/StructuralTypeConversions.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -20,6 +22,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -1557,10 +1560,10 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
     MulberryTypeConverter typeConverter;
 
     ConversionTarget target(getContext());
-    target.addLegalDialect<arith::ArithDialect, func::FuncDialect,
-                           linalg::LinalgDialect, LLVM::LLVMDialect,
-                           math::MathDialect, memref::MemRefDialect,
-                           scf::SCFDialect>();
+    target.addLegalDialect<arith::ArithDialect, cf::ControlFlowDialect,
+                           func::FuncDialect, linalg::LinalgDialect,
+                           LLVM::LLVMDialect, math::MathDialect,
+                           memref::MemRefDialect, scf::SCFDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
     target.addLegalOp<TensorStorageAllocLoweredOp>();
     target.addIllegalDialect<MulberryDialect>();
@@ -1593,6 +1596,10 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
         patterns, typeConverter);
     populateCallOpTypeConversionPattern(patterns, typeConverter);
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
+    cf::populateCFStructuralTypeConversionsAndLegality(
+        typeConverter, patterns, target);
+    scf::populateSCFStructuralTypeConversionsAndLegality(
+        typeConverter, patterns, target);
 
     // Keep unresolved Mulberry ops fail-fast until each one has an explicit
     // lowering. A silent no-op pass would make backend tests look lower than

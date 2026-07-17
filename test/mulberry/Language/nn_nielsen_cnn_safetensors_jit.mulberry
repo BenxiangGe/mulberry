@@ -4,22 +4,22 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file = safetensors.open(
-      "/tmp/mulberry_nielsen_cnn_safetensors_jit.safetensors");
+      "/tmp/mulberry_nielsen_cnn_safetensors_jit.safetensors")?;
 
-  var input = safetensors.read(file, "input");
+  var input = safetensors.read(file, "input")?;
   var convWeight =
-      safetensors.read(file, "conv1_weight");
-  var convBias = safetensors.read(file, "conv1_bias");
+      safetensors.read(file, "conv1_weight")?;
+  var convBias = safetensors.read(file, "conv1_bias")?;
   var classifierWeight =
-      safetensors.read(file, "classifier_weight");
+      safetensors.read(file, "classifier_weight")?;
   var classifierBias =
-      safetensors.read(file, "classifier_bias");
+      safetensors.read(file, "classifier_bias")?;
   var reference =
-      safetensors.read(file, "reference_probabilities");
-  var label = safetensors.read(file, "label");
-  safetensors.close(file);
+      safetensors.read(file, "reference_probabilities")?;
+  var label = safetensors.read(file, "label")?;
+  safetensors.close(file)?;
 
   var convolved =
       nn.conv2d(input, convWeight, convBias);
@@ -42,7 +42,14 @@ fn main(): UInt64 {
   io.println(referencePrediction);
   io.println(boolToUInt64(prediction == referencePrediction));
   io.println(nn.argmax(label));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
 }
 
 # EXPORT: topology: NCHW conv -> 2x2 pool -> ReLU -> flatten -> softmax

@@ -3,19 +3,23 @@
 
 import safetensors;
 
-fn main(): UInt64 {
-  const file = io.open("data/mnist-784-30-10.safetensors", "rb");
-  var w1Tensor = safetensors.readTensor(file, "w1");
-  io.close(file);
-  return w1Tensor.numel();
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
+  const file = safetensors.open("data/mnist-784-30-10.safetensors")?;
+  var w1Tensor = safetensors.read(file, "w1")?;
+  safetensors.close(file)?;
+  return Ok(w1Tensor.numel());
 }
 
-# MLIR: call @std.safetensors.readTensor
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
+}
+
+# MLIR: call @std.safetensors.read
 
 # LOWERED-NOT: mulberry_safetensor_read_tensor_f32
-# LOWERED: func.func @std.safetensors.read
+# LOWERED-LABEL: func.func @std.safetensors.read(
 # LOWERED: call @std.safetensors.find
-# LOWERED: call @std_io_read__Float32
-# LOWERED: func.func @std.safetensors.readTensor
-# LOWERED: call @std.safetensors.loadTensorFile
-# LOWERED: call @std.safetensors.read
+# LOWERED: call @std_io_readExact__Float32

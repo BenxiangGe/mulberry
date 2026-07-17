@@ -39,6 +39,10 @@ package-declaration       -> `package` qualified-name `;`
 qualified-name            -> identifier (`.` identifier)*
 ```
 
+点式调用的首段如果同时是局部变量和 import package alias，局部变量按词法作用域
+优先。例如参数名为 `result` 时，`result.size()` 仍是该对象的 method call；只有当前
+作用域没有同名变量时，`result.foo()` 才会按 package alias 解析。
+
 ## Declarations
 
 ```text
@@ -116,7 +120,11 @@ variant 分配独立的 GC-managed object，物理布局为 `{i64 tag, payload..
 与 declaration 一致。不同 variant 不需要共享同一个最大 union layout；函数参数和返回值
 统一使用 object pointer。generic function inference 可以把 `Tree<T>` 与 concrete
 `Tree<UInt64>` 对应起来，并从 nominal data type 的 comptime arguments 推导 `T`。
-`Result<T, E>` 和 postfix `?` 由后续阶段实现。
+`()` 可以作为 constructor payload，例如 `Result<(), E>`。它参与 semantic type、generic
+specialization 和 constructor arity，但不占 runtime storage，也不产生 dummy SSA value；
+因此 `Ok(())` 的物理 variant layout 只有 tag。
+标准库 `Result<T, E>` 已使用普通 `data` 实现；postfix `?` 在函数返回的
+`Result` 中传播同类型错误。
 
 函数参数和 method receiver 默认是 readonly object reference。需要在 callee 里
 修改 object 时，参数前写 `mut`：
@@ -247,15 +255,16 @@ postfix-expression        -> primary-expression
 postfix-expression        -> postfix-expression `.` identifier
 postfix-expression        -> postfix-expression `.` identifier call-argument-clause
 postfix-expression        -> postfix-expression `[` expression-list `]`
+postfix-expression        -> postfix-expression `?`
 
 primary-expression        -> literal-expression
 primary-expression        -> identifier
 primary-expression        -> call-expression
 primary-expression        -> data-constructor-expression
 primary-expression        -> lambda-expression
+primary-expression        -> match-expression
 primary-expression        -> struct-literal-expression
 primary-expression        -> array-literal-expression
-primary-expression        -> block
 
 lambda-expression         -> `|` lambda-parameter-list? `|` expression
 lambda-parameter-list     -> identifier (`,` identifier)* `,`?
@@ -344,8 +353,16 @@ block 不产生 value。函数返回使用 `return` statement。
 ```text
 if-statement              -> `if` condition block
 if-statement              -> `if` condition block `else` block
-match-statement           -> `match` expression `{` match-arm+ `}`
-match-arm                 -> uppercase-qualified-identifier match-bindings? block
+match-pattern             -> uppercase-qualified-identifier match-bindings?
+match-statement           -> `match` expression `{` match-statement-arm+ `}`
+match-statement-arm       -> match-pattern
+                              `=>` statement
+match-statement-arm       -> match-pattern
+                              `=>` block
+match-expression          -> `match` expression `{` match-expression-arm+ `}`
+match-expression-arm      -> match-pattern `=>` expression `,`
+match-expression-arm      -> match-pattern `=>` match-expression-block `,`?
+match-expression-block    -> `{` statement* `yield` expression `;` `}`
 match-bindings            -> `(` (identifier (`,` identifier)* `,`?)? `)`
 while-statement           -> `while` condition block
 for-statement             -> `for` identifier `in` expression `..` expression block
@@ -356,30 +373,123 @@ condition                 -> expression
 block，未选 block 不参与当前 specialization 的类型检查；如果 condition 是 runtime
 Bool，则按普通控制流分析两个 block，并在 MLIR 中生成 `scf.if`。
 
-`match` 第一版是 statement，不产生 value。scrutinee 必须是 `data` type，每个
-constructor 必须恰好出现一次；不接受遗漏或重复的 arm。pattern 只支持一层
-constructor 和直接 payload binding，不支持 wildcard、nested pattern、guard 或
-match expression。payload binding 默认 readonly，其 concrete type 来自 scrutinee 的
-data specialization：
+match statement 不产生 value。scrutinee 必须是 `data` type，每个 constructor 必须
+恰好出现一次；不接受遗漏或重复的 arm。pattern 只支持一层 constructor 和直接
+payload binding，不支持 wildcard、nested pattern 或 guard。payload binding 默认
+readonly，其 concrete type 来自 scrutinee 的 data specialization：
 
 ```mulberry
 match key {
-  ById(id) {
+  ById(id) => {
     io.println(id);
   }
-  ByName(name) {
-    io.println(name);
-  }
-  Missing {
-    io.println(0);
-  }
+  ByName(name) => io.println(name);
+  Missing => io.println(0);
 }
 ```
+
+单条 statement arm 不需要额外大括号；它仍然遵循普通 statement 的分号规则。
+Parser 在 AST 中把它规范化为单元素 block，因此 statement 和 block arm 共享同一套
+Sema 与 MLIRGen 语义。
+
+match expression 是专用的 value-producing expression，不会恢复通用 block
+expression。short arm 直接给出 expression；需要多条 statement 时，arm block 必须以
+terminal `yield expression;` 结束：
+
+```mulberry
+const score = match value {
+  Some(score) => score,
+  None() => 0,
+};
+
+const adjusted = match value {
+  Some(score) => {
+    const bonus = calculateBonus(score);
+    yield score + bonus;
+  }
+  None() => 0,
+};
+```
+
+`yield` 在这里是 contextual keyword，只在 match expression arm block 的末尾具有
+特殊含义；其它位置仍可作为普通 identifier。第一版不支持 arm 中间的 early yield，
+也不允许用 `return` 代替 terminal yield。arm 不能用 `break` / `continue` 跳到 match
+expression 外层的 loop；arm 内部新建的 loop 仍可正常使用 `break` / `continue`，然后
+由 terminal yield 产生 arm value。所有 arm result 必须具有同一个 semantic type；
+存在 expected type 时逐 arm 检查，否则由第一个 arm result 确定。复杂 arm 中 terminal
+yield 可以引用前面 statement 声明的局部变量。
 
 零 payload pattern 可以写成 `Missing` 或 `Missing()`。scrutinee 只求值一次；高层
 MLIR 用 `mulberry_core.data.tag` 读取 tag，以 `arith.cmpi` 和 `scf.if` 选择 arm，进入
 arm 后再用 `mulberry_core.data.unpack` 取得 payload。MLIRGen 不读取物理字段；lowering
 才根据该 constructor 的 `{i64 tag, payload...}` variant layout 生成 GEP 和 load。
+match expression 使用 result-producing `scf.if` / `scf.yield` 合并 SSA value；object
+result 通过 SCF structural type conversion 降为 backend pointer。
+
+标准库在 `std.result` 中直接定义：
+
+```mulberry
+data Result<T, E> =
+    Ok(T)
+  | Err(E);
+```
+
+prelude 默认导入 `Result`、`Ok` 和 `Err`。可以使用 exhaustive `match` 显式消费
+Result：
+
+```mulberry
+fn openAndClose(path: String): Result<(), io.FileError> {
+  match io.open(path, "rb") {
+    Ok(file) => return io.close(file);
+    Err(error) => return Err(error);
+  }
+}
+```
+
+postfix `?` 用于向当前函数传播错误：
+
+```mulberry
+fn openForRead(path: String): Result<File, io.FileError> {
+  const file = io.open(path, "rb")?;
+  return Ok(file);
+}
+```
+
+第一版只接受 canonical `std.result.Result<T, E>`。operand 为 `Ok(value)` 时，`?`
+expression 的类型和值是 `T`；operand 为 `Err(error)` 时，当前函数立即返回
+`Err(error)`。因此当前函数必须返回 `Result<U, E>`，并且两边的 `E` 必须是同一个
+semantic type。当前不做 `From` conversion、通用 `Try` trait 或 Monad abstraction。
+
+如果 `T` 是 object，`?` 继承 operand expression 的 mutability。直接 call result 与普通
+object-returning call 一样，可以绑定到 mutable local；readonly Result variable 解包后
+仍然 readonly：
+
+```mulberry
+var tensor = safetensors.read(file, "weights")?;
+
+const saved = safetensors.read(file, "weights");
+const readonlyTensor = saved?;
+```
+
+operand 只求值一次。Err 分支是真正的 function early return，同一个 expression 中位于
+`?` 后面的调用和其它副作用不会执行。`?` 可以出现在普通 expression、match expression
+arm 和 loop body 中；它与显式 `return` 不同，Ok path 仍会产生当前 expression 所需的
+value。需要保留 structured loop 给 Tensor bufferization 的 stdlib 代码，会在 loop 内
+使用显式 `match` 传播错误，而不是把 `?` 放进 loop body。
+
+高层 IR 用 `mulberry_core.result.try` 保留这一控制效果。`lower-result-try` 只把实际包含
+该 op 的 SCF 祖先转成 CFG：Ok payload 进入 continuation block，Err path 直接构造
+当前函数的 Result 并执行 `func.return`。同一函数中与 `?` 无关的 SCF loop/if
+保持 structured，因此 Tensor bufferization 和 ownership pass 仍可以分析它们。
+
+`io.open/read/readExact/write/seek/tell/close` 都返回 `Result<..., io.FileError>`。
+`read()` 的正常 EOF 短读是 `Ok(actualBytes)`；`readExact()` 把短读变成
+`UnexpectedEnd(expected, actual)`。safetensors 的 header、metadata bytes 和 Tensor
+payload 都使用 exact read。cursor parser 返回 `Result<..., json.JsonError>`；它只覆盖
+safetensors 所需 ASCII JSON subset，不构造 DOM，也不静默接受 unterminated string、
+缺少 punctuation/digit 或 escape。safetensors public API 返回
+`Result<..., safetensors.SafetensorsError>`，明确组合 `IoFailure`、`JsonFailure`、
+`TensorNotFound` 和 `InvalidTensor`。
 
 示例：
 

@@ -4,20 +4,20 @@
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/mnist-784-30-10-training.safetensors");
+      safetensors.open("data/mnist-784-30-10-training.safetensors")?;
 
-  var w1 = safetensors.read(file, "w1");
-  var b1 = safetensors.read(file, "b1");
-  var w2 = safetensors.read(file, "w2");
-  var b2 = safetensors.read(file, "b2");
-  var trainX = safetensors.read(file, "train_x");
-  var trainY = safetensors.read(file, "train_y");
-  var testX = safetensors.read(file, "test_x");
-  var testY = safetensors.read(file, "test_y");
+  var w1 = safetensors.read(file, "w1")?;
+  var b1 = safetensors.read(file, "b1")?;
+  var w2 = safetensors.read(file, "w2")?;
+  var b2 = safetensors.read(file, "b2")?;
+  var trainX = safetensors.read(file, "train_x")?;
+  var trainY = safetensors.read(file, "train_y")?;
+  var testX = safetensors.read(file, "test_x")?;
+  var testY = safetensors.read(file, "test_y")?;
 
-  safetensors.close(file);
+  safetensors.close(file)?;
 
   var train = nn.datasetFromBatches(trainX, trainY);
   var test = nn.datasetFromBatches(testX, testY);
@@ -47,15 +47,15 @@ fn main(): UInt64 {
   var checkpointNames = list.from(["w1", "b1", "w2", "b2"]);
   var checkpointTensors = list.from([w1, b1, w2, b2]);
   safetensors.write("/tmp/mulberry_mnist_trained.safetensors",
-                    checkpointNames, checkpointTensors);
+                    checkpointNames, checkpointTensors)?;
 
   const checkpointFile =
-      safetensors.open("/tmp/mulberry_mnist_trained.safetensors");
-  var savedW1Tensor = safetensors.read(checkpointFile, "w1");
-  var savedB1Tensor = safetensors.read(checkpointFile, "b1");
-  var savedW2Tensor = safetensors.read(checkpointFile, "w2");
-  var savedB2Tensor = safetensors.read(checkpointFile, "b2");
-  safetensors.close(checkpointFile);
+      safetensors.open("/tmp/mulberry_mnist_trained.safetensors")?;
+  var savedW1Tensor = safetensors.read(checkpointFile, "w1")?;
+  var savedB1Tensor = safetensors.read(checkpointFile, "b1")?;
+  var savedW2Tensor = safetensors.read(checkpointFile, "w2")?;
+  var savedB2Tensor = safetensors.read(checkpointFile, "b2")?;
+  safetensors.close(checkpointFile)?;
 
   var finalWeights =
       list.from([savedW1Tensor, savedW2Tensor]);
@@ -73,11 +73,21 @@ fn main(): UInt64 {
   io.println(testEvaluation.accuracyBasisPoints);
 
   const inferenceFile =
-      safetensors.open("data/mnist-784-30-10.safetensors");
-  var x = safetensors.read(inferenceFile, "x");
-  safetensors.close(inferenceFile);
+      safetensors.open("data/mnist-784-30-10.safetensors")?;
+  var x = safetensors.read(inferenceFile, "x")?;
+  safetensors.close(inferenceFile)?;
 
   io.println(nn.predict(finalWeights, finalBiases, x));
 
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }

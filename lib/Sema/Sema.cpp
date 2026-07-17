@@ -69,6 +69,34 @@ struct ComptimeEvaluation {
   bool isComptimeOnly = false;
 };
 
+struct ResultTypeArguments {
+  const Type *valueType;
+  const Type *errorType;
+};
+
+auto getResultTypeArguments(const Type *type)
+    -> std::optional<ResultTypeArguments> {
+  auto *dataType = getDataType(type);
+  if (!dataType || dataType->declarationName() != "std.result.Result")
+    return std::nullopt;
+
+  auto &arguments = dataType->arguments();
+  auto &constructors = dataType->constructors();
+  if (arguments.size() != 2 ||
+      arguments[0].kind() != ComptimeValue::Kind::Type ||
+      arguments[1].kind() != ComptimeValue::Kind::Type ||
+      constructors.size() != 2 ||
+      constructors[0].name() != "std.result.Ok" ||
+      constructors[1].name() != "std.result.Err" ||
+      constructors[0].payloadTypes().size() != 1 ||
+      constructors[1].payloadTypes().size() != 1 ||
+      !sameType(constructors[0].payloadTypes()[0], arguments[0].type()) ||
+      !sameType(constructors[1].payloadTypes()[0], arguments[1].type()))
+    return std::nullopt;
+
+  return ResultTypeArguments{arguments[0].type(), arguments[1].type()};
+}
+
 auto substituteExpr(const Expr *node,
                     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<Expr>;
@@ -76,6 +104,16 @@ auto substituteExpr(const Expr *node,
 auto substituteBlockExpr(const BlockExpr *node,
                          const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<BlockExpr>;
+
+auto cloneDataPattern(const DataPattern *pattern)
+    -> std::unique_ptr<DataPattern> {
+  VectorUniquePtr<VariableExpr> bindings;
+  for (auto &binding : pattern->bindings())
+    bindings.push_back(std::make_unique<VariableExpr>(
+        binding->location(), binding->name()));
+  return std::make_unique<DataPattern>(
+      pattern->location(), pattern->constructorName(), std::move(bindings));
+}
 
 auto containsReturnStat(const BlockExpr *node) -> bool;
 
@@ -142,6 +180,12 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
 auto containsReturnStat(const Expr *node) -> bool {
   if (auto *block = dyn_cast<BlockExpr>(node))
     return containsReturnStat(block);
+  if (auto *matchExpr = dyn_cast<MatchExpr>(node)) {
+    for (auto &arm : matchExpr->arms())
+      if (containsReturnStat(arm->bodyBlock().get()) ||
+          containsReturnStat(arm->resultExpr().get()))
+        return true;
+  }
   return false;
 }
 
@@ -586,16 +630,8 @@ auto substituteBlockExpr(const BlockExpr *node,
     if (auto *matchStat = dyn_cast<MatchStat>(statement.get())) {
       VectorUniquePtr<MatchArm> arms;
       for (auto &arm : matchStat->arms()) {
-        auto *pattern = arm->pattern().get();
-        VectorUniquePtr<VariableExpr> bindings;
-        for (auto &binding : pattern->bindings())
-          bindings.push_back(std::make_unique<VariableExpr>(
-              binding->location(), binding->name()));
-        auto clonedPattern = std::make_unique<DataPattern>(
-            pattern->location(), pattern->constructorName(),
-            std::move(bindings));
         arms.push_back(std::make_unique<MatchArm>(
-            arm->location(), std::move(clonedPattern),
+            arm->location(), cloneDataPattern(arm->pattern().get()),
             substituteBlockExpr(arm->bodyBlock().get(), substitutions)));
       }
       statements.push_back(std::make_unique<MatchStat>(
@@ -667,6 +703,24 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<LambdaExpr>(
         expr->location(), std::move(parameters),
         substituteExpr(expr->body().get(), substitutions));
+  }
+  case Expr::Expr_Match: {
+    auto *expr = cast<MatchExpr>(node);
+    VectorUniquePtr<MatchExprArm> arms;
+    for (auto &arm : expr->arms())
+      arms.push_back(std::make_unique<MatchExprArm>(
+          arm->location(), cloneDataPattern(arm->pattern().get()),
+          substituteBlockExpr(arm->bodyBlock().get(), substitutions),
+          substituteExpr(arm->resultExpr().get(), substitutions)));
+    return std::make_unique<MatchExpr>(
+        expr->location(),
+        substituteExpr(expr->value().get(), substitutions), std::move(arms));
+  }
+  case Expr::Expr_Try: {
+    auto *expr = cast<TryExpr>(node);
+    return std::make_unique<TryExpr>(
+        expr->location(),
+        substituteExpr(expr->value().get(), substitutions));
   }
   case Expr::Expr_DecimalLiteral: {
     auto *expr = cast<DecimalLiteralExpr>(node);
@@ -941,6 +995,9 @@ private:
   auto sema(LambdaExpr *node) -> MulberryResult;
   auto sema(LambdaExpr *node, const FunctionType *functionType)
       -> MulberryResult;
+  auto sema(MatchExpr *node, const Type *expectedType = nullptr)
+      -> MulberryResult;
+  auto sema(TryExpr *node) -> MulberryResult;
   auto semaLambda(LambdaExpr *node,
                   const std::vector<const Type *> &parameterTypes,
                   const std::vector<bool> &parameterCanMutateObject,
@@ -1023,6 +1080,16 @@ private:
   auto sema(ExprStat *node) -> MulberryResult;
   auto sema(IfStat *node) -> MulberryResult;
   auto sema(MatchStat *node) -> MulberryResult;
+  auto checkMatchPattern(DataPattern *pattern, const DataType *dataType,
+                         std::vector<bool> &covered,
+                         const DataConstructor *&constructor)
+      -> MulberryResult;
+  auto declareMatchPatternBindings(DataPattern *pattern,
+                                   const DataConstructor *constructor)
+      -> MulberryResult;
+  auto checkExhaustiveMatch(const Node *node,
+                            const std::vector<bool> &covered)
+      -> MulberryResult;
   auto sema(WhileStat *node) -> MulberryResult;
   auto sema(ForStat *node) -> MulberryResult;
   auto sema(BreakStat *node) -> MulberryResult;
@@ -1289,6 +1356,20 @@ private:
 
   private:
     int &_whileDepth;
+  };
+
+  class IsolatedWhileScope {
+  public:
+    explicit IsolatedWhileScope(int &whileDepth)
+        : _whileDepth(whileDepth), _oldWhileDepth(whileDepth) {
+      _whileDepth = 0;
+    }
+
+    ~IsolatedWhileScope() { _whileDepth = _oldWhileDepth; }
+
+  private:
+    int &_whileDepth;
+    int _oldWhileDepth;
   };
 
   class NoncapturingLambdaScope {
@@ -1994,7 +2075,7 @@ private:
         auto concreteTypeNode =
             substituteTypeNode(payloadTypeNode.get(), substitutions);
         auto *payloadType =
-            checkType(concreteTypeNode.get(), UnitPolicy::Reject);
+            checkType(concreteTypeNode.get(), UnitPolicy::Allow);
         if (!payloadType)
           return failure();
         payloadTypes.push_back(payloadType);
@@ -2677,6 +2758,10 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<UnitExpr>(node));
   case Expr::Expr_Lambda:
     return sema(cast<LambdaExpr>(node));
+  case Expr::Expr_Match:
+    return sema(cast<MatchExpr>(node));
+  case Expr::Expr_Try:
+    return sema(cast<TryExpr>(node));
   case Expr::Expr_DataConstructor:
     return sema(cast<DataConstructorExpr>(node));
   case Expr::Expr_DecimalLiteral:
@@ -2721,6 +2806,9 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
+  if (auto *matchExpr = dyn_cast<MatchExpr>(node))
+    return sema(matchExpr, type);
+
   if (auto *constructor = dyn_cast<DataConstructorExpr>(node)) {
     auto *dataType = getDataType(type);
     if (!dataType)
@@ -2751,6 +2839,12 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
         return emitError(call, diag::mismatch_type);
       return semaIndirectCall(call, functionType, type);
     }
+
+    auto callName = call->name();
+    auto dot = callName.find('.');
+    if (dot != std::string_view::npos &&
+        lookupVariable(callName.substr(0, dot)))
+      return semaDottedMethodCall(call, type);
 
     auto name = canonicalizeImportedName(call->name());
     call->setName(name);
@@ -3048,6 +3142,89 @@ auto SemaImpl::sema(LambdaExpr *node) -> MulberryResult {
   return emitError(node, diag::lambda_expected_function_type);
 }
 
+auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
+    -> MulberryResult {
+  auto *value = node->value().get();
+  if (sema(value))
+    return failure();
+
+  auto *dataType = getDataType(value->type());
+  if (!dataType)
+    return emitError(value, diag::match_expected_data_type);
+
+  std::vector<bool> covered(dataType->constructors().size(), false);
+  auto *resultType = expectedType;
+  auto canMutateObject = true;
+  for (auto &arm : node->arms()) {
+    auto *pattern = arm->pattern().get();
+    const DataConstructor *constructor = nullptr;
+    if (checkMatchPattern(pattern, dataType, covered, constructor))
+      return failure();
+    if (containsReturnStat(arm->bodyBlock().get()))
+      return emitError(arm.get(), diag::match_expression_arm_return);
+
+    VariableScope patternScope(_symbols);
+    if (declareMatchPatternBindings(pattern, constructor))
+      return failure();
+
+    VariableScope bodyScope(_symbols);
+    IsolatedWhileScope isolatedWhileScope(_whileDepth);
+    for (auto &statement : arm->bodyBlock()->statements())
+      if (sema(statement.get()))
+        return failure();
+    arm->bodyBlock()->setType(
+        _typeContext.getBuiltinType(BuiltinTypeKind::Unit));
+
+    auto *armResult = arm->resultExpr().get();
+    if (resultType) {
+      if (sema(armResult, resultType))
+        return failure();
+    } else {
+      if (sema(armResult))
+        return failure();
+      resultType = armResult->type();
+    }
+    if (!resultType || !sameType(resultType, armResult->type()))
+      return emitError(armResult, diag::mismatch_type);
+    if (isSourceObjectType(resultType) &&
+        !canMutateObjectReference(armResult))
+      canMutateObject = false;
+  }
+
+  if (checkExhaustiveMatch(node, covered))
+    return failure();
+  if (!resultType)
+    return emitError(node, diag::mismatch_type);
+  node->setType(resultType);
+  node->setCanMutateObject(canMutateObject);
+  return success();
+}
+
+auto SemaImpl::sema(TryExpr *node) -> MulberryResult {
+  if (!_currentFunctionReturnType)
+    return emitError(node, diag::try_outside_result_function);
+
+  auto *value = node->value().get();
+  if (sema(value))
+    return failure();
+
+  auto operandTypes = getResultTypeArguments(value->type());
+  if (!operandTypes)
+    return emitError(value, diag::try_expected_result);
+
+  auto functionTypes = getResultTypeArguments(_currentFunctionReturnType);
+  if (!functionTypes)
+    return emitError(node, diag::try_outside_result_function);
+  if (!sameType(operandTypes->errorType, functionTypes->errorType))
+    return emitError(node, diag::try_error_type_mismatch);
+
+  node->setType(operandTypes->valueType);
+  node->setCanMutateObject(canMutateObjectReference(value));
+  LLVM_DEBUG(llvm::dbgs() << "propagate `" << formatType(value->type())
+                          << "` error from `?`\n");
+  return success();
+}
+
 auto SemaImpl::sema(LambdaExpr *node, const FunctionType *functionType)
     -> MulberryResult {
   auto packageName = _currentPackageName;
@@ -3079,7 +3256,9 @@ auto SemaImpl::semaLambda(
   }
 
   auto *body = node->body().get();
-  if (sema(body))
+  FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
+                                          expectedReturnType);
+  if (expectedReturnType ? sema(body, expectedReturnType) : sema(body))
     return failure();
   auto *returnType = body->type();
   if (!returnType)
@@ -3156,6 +3335,12 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
       return emitError(node, diag::mismatch_type);
     return semaIndirectCall(node, functionType);
   }
+
+  auto callName = node->name();
+  auto dot = callName.find('.');
+  if (dot != std::string_view::npos &&
+      lookupVariable(callName.substr(0, dot)))
+    return semaDottedMethodCall(node);
 
   node->setName(canonicalizeImportedName(node->name()));
   if (node->name().rfind("std.internal.", 0) == 0 &&
@@ -3982,6 +4167,12 @@ auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
 }
 
 auto SemaImpl::canMutateObjectReference(const Expr *expr) -> bool {
+  if (auto *matchExpr = llvm::dyn_cast<MatchExpr>(expr))
+    return matchExpr->canMutateObject();
+
+  if (auto *tryExpr = llvm::dyn_cast<TryExpr>(expr))
+    return tryExpr->canMutateObject();
+
   if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
     return canMutateObjectReference(index->base().get());
 
@@ -3998,6 +4189,18 @@ auto SemaImpl::canMutateObjectReference(const Expr *expr) -> bool {
 
 auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
     -> MulberryResult {
+  if (auto *matchExpr = llvm::dyn_cast<MatchExpr>(expr)) {
+    if (!matchExpr->canMutateObject())
+      return emitError(matchExpr, diag::readonly_to_mutable_reference);
+    return success();
+  }
+
+  if (auto *tryExpr = llvm::dyn_cast<TryExpr>(expr)) {
+    if (!tryExpr->canMutateObject())
+      return emitError(expr, diag::readonly_to_mutable_reference);
+    return success();
+  }
+
   if (auto *index = llvm::dyn_cast<IndexExpr>(expr))
     return checkConstObjectUseAsMutable(index->base().get());
 
@@ -4287,6 +4490,59 @@ auto SemaImpl::sema(IfStat *node) -> MulberryResult {
   return success();
 }
 
+auto SemaImpl::checkMatchPattern(
+    DataPattern *pattern, const DataType *dataType,
+    std::vector<bool> &covered, const DataConstructor *&constructor)
+    -> MulberryResult {
+  auto &constructors = dataType->constructors();
+  std::string resolvedName;
+  auto *symbol = lookupDataConstructor(pattern->constructorName(),
+                                       resolvedName);
+  if (!symbol)
+    return emitError(pattern, diag::undefined_data_constructor);
+  if (symbol->decl->name() != dataType->declarationName() ||
+      symbol->index >= constructors.size())
+    return emitError(pattern, diag::match_constructor_type);
+  if (covered[symbol->index])
+    return emitError(pattern, diag::duplicate_match_constructor);
+
+  constructor = &constructors[symbol->index];
+  if (pattern->bindings().size() != constructor->payloadTypes().size())
+    return emitError(pattern, diag::match_binding_count);
+
+  pattern->setConstructorName(resolvedName);
+  pattern->setConstructorIndex(symbol->index);
+  covered[symbol->index] = true;
+  for (size_t i = 0; i < pattern->bindings().size(); ++i)
+    pattern->bindings()[i]->setType(constructor->payloadTypes()[i]);
+  LLVM_DEBUG(llvm::dbgs() << "bind match pattern `" << resolvedName
+                          << "` as " << formatType(dataType) << " tag "
+                          << symbol->index << "\n");
+  return success();
+}
+
+auto SemaImpl::declareMatchPatternBindings(
+    DataPattern *pattern, const DataConstructor *constructor)
+    -> MulberryResult {
+  for (size_t i = 0; i < pattern->bindings().size(); ++i) {
+    auto *binding = pattern->bindings()[i].get();
+    auto *payloadType = constructor->payloadTypes()[i];
+    if (declareVariable(binding->name(), payloadType,
+                        /*isConstBinding=*/true,
+                        /*canMutateObject=*/false))
+      return emitError(binding, diag::redefinition_var);
+  }
+  return success();
+}
+
+auto SemaImpl::checkExhaustiveMatch(
+    const Node *node, const std::vector<bool> &covered) -> MulberryResult {
+  for (auto isCovered : covered)
+    if (!isCovered)
+      return emitError(node, diag::non_exhaustive_match);
+  return success();
+}
+
 auto SemaImpl::sema(MatchStat *node) -> MulberryResult {
   auto *value = node->value().get();
   if (sema(value))
@@ -4296,50 +4552,20 @@ auto SemaImpl::sema(MatchStat *node) -> MulberryResult {
   if (!dataType)
     return emitError(value, diag::match_expected_data_type);
 
-  auto &constructors = dataType->constructors();
-  std::vector<bool> covered(constructors.size(), false);
+  std::vector<bool> covered(dataType->constructors().size(), false);
   for (auto &arm : node->arms()) {
     auto *pattern = arm->pattern().get();
-    std::string resolvedName;
-    auto *symbol = lookupDataConstructor(pattern->constructorName(),
-                                         resolvedName);
-    if (!symbol)
-      return emitError(pattern, diag::undefined_data_constructor);
-    if (symbol->decl->name() != dataType->declarationName() ||
-        symbol->index >= constructors.size())
-      return emitError(pattern, diag::match_constructor_type);
-    if (covered[symbol->index])
-      return emitError(pattern, diag::duplicate_match_constructor);
-
-    auto &constructor = constructors[symbol->index];
-    if (pattern->bindings().size() != constructor.payloadTypes().size())
-      return emitError(pattern, diag::match_binding_count);
-
-    pattern->setConstructorName(resolvedName);
-    pattern->setConstructorIndex(symbol->index);
-    covered[symbol->index] = true;
-    LLVM_DEBUG(llvm::dbgs() << "bind match pattern `" << resolvedName
-                            << "` as " << formatType(dataType) << " tag "
-                            << symbol->index << "\n");
+    const DataConstructor *constructor = nullptr;
+    if (checkMatchPattern(pattern, dataType, covered, constructor))
+      return failure();
 
     VariableScope armScope(_symbols);
-    for (size_t i = 0; i < pattern->bindings().size(); ++i) {
-      auto *binding = pattern->bindings()[i].get();
-      auto *payloadType = constructor.payloadTypes()[i];
-      binding->setType(payloadType);
-      if (declareVariable(binding->name(), payloadType,
-                          /*isConstBinding=*/true,
-                          /*canMutateObject=*/false))
-        return emitError(binding, diag::redefinition_var);
-    }
-    if (sema(arm->bodyBlock().get()))
+    if (declareMatchPatternBindings(pattern, constructor) ||
+        sema(arm->bodyBlock().get()))
       return failure();
   }
 
-  for (auto isCovered : covered)
-    if (!isCovered)
-      return emitError(node, diag::non_exhaustive_match);
-  return success();
+  return checkExhaustiveMatch(node, covered);
 }
 
 auto SemaImpl::sema(WhileStat *node) -> MulberryResult {
