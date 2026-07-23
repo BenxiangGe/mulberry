@@ -1,5 +1,6 @@
 set(MULBERRY_RUNTIME_SOURCES
         BoehmGC.cpp
+        BigInt.cpp
         Core.cpp
         File.cpp
         Print.cpp

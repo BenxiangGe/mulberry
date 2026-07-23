@@ -34,6 +34,8 @@ public:
     return _resultExpr;
   }
 
+  auto resultExpr() -> std::unique_ptr<Expr> & { return _resultExpr; }
+
 private:
   std::unique_ptr<DataPattern> _pattern;
   std::unique_ptr<BlockExpr> _bodyBlock;

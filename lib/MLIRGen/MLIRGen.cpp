@@ -10,6 +10,7 @@
 #include "mulberry/Basic/MulberryResult.h"
 #include "mulberry/Basic/Logging.h"
 #include "mulberry/Basic/ScopeStack.h"
+#include "mulberry/BigInt/BigIntOps.h"
 #include "mulberry/MLIRGen/IR/MulberryOps.h"
 #include "mulberry/MLIRGen/IR/MulberryTypes.h"
 #include "mulberry/MLIRGen/TypeConverter.h"
@@ -34,6 +35,7 @@
 
 namespace {
 namespace arith = mlir::arith;
+namespace bigint = mlir::bigint;
 namespace func = mlir::func;
 namespace mulberry_core = mlir::mulberry_core;
 namespace scf = mlir::scf;
@@ -243,7 +245,8 @@ private:
   auto gen(const StructLiteralExpr *node) -> mlir::Value;
   auto gen(const VariableExpr *node) -> mlir::Value;
   auto gen(const MemberExpr *node) -> mlir::Value;
-  auto gen(const DecimalLiteralExpr *node) -> mlir::Value;
+  auto gen(const IntegerLiteralExpr *node) -> mlir::Value;
+  auto gen(const IntegerWidenExpr *node) -> mlir::Value;
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
@@ -760,8 +763,11 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
   case Expr::Expr_Try:
     result = gen(cast<TryExpr>(node));
     break;
-  case Expr::Expr_DecimalLiteral:
-    result = gen(cast<DecimalLiteralExpr>(node));
+  case Expr::Expr_IntegerLiteral:
+    result = gen(cast<IntegerLiteralExpr>(node));
+    break;
+  case Expr::Expr_IntegerWiden:
+    result = gen(cast<IntegerWidenExpr>(node));
     break;
   case Expr::Expr_FloatLiteral:
     result = gen(cast<FloatLiteralExpr>(node));
@@ -1379,11 +1385,33 @@ auto MLIRGenImpl::gen(const MemberExpr *node) -> mlir::Value {
   return loadSourceValueFromStorage(fieldPtr, node->type(), loc(node));
 }
 
-auto MLIRGenImpl::gen(const DecimalLiteralExpr *node) -> mlir::Value {
+auto MLIRGenImpl::gen(const IntegerLiteralExpr *node) -> mlir::Value {
+  if (mulberry::isIntegerType(node->type())) {
+    auto type = getSourceMLIRType(node);
+    DBG("generate bigint literal `{0}`", node->spelling());
+    return bigint::ConstantOp::create(_builder, loc(node), type,
+                                      std::string(node->spelling()));
+  }
+
+  auto value = node->getUInt64Value();
+  assert(value && "Sema must validate UInt64 integer literals");
   mlir::Type type = getSourceMLIRType(node);
   auto intType = llvm::cast<mlir::IntegerType>(type);
-  return arith::ConstantIntOp::create(_builder, loc(node), node->value(),
+  return arith::ConstantIntOp::create(_builder, loc(node), *value,
                                       intType.getWidth());
+}
+
+auto MLIRGenImpl::gen(const IntegerWidenExpr *node) -> mlir::Value {
+  auto value = gen(node->value().get());
+  if (value.getType().isInteger(8))
+    value = arith::ExtUIOp::create(_builder, loc(node), _builder.getI64Type(),
+                                   value);
+  if (!value.getType().isInteger(64))
+    llvm_unreachable("Integer widening source must be an 8- or 64-bit integer");
+
+  DBG("generate UInt widening to bigint Integer");
+  return bigint::FromUInt64Op::create(_builder, loc(node),
+                                      getSourceMLIRType(node), value);
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
@@ -1614,6 +1642,66 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
         .getResult(0);
   }
 
+  if (mulberry::isIntegerType(node->lhs()->type())) {
+    DBG("generate Integer binary operation `{0}`", std::string(node->op()));
+    auto lhs = gen(node->lhs().get());
+    auto rhs = gen(node->rhs().get());
+    auto type = getSourceMLIRType(node);
+    switch (op) {
+    case Operator::Add:
+      return bigint::AddOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::Diff:
+      return bigint::SubOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::Mul:
+      return bigint::MulOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::BitAnd:
+      return bigint::AndOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::BitOr:
+      return bigint::OrOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::BitXor:
+      return bigint::XorOp::create(_builder, loc(node), type, lhs, rhs);
+    case Operator::ShiftLeft:
+      return bigint::ShiftLeftOp::create(_builder, loc(node), type, lhs,
+                                          rhs);
+    case Operator::ShiftRight:
+      return bigint::ShiftRightOp::create(_builder, loc(node), type, lhs,
+                                           rhs);
+    case Operator::EQ:
+    case Operator::NEQ:
+    case Operator::LT:
+    case Operator::LE:
+    case Operator::GT:
+    case Operator::GE: {
+      std::string_view predicate;
+      switch (op) {
+      case Operator::EQ:
+        predicate = "eq";
+        break;
+      case Operator::NEQ:
+        predicate = "ne";
+        break;
+      case Operator::LT:
+        predicate = "lt";
+        break;
+      case Operator::LE:
+        predicate = "le";
+        break;
+      case Operator::GT:
+        predicate = "gt";
+        break;
+      case Operator::GE:
+        predicate = "ge";
+        break;
+      default:
+        llvm_unreachable("not a BigInt comparison");
+      }
+      return bigint::CmpOp::create(_builder, loc(node), predicate, lhs, rhs);
+    }
+    default:
+      llvm_unreachable("unsupported Integer binary operation");
+    }
+  }
+
   auto lhs =
       castToType(gen(node->lhs().get()),
                  getSourceMLIRType(node->lhs().get()), loc(node->lhs().get()));
@@ -1666,6 +1754,12 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
     return arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Rem:
     return arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
+  case Operator::ShiftLeft:
+  case Operator::ShiftRight:
+  case Operator::BitAnd:
+  case Operator::BitOr:
+  case Operator::BitXor:
+    llvm_unreachable("Integer-only bit operation reached scalar lowering");
   case Operator::And:
     return arith::AndIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Or:
@@ -2262,9 +2356,12 @@ auto MLIRGenImpl::genValueForStorage(const Expr *expr, const Type *type,
 }
 
 auto MLIRGenImpl::genIndexValue(const Expr *node) -> mlir::Value {
-  if (auto *decimal = llvm::dyn_cast<DecimalLiteralExpr>(node))
+  if (auto *integerLiteral = llvm::dyn_cast<IntegerLiteralExpr>(node)) {
+    auto value = integerLiteral->getUInt64Value();
+    assert(value && "Sema must validate UInt64 integer literals");
     return arith::ConstantIndexOp::create(_builder, loc(node),
-                                          decimal->value());
+                                          *value);
+  }
 
   auto value = gen(node);
   if (value.getType().isIndex())

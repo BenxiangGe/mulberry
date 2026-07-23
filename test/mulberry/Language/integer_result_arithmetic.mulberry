@@ -1,0 +1,115 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import bigint;
+import io;
+
+fn errorCode(error: bigint.ArithmeticError): UInt64 {
+  return match error {
+    bigint.DivisionByZero() => 1,
+    bigint.ModuloByZero() => 2,
+    bigint.NonPositiveModulus() => 3,
+    bigint.NegativeExponent() => 5,
+    bigint.NotInvertible() => 4,
+    bigint.ConversionOutOfRange() => 6,
+  };
+}
+
+fn unwrap(result: Result<UInt64, bigint.ArithmeticError>): UInt64 {
+  return match result {
+    Ok(value) => value,
+    Err(error) => errorCode(error),
+  };
+}
+
+fn arithmetic(): Result<UInt64, bigint.ArithmeticError> {
+  const number: Integer = 18446744073709551616;
+  var evolving = number;
+  evolving = evolving + 1;
+  const quotient = bigint.div(number, 3)?;
+  const remainder = bigint.mod(number, 3)?;
+  const residue = bigint.mod(0 - 3, 5)?;
+  const inverse = bigint.modInverse(17, 3120)?;
+  const encrypted = bigint.modPow(65, 17, 3233)?;
+  const plain = bigint.modPow(encrypted, 2753, 3233)?;
+  const narrowed = bigint.toUInt64(42)?;
+  const byte = bigint.toUInt8(255)?;
+
+  if evolving == number + 1 and quotient * 3 + remainder == number and
+      residue == 2 and
+      inverse == 2753 and plain == 65 and narrowed == 42 and
+      byte == core.toUInt8(255) {
+    return Ok(1);
+  }
+  return Ok(0);
+}
+
+fn divisionByZero(): Result<UInt64, bigint.ArithmeticError> {
+  bigint.div(1, 0)?;
+  return Ok(0);
+}
+
+fn moduloByZero(): Result<UInt64, bigint.ArithmeticError> {
+  bigint.mod(1, 0)?;
+  return Ok(0);
+}
+
+fn negativeModulus(): Result<UInt64, bigint.ArithmeticError> {
+  bigint.mod(1, 0 - 5)?;
+  return Ok(0);
+}
+
+fn notInvertible(): Result<UInt64, bigint.ArithmeticError> {
+  bigint.modInverse(6, 15)?;
+  return Ok(0);
+}
+
+fn negativeExponent(): Result<UInt64, bigint.ArithmeticError> {
+  bigint.modPow(2, 0 - 1, 5)?;
+  return Ok(0);
+}
+
+fn conversionOutOfRange(): Result<UInt64, bigint.ArithmeticError> {
+  const tooWide: Integer = 18446744073709551616;
+  return bigint.toUInt64(tooWide);
+}
+
+fn main(): UInt64 {
+  io.println(unwrap(arithmetic()));
+  io.println(unwrap(divisionByZero()));
+  io.println(unwrap(moduloByZero()));
+  io.println(unwrap(negativeModulus()));
+  io.println(unwrap(notInvertible()));
+  io.println(unwrap(negativeExponent()));
+  io.println(unwrap(conversionOutOfRange()));
+  return 0;
+}
+
+# MLIR-DAG: func.func private @mulberry_bigint_div(!bigint.int, !bigint.int) -> !bigint.int
+# MLIR-DAG: func.func private @mulberry_bigint_rem(!bigint.int, !bigint.int) -> !bigint.int
+# MLIR-DAG: func.func private @mulberry_bigint_to_uint64(!bigint.int) -> i64
+# MLIR-LABEL: func.func @std.bigint.div
+# MLIR: call @mulberry_bigint_div
+# MLIR-LABEL: func.func @std.bigint.mod
+# MLIR: call @mulberry_bigint_rem
+# MLIR-LABEL: func.func @std.bigint.modInverse
+# MLIR: mulberry_core.result.try
+# MLIR-LABEL: func.func @std.bigint.modPow
+# MLIR: bigint.and
+# MLIR: bigint.shift_right
+
+# LOWERED-DAG: func.func private @mulberry_bigint_div(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: func.func private @mulberry_bigint_rem(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: func.func private @mulberry_bigint_to_uint64(!llvm.ptr) -> i64
+# LOWERED-LABEL: func.func @std.bigint.modPow
+# LOWERED-NOT: mulberry_core.result.try
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 2
+# JIT-NEXT: 3
+# JIT-NEXT: 4
+# JIT-NEXT: 5
+# JIT-NEXT: 6

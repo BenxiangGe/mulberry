@@ -83,6 +83,8 @@ public:
 
   auto init() const -> const std::unique_ptr<Expr> & { return _init; }
 
+  auto init() -> std::unique_ptr<Expr> & { return _init; }
+
   auto isConstBinding() const -> bool { return _isConstBinding; }
 
   auto canMutateObject() const -> bool { return _canMutateObject; }
@@ -345,6 +347,8 @@ public:
   auto expression() const -> const std::unique_ptr<Expr> & {
     return _expression;
   }
+
+  auto expression() -> std::unique_ptr<Expr> & { return _expression; }
 
   auto hasExpression() const -> bool { return static_cast<bool>(_expression); }
 

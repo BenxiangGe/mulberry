@@ -13,6 +13,14 @@ uppercase-identifier      -> (`A` ... `Z`) identifier-character*
 unit-literal              -> `(` `)`
 boolean-literal           -> `true` | `false`
 integer-literal           -> decimal-digit+
+integer-literal           -> hexadecimal-integer-literal
+hexadecimal-integer-literal
+                          -> `0x` hexadecimal-digit+
+hexadecimal-integer-literal
+                          -> `0x` hexadecimal-first-group
+                             (`_` hexadecimal-group)+
+hexadecimal-first-group   -> 1 ... 4 hexadecimal digits
+hexadecimal-group         -> exactly 4 hexadecimal digits
 float-literal             -> decimal-digit+ `.` decimal-digit+
 string-literal            -> `"` string-segment* `"`
 string-segment            -> string-character
@@ -26,6 +34,11 @@ interpolation-index-list  -> interpolation-index (`,` interpolation-index)* `,`?
 interpolation-index       -> integer-literal | interpolation-access
 char-literal              -> `'` ... `'`
 ```
+
+十进制 integer literal 第一版不接受 `_` separator。十六进制可以写成不带 separator 的
+`0x...`，也可以按四个 hexadecimal digit 分组；一旦出现 `_`，最左 group 必须为 1--4 位，
+后续每个 group 必须恰好为 4 位，例如 `0x1_2345`、`0x1234_5678` 和
+`0x1234_5678_0123`。
 
 只有未转义的 `{$` 开始插值。插值是受限 access grammar，不接受 binary expression、
 function call 或 method call。普通 `{` / `}` 是文本；`\{`、`\}` 和 `\\` 分别表示
@@ -225,6 +238,17 @@ array-type-suffix         -> `[` integer-literal `]`
 
 `T[N]` 是固定长度 `Array<T, N>` 的 source sugar。多维或动态 ranked tensor spelling
 已删除；需要 numeric buffer 时使用 `Tensor<T>`。
+
+`Integer` 是预声明的 signed arbitrary-precision builtin type。它支持 type position、reflection、
+contextual integer literal typing、`UInt8`/`UInt64` 到 `Integer` 的单向提升，以及 `+`、`-`、`*`、
+`&`、`|`、`^`、`<<`、`>>` 和 comparison。shift 的左 operand 是 `Integer`，右 operand 是
+`UInt64`；负 `Integer` 的 bitwise 与 right shift 采用 infinite two's-complement semantics。
+semantic MLIR 使用 `!bigint.int` 表示 `Integer`；lowering 将其接到 GC-managed BigInt runtime，
+而不把 fixed-width integer、limb 或 pointer spelling 暴露给 source。`Integer` 不提供 `/` 或 `%`
+operator；fallible division、canonical modulo、modular inverse、modular exponentiation 和 checked
+narrowing 使用 `std.bigint` 的 named `Result` API。`Integer` 有 concrete `Show` implementation：
+`print(value)` 和 `bigint.toString(value)` 输出 canonical signed decimal；需要 crypto-friendly
+lowercase `0x` text 时使用显式 `bigint.toHex(value)`。详见 [BigInt](BigInt.md)。
 
 `computed-type-expression` 必须在 Sema 得到 comptime Type。例如 generic function
 实例化后，局部声明或函数签名可以从 Array type 计算 Tensor 的 element type：

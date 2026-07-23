@@ -23,6 +23,11 @@ public:
     Diff,
     Div,
     Rem,
+    ShiftLeft,
+    ShiftRight,
+    BitAnd,
+    BitOr,
+    BitXor,
     And,
     Or,
     LT,
@@ -44,6 +49,8 @@ public:
 
   auto lhs() const -> const std::unique_ptr<Expr> & { return _lhs; }
 
+  auto lhs() -> std::unique_ptr<Expr> & { return _lhs; }
+
   auto rhs() const -> const std::unique_ptr<Expr> & { return _rhs; }
 
   auto rhs() -> std::unique_ptr<Expr> & { return _rhs; }
@@ -60,6 +67,16 @@ public:
       return "/";
     case Operator::Rem:
       return "%";
+    case Operator::ShiftLeft:
+      return "<<";
+    case Operator::ShiftRight:
+      return ">>";
+    case Operator::BitAnd:
+      return "&";
+    case Operator::BitOr:
+      return "|";
+    case Operator::BitXor:
+      return "^";
     case Operator::And:
       return "and";
     case Operator::Or:

@@ -243,7 +243,20 @@ auto methodFunctionName(std::string_view ownerName,
 auto isSourceObjectType(const Type *type) -> bool {
   if (auto *ptrType = getPtrType(type))
     type = ptrType->pointeeType();
-  return getStructType(type) || getDataType(type) || getArrayType(type);
+  return isIntegerType(type) || getStructType(type) || getDataType(type) ||
+         getArrayType(type);
+}
+
+auto isMutableSourceObjectType(const Type *type) -> bool {
+  if (auto *ptrType = getPtrType(type))
+    type = ptrType->pointeeType();
+  return !isIntegerType(type) && isSourceObjectType(type);
+}
+
+auto isIntegerWidening(const Type *sourceType, const Type *targetType)
+    -> bool {
+  return isIntegerType(targetType) &&
+         (isUInt8Type(sourceType) || isUInt64Type(sourceType));
 }
 
 auto unqualifiedTypeName(std::string_view name) -> std::string_view {
@@ -728,10 +741,15 @@ auto substituteExpr(const Expr *node,
         expr->location(),
         substituteExpr(expr->value().get(), substitutions));
   }
-  case Expr::Expr_DecimalLiteral: {
-    auto *expr = cast<DecimalLiteralExpr>(node);
-    return std::make_unique<DecimalLiteralExpr>(expr->location(),
-                                                expr->value());
+  case Expr::Expr_IntegerLiteral: {
+    auto *expr = cast<IntegerLiteralExpr>(node);
+    return std::make_unique<IntegerLiteralExpr>(
+        expr->location(), std::string(expr->spelling()));
+  }
+  case Expr::Expr_IntegerWiden: {
+    auto *expr = cast<IntegerWidenExpr>(node);
+    return std::make_unique<IntegerWidenExpr>(
+        expr->location(), substituteExpr(expr->value().get(), substitutions));
   }
   case Expr::Expr_FloatLiteral: {
     auto *expr = cast<FloatLiteralExpr>(node);
@@ -798,8 +816,8 @@ auto substituteExpr(const Expr *node,
       if (expr->name() != substitution.parameterName)
         continue;
       if (substitution.uint64Value)
-        return std::make_unique<DecimalLiteralExpr>(
-            expr->location(), *substitution.uint64Value);
+        return std::make_unique<IntegerLiteralExpr>(
+            expr->location(), std::to_string(*substitution.uint64Value));
     }
     return std::make_unique<VariableExpr>(expr->location(), expr->name());
   }
@@ -1056,6 +1074,8 @@ private:
   // Expressions
   auto sema(Expr *node) -> MulberryResult;
   auto sema(Expr *node, const Type *type) -> MulberryResult;
+  auto semaExpected(std::unique_ptr<Expr> &node, const Type *type)
+      -> MulberryResult;
   auto sema(UnitExpr *node) -> MulberryResult;
   auto sema(BlockExpr *node) -> MulberryResult;
   auto sema(LambdaExpr *node) -> MulberryResult;
@@ -1079,7 +1099,9 @@ private:
   auto sema(VariableExpr *node) -> MulberryResult;
   auto sema(MemberExpr *node) -> MulberryResult;
   auto sema(AssignExpr *node) -> MulberryResult;
-  auto sema(DecimalLiteralExpr *node) -> MulberryResult;
+  auto sema(IntegerLiteralExpr *node) -> MulberryResult;
+  auto sema(IntegerLiteralExpr *node, const Type *type) -> MulberryResult;
+  auto sema(IntegerWidenExpr *node) -> MulberryResult;
   auto sema(FloatLiteralExpr *node) -> MulberryResult;
   auto sema(BoolLiteralExpr *node) -> MulberryResult;
   auto sema(StringLiteralExpr *node) -> MulberryResult;
@@ -1094,6 +1116,7 @@ private:
   auto sema(TypeLayoutExpr *node) -> MulberryResult;
   auto sema(HeapAllocExpr *node) -> MulberryResult;
   auto sema(BinaryExpr *node) -> MulberryResult;
+  auto sema(BinaryExpr *node, const Type *expectedType) -> MulberryResult;
   auto checkStringConcatFunction(Expr *node, const Type *stringType)
       -> MulberryResult;
   auto semaFormatValueCall(std::unique_ptr<Expr> &expression,
@@ -1112,7 +1135,7 @@ private:
   auto semaTensorStorageAllocCall(CallExpr *node, const Type *expectedType)
       -> MulberryResult;
   auto sema(IndexExpr *expr) -> MulberryResult;
-  auto semaArrayLiteralElement(Expr *expr, const Type *type)
+  auto semaArrayLiteralElement(std::unique_ptr<Expr> &expr, const Type *type)
       -> MulberryResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
                        const Type *expectedType = nullptr) -> MulberryResult;
@@ -1204,6 +1227,7 @@ private:
     declareBuiltinType(BuiltinTypeKind::Bool);
     declareBuiltinType(BuiltinTypeKind::UInt8);
     declareBuiltinType(BuiltinTypeKind::UInt64);
+    declareBuiltinType(BuiltinTypeKind::Integer);
     declareBuiltinType(BuiltinTypeKind::Float32);
   }
 
@@ -3322,8 +3346,10 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<TryExpr>(node));
   case Expr::Expr_DataConstructor:
     return sema(cast<DataConstructorExpr>(node));
-  case Expr::Expr_DecimalLiteral:
-    return sema(cast<DecimalLiteralExpr>(node));
+  case Expr::Expr_IntegerLiteral:
+    return sema(cast<IntegerLiteralExpr>(node));
+  case Expr::Expr_IntegerWiden:
+    return sema(cast<IntegerWidenExpr>(node));
   case Expr::Expr_FloatLiteral:
     return sema(cast<FloatLiteralExpr>(node));
   case Expr::Expr_BoolLiteral:
@@ -3366,6 +3392,12 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
 auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   if (auto *matchExpr = dyn_cast<MatchExpr>(node))
     return sema(matchExpr, type);
+
+  if (auto *integerLiteral = dyn_cast<IntegerLiteralExpr>(node))
+    return sema(integerLiteral, type);
+
+  if (auto *binary = dyn_cast<BinaryExpr>(node))
+    return sema(binary, type);
 
   if (auto *constructor = dyn_cast<DataConstructorExpr>(node)) {
     auto *dataType = getDataType(type);
@@ -3427,6 +3459,25 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
   return sema(node);
 }
 
+auto SemaImpl::semaExpected(std::unique_ptr<Expr> &node, const Type *type)
+    -> MulberryResult {
+  if (sema(node.get(), type))
+    return failure();
+
+  if (sameType(node->type(), type))
+    return success();
+
+  if (!isIntegerWidening(node->type(), type))
+    return emitError(node.get(), diag::mismatch_type);
+
+  auto value = std::move(node);
+  node = std::make_unique<IntegerWidenExpr>(value->location(),
+                                             std::move(value));
+  node->setType(type);
+  LLVM_DEBUG(llvm::dbgs() << "widen fixed-width integer to Integer\n");
+  return success();
+}
+
 auto SemaImpl::sema(DataConstructorExpr *node) -> MulberryResult {
   std::string resolvedName;
   auto *symbol = lookupDataConstructor(node->name(), resolvedName);
@@ -3460,10 +3511,8 @@ auto SemaImpl::sema(DataConstructorExpr *node,
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto *payloadType = constructor.payloadTypes()[i];
-    if (sema(expressions[i].get(), payloadType))
+    if (semaExpected(expressions[i], payloadType))
       return failure();
-    if (!sameType(expressions[i]->type(), payloadType))
-      return emitError(expressions[i].get(), diag::mismatch_type);
   }
 
   node->setName(resolvedName);
@@ -3513,9 +3562,10 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     }
   }
 
-  auto semaArgument = [&](Expr *argument, const TypeNode *parameterTypeNode)
+  auto semaArgument = [&](std::unique_ptr<Expr> &argument,
+                          const TypeNode *parameterTypeNode)
       -> MulberryResult {
-    auto *literal = dyn_cast<ArrayLiteralExpr>(argument);
+    auto *literal = dyn_cast<ArrayLiteralExpr>(argument.get());
     auto *namedType = dyn_cast<NamedTypeNode>(parameterTypeNode);
     auto parameterIndex = namedType
                               ? comptimeParameterIndex(
@@ -3538,14 +3588,14 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     for (auto &inferredArgument : inferredArguments)
       knownArguments = knownArguments && inferredArgument.isResolved();
     if (!knownArguments)
-      return sema(argument);
+      return sema(argument.get());
 
     auto *parameterType = resolveSubstitutedType(
         parameterTypeNode,
         comptimeSubstitutions(comptimeParameters, inferredArguments));
     if (!parameterType)
       return failure();
-    return sema(argument, parameterType);
+    return semaExpected(argument, parameterType);
   };
 
   // Sibling arguments often determine a lambda's generic parameter types.
@@ -3571,7 +3621,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
       continue;
     }
 
-    if (semaArgument(expressions[i].get(), parameterTypeNode))
+    if (semaArgument(expressions[i], parameterTypeNode))
       return failure();
     auto matched =
         node->isLoweredMethodCall() && i == 0
@@ -3638,7 +3688,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (node->isLoweredMethodCall() && index == 0) {
       if (sema(argument.get()))
         return failure();
-    } else if (sema(argument.get(), parameterType)) {
+    } else if (semaExpected(argument, parameterType)) {
       return failure();
     }
   }
@@ -3736,19 +3786,19 @@ auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
     arm->bodyBlock()->setType(
         _typeContext.getBuiltinType(BuiltinTypeKind::Unit));
 
-    auto *armResult = arm->resultExpr().get();
+    auto &armResult = arm->resultExpr();
     if (resultType) {
-      if (sema(armResult, resultType))
+      if (semaExpected(armResult, resultType))
         return failure();
     } else {
-      if (sema(armResult))
+      if (sema(armResult.get()))
         return failure();
       resultType = armResult->type();
     }
     if (!resultType || !sameType(resultType, armResult->type()))
-      return emitError(armResult, diag::mismatch_type);
-    if (isSourceObjectType(resultType) &&
-        !canMutateObjectReference(armResult))
+      return emitError(armResult.get(), diag::mismatch_type);
+    if (isMutableSourceObjectType(resultType) &&
+        !canMutateObjectReference(armResult.get()))
       canMutateObject = false;
   }
 
@@ -3816,16 +3866,17 @@ auto SemaImpl::semaLambda(
       return emitError(parameter.location, diag::redefinition_var);
   }
 
-  auto *body = node->body().get();
+  auto &body = node->body();
   FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
                                           expectedReturnType);
-  if (expectedReturnType ? sema(body, expectedReturnType) : sema(body))
+  if (expectedReturnType ? semaExpected(body, expectedReturnType)
+                         : sema(body.get()))
     return failure();
   auto *returnType = body->type();
   if (!returnType)
-    return emitError(body, diag::mismatch_type);
+    return emitError(body.get(), diag::mismatch_type);
   if (expectedReturnType && !sameReturnType(expectedReturnType, returnType))
-    return emitError(body, diag::wrong_return_type);
+    return emitError(body.get(), diag::wrong_return_type);
 
   auto *functionType = _typeContext.createFunctionType(
       std::vector<const Type *>(parameterTypes.begin(), parameterTypes.end()),
@@ -3941,7 +3992,7 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     if (node->isLoweredMethodCall() && i == 0) {
       if (sema(arg.get()))
         return failure();
-    } else if (sema(arg.get(), parameterType)) {
+    } else if (semaExpected(arg, parameterType)) {
       return failure();
     }
     if (!sameCallArgumentType(parameterType, arg->type(),
@@ -3972,10 +4023,8 @@ auto SemaImpl::semaIndirectCall(CallExpr *node,
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &argument = expressions[i];
-    if (sema(argument.get(), parameterTypes[i]))
+    if (semaExpected(argument, parameterTypes[i]))
       return failure();
-    if (!sameType(parameterTypes[i], argument->type()))
-      return emitError(argument.get(), diag::mismatch_type);
     if (checkMutableObjectArgument(functionType, i, argument.get()))
       return failure();
   }
@@ -4079,10 +4128,8 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &expr = expressions[i];
     auto &field = fields[i];
-    if (sema(expr.get(), field.type()))
+    if (semaExpected(expr, field.type()))
       return failure();
-    if (!sameType(field.type(), expr->type()))
-      return emitError(expr.get(), diag::mismatch_type);
   }
 
   node->setType(structType);
@@ -4152,8 +4199,56 @@ auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(DecimalLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(IntegerLiteralExpr *node) -> MulberryResult {
+  if (!node->hasValidSpelling())
+    return emitError(node, diag::invalid_integer_literal);
+  if (!node->getUInt64Value())
+    return emitError(node, diag::integer_literal_overflows);
   setBuiltinType(node, BuiltinTypeKind::UInt64);
+  LLVM_DEBUG(llvm::dbgs() << "type integer literal `" << node->spelling()
+                          << "` as UInt64\n");
+  return success();
+}
+
+auto SemaImpl::sema(IntegerLiteralExpr *node, const Type *type)
+    -> MulberryResult {
+  if (!node->hasValidSpelling())
+    return emitError(node, diag::invalid_integer_literal);
+
+  if (isIntegerType(type)) {
+    node->setType(type);
+    LLVM_DEBUG(llvm::dbgs() << "type integer literal `" << node->spelling()
+                            << "` as Integer\n");
+    return success();
+  }
+
+  auto value = node->getUInt64Value();
+  if (!value)
+    return emitError(node, diag::integer_literal_overflows);
+
+  if (isUInt8Type(type)) {
+    if (*value > 255)
+      return emitError(node, diag::mismatch_type);
+    node->setType(type);
+    return success();
+  }
+
+  if (isUInt64Type(type)) {
+    node->setType(type);
+    return success();
+  }
+
+  return sema(node);
+}
+
+auto SemaImpl::sema(IntegerWidenExpr *node) -> MulberryResult {
+  if (sema(node->value().get()))
+    return failure();
+  if (!isIntegerWidening(
+          node->value()->type(),
+          _typeContext.getBuiltinType(BuiltinTypeKind::Integer)))
+    return emitError(node, diag::mismatch_type);
+  setBuiltinType(node, BuiltinTypeKind::Integer);
   return success();
 }
 
@@ -4273,10 +4368,8 @@ auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
 
 auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
   if (sema(node->lhs().get()) ||
-      sema(node->rhs().get(), node->lhs()->type()))
+      semaExpected(node->rhs(), node->lhs()->type()))
     return failure();
-  if (!sameType(node->lhs()->type(), node->rhs()->type()))
-    return emitError(node->lhs().get(), diag::mismatch_type);
   if (!node->lhs()->isLvalue())
     return emitError(node->lhs().get(), diag::expected_lvalue);
   if (checkAssignable(node->lhs().get()))
@@ -4286,54 +4379,117 @@ auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
-  using Operator = BinaryExpr::Operator;
-  if (sema(node->lhs().get()) || sema(node->rhs().get()))
-    return failure();
+  return sema(node, nullptr);
+}
 
-  auto *lhsType = node->lhs()->type();
-  auto *rhsType = node->rhs()->type();
-  auto *stringType = lookupType("String");
-  if (node->opEnum() == Operator::Add && stringType &&
-      sameType(lhsType, stringType)) {
-    if (semaFormatValueCall(node->rhs(), stringType))
+auto SemaImpl::sema(BinaryExpr *node, const Type *expectedType)
+    -> MulberryResult {
+  using Operator = BinaryExpr::Operator;
+  auto &lhs = node->lhs();
+  auto &rhs = node->rhs();
+
+  if (node->opEnum() == Operator::ShiftLeft ||
+      node->opEnum() == Operator::ShiftRight) {
+    if (expectedType && isIntegerType(expectedType)) {
+      if (semaExpected(lhs, expectedType))
+        return failure();
+    } else if (sema(lhs.get())) {
       return failure();
-    if (checkStringConcatFunction(node, stringType))
+    }
+
+    auto *countType = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+    if (semaExpected(rhs, countType))
       return failure();
-    node->setType(stringType);
+    if (!isIntegerType(lhs->type()) || !isUInt64Type(rhs->type()))
+      return emitError(lhs.get(), diag::mismatch_type);
+    if (expectedType && !sameType(lhs->type(), expectedType))
+      return emitError(lhs.get(), diag::mismatch_type);
+
+    node->setType(lhs->type());
     return success();
   }
 
+  if (expectedType && isIntegerType(expectedType)) {
+    if (semaExpected(lhs, expectedType) || semaExpected(rhs, expectedType))
+      return failure();
+  } else {
+    if (sema(lhs.get()))
+      return failure();
+
+    auto *stringType = lookupType("String");
+    if (node->opEnum() == Operator::Add && stringType &&
+        sameType(lhs->type(), stringType)) {
+      if (sema(rhs.get()))
+        return failure();
+      if (semaFormatValueCall(rhs, stringType))
+        return failure();
+      if (checkStringConcatFunction(node, stringType))
+        return failure();
+      node->setType(stringType);
+      return success();
+    }
+
+    if (isIntegerType(lhs->type())) {
+      if (semaExpected(rhs, lhs->type()))
+        return failure();
+    } else {
+      if (sema(rhs.get()))
+        return failure();
+      if (isIntegerType(rhs->type()) && semaExpected(lhs, rhs->type()))
+        return failure();
+    }
+  }
+
+  auto *lhsType = lhs->type();
+  auto *rhsType = rhs->type();
   if (!sameType(lhsType, rhsType))
-    return emitError(node->lhs().get(), diag::mismatch_type);
+    return emitError(lhs.get(), diag::mismatch_type);
 
   switch (node->opEnum()) {
+  case Operator::ShiftLeft:
+  case Operator::ShiftRight:
+    llvm_unreachable("shift operations are handled before type comparison");
   case Operator::Add:
   case Operator::Mul:
-  case Operator::Diff:
-  case Operator::Div: {
+  case Operator::Diff: {
     if (!isNumericType(lhsType))
-      return emitError(node->lhs().get(), diag::mismatch_type);
-    if (lhsType)
-      node->setType(lhsType);
+      return emitError(lhs.get(), diag::mismatch_type);
+    node->setType(lhsType);
+    return success();
+  }
+  case Operator::Div: {
+    // Integer division is fallible and will be exposed as bigint.div(), not
+    // as the fixed-width `/` operator.
+    if (isIntegerType(lhsType) || !isNumericType(lhsType))
+      return emitError(lhs.get(), diag::mismatch_type);
+    node->setType(lhsType);
     return success();
   }
   case Operator::Rem: {
     if (!isUInt64Type(lhsType))
-      return emitError(node->lhs().get(), diag::mismatch_type);
+      return emitError(lhs.get(), diag::mismatch_type);
     setBuiltinType(node, BuiltinTypeKind::UInt64);
+    return success();
+  }
+  case Operator::BitAnd:
+  case Operator::BitOr:
+  case Operator::BitXor: {
+    if (!isIntegerType(lhsType))
+      return emitError(lhs.get(), diag::mismatch_type);
+    node->setType(lhsType);
     return success();
   }
   case Operator::And:
   case Operator::Or: {
     if (!isBoolType(lhsType))
-      return emitError(node->lhs().get(), diag::mismatch_type);
+      return emitError(lhs.get(), diag::mismatch_type);
     setBuiltinType(node, BuiltinTypeKind::Bool);
     return success();
   }
   case Operator::EQ:
   case Operator::NEQ: {
     if (!isEquatableType(lhsType))
-      return emitError(node->lhs().get(), diag::mismatch_type);
+      return emitError(lhs.get(), diag::mismatch_type);
     setBuiltinType(node, BuiltinTypeKind::Bool);
     return success();
   }
@@ -4342,7 +4498,7 @@ auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
   case Operator::GT:
   case Operator::GE: {
     if (!isNumericType(lhsType))
-      return emitError(node->lhs().get(), diag::mismatch_type);
+      return emitError(lhs.get(), diag::mismatch_type);
     setBuiltinType(node, BuiltinTypeKind::Bool);
     return success();
   }
@@ -4401,10 +4557,21 @@ auto SemaImpl::evaluateComptime(Expr *node) -> ComptimeEvaluation {
             ComptimeValue(value->value())};
   }
 
-  if (auto *value = dyn_cast<DecimalLiteralExpr>(node)) {
+  if (auto *value = dyn_cast<IntegerLiteralExpr>(node)) {
+    if (!value->hasValidSpelling()) {
+      emitError(value, diag::invalid_integer_literal);
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    }
+    if (isIntegerType(value->type()))
+      return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+    auto uint64Value = value->getUInt64Value();
+    if (!uint64Value) {
+      emitError(value, diag::integer_literal_overflows);
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+    }
     setBuiltinType(value, BuiltinTypeKind::UInt64);
     return {ComptimeEvaluation::Kind::Value,
-            ComptimeValue(value->value())};
+            ComptimeValue(*uint64Value)};
   }
 
   if (auto *value = dyn_cast<StringLiteralExpr>(node))
@@ -4500,8 +4667,8 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
   };
 
   if (name == "isBool" || name == "isUInt8" || name == "isUInt64" ||
-      name == "isFloat32" || name == "isArray" || name == "isStruct" ||
-      name == "isObject") {
+      name == "isInteger" || name == "isFloat32" || name == "isArray" ||
+      name == "isStruct" || name == "isObject") {
     if (!requireNoArguments())
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     if (name == "isBool")
@@ -4513,6 +4680,9 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
     if (name == "isUInt64")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isUInt64Type(type)), true};
+    if (name == "isInteger")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isIntegerType(type)), true};
     if (name == "isFloat32")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isFloat32Type(type)), true};
@@ -4649,6 +4819,12 @@ auto SemaImpl::evaluateComptimeBinary(BinaryExpr *node)
       return {EvaluationKind::Value, ComptimeValue(left % right),
               isComptimeOnly};
     break;
+  case Operator::ShiftLeft:
+  case Operator::ShiftRight:
+  case Operator::BitAnd:
+  case Operator::BitOr:
+  case Operator::BitXor:
+    return cannotEvaluate();
   case Operator::LT:
     return {EvaluationKind::Value, ComptimeValue(left < right),
             isComptimeOnly};
@@ -4773,7 +4949,7 @@ auto SemaImpl::checkMutableObjectArgument(const FunctionType *functionType,
     -> MulberryResult {
   if (!functionType->parameterCanMutateObject()[index])
     return success();
-  if (!isSourceObjectType(functionType->parameterTypes()[index]))
+  if (!isMutableSourceObjectType(functionType->parameterTypes()[index]))
     return success();
   return checkConstObjectUseAsMutable(arg);
 }
@@ -4879,7 +5055,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
     return emitError(expr, diag::mismatch_type);
 
   for (auto &element : elements) {
-    if (semaArrayLiteralElement(element.get(), type->elementType()))
+    if (semaArrayLiteralElement(element, type->elementType()))
       return failure();
   }
 
@@ -4887,37 +5063,20 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
   return success();
 }
 
-auto SemaImpl::semaArrayLiteralElement(Expr *expr, const Type *type)
+auto SemaImpl::semaArrayLiteralElement(std::unique_ptr<Expr> &expr,
+                                       const Type *type)
     -> MulberryResult {
-  if (auto *arrayLiteral = llvm::dyn_cast<ArrayLiteralExpr>(expr)) {
+  if (auto *arrayLiteral = llvm::dyn_cast<ArrayLiteralExpr>(expr.get())) {
     auto *arrayType = mulberry::getArrayType(type);
     if (!arrayType)
-      return emitError(expr, diag::mismatch_type);
+      return emitError(expr.get(), diag::mismatch_type);
     return sema(arrayLiteral, arrayType);
   }
 
   if (mulberry::getArrayType(type))
-    return emitError(expr, diag::mismatch_type);
+    return emitError(expr.get(), diag::mismatch_type);
 
-  if (auto *decimal = dyn_cast<DecimalLiteralExpr>(expr)) {
-    if (isUInt8Type(type)) {
-      if (decimal->value() > 255)
-        return emitError(expr, diag::mismatch_type);
-      expr->setType(type);
-      return success();
-    }
-
-    if (isUInt64Type(type)) {
-      expr->setType(type);
-      return success();
-    }
-  }
-
-  if (sema(expr, type))
-    return failure();
-  if (!sameType(type, expr->type()))
-    return emitError(expr, diag::mismatch_type);
-  return success();
+  return semaExpected(expr, type);
 }
 
 auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
@@ -5192,11 +5351,25 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
 
 auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   auto var = node->variable().get();
-  auto initExpr = node->init().get();
+  auto &initExpr = node->init();
+
+  const Type *declaredType = nullptr;
+  if (node->hasExplicitType()) {
+    declaredType = checkType(node->typeNode(), UnitPolicy::Allow);
+    if (!declaredType)
+      return failure();
+  }
 
   std::optional<ComptimeValue> comptimeValue;
+  auto initializerWasTyped = false;
+  if (node->isConstBinding() && declaredType && isIntegerType(declaredType)) {
+    if (semaExpected(initExpr, declaredType))
+      return failure();
+    initializerWasTyped = true;
+  }
+
   if (node->isConstBinding()) {
-    auto evaluation = evaluateComptime(initExpr);
+    auto evaluation = evaluateComptime(initExpr.get());
     if (evaluation.kind == ComptimeEvaluation::Kind::Error)
       return failure();
     if (evaluation.kind == ComptimeEvaluation::Kind::Value)
@@ -5209,11 +5382,8 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
         evaluation.isComptimeOnly) {
       auto *valueType = comptimeRuntimeType(*evaluation.value);
       if (node->hasExplicitType()) {
-        auto *declaredType = checkType(node->typeNode(), UnitPolicy::Allow);
-        if (!declaredType)
-          return failure();
         if (!valueType || !sameType(declaredType, valueType))
-          return emitError(initExpr, diag::mismatch_type);
+          return emitError(initExpr.get(), diag::mismatch_type);
         valueType = declaredType;
       }
 
@@ -5229,25 +5399,23 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   }
 
   const Type *varType = nullptr;
-  if (node->hasExplicitType()) {
-    varType = checkType(node->typeNode(), UnitPolicy::Allow);
-    if (!varType || sema(initExpr, varType))
+  if (declaredType) {
+    varType = declaredType;
+    if (!initializerWasTyped && semaExpected(initExpr, varType))
       return failure();
-    if (!sameType(varType, initExpr->type()))
-      return emitError(initExpr, diag::mismatch_type);
   } else {
-    if (sema(initExpr))
+    if (sema(initExpr.get()))
       return failure();
     varType = initExpr->type();
     if (!varType)
-      return emitError(initExpr, diag::mismatch_type);
+      return emitError(initExpr.get(), diag::mismatch_type);
   }
   node->setType(varType);
 
   auto canMutateObject = node->canMutateObject();
-  if (canMutateObject && isSourceObjectType(varType) &&
-      !canMutateObjectReference(initExpr))
-    return emitError(initExpr, diag::readonly_to_mutable_binding);
+  if (canMutateObject && isMutableSourceObjectType(varType) &&
+      !canMutateObjectReference(initExpr.get()))
+    return emitError(initExpr.get(), diag::readonly_to_mutable_binding);
   if (declareVariable(var->name(), varType, node->isConstBinding(),
                       canMutateObject, std::move(comptimeValue)))
     return emitError(var, diag::redefinition_var);
@@ -5268,11 +5436,17 @@ auto SemaImpl::sema(ReturnStat *node) -> MulberryResult {
     return success();
   }
 
-  auto expression = node->expression().get();
-  if (sema(expression, _currentFunctionReturnType))
+  auto &expression = node->expression();
+  if (getPtrType(_currentFunctionReturnType)) {
+    // The internal Ptr<T> -> Ptr<U> cast is valid only at a declared return
+    // boundary. Keep ordinary expected-value contexts type-safe.
+    if (sema(expression.get()))
+      return failure();
+  } else if (semaExpected(expression, _currentFunctionReturnType)) {
     return failure();
+  }
   if (!sameReturnType(_currentFunctionReturnType, expression->type()))
-    return emitError(expression, diag::wrong_return_type);
+    return emitError(expression.get(), diag::wrong_return_type);
   return success();
 }
 

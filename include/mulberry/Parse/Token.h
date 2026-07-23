@@ -8,6 +8,7 @@
 #ifndef MULBERRY_TOKEN_H
 #define MULBERRY_TOKEN_H
 
+#include "mulberry/Basic/IntegerLiteral.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
@@ -51,7 +52,12 @@ public:
   auto getKind() const -> Kind { return _kind; }
   auto is(Kind K) const -> bool { return _kind == K; }
 
-  auto getUInt64IntegerValue() const -> std::optional<uint64_t>;
+  auto hasValidIntegerLiteralSpelling() const -> bool {
+    return isValidIntegerLiteralSpelling(
+        std::string_view(_spelling.data(), _spelling.size()));
+  }
+
+  auto getUInt64IntegerLiteralValue() const -> std::optional<uint64_t>;
   auto getFloat32Value() const -> std::optional<llvm::APFloat>;
   auto getStringLiteralSegments() const
       -> std::optional<std::vector<StringLiteralSegment>>;

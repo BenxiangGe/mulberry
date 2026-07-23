@@ -129,15 +129,18 @@ private:
   }
 
   auto parseIndexValue(std::unique_ptr<Expr> &expr) -> MulberryResult {
-    if (!_token.is(Token::decimal))
+    if (!_token.is(Token::integer_literal))
       return parseAccess(expr);
 
     auto location = _token.getLoc();
-    auto value = _token.getUInt64IntegerValue();
+    if (!_token.hasValidIntegerLiteralSpelling())
+      return emitError(diag::invalid_integer_literal);
+    auto value = _token.getUInt64IntegerLiteralValue();
     if (!value)
       return emitError(diag::integer_literal_overflows);
-    consume(Token::decimal);
-    expr = make_unique<DecimalLiteralExpr>(location, *value);
+    auto spelling = _token.getSpelling().str();
+    consume(Token::integer_literal);
+    expr = make_unique<IntegerLiteralExpr>(location, std::move(spelling));
     return success();
   }
 };
@@ -300,14 +303,16 @@ auto Parser::parseFunctionType(unique_ptr<TypeNode> &typeNode)
 auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
     -> MulberryResult {
   consume(Token::less);
-  if (tokenIs(Token::greater))
+  if (isGenericClosingToken())
     return emitError(diag::expected_type);
 
-  while (!tokenIs(Token::greater) && !tokenIs(Token::eof)) {
-    if (tokenIs(Token::decimal)) {
+  while (!isGenericClosingToken() && !tokenIs(Token::eof)) {
+    if (tokenIs(Token::integer_literal)) {
       auto location = tokenLoc();
-      if (auto value = token().getUInt64IntegerValue()) {
-        consume(Token::decimal);
+      if (!token().hasValidIntegerLiteralSpelling()) {
+        return emitError(diag::invalid_integer_literal);
+      } else if (auto value = token().getUInt64IntegerLiteralValue()) {
+        consume(Token::integer_literal);
         arguments.push_back(ComptimeArg(location, *value));
       } else {
         return emitError(diag::integer_literal_overflows);
@@ -319,13 +324,31 @@ auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
       arguments.push_back(ComptimeArg(std::move(argumentTypeNode)));
     }
 
-    if (tokenIs(Token::greater))
+    if (isGenericClosingToken())
       break;
 
     if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
       return failure();
   }
-  return parseToken(Token::greater, diag::expected_greater);
+  return parseGenericClose();
+}
+
+auto Parser::isGenericClosingToken() -> bool {
+  return tokenIs(Token::greater) || tokenIs(Token::shift_right);
+}
+
+auto Parser::parseGenericClose() -> MulberryResult {
+  if (consumeIf(Token::greater))
+    return success();
+  if (!tokenIs(Token::shift_right))
+    return emitError(diag::expected_greater);
+
+  // The lexer must recognize `>>` as a shift operator. In a nested generic
+  // type, however, its two characters close two independent argument lists.
+  // Leave the second `>` as the current token for the enclosing type parser.
+  auto remaining = spelling().drop_front();
+  token() = Token(Token::greater, remaining);
+  return success();
 }
 
 auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
@@ -370,8 +393,7 @@ auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
     return failure();
 
   unique_ptr<TypeNode> pointeeTypeNode;
-  if (parseType(pointeeTypeNode) ||
-      parseToken(Token::greater, diag::expected_greater))
+  if (parseType(pointeeTypeNode) || parseGenericClose())
     return failure();
 
   typeNode = make_unique<PtrTypeNode>(std::move(pointeeTypeNode), location);
@@ -864,11 +886,15 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
 auto Parser::parseArrayTypeSuffix(std::vector<int64_t> &shape)
     -> MulberryResult {
   consume(Token::l_square);
-  auto number = token().getUInt64IntegerValue();
-  if (!number)
+  if (!tokenIs(Token::integer_literal))
     return emitError(diag::expected_expr);
+  if (!token().hasValidIntegerLiteralSpelling())
+    return emitError(diag::invalid_integer_literal);
+  auto number = token().getUInt64IntegerLiteralValue();
+  if (!number)
+    return emitError(diag::integer_literal_overflows);
   shape.push_back(*number);
-  consume(Token::decimal);
+  consume(Token::integer_literal);
   return parseToken(Token::r_square, diag::expected_r_square);
 }
 
@@ -949,8 +975,8 @@ auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
 
 auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
   switch (tokenKind()) {
-  case Token::decimal:
-    return parseDecimal(expr);
+  case Token::integer_literal:
+    return parseIntegerLiteral(expr);
   case Token::float_literal:
     return parseFloat(expr);
   case Token::string_literal:
@@ -1250,14 +1276,12 @@ auto Parser::parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseDecimal(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseIntegerLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
   auto loc = tokenLoc();
-  if (auto value = token().getUInt64IntegerValue()) {
-    consume(Token::decimal);
-    expr = make_unique<DecimalLiteralExpr>(loc, std::move(*value));
-    return success();
-  }
-  return emitError(diag::integer_literal_overflows);
+  auto spelling = token().getSpelling().str();
+  consume(Token::integer_literal);
+  expr = make_unique<IntegerLiteralExpr>(loc, std::move(spelling));
+  return success();
 }
 
 auto Parser::parseFloat(unique_ptr<Expr> &expr) -> MulberryResult {
@@ -1416,8 +1440,7 @@ auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
 
   consume(Token::less);
   unique_ptr<TypeNode> typeNode;
-  if (parseType(typeNode) ||
-      parseToken(Token::greater, diag::expected_greater) ||
+  if (parseType(typeNode) || parseGenericClose() ||
       parseToken(Token::l_paren, diag::expected_l_paren))
     return failure();
 
@@ -1569,6 +1592,12 @@ auto Parser::getTokenPrecedence() -> int {
     return 200;
   case Token::kw_and:
     return 300;
+  case Token::pipe:
+    return 350;
+  case Token::caret:
+    return 360;
+  case Token::amp:
+    return 370;
   case Token::kw_eq:
   case Token::kw_neq:
   case Token::eq:
@@ -1583,6 +1612,9 @@ auto Parser::getTokenPrecedence() -> int {
   case Token::greater:
   case Token::greater_equal:
     return 500;
+  case Token::shift_left:
+  case Token::shift_right:
+    return 550;
   case Token::add:
   case Token::diff:
     return 600;
@@ -1620,6 +1652,16 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
     return BinaryExpr::Operator::Div;
   case Token::rem:
     return BinaryExpr::Operator::Rem;
+  case Token::shift_left:
+    return BinaryExpr::Operator::ShiftLeft;
+  case Token::shift_right:
+    return BinaryExpr::Operator::ShiftRight;
+  case Token::amp:
+    return BinaryExpr::Operator::BitAnd;
+  case Token::pipe:
+    return BinaryExpr::Operator::BitOr;
+  case Token::caret:
+    return BinaryExpr::Operator::BitXor;
   case Token::kw_and:
     return BinaryExpr::Operator::And;
   case Token::kw_or:

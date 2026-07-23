@@ -12,6 +12,7 @@ extern fn mulberry_string_from_bool(value: Bool): String;
 extern fn mulberry_string_from_u8(value: UInt8): String;
 extern fn mulberry_string_from_u64(value: UInt64): String;
 extern fn mulberry_string_from_f32(value: Float32): String;
+extern fn mulberry_bigint_to_string(value: Integer): String;
 extern fn mulberry_string_object_identity(typeName: String,
                                           object: Ptr<UInt8>): String;
 
@@ -29,6 +30,10 @@ fn fromUInt64(value: UInt64): String {
 
 fn fromFloat32(value: Float32): String {
   return mulberry_string_from_f32(value);
+}
+
+fn fromInteger(value: Integer): String {
+  return mulberry_bigint_to_string(value);
 }
 
 trait Show {
@@ -62,6 +67,12 @@ impl Show for UInt64 {
 impl Show for Float32 {
   fn toString(self: Float32): String {
     return fromFloat32(self);
+  }
+}
+
+impl Show for Integer {
+  fn toString(self: Integer): String {
+    return fromInteger(self);
   }
 }
 

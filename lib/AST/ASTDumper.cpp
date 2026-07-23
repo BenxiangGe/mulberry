@@ -77,7 +77,8 @@ private:
   auto dump(const VariableExpr *node) -> void;
   auto dump(const MemberExpr *node) -> void;
   auto dump(const AssignExpr *node) -> void;
-  auto dump(const DecimalLiteralExpr *node) -> void;
+  auto dump(const IntegerLiteralExpr *node) -> void;
+  auto dump(const IntegerWidenExpr *node) -> void;
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
@@ -436,7 +437,8 @@ auto Dumper::dump(const ComptimeTypeAliasDecl *node) -> void {
 auto Dumper::dump(const Expr *node) -> void {
   llvm::TypeSwitch<const Expr *>(node)
       .Case<UnitExpr, CallExpr, DataConstructorExpr, StructLiteralExpr,
-            MatchExpr, TryExpr, DecimalLiteralExpr, FloatLiteralExpr,
+            MatchExpr, TryExpr, IntegerLiteralExpr, FloatLiteralExpr,
+            IntegerWidenExpr,
             BoolLiteralExpr, StringLiteralExpr, InterpolatedStringExpr,
             ObjectIdentityExpr, CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr,
             LambdaExpr, HeapAllocExpr, ArrayLiteralExpr, IndexExpr,
@@ -562,11 +564,18 @@ auto Dumper::dump(const AssignExpr *node) -> void {
   dump(node->rhs().get());
 }
 
-auto Dumper::dump(const DecimalLiteralExpr *node) -> void {
+auto Dumper::dump(const IntegerLiteralExpr *node) -> void {
   INDENT();
-  errs() << "DecimalExpr " << loc(node)
+  errs() << "IntegerLiteralExpr " << loc(node)
          << " type=" << formatType(node->type())
-         << " value=" << node->value() << "\n";
+         << " spelling=" << node->spelling() << "\n";
+}
+
+auto Dumper::dump(const IntegerWidenExpr *node) -> void {
+  INDENT();
+  errs() << "IntegerWidenExpr " << loc(node)
+         << " type=" << formatType(node->type()) << "\n";
+  dump(node->value().get());
 }
 
 auto Dumper::dump(const FloatLiteralExpr *node) -> void {

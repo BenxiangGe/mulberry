@@ -1,0 +1,57 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver -dump=llvm %s 2>&1 | FileCheck %s --check-prefix=LLVM
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+
+fn main(): UInt64 {
+  const small: UInt64 = 42;
+  const base: Integer = 18446744073709551616;
+  const widened: Integer = small;
+  const sum = base + widened;
+  const difference = sum - widened;
+  const product = difference * widened;
+
+  io.println(core.boolToUInt64(sum == 18446744073709551658));
+  io.println(core.boolToUInt64(sum != base));
+  io.println(core.boolToUInt64(base < sum));
+  io.println(core.boolToUInt64(base <= difference));
+  io.println(core.boolToUInt64(sum > base));
+  io.println(core.boolToUInt64(product >= 774763251095801167872));
+  return 0;
+}
+
+# MLIR: bigint.constant "18446744073709551616" : !bigint.int
+# MLIR: bigint.from_uint64 {{.*}} : i64 -> !bigint.int
+# MLIR: bigint.add {{.*}} : !bigint.int -> !bigint.int
+# MLIR: bigint.sub {{.*}} : !bigint.int -> !bigint.int
+# MLIR: bigint.mul {{.*}} : !bigint.int -> !bigint.int
+# MLIR: bigint.cmp "eq", {{.*}} : !bigint.int, !bigint.int -> i1
+# MLIR: bigint.cmp "ne", {{.*}} : !bigint.int, !bigint.int -> i1
+# MLIR: bigint.cmp "lt", {{.*}} : !bigint.int, !bigint.int -> i1
+# MLIR: bigint.cmp "le", {{.*}} : !bigint.int, !bigint.int -> i1
+# MLIR: bigint.cmp "gt", {{.*}} : !bigint.int, !bigint.int -> i1
+# MLIR: bigint.cmp "ge", {{.*}} : !bigint.int, !bigint.int -> i1
+
+# LOWERED-DAG: llvm.func @mulberry_bigint_from_literal(!llvm.ptr, i64) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_from_uint64(i64) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_add(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_sub(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_mul(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_compare(!llvm.ptr, !llvm.ptr) -> i32
+
+# LLVM-DAG: declare ptr @mulberry_bigint_from_literal(ptr, i64)
+# LLVM-DAG: declare ptr @mulberry_bigint_from_uint64(i64)
+# LLVM-DAG: declare ptr @mulberry_bigint_add(ptr, ptr)
+# LLVM-DAG: declare ptr @mulberry_bigint_sub(ptr, ptr)
+# LLVM-DAG: declare ptr @mulberry_bigint_mul(ptr, ptr)
+# LLVM-DAG: declare i32 @mulberry_bigint_compare(ptr, ptr)
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1

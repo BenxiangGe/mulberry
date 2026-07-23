@@ -8,7 +8,7 @@ using namespace mulberry;
 namespace {
 
 TEST(LexerTest, firstTest) {
-  auto input = R"(fn ; , => == = { } ( ) | & 01 a0 a0a)";
+  auto input = R"(fn ; , => == = { } ( ) | & ^ << >> 01 0x1_2345 0x1234_5678_0123 a0 a0a)";
   auto inputBuffer = llvm::MemoryBuffer::getMemBuffer(input, "main.mulberry");
 
   llvm::SourceMgr sourceManager;
@@ -27,14 +27,33 @@ TEST(LexerTest, firstTest) {
   ASSERT_TRUE(lexer->lexToken().is(Token::l_paren));
   ASSERT_TRUE(lexer->lexToken().is(Token::r_paren));
   ASSERT_TRUE(lexer->lexToken().is(Token::pipe));
-  ASSERT_TRUE(lexer->lexToken().is(Token::error));
+  ASSERT_TRUE(lexer->lexToken().is(Token::amp));
+  ASSERT_TRUE(lexer->lexToken().is(Token::caret));
+  ASSERT_TRUE(lexer->lexToken().is(Token::shift_left));
+  ASSERT_TRUE(lexer->lexToken().is(Token::shift_right));
   {
     auto token = lexer->lexToken();
-    ASSERT_TRUE(token.is(Token::decimal));
+    ASSERT_TRUE(token.is(Token::integer_literal));
     ASSERT_EQ(token.getSpelling(), "01");
-    auto uint64 = token.getUInt64IntegerValue();
+    auto uint64 = token.getUInt64IntegerLiteralValue();
     ASSERT_TRUE(uint64.has_value());
     ASSERT_EQ(uint64.value(), 1);
+  }
+  {
+    auto token = lexer->lexToken();
+    ASSERT_TRUE(token.is(Token::integer_literal));
+    ASSERT_EQ(token.getSpelling(), "0x1_2345");
+    auto uint64 = token.getUInt64IntegerLiteralValue();
+    ASSERT_TRUE(uint64.has_value());
+    ASSERT_EQ(uint64.value(), 74565u);
+  }
+  {
+    auto token = lexer->lexToken();
+    ASSERT_TRUE(token.is(Token::integer_literal));
+    ASSERT_EQ(token.getSpelling(), "0x1234_5678_0123");
+    auto uint64 = token.getUInt64IntegerLiteralValue();
+    ASSERT_TRUE(uint64.has_value());
+    ASSERT_EQ(uint64.value(), 20015998304547u);
   }
   {
     auto token = lexer->lexToken();

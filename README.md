@@ -246,21 +246,6 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 当前 backprop helper 是 `nn.twoLayerGradient()`，只覆盖 Nielsen 784-30-10 这个
 2-layer FCN 正向路径需要的手写梯度，不是通用 autograd。
 
-## 文档
-
-当前保留的公开文档：
-
-- [Builtins](docs/Builtins.md)
-- [Grammar](docs/Grammar.md)
-- [数值类型设计](docs/NumericTypes.md)
-- [Comptime Reflection](docs/Reflection.md)
-- [Trait](docs/Traits.md)
-- [String、字符串插值与输出设计](docs/StringFormatting.md)
-- [Deep learning examples](examples/dl/README.md)
-- [Nielsen CNN 性能基线](docs/CnnPerformance.md)
-
-更多 IR/lowering 细节目前仍在快速变化中，暂时以源码和 lit tests 为准。
-
 ## 已知限制
 
 - 这是学习用编译器，不是生产编译器。

@@ -16,6 +16,7 @@
 #include "mulberry/AST/Expr.h"
 #include "mulberry/AST/HeapExpr.h"
 #include "mulberry/AST/Identifier.h"
+#include "mulberry/AST/IntegerWidenExpr.h"
 #include "mulberry/AST/LambdaExpr.h"
 #include "mulberry/AST/LiteralExpr.h"
 #include "mulberry/AST/Module.h"

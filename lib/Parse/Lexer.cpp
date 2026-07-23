@@ -16,6 +16,10 @@ auto isDigit(char c) -> bool {
   return std::isdigit(static_cast<unsigned char>(c));
 }
 
+auto isHexDigit(char c) -> bool {
+  return std::isxdigit(static_cast<unsigned char>(c));
+}
+
 auto isIdentifierStart(char c) -> bool {
   return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
 }
@@ -68,12 +72,20 @@ auto Lexer::lexToken() -> Token {
     case ')':
       return formToken(Token::r_paren, tokStart);
     case '<':
+      if (peek() == '<') {
+        ++_curPtr;
+        return formToken(Token::shift_left, tokStart);
+      }
       if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::less_equal, tokStart);
       }
       return formToken(Token::less, tokStart);
     case '>':
+      if (peek() == '>') {
+        ++_curPtr;
+        return formToken(Token::shift_right, tokStart);
+      }
       if (peek() == '=') {
         ++_curPtr;
         return formToken(Token::greater_equal, tokStart);
@@ -121,8 +133,12 @@ auto Lexer::lexToken() -> Token {
       return formToken(Token::div, tokStart);
     case '%':
       return formToken(Token::rem, tokStart);
+    case '&':
+      return formToken(Token::amp, tokStart);
     case '|':
       return formToken(Token::pipe, tokStart);
+    case '^':
+      return formToken(Token::caret, tokStart);
     case '"':
       return lexString(tokStart);
     case '\'':
@@ -168,7 +184,16 @@ auto Lexer::lexIdentifierOrKeyword(const char *tokStart) -> Token {
 }
 
 auto Lexer::lexNumber(const char *tokStart) -> Token {
-  while (isDigit(peek()))
+  if (tokStart[0] == '0' && peek() == 'x') {
+    ++_curPtr;
+    // Preserve separators in the raw token. A numeric consumer validates the
+    // four-hex-digit grouping before it uses the value.
+    while (isHexDigit(peek()) || peek() == '_')
+      ++_curPtr;
+    return formToken(Token::integer_literal, tokStart);
+  }
+
+  while (isDigit(peek()) || peek() == '_')
     ++_curPtr;
 
   bool isFloat = false;
@@ -190,7 +215,8 @@ auto Lexer::lexNumber(const char *tokStart) -> Token {
       ++_curPtr;
   }
 
-  return formToken(isFloat ? Token::float_literal : Token::decimal, tokStart);
+  return formToken(isFloat ? Token::float_literal : Token::integer_literal,
+                   tokStart);
 }
 
 auto Lexer::lexString(const char *tokStart) -> Token {

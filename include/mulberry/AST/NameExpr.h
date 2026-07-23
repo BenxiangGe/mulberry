@@ -106,6 +106,8 @@ public:
     return _expressions;
   }
 
+  auto expressions() -> VectorUniquePtr<Expr> & { return _expressions; }
+
   auto hasReceiver() const -> bool { return _receiver != nullptr; }
 
   auto receiver() const -> const std::unique_ptr<Expr> & {

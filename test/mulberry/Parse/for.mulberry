@@ -16,8 +16,8 @@ fn main(): UInt64 {
 
 # PARSE: ForStat
 # PARSE-SAME: variable=i
-# PARSE: DecimalExpr
-# PARSE-SAME: value=0
-# PARSE: DecimalExpr
-# PARSE-SAME: value=3
+# PARSE: IntegerLiteralExpr
+# PARSE-SAME: spelling=0
+# PARSE: IntegerLiteralExpr
+# PARSE-SAME: spelling=3
 # PARSE: bodyBlock:

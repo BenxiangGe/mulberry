@@ -1,0 +1,152 @@
+package std.bigint;
+
+import core;
+import result.Result;
+import result.Ok;
+import result.Err;
+import string;
+import string.String;
+
+data ArithmeticError =
+    DivisionByZero
+  | ModuloByZero
+  | NonPositiveModulus
+  | NegativeExponent
+  | NotInvertible
+  | ConversionOutOfRange;
+
+extern fn mulberry_bigint_div(left: Integer, right: Integer): Integer;
+extern fn mulberry_bigint_rem(left: Integer, right: Integer): Integer;
+extern fn mulberry_bigint_to_uint64(value: Integer): UInt64;
+extern fn mulberry_bigint_to_hex_string(value: Integer): String;
+
+fn div(left: Integer, right: Integer): Result<Integer, ArithmeticError> {
+  const zero: Integer = 0;
+  if right == zero {
+    return Err(DivisionByZero());
+  }
+  return Ok(mulberry_bigint_div(left, right));
+}
+
+fn mod(value: Integer, modulus: Integer): Result<Integer, ArithmeticError> {
+  const zero: Integer = 0;
+  if modulus == zero {
+    return Err(ModuloByZero());
+  }
+  if modulus < zero {
+    return Err(NonPositiveModulus());
+  }
+
+  const remainder = mulberry_bigint_rem(value, modulus);
+  if remainder < zero {
+    return Ok(remainder + modulus);
+  }
+  return Ok(remainder);
+}
+
+fn abs(value: Integer): Integer {
+  const zero: Integer = 0;
+  if value < zero {
+    return zero - value;
+  }
+  return value;
+}
+
+fn gcd(left: Integer, right: Integer): Integer {
+  const zero: Integer = 0;
+  var first = abs(left);
+  var second = abs(right);
+  while second != zero {
+    const remainder = mulberry_bigint_rem(first, second);
+    first = second;
+    second = remainder;
+  }
+  return first;
+}
+
+fn modInverse(value: Integer, modulus: Integer):
+    Result<Integer, ArithmeticError> {
+  const zero: Integer = 0;
+  const one: Integer = 1;
+  if modulus == zero {
+    return Err(ModuloByZero());
+  }
+  if modulus < zero {
+    return Err(NonPositiveModulus());
+  }
+
+  var oldRemainder = mod(value, modulus)?;
+  var remainder = modulus;
+  var oldCoefficient: Integer = 1;
+  var coefficient: Integer = 0;
+  while remainder != zero {
+    const quotient = mulberry_bigint_div(oldRemainder, remainder);
+    const nextRemainder = oldRemainder - quotient * remainder;
+    oldRemainder = remainder;
+    remainder = nextRemainder;
+
+    const nextCoefficient = oldCoefficient - quotient * coefficient;
+    oldCoefficient = coefficient;
+    coefficient = nextCoefficient;
+  }
+
+  if oldRemainder != one {
+    return Err(NotInvertible());
+  }
+  return mod(oldCoefficient, modulus);
+}
+
+fn modPow(base: Integer, exponent: Integer, modulus: Integer):
+    Result<Integer, ArithmeticError> {
+  const zero: Integer = 0;
+  const one: Integer = 1;
+  if exponent < zero {
+    return Err(NegativeExponent());
+  }
+  if modulus == zero {
+    return Err(ModuloByZero());
+  }
+  if modulus < zero {
+    return Err(NonPositiveModulus());
+  }
+
+  var result = mod(one, modulus)?;
+  var factor = mod(base, modulus)?;
+  var remaining = exponent;
+  while remaining > zero {
+    const lowBit = remaining & one;
+    if lowBit == one {
+      result = mod(result * factor, modulus)?;
+    }
+    remaining = remaining >> 1;
+    if remaining > zero {
+      factor = mod(factor * factor, modulus)?;
+    }
+  }
+  return Ok(result);
+}
+
+fn toUInt64(value: Integer): Result<UInt64, ArithmeticError> {
+  const zero: Integer = 0;
+  const max: Integer = 18446744073709551615;
+  if value < zero or value > max {
+    return Err(ConversionOutOfRange());
+  }
+  return Ok(mulberry_bigint_to_uint64(value));
+}
+
+fn toUInt8(value: Integer): Result<UInt8, ArithmeticError> {
+  const narrowed = toUInt64(value)?;
+  if narrowed > 255 {
+    return Err(ConversionOutOfRange());
+  }
+  return Ok(core.toUInt8(narrowed));
+}
+
+fn toString(value: Integer): String {
+  return string.fromInteger(value);
+}
+
+fn toHex(value: Integer): String {
+  return mulberry_bigint_to_hex_string(value);
+}

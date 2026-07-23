@@ -1,5 +1,6 @@
 #include "mulberry/MLIRGen/TypeConverter.h"
 
+#include "mulberry/BigInt/BigIntTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace mulberry {
@@ -24,6 +25,8 @@ auto MLIRTypeConverter::convertLayout(const BuiltinType& type) const
     return _builder.getI8Type();
   case BuiltinTypeKind::UInt64:
     return _builder.getI64Type();
+  case BuiltinTypeKind::Integer:
+    return mlir::bigint::IntType::get(_builder.getContext());
   case BuiltinTypeKind::Float32:
     return _builder.getF32Type();
   case BuiltinTypeKind::Bool:

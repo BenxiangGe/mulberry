@@ -1,0 +1,30 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s
+
+struct IntegerParts {
+  value: Integer,
+  words: Array<Integer, 2>
+}
+
+fn identity(value: Integer): Integer {
+  return value;
+}
+
+fn reflected(): UInt64 {
+  if typeInfo(Integer).isInteger() and typeInfo(Integer).isObject() {
+    return 1;
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  return reflected();
+}
+
+# CHECK: StructDecl {{.*}}IntegerParts
+# CHECK: Prototype {{.*}}name=identity
+# CHECK: IfStat {{.*}}comptime value=true
+# CHECK: CallExpr {{.*}}callee=isInteger
+# CHECK: TypeInfoExpr {{.*}}target=Integer
+# CHECK: CallExpr {{.*}}callee=isObject
+# CHECK: TypeInfoExpr {{.*}}target=Integer
