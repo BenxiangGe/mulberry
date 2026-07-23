@@ -33,11 +33,10 @@ auto decodeStringEscape(char value) -> std::optional<char> {
 }
 } // namespace
 
-auto Token::getUInt64IntegerValue() const -> std::optional<uint64_t> {
-  uint64_t result = 0;
-  if (_spelling.getAsInteger(10, result))
-    return std::nullopt;
-  return result;
+auto Token::getUInt64IntegerLiteralValue() const
+    -> std::optional<uint64_t> {
+  return parseUInt64IntegerLiteral(
+      std::string_view(_spelling.data(), _spelling.size()));
 }
 
 auto Token::getFloat32Value() const -> std::optional<llvm::APFloat> {

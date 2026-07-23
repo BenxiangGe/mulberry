@@ -39,6 +39,7 @@ def LowerMulberry : Pass<"lower-mulberry"> {
     lowering.
   }];
   let dependentDialects = ["arith::ArithDialect",
+                           "bigint::BigIntDialect",
                            "cf::ControlFlowDialect", "func::FuncDialect",
                            "LLVM::LLVMDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "memref::MemRefDialect",

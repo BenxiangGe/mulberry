@@ -1,0 +1,160 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import bigint;
+import io;
+import result.Err;
+import result.Ok;
+import result.Result;
+
+struct Point {
+  x: Integer,
+  y: Integer,
+  infinity: Bool
+}
+
+fn infinityPoint(): Point {
+  const zero: Integer = 0;
+  return Point { zero, zero, true };
+}
+
+fn doublePoint(point: Point, prime: Integer): Result<Point, bigint.ArithmeticError> {
+  const zero: Integer = 0;
+  if point.infinity {
+    return Ok(point);
+  }
+  if point.y == zero {
+    return Ok(infinityPoint());
+  }
+
+  const xSquared = point.x * point.x;
+  const numerator = xSquared * 3;
+  const denominator = point.y * 2;
+  const inverse = bigint.modInverse(denominator, prime)?;
+  const slope = bigint.mod(numerator * inverse, prime)?;
+  const xCoordinate = bigint.mod(slope * slope - point.x - point.x, prime)?;
+  const xDifference = point.x - xCoordinate;
+  const yCoordinate =
+      bigint.mod(slope * xDifference - point.y, prime)?;
+  return Ok(Point { xCoordinate, yCoordinate, false });
+}
+
+fn addPoints(left: Point, right: Point, prime: Integer):
+    Result<Point, bigint.ArithmeticError> {
+  if left.infinity {
+    return Ok(right);
+  }
+  if right.infinity {
+    return Ok(left);
+  }
+  if left.x == right.x {
+    if left.y == right.y {
+      return doublePoint(left, prime);
+    }
+    return Ok(infinityPoint());
+  }
+
+  const numerator = right.y - left.y;
+  const denominator = right.x - left.x;
+  const inverse = bigint.modInverse(denominator, prime)?;
+  const slope = bigint.mod(numerator * inverse, prime)?;
+  const xCoordinate = bigint.mod(slope * slope - left.x - right.x, prime)?;
+  const xDifference = left.x - xCoordinate;
+  const yCoordinate =
+      bigint.mod(slope * xDifference - left.y, prime)?;
+  return Ok(Point { xCoordinate, yCoordinate, false });
+}
+
+fn scalarMultiplyStep(result: Point, factor: Point, remaining: Integer,
+                      prime: Integer):
+    Result<Point, bigint.ArithmeticError> {
+  const zero: Integer = 0;
+  const one: Integer = 1;
+  if remaining == zero {
+    return Ok(result);
+  }
+  const lowBit = remaining & one;
+  const nextRemaining = remaining >> 1;
+  const nextFactor = doublePoint(factor, prime)?;
+  if lowBit == one {
+    const nextResult = addPoints(result, factor, prime)?;
+    return scalarMultiplyStep(nextResult, nextFactor, nextRemaining, prime);
+  }
+  return scalarMultiplyStep(result, nextFactor, nextRemaining, prime);
+}
+
+fn scalarMultiply(point: Point, scalar: Integer, prime: Integer):
+    Result<Point, bigint.ArithmeticError> {
+  return scalarMultiplyStep(infinityPoint(), point, scalar, prime);
+}
+
+fn eccKnownVector(): Result<UInt64, bigint.ArithmeticError> {
+  const prime: Integer =
+      0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff_fffe_ffff_fc2f;
+  const generator = Point {
+      0x79be_667e_f9dc_bbac_55a0_6295_ce87_0b07_029b_fcdb_2dce_28d9_59f2_815b_16f8_1798,
+      0x483a_da77_26a3_c465_5da4_fbfc_0e11_08a8_fd17_b448_a685_5419_9c47_d08f_fb10_d4b8,
+      false
+  };
+  const expectedTwo = Point {
+      0xc604_7f94_41ed_7d6d_3045_406e_95c0_7cd8_5c77_8e4b_8cef_3ca7_abac_09b9_5c70_9ee5,
+      0x1ae1_68fe_a63d_c339_a3c5_8419_466c_eaee_f7f6_3265_3266_d0e1_2364_31a9_50cf_e52a,
+      false
+  };
+  const expectedThree = Point {
+      0xf930_8a01_9258_c310_4934_4f85_f89d_5229_b531_c845_836f_99b0_8601_f113_bce0_36f9,
+      0x388f_7b0f_632d_e814_0fe3_37e6_2a37_f356_6500_a999_34c2_231b_6cb9_fd75_84b8_e672,
+      false
+  };
+
+  const doubled = doublePoint(generator, prime)?;
+  const added = addPoints(generator, doubled, prime)?;
+  const scalarThree = scalarMultiply(generator, 3, prime)?;
+  if doubled.infinity or added.infinity or scalarThree.infinity or
+      doubled.x != expectedTwo.x or doubled.y != expectedTwo.y or
+      added.x != expectedThree.x or added.y != expectedThree.y or
+      scalarThree.x != expectedThree.x or scalarThree.y != expectedThree.y {
+    io.println(0);
+    return Ok(1);
+  }
+
+  io.println(bigint.toHex(doubled.x));
+  io.println(bigint.toHex(doubled.y));
+  io.println(bigint.toHex(added.x));
+  io.println(bigint.toHex(added.y));
+  io.println(1);
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match eccKnownVector() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
+}
+
+# MLIR-LABEL: func.func @doublePoint
+# MLIR: call @std.bigint.modInverse
+# MLIR-LABEL: func.func @addPoints
+# MLIR: call @std.bigint.modInverse
+# MLIR-LABEL: func.func @scalarMultiplyStep
+# MLIR: bigint.and
+# MLIR: bigint.shift_right
+# MLIR: call @addPoints
+# MLIR: call @doublePoint
+
+# LOWERED-LABEL: func.func @doublePoint
+# LOWERED: call @std.bigint.modInverse
+# LOWERED-LABEL: func.func @addPoints
+# LOWERED: call @std.bigint.modInverse
+# LOWERED-LABEL: func.func @scalarMultiplyStep
+# LOWERED: call @addPoints
+# LOWERED: call @doublePoint
+
+# JIT: 0xc604_7f94_41ed_7d6d_3045_406e_95c0_7cd8_5c77_8e4b_8cef_3ca7_abac_09b9_5c70_9ee5
+# JIT-NEXT: 0x1ae1_68fe_a63d_c339_a3c5_8419_466c_eaee_f7f6_3265_3266_d0e1_2364_31a9_50cf_e52a
+# JIT-NEXT: 0xf930_8a01_9258_c310_4934_4f85_f89d_5229_b531_c845_836f_99b0_8601_f113_bce0_36f9
+# JIT-NEXT: 0x388f_7b0f_632d_e814_0fe3_37e6_2a37_f356_6500_a999_34c2_231b_6cb9_fd75_84b8_e672
+# JIT-NEXT: 1

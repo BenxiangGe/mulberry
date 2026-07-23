@@ -1,0 +1,69 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import bigint;
+import io;
+import result.Err;
+import result.Ok;
+import result.Result;
+
+fn rsaRoundTrip(): Result<UInt64, bigint.ArithmeticError> {
+  const one: Integer = 1;
+  const primeP: Integer = 0x7fff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+  const primeQ: Integer = 0x1fff_ffff_ffff_ffff;
+  const publicExponent: Integer = 65537;
+  const privateExponent: Integer =
+      0xd82_d27d_2d82_d27c_5555_aaaa_5555_aaaa_1f4a_60b5_9f4a_60b9;
+  const message: Integer = 0x123_4567_89ab_cdef_0123_4567_89ab_cdef;
+  const expectedCiphertext: Integer =
+      0xd51_12e6_dba2_a039_9b60_7a6f_a7d1_eae7_eb23_7501_ec56_330b;
+
+  const modulus = primeP * primeQ;
+  const pMinusOne = primeP - one;
+  const qMinusOne = primeQ - one;
+  const totient = pMinusOne * qMinusOne;
+  const derivedPrivateExponent = bigint.modInverse(publicExponent, totient)?;
+  const ciphertext = bigint.modPow(message, publicExponent, modulus)?;
+  const plaintext = bigint.modPow(ciphertext, derivedPrivateExponent, modulus)?;
+
+  if derivedPrivateExponent != privateExponent or
+      ciphertext != expectedCiphertext or plaintext != message {
+    io.println(0);
+    return Ok(1);
+  }
+
+  io.println(bigint.toHex(modulus));
+  io.println(bigint.toHex(derivedPrivateExponent));
+  io.println(bigint.toHex(ciphertext));
+  io.println(bigint.toHex(plaintext));
+  io.println(1);
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match rsaRoundTrip() {
+    Ok(status) => status,
+    Err(error) => 1,
+  };
+}
+
+# MLIR-LABEL: func.func @rsaRoundTrip
+# MLIR: bigint.mul
+# MLIR: call @std.bigint.modInverse
+# MLIR: call @std.bigint.modPow
+# MLIR: call @std.bigint.modPow
+# MLIR: call @std.bigint.toHex
+
+# LOWERED-LABEL: func.func @rsaRoundTrip
+# LOWERED: call @std.bigint.modInverse
+# LOWERED: call @std.bigint.modPow
+# LOWERED: call @std.bigint.modPow
+# LOWERED: call @std.bigint.toHex
+
+# JIT: 0xfff_ffff_ffff_ffff_7fff_ffff_ffff_ffff_e000_0000_0000_0001
+# JIT-NEXT: 0xd82_d27d_2d82_d27c_5555_aaaa_5555_aaaa_1f4a_60b5_9f4a_60b9
+# JIT-NEXT: 0xd51_12e6_dba2_a039_9b60_7a6f_a7d1_eae7_eb23_7501_ec56_330b
+# JIT-NEXT: 0x123_4567_89ab_cdef_0123_4567_89ab_cdef
+# JIT-NEXT: 1

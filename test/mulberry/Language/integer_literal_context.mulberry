@@ -1,0 +1,80 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=COUNT
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+
+struct Box {
+  value: Integer
+}
+
+data Key = ByNumber(Integer) | Missing;
+
+fn forward(value: Integer): Integer {
+  return value;
+}
+
+fn increment(value: Integer): Integer {
+  return value + 1;
+}
+
+fn lookup(key: Key): Integer {
+  match key {
+    ByNumber(value) => return value;
+    Missing => return 0;
+  }
+}
+
+fn main(): UInt64 {
+  const small: UInt64 = 42;
+  const byte = core.toUInt8(7);
+  const literal: Integer = 18446744073709551616;
+  const fromUInt64: Integer = small;
+  const fromUInt8: Integer = byte;
+  const sum: Integer = small + 123;
+  const values: Array<Integer, 2> = [small, byte];
+  const box = Box { small };
+  const key: Key = ByNumber(small);
+  const returned = forward(small);
+  const next = increment(18446744073709551616);
+
+  io.println(core.boolToUInt64(values[1] == byte));
+  io.println(core.boolToUInt64(box.value == small));
+  io.println(core.boolToUInt64(lookup(key) == small));
+  io.println(core.boolToUInt64(returned == small));
+  io.println(core.boolToUInt64(next == 18446744073709551617));
+  return 0;
+}
+
+# CHECK: IntegerLiteralExpr {{.*}}type=Integer{{.*}}spelling=18446744073709551616
+# CHECK: BinaryExpr {{.*}}type=Integer{{.*}}op=`+`
+# CHECK: ArrayLiteralExpr {{.*}}type=Array<Integer, 2>
+# CHECK: DataConstructorExpr {{.*}}type=Key{{.*}}constructor=ByNumber
+# CHECK: CallExpr {{.*}}type=Integer callee=forward
+# CHECK: CallExpr {{.*}}type=Integer callee=increment
+# CHECK: CallExpr {{.*}}type=Integer callee=lookup
+
+# COUNT-COUNT-12: IntegerWidenExpr {{.*}}type=Integer
+
+# MLIR-LABEL: func.func @forward(%arg0: !bigint.int) -> !bigint.int
+# MLIR-LABEL: func.func @increment(%arg0: !bigint.int) -> !bigint.int
+# MLIR-LABEL: func.func @lookup(%arg0: !mulberry_core.ptr<!mulberry_core.data<"Key">>) -> !bigint.int
+# MLIR: mulberry_core.data.unpack "ByNumber"[0] {{.*}} -> !bigint.int
+# MLIR: !mulberry_core.record<Box {value: !bigint.int}>
+# MLIR: !mulberry_core.record<array {length: i64, data: !mulberry_core.ptr<!bigint.int>}>
+
+# LOWERED-LABEL: func.func @forward(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED-LABEL: func.func @increment(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED-LABEL: func.func @lookup(%arg0: !llvm.ptr) -> !llvm.ptr
+# LOWERED: llvm.call @mulberry_bigint_from_uint64
+# LOWERED: llvm.call @mulberry_bigint_add
+# LOWERED: llvm.call @mulberry_bigint_compare
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1

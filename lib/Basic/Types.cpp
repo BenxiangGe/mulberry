@@ -80,6 +80,8 @@ auto BuiltinType::name() const -> std::string_view {
     return "UInt8";
   case BuiltinTypeKind::UInt64:
     return "UInt64";
+  case BuiltinTypeKind::Integer:
+    return "Integer";
   case BuiltinTypeKind::Float32:
     return "Float32";
   }
@@ -285,6 +287,7 @@ auto sizeOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::Float32:
     return 4;
   case BuiltinTypeKind::Unit:
+  case BuiltinTypeKind::Integer:
     return std::nullopt;
   }
   return std::nullopt;
@@ -300,6 +303,7 @@ auto alignOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::Float32:
     return 4;
   case BuiltinTypeKind::Unit:
+  case BuiltinTypeKind::Integer:
     return std::nullopt;
   }
   return std::nullopt;
@@ -442,6 +446,11 @@ auto getUInt64Type() -> const BuiltinType * {
   return &type;
 }
 
+auto getIntegerType() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::Integer};
+  return &type;
+}
+
 auto getFloat32Type() -> const BuiltinType * {
   static const BuiltinType type{BuiltinTypeKind::Float32};
   return &type;
@@ -519,6 +528,10 @@ auto isUInt64Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::UInt64);
 }
 
+auto isIntegerType(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::Integer);
+}
+
 auto isBoolType(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Bool);
 }
@@ -541,7 +554,8 @@ auto isFileType(const Type *type) -> bool {
 }
 
 auto isNumericType(const Type *type) -> bool {
-  return isUInt8Type(type) || isUInt64Type(type) || isFloat32Type(type);
+  return isUInt8Type(type) || isUInt64Type(type) || isIntegerType(type) ||
+         isFloat32Type(type);
 }
 
 auto isEquatableType(const Type *type) -> bool {
@@ -677,6 +691,8 @@ auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const
     return getUInt8Type();
   case BuiltinTypeKind::UInt64:
     return getUInt64Type();
+  case BuiltinTypeKind::Integer:
+    return getIntegerType();
   case BuiltinTypeKind::Float32:
     return getFloat32Type();
   }

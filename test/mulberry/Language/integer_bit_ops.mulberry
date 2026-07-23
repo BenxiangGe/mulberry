@@ -1,0 +1,60 @@
+# RUN: mulberry-driver -dump=tokens %s 2>&1 | FileCheck %s --check-prefix=TOKENS
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+
+fn first(values: List<List<Integer>>): Integer {
+  return values[0][0];
+}
+
+fn main(): UInt64 {
+  const high: Integer = 0x1_0000_0000;
+  const shifted = high << 36;
+  const restored = shifted >> 36;
+  const negative: Integer = 0 - 3;
+  const arithmeticRight = negative >> 1;
+  const masked = negative & 0xff;
+  const joined = negative | 2;
+  const changed = negative ^ 1;
+  const computed: Integer = 0xffff_0000 & 0x0fff_ffff;
+  const negativeOne: Integer = 0 - 1;
+  const negativeTwo: Integer = 0 - 2;
+  const negativeFour: Integer = 0 - 4;
+
+  io.println(core.boolToUInt64(restored == high));
+  io.println(core.boolToUInt64(arithmeticRight == negativeTwo));
+  io.println(core.boolToUInt64(masked == 253));
+  io.println(core.boolToUInt64(joined == negativeOne));
+  io.println(core.boolToUInt64(changed == negativeFour));
+  io.println(core.boolToUInt64(computed == 0x0fff_0000));
+  return 0;
+}
+
+# TOKENS-DAG: shift_left '<<'
+# TOKENS-DAG: shift_right '>>'
+# TOKENS-DAG: amp '&'
+# TOKENS-DAG: pipe '|'
+# TOKENS-DAG: caret '^'
+
+# MLIR: func.func @first(%arg0: !mulberry_core.ptr<!mulberry_core.record<std_list_List__
+# MLIR: bigint.shift_left
+# MLIR: bigint.shift_right
+# MLIR: bigint.and
+# MLIR: bigint.or
+# MLIR: bigint.xor
+
+# LOWERED-DAG: llvm.func @mulberry_bigint_shift_left(!llvm.ptr, i64) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_shift_right(!llvm.ptr, i64) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_bit_and(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_bit_or(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+# LOWERED-DAG: llvm.func @mulberry_bigint_bit_xor(!llvm.ptr, !llvm.ptr) -> !llvm.ptr
+
+# JIT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1

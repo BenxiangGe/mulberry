@@ -1,0 +1,39 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import bigint;
+import io;
+
+fn main(): UInt64 {
+  const zero: Integer = 0;
+  const wide: Integer = 18446744073709551616;
+  const negative = 0 - wide;
+
+  io.println(wide);
+  io.println(bigint.toString(negative));
+  io.println(bigint.toHex(zero));
+  io.println(bigint.toHex(wide));
+  io.println(bigint.toHex(negative));
+  return 0;
+}
+
+# MLIR-LABEL: func.func private @mulberry_bigint_to_string
+# MLIR-LABEL: func.func @std.string.Show__Integer.toString
+# MLIR: call @std.string.fromInteger
+# MLIR-LABEL: func.func private @mulberry_bigint_to_hex_string
+# MLIR-LABEL: func.func @std.bigint.toString
+# MLIR: call @std.string.fromInteger
+# MLIR-LABEL: func.func @std.bigint.toHex
+# MLIR: call @mulberry_bigint_to_hex_string
+
+# LOWERED-LABEL: func.func private @mulberry_bigint_to_string
+# LOWERED-LABEL: func.func @std.string.Show__Integer.toString
+# LOWERED-LABEL: func.func private @mulberry_bigint_to_hex_string
+
+# JIT: 18446744073709551616
+# JIT-NEXT: -18446744073709551616
+# JIT-NEXT: 0x0
+# JIT-NEXT: 0x1_0000_0000_0000_0000
+# JIT-NEXT: -0x1_0000_0000_0000_0000

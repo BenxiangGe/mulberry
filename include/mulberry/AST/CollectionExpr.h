@@ -32,6 +32,10 @@ public:
     return _elements;
   }
 
+  auto getElements() -> std::vector<std::unique_ptr<Expr>> & {
+    return _elements;
+  }
+
 private:
   std::vector<std::unique_ptr<Expr>> _elements;
 };

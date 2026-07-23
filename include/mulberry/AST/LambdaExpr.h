@@ -44,6 +44,8 @@ public:
 
   auto body() const -> const std::unique_ptr<Expr> & { return _body; }
 
+  auto body() -> std::unique_ptr<Expr> & { return _body; }
+
   auto takeBody() -> std::unique_ptr<Expr> { return std::move(_body); }
 
   auto functionName() const -> std::string_view { return _functionName; }

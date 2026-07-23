@@ -9,8 +9,10 @@
 #define MULBERRY_LITERAL_EXPR_H
 
 #include "mulberry/AST/Expr.h"
+#include "mulberry/Basic/IntegerLiteral.h"
 #include "llvm/ADT/APFloat.h"
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -25,19 +27,27 @@ public:
   }
 };
 
-class DecimalLiteralExpr final : public Expr {
+class IntegerLiteralExpr final : public Expr {
 public:
-  explicit DecimalLiteralExpr(llvm::SMLoc location, uint64_t value)
-      : Expr{Expr_DecimalLiteral, location}, _value(value){};
+  explicit IntegerLiteralExpr(llvm::SMLoc location, std::string spelling)
+      : Expr{Expr_IntegerLiteral, location}, _spelling(std::move(spelling)){};
 
   static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_DecimalLiteral;
+    return node->getKind() == Expr_IntegerLiteral;
   }
 
-  auto value() const -> uint64_t { return _value; }
+  auto spelling() const -> std::string_view { return _spelling; }
+
+  auto hasValidSpelling() const -> bool {
+    return isValidIntegerLiteralSpelling(_spelling);
+  }
+
+  auto getUInt64Value() const -> std::optional<uint64_t> {
+    return parseUInt64IntegerLiteral(_spelling);
+  }
 
 private:
-  uint64_t _value;
+  std::string _spelling;
 };
 
 class FloatLiteralExpr final : public Expr {

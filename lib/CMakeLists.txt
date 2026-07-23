@@ -1,5 +1,6 @@
 add_subdirectory(AST)
 add_subdirectory(Basic)
+add_subdirectory(BigInt)
 add_subdirectory(Runtime)
 add_subdirectory(Driver)
 add_subdirectory(MLIRGen)

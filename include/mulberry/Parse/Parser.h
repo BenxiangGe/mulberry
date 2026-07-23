@@ -83,6 +83,9 @@ private:
     return emitError(message);
   }
 
+  auto isGenericClosingToken() -> bool;
+  auto parseGenericClose() -> MulberryResult;
+
   template <typename T, typename ParseElement>
   auto parseList(Token::Kind separator, Token::Kind end,
                  const char *const separator_error, const char *const end_error,
@@ -178,7 +181,7 @@ private:
   auto parseDataPattern(std::unique_ptr<DataPattern> &pattern)
       -> MulberryResult;
 
-  auto parseDecimal(std::unique_ptr<Expr> &expr) -> MulberryResult;
+  auto parseIntegerLiteral(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> MulberryResult;
   auto parseString(std::unique_ptr<Expr> &expr) -> MulberryResult;

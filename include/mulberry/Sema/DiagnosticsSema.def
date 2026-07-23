@@ -27,6 +27,8 @@ ERROR(invalid_reflection_query, "reflection query is not valid for this type")
 ERROR(expected_bool, "expected Bool")
 ERROR(expected_field, "expected struct field")
 ERROR(expected_expr, "expected expression")
+ERROR(invalid_integer_literal, "invalid integer literal")
+ERROR(integer_literal_overflows, "integer literal overflows")
 ERROR(expected_lvalue, "expected lvalue")
 ERROR(assign_const, "cannot assign to const variable")
 ERROR(readonly_to_mutable_binding,

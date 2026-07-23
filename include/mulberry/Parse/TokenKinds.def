@@ -35,7 +35,7 @@ TOK_MARKER(error)
 TOK_IDENTIFIER(identifier)
 
 // Literals
-TOK_LITERAL(decimal)
+TOK_LITERAL(integer_literal)
 TOK_LITERAL(float_literal)
 TOK_LITERAL(string_literal)
 TOK_LITERAL(char_literal)
@@ -46,6 +46,8 @@ TOK_PUNCTUATION(comma, ",")
 TOK_PUNCTUATION(question, "?")
 TOK_PUNCTUATION(less, "<")
 TOK_PUNCTUATION(greater, ">")
+TOK_PUNCTUATION(shift_left, "<<")
+TOK_PUNCTUATION(shift_right, ">>")
 TOK_PUNCTUATION(l_brace, "{")
 TOK_PUNCTUATION(r_brace, "}")
 TOK_PUNCTUATION(l_square, "[")
@@ -66,7 +68,9 @@ TOK_PUNCTUATION(star, "*")
 TOK_PUNCTUATION(diff, "-")
 TOK_PUNCTUATION(div, "/")
 TOK_PUNCTUATION(rem, "%")
+TOK_PUNCTUATION(amp, "&")
 TOK_PUNCTUATION(pipe, "|")
+TOK_PUNCTUATION(caret, "^")
 
 // Keywords
 

@@ -5,20 +5,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cstdint>
+#include "mulberry/Runtime/String.h"
+
 #include <cstdio>
 #include <limits>
 
-namespace {
-
-struct String {
-  uint64_t length;
-  uint8_t* data;
-};
-
-} // namespace
-
-extern "C" uint8_t* mulberry_file_open(String path, String mode) {
+extern "C" uint8_t* mulberry_file_open(MulberryString path,
+                                         MulberryString mode) {
   return reinterpret_cast<uint8_t*>(
       std::fopen(reinterpret_cast<const char*>(path.data),
                  reinterpret_cast<const char*>(mode.data)));
@@ -26,8 +19,8 @@ extern "C" uint8_t* mulberry_file_open(String path, String mode) {
 
 // MLIR's C interface lowering looks for `_mlir_ciface_*` wrapper symbols.
 // Export the wrapper names directly so JIT symbol resolution stays trivial.
-extern "C" uint8_t* _mlir_ciface_mulberry_file_open(String path,
-                                                    String mode) {
+extern "C" uint8_t* _mlir_ciface_mulberry_file_open(MulberryString path,
+                                                      MulberryString mode) {
   return mulberry_file_open(path, mode);
 }
 

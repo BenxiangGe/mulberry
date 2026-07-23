@@ -15,3 +15,7 @@ add_library(mulberryParse STATIC
 target_include_directories(mulberryParse PUBLIC
         ${LIB_HEADERS}
 )
+
+target_link_libraries(mulberryParse PUBLIC
+        mulberryBasic
+)

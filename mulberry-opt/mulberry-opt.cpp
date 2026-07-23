@@ -5,6 +5,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mulberry/BigInt/BigIntDialect.h"
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
 #include "mulberry/MLIRGen/IR/MulberryDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -27,6 +28,7 @@
 
 namespace LLVM = mlir::LLVM;
 namespace arith = mlir::arith;
+namespace bigint = mlir::bigint;
 namespace cf = mlir::cf;
 namespace func = mlir::func;
 namespace linalg = mlir::linalg;
@@ -43,7 +45,7 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   registry.insert<arith::ArithDialect, cf::ControlFlowDialect,
                   func::FuncDialect, linalg::LinalgDialect,
-                  LLVM::LLVMDialect, math::MathDialect,
+                  LLVM::LLVMDialect, math::MathDialect, bigint::BigIntDialect,
                   memref::MemRefDialect, mulberry_core::MulberryDialect,
                   ptr::PtrDialect, scf::SCFDialect>();
   arith::registerBufferDeallocationOpInterfaceExternalModels(registry);

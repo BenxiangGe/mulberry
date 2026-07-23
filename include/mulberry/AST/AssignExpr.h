@@ -27,7 +27,11 @@ public:
 
   auto lhs() const -> const std::unique_ptr<Expr> & { return _lhs; }
 
+  auto lhs() -> std::unique_ptr<Expr> & { return _lhs; }
+
   auto rhs() const -> const std::unique_ptr<Expr> & { return _rhs; }
+
+  auto rhs() -> std::unique_ptr<Expr> & { return _rhs; }
 
 private:
   std::unique_ptr<Expr> _lhs;

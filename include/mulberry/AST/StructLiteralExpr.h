@@ -40,6 +40,8 @@ public:
     return _expressions;
   }
 
+  auto expressions() -> VectorUniquePtr<Expr> & { return _expressions; }
+
 private:
   std::unique_ptr<TypeNode> _typeNode;
   const StructType *_structType = nullptr;

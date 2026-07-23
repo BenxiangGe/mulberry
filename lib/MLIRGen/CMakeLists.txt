@@ -28,6 +28,7 @@ add_mlir_dialect_library(mulberryMLIRGen
 
         LINK_LIBS PUBLIC
         mulberryBasic
+        mulberryBigInt
         MLIRArithDialect
         MLIRControlFlowDialect
         MLIRControlFlowTransforms

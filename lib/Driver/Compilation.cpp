@@ -6,6 +6,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mulberry/Driver/Compilation.h"
+#include "mulberry/BigInt/BigIntDialect.h"
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
 #include "mulberry/MLIRGen/IR/MulberryDialect.h"
 #include "mulberry/MLIRGen/MLIRGen.h"
@@ -64,6 +65,7 @@ using namespace mulberry;
 
 namespace LLVM = mlir::LLVM;
 namespace arith = mlir::arith;
+namespace bigint = mlir::bigint;
 namespace bufferization = mlir::bufferization;
 namespace cf = mlir::cf;
 namespace func = mlir::func;
@@ -585,6 +587,7 @@ auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
   compilation->_mlirContext.getOrLoadDialect<mulberry_core::MulberryDialect>();
+  compilation->_mlirContext.getOrLoadDialect<bigint::BigIntDialect>();
   compilation->_mlirContext.getOrLoadDialect<arith::ArithDialect>();
   compilation->_mlirContext.getOrLoadDialect<cf::ControlFlowDialect>();
   compilation->_mlirContext.getOrLoadDialect<func::FuncDialect>();
