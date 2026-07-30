@@ -68,6 +68,19 @@ TEST(LexerTest, firstTest) {
   ASSERT_TRUE(lexer->lexToken().is(Token::eof));
 }
 
+TEST(LexerTest, comptimeIntrinsicAndComments) {
+  auto input = "#typeInfo // source comment\n# RUN: lit metadata\n"
+               "# CHECK: lit metadata\n// another comment\n";
+  Lexer lexer(input, Lexer::Mode::Source);
+
+  auto hash = lexer.lexToken();
+  ASSERT_TRUE(hash.is(Token::hash));
+  auto name = lexer.lexToken();
+  ASSERT_TRUE(name.is(Token::identifier));
+  ASSERT_EQ(name.getSpelling(), "typeInfo");
+  ASSERT_TRUE(lexer.lexToken().is(Token::eof));
+}
+
 TEST(LexerTest, boundedSource) {
   std::string input = "items[index].name";
   Lexer lexer(input, Lexer::Mode::StringInterpolation);

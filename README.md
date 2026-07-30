@@ -29,7 +29,7 @@ Mulberry 目前已经具备一条可工作的 frontend 到 MLIR / LLVM pipeline�
 - Trait：支持 `trait`、concrete `impl Trait for Type`、default method 和函数约束
   `<T: Trait>`。当前真实协议是 `Show`；specialization 后静态选择普通函数，不生成
   trait object 或 vtable。完整语义见 [Trait](docs/Traits.md)。
-- 编译期反射：`typeInfo(T)` / `typeOf(value)` 支持 Array element、leaf、length、rank 等
+- 编译期反射：`#typeInfo(T)` / `#typeOf(value)` 支持 Array element、leaf、length、rank 等
   类型结构查询，供 `tensor.from()` 这类 stdlib generic 使用。
 - 局部类型推断：`var name = expression` 和 `const name = expression` 从 initializer
   推断类型；函数参数、返回类型和 struct field 继续要求显式类型。

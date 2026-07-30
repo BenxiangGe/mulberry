@@ -1,5 +1,5 @@
-# Requires the external mulberry.nn package. This remains a compact
-# training-shape regression target while NN primitives are detached from core.
+// Requires the external mulberry.nn package. This remains a compact
+// training-shape regression target while NN primitives are detached from core.
 import mulberry.nn;
 
 fn main(): UInt64 {

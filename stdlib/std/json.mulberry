@@ -47,9 +47,9 @@ fn isDigitChar(char: Char): Bool {
   return char >= '0' and char <= '9';
 }
 
-# Cursor-style parser for the ASCII JSON subset used by safetensors metadata.
-# Escaped strings are rejected explicitly until a real decoding requirement
-# justifies adding them.
+// Cursor-style parser for the ASCII JSON subset used by safetensors metadata.
+// Escaped strings are rejected explicitly until a real decoding requirement
+// justifies adding them.
 struct Parser {
   text: Tensor<UInt8>,
   position: UInt64,

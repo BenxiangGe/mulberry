@@ -6,8 +6,8 @@ import core;
 import tensor;
 import tensor.Tensor;
 
-# mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
-# ordinary function calls; the NN package plugin rewrites and lowers them.
+// mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
+// ordinary function calls; the NN package plugin rewrites and lowers them.
 extern fn mulberry.nn.matmul(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.matadd(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.matsub(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
@@ -39,8 +39,8 @@ extern fn mulberry.nn.maxPool2dBackwardInto(
     input: Tensor<Float32>, outputGradient: Tensor<Float32>,
     height: UInt64, width: UInt64,
     mut inputGradient: Tensor<Float32>): ();
-# Elementwise NN ops need a static rank at the MLIR package boundary. Keep
-# these rank-specific entry points behind the CNN helpers below.
+// Elementwise NN ops need a static rank at the MLIR package boundary. Keep
+// these rank-specific entry points behind the CNN helpers below.
 extern fn mulberry.nn.__tensorAdd1d(left: Tensor<Float32>,
                                    right: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.__tensorSubtract1d(
@@ -243,8 +243,8 @@ fn maxPool2d2x2Gradient(input: Tensor<Float32>,
   return inputGradient;
 }
 
-# Nielsen network2 L2 update: w = (1 - eta * lambda / n) * w - scale * grad.
-# See http://neuralnetworksanddeeplearning.com/chap3.html#overfitting_and_regularization
+// Nielsen network2 L2 update: w = (1 - eta * lambda / n) * w - scale * grad.
+// See http://neuralnetworksanddeeplearning.com/chap3.html#overfitting_and_regularization
 fn l2WeightScale(eta: Float32, regularization: Float32,
                  trainingSize: UInt64): Float32 {
   return 1.0 - eta * regularization / core.toFloat32(trainingSize);
@@ -319,8 +319,8 @@ fn cnnMeanCrossEntropy(parameters: CnnParameters,
   return total / core.toFloat32(sampleCount);
 }
 
-# One-example softmax cross-entropy gradient. Mini-batch SGD sums these
-# gradients and applies one scaled update after the batch.
+// One-example softmax cross-entropy gradient. Mini-batch SGD sums these
+// gradients and applies one scaled update after the batch.
 fn cnnGradient(parameters: CnnParameters, input: Tensor<Float32>,
                expected: Tensor<Float32>): CnnGradient {
   var convolved =
@@ -435,8 +435,8 @@ fn cnnTrainEpoch(parameters: CnnParameters, mut dataset: TensorDataset,
   const totalBatches = batchCount(trainingSize, batchSize);
   const weightScale =
       l2WeightScale(eta, regularization, trainingSize);
-  # Keep the readonly input reference intact while the loop rebinds its
-  # accumulator to each newly allocated parameter set.
+  // Keep the readonly input reference intact while the loop rebinds its
+  // accumulator to each newly allocated parameter set.
   var updated = CnnParameters {
     parameters.convWeight,
     parameters.convBias,

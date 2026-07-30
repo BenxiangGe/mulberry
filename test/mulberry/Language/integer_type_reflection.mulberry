@@ -11,7 +11,7 @@ fn identity(value: Integer): Integer {
 }
 
 fn reflected(): UInt64 {
-  if typeInfo(Integer).isInteger() and typeInfo(Integer).isObject() {
+  if #typeInfo(Integer).isInteger() and #typeInfo(Integer).isObject() {
     return 1;
   }
   return 0;

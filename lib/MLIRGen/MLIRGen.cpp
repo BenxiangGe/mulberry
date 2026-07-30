@@ -789,6 +789,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     break;
   case Expr::Expr_TypeInfo:
     llvm_unreachable("typeInfo expression reached MLIRGen");
+  case Expr::Expr_ComptimeBlock:
+    llvm_unreachable("comptime block reached MLIRGen");
   case Expr::Expr_TypeLayout:
     result = gen(cast<TypeLayoutExpr>(node));
     break;

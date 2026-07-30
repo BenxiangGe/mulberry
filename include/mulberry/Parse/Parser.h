@@ -140,6 +140,8 @@ private:
       -> MulberryResult;
 
   auto parseBlockExpr(std::unique_ptr<BlockExpr> &block) -> MulberryResult;
+  auto parseComptimeBlock(std::unique_ptr<ComptimeBlockExpr> &block)
+      -> MulberryResult;
 
   auto parseStructDecl(std::unique_ptr<Decl> &elem) -> MulberryResult;
   auto parseTraitDecl(std::unique_ptr<Decl> &decl) -> MulberryResult;
@@ -194,6 +196,9 @@ private:
 
   auto parseTypeInfoExpr(llvm::SMLoc location,
                          std::unique_ptr<Expr> &expr) -> MulberryResult;
+
+  auto parseIntrinsicExpr(llvm::SMLoc location,
+                          std::unique_ptr<Expr> &expr) -> MulberryResult;
 
   auto parseObjectIdentityExpr(llvm::SMLoc location,
                                std::unique_ptr<Expr> &expr) -> MulberryResult;

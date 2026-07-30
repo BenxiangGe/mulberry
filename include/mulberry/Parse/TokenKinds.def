@@ -71,6 +71,7 @@ TOK_PUNCTUATION(rem, "%")
 TOK_PUNCTUATION(amp, "&")
 TOK_PUNCTUATION(pipe, "|")
 TOK_PUNCTUATION(caret, "^")
+TOK_PUNCTUATION(hash, "#")
 
 // Keywords
 

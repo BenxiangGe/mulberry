@@ -1,8 +1,8 @@
-# Mini-batch SGD over the 10-sample safetensors bootstrap dataset.
-#
-# This intentionally keeps the data layout static. A full dataset iterator is a
-# separate language/runtime feature; this example only needs a small Tensor pair
-# dataset view and deterministic shuffle before each epoch.
+// Mini-batch SGD over the 10-sample safetensors bootstrap dataset.
+//
+// This intentionally keeps the data layout static. A full dataset iterator is a
+// separate language/runtime feature; this example only needs a small Tensor pair
+// dataset view and deterministic shuffle before each epoch.
 import mulberry.nn;
 import safetensors;
 

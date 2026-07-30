@@ -11,9 +11,23 @@ trait ObjectLabel {
   }
 }
 
-impl<T> ObjectLabel for T where typeInfo(T).isObject() {
+impl<T> ObjectLabel for T where comptime { #typeInfo(T).isObject() } {
   fn label(self: T): String {
     return "object";
+  }
+}
+
+// A comptime block can bind a query result before returning its final value.
+trait MultiStepObjectLabel {
+  fn multiLabel(self): String;
+}
+
+impl<T> MultiStepObjectLabel for T where comptime {
+  const info = #typeInfo(T);
+  info.isObject()
+} {
+  fn multiLabel(self: T): String {
+    return "multi-step";
   }
 }
 
@@ -31,12 +45,17 @@ fn label<T: ObjectLabel>(value: T): String {
   return value.label();
 }
 
+fn multiStepLabel<T: MultiStepObjectLabel>(value: T): String {
+  return value.multiLabel();
+}
+
 fn fallback<T: ObjectLabel>(value: T): String {
   return value.fallback();
 }
 
 fn main(): UInt64 {
   io.println(label(Plain { 7 }));
+  io.println(multiStepLabel(Plain { 9 }));
   io.println(label(Number(11)));
   const direct = Direct { 13 };
   io.println(direct.label());
@@ -45,14 +64,17 @@ fn main(): UInt64 {
 }
 
 # AST-DAG: ImplDecl {{.*}}trait=ObjectLabel target=T parameter=T
+# AST-DAG: ComptimeBlockExpr
 # AST-DAG: CallExpr {{.*}}callee=isObject
 # AST-DAG: TypeInfoExpr {{.*}}target=T
 # AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Plain.label
+# AST-DAG: CallExpr {{.*}}callee=MultiStepObjectLabel__Plain.multiLabel
 # AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Choice.label
 # AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Direct.label
 # AST-DAG: CallExpr {{.*}}callee=ObjectLabel__Plain.fallback
 
 # MLIR-DAG: func.func @ObjectLabel__Plain.label
+# MLIR-DAG: func.func @MultiStepObjectLabel__Plain.multiLabel
 # MLIR-DAG: func.func @ObjectLabel__Choice.label
 # MLIR-DAG: func.func @ObjectLabel__Direct.label
 # MLIR-DAG: func.func @ObjectLabel__Plain.fallback
@@ -62,6 +84,7 @@ fn main(): UInt64 {
 # MLIR-DAG: call @ObjectLabel__Plain.fallback
 
 # JIT: object
+# JIT-NEXT: multi-step
 # JIT-NEXT: object
 # JIT-NEXT: object
 # JIT-NEXT: fallback

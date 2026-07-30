@@ -1,6 +1,6 @@
-# Requires the external mulberry.nn package. Core Mulberry still supports
-# raw tensor IO and Tensor/List object handling, but NN primitives are no longer
-# implemented as compiler intrinsics.
+// Requires the external mulberry.nn package. Core Mulberry still supports
+// raw tensor IO and Tensor/List object handling, but NN primitives are no longer
+// implemented as compiler intrinsics.
 import mulberry.nn;
 
 fn run(): Result<UInt64, io.FileError> {

@@ -209,13 +209,13 @@ body；guard 命中后，outer type parameter 被替换为 concrete target type�
 
 ## Comptime Reflection
 
-`typeInfo(T)` 的参数是 type，取得该类型的 semantic type；`typeOf(value)` 的参数是
+`#typeInfo(T)` 的参数是 type，取得该类型的 semantic type；`#typeOf(value)` 的参数是
 value expression，取得表达式的 semantic type。二者只产生 comptime Type，不生成
 runtime object。
 
 当前 reflection query 和求值规则见 [Reflection](Reflection.md)。
 
-comptime value 使用普通 `const` 保存，例如 `const info = typeInfo(T);`。binding 是否
+comptime value 使用普通 `const` 保存，例如 `const info = #typeInfo(T);`。binding 是否
 只存在于编译期由 initializer 自动决定，不增加 `comptime const` 语法。
 
 ## Types
@@ -254,14 +254,14 @@ lowercase `0x` text 时使用显式 `bigint.toHex(value)`。详见 [BigInt](BigI
 实例化后，局部声明或函数签名可以从 Array type 计算 Tensor 的 element type：
 
 ```mulberry
-var result: Tensor<typeInfo(A).arrayLeafElementType()> = tensor.from(value);
+var result: Tensor<#typeInfo(A).arrayLeafElementType()> = tensor.from(value);
 ```
 
 该 expression 只存在于 AST/Sema，不进入 MLIR。普通 runtime value 或 Bool/UInt64/String
 comptime value 都不能用作 type。
 
 generic inference 不会仅凭 reflection query 的结果猜测完整 source type。对于
-`Tensor<typeInfo(A).arrayLeafElementType()>`，单独一个 leaf type 无法确定 `A` 的
+`Tensor<#typeInfo(A).arrayLeafElementType()>`，单独一个 leaf type 无法确定 `A` 的
 rank 和 shape。普通 value 参数必须提供完整 `A`；Array literal 是唯一的当前特例：
 literal 已经提供 rank/shape，expected return type 再提供 leaf type，因此两者可以共同
 确定完整 Array type。Sema 随后求出 concrete 参数和返回类型并进行普通 type check。

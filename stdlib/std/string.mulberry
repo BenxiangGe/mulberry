@@ -76,7 +76,7 @@ impl Show for Integer {
   }
 }
 
-impl<T> Show for T where typeInfo(T).isObject() {
+impl<T> Show for T where comptime { #typeInfo(T).isObject() } {
   fn toString(self: T): String {
     return objectToString(self);
   }

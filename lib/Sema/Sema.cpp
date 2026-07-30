@@ -105,6 +105,11 @@ auto substituteBlockExpr(const BlockExpr *node,
                          const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<BlockExpr>;
 
+auto substituteComptimeBlockExpr(
+    const ComptimeBlockExpr *node,
+    const std::vector<TypeSubstitution> &substitutions)
+    -> std::unique_ptr<ComptimeBlockExpr>;
+
 auto cloneDataPattern(const DataPattern *pattern)
     -> std::unique_ptr<DataPattern> {
   VectorUniquePtr<VariableExpr> bindings;
@@ -708,6 +713,30 @@ auto substituteBlockExpr(const BlockExpr *node,
   return std::make_unique<BlockExpr>(node->location(), std::move(statements));
 }
 
+auto substituteComptimeBlockExpr(
+    const ComptimeBlockExpr *node,
+    const std::vector<TypeSubstitution> &substitutions)
+    -> std::unique_ptr<ComptimeBlockExpr> {
+  VectorUniquePtr<Stat> statements;
+  for (auto &statement : node->statements()) {
+    auto *variable = cast<VariableStat>(statement.get());
+    auto clonedVariable = std::make_unique<VariableExpr>(
+        variable->variable()->location(), variable->variable()->name());
+    auto clonedInit = substituteExpr(variable->init().get(), substitutions);
+    statements.push_back(std::make_unique<VariableStat>(
+        variable->location(), std::move(clonedVariable),
+        variable->hasExplicitType()
+            ? substituteTypeNode(variable->typeNode(), substitutions)
+            : nullptr,
+        std::move(clonedInit), variable->isConstBinding(),
+        variable->canMutateObject()));
+  }
+
+  return std::make_unique<ComptimeBlockExpr>(
+      node->location(), std::move(statements),
+      substituteExpr(node->result().get(), substitutions));
+}
+
 auto substituteExpr(const Expr *node,
                     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<Expr> {
@@ -837,6 +866,9 @@ auto substituteExpr(const Expr *node,
   }
   case Expr::Expr_Block:
     return substituteBlockExpr(cast<BlockExpr>(node), substitutions);
+  case Expr::Expr_ComptimeBlock:
+    return substituteComptimeBlockExpr(cast<ComptimeBlockExpr>(node),
+                                        substitutions);
   case Expr::Expr_TypeInfo: {
     auto *expr = cast<TypeInfoExpr>(node);
     return std::make_unique<TypeInfoExpr>(
@@ -1078,6 +1110,7 @@ private:
       -> MulberryResult;
   auto sema(UnitExpr *node) -> MulberryResult;
   auto sema(BlockExpr *node) -> MulberryResult;
+  auto sema(ComptimeBlockExpr *node) -> MulberryResult;
   auto sema(LambdaExpr *node) -> MulberryResult;
   auto sema(LambdaExpr *node, const FunctionType *functionType)
       -> MulberryResult;
@@ -1109,6 +1142,7 @@ private:
   auto sema(ObjectIdentityExpr *node) -> MulberryResult;
   auto sema(CharLiteralExpr *node) -> MulberryResult;
   auto evaluateComptime(Expr *node) -> ComptimeEvaluation;
+  auto evaluateComptimeBlock(ComptimeBlockExpr *node) -> ComptimeEvaluation;
   auto evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation;
   auto evaluateComptimeBinary(BinaryExpr *node) -> ComptimeEvaluation;
   auto comptimeRuntimeType(const ComptimeValue &value) -> const Type *;
@@ -3364,6 +3398,8 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
     return sema(cast<CharLiteralExpr>(node));
   case Expr::Expr_TypeInfo:
     return emitError(node, diag::expected_comptime_value);
+  case Expr::Expr_ComptimeBlock:
+    return sema(cast<ComptimeBlockExpr>(node));
   case Expr::Expr_TypeLayout:
     return sema(cast<TypeLayoutExpr>(node));
   case Expr::Expr_HeapAlloc:
@@ -3746,6 +3782,15 @@ auto SemaImpl::sema(BlockExpr *node) -> MulberryResult {
       return failure();
 
   node->setType(_typeContext.getBuiltinType(BuiltinTypeKind::Unit));
+  return success();
+}
+
+auto SemaImpl::sema(ComptimeBlockExpr *node) -> MulberryResult {
+  auto evaluation = evaluateComptimeBlock(node);
+  if (evaluation.kind == ComptimeEvaluation::Kind::Error)
+    return failure();
+  if (evaluation.kind != ComptimeEvaluation::Kind::Value)
+    return emitError(node, diag::expected_comptime_value);
   return success();
 }
 
@@ -4544,6 +4589,9 @@ auto SemaImpl::setComptimeResultType(Expr *node,
 }
 
 auto SemaImpl::evaluateComptime(Expr *node) -> ComptimeEvaluation {
+  if (auto *block = dyn_cast<ComptimeBlockExpr>(node))
+    return evaluateComptimeBlock(block);
+
   if (auto *typeExpr = dyn_cast<TypeInfoExpr>(node)) {
     auto *type = resolveType(typeExpr->typeNode());
     if (!type)
@@ -4608,6 +4656,20 @@ auto SemaImpl::evaluateComptime(Expr *node) -> ComptimeEvaluation {
   }
 
   return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
+}
+
+auto SemaImpl::evaluateComptimeBlock(ComptimeBlockExpr *node)
+    -> ComptimeEvaluation {
+  VariableScope blockScope(_symbols);
+  for (auto &statement : node->statements()) {
+    if (sema(statement.get()))
+      return {ComptimeEvaluation::Kind::Error, std::nullopt};
+  }
+
+  auto result = evaluateComptime(node->result().get());
+  if (result.kind == ComptimeEvaluation::Kind::Value)
+    setComptimeResultType(node, *result.value);
+  return result;
 }
 
 auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {

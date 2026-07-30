@@ -106,9 +106,9 @@ readonly Result variable 解包后仍为 readonly。
 
 ## Comptime Reflection
 
-- `typeInfo(T)`：取得 source type 的 comptime Type。
-- `typeOf(value)`：取得 value expression 的 comptime Type。
-- `const info = typeInfo(T)`：根据 initializer 自动建立 comptime local binding。
+- `#typeInfo(T)`：取得 source type 的 comptime Type。
+- `#typeOf(value)`：取得 value expression 的 comptime Type。
+- `const info = #typeInfo(T)`：根据 initializer 自动建立 comptime local binding。
 
 reflection query 只在 Sema 求值，不是 runtime function，也不产生 MLIR call。完整
 query 列表和边界见 [编译期反射](Reflection.md)。普通 `if` 的 condition 如果能在

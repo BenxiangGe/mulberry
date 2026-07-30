@@ -1,4 +1,4 @@
-# Nielsen-sized CNN mini-batch training over a small deterministic MNIST subset.
+// Nielsen-sized CNN mini-batch training over a small deterministic MNIST subset.
 import mulberry.nn;
 import safetensors;
 

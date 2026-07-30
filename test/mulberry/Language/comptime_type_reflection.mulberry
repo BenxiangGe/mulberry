@@ -13,16 +13,16 @@ struct Plain {
 }
 
 comptime LeafTensor<A> =
-    Tensor<typeInfo(A).arrayLeafElementType()>;
+    Tensor<#typeInfo(A).arrayLeafElementType()>;
 
 fn inspect<T>(value: T): UInt64 {
-  const info = typeInfo(T);
+  const info = #typeInfo(T);
 
   if info.isUInt64() {
     return value + 1;
   }
 
-  if typeOf(value).isBool() {
+  if #typeOf(value).isBool() {
     return 20;
   }
 
@@ -42,7 +42,7 @@ fn inspect<T>(value: T): UInt64 {
 }
 
 fn choose<T>(value: T): UInt64 {
-  const info = typeInfo(T);
+  const info = #typeInfo(T);
   if info.isUInt64() {
     return value;
   } else {
@@ -66,22 +66,22 @@ fn runtimeChoose(flag: Bool): UInt64 {
 }
 
 fn reflectedArray<A>(value: A): UInt64 {
-  const row: Array<typeInfo(A).arrayLeafElementType(), 2> = value[0];
+  const row: Array<#typeInfo(A).arrayLeafElementType(), 2> = value[0];
   return row[1];
 }
 
 fn reflectedTensor<A>(value: A): UInt64 {
-  var result: Tensor<typeInfo(A).arrayLeafElementType()> = tensor.from(value);
+  var result: Tensor<#typeInfo(A).arrayLeafElementType()> = tensor.from(value);
   return result.numel();
 }
 
 fn makeReflectedTensor<A>(value: A):
-    Tensor<typeInfo(A).arrayLeafElementType()> {
+    Tensor<#typeInfo(A).arrayLeafElementType()> {
   return tensor.from(value);
 }
 
 fn recursiveArraySum<A>(value: A): UInt64 {
-  const info = typeInfo(A);
+  const info = #typeInfo(A);
   if info.isArray() {
     const length = info.arrayLength();
     var result = 0;
@@ -97,14 +97,14 @@ fn recursiveArraySum<A>(value: A): UInt64 {
 }
 
 fn concreteTensorBoundary(
-    value: Tensor<typeInfo(Array<UInt64, 2>).arrayLeafElementType()>):
-    Tensor<typeInfo(Array<UInt64, 2>).arrayLeafElementType()> {
+    value: Tensor<#typeInfo(Array<UInt64, 2>).arrayLeafElementType()>):
+    Tensor<#typeInfo(Array<UInt64, 2>).arrayLeafElementType()> {
   return value;
 }
 
 fn reflectedTensorBoundary<A>(
-    value: Tensor<typeInfo(A).arrayLeafElementType()>, source: A):
-    Tensor<typeInfo(A).arrayLeafElementType()> {
+    value: Tensor<#typeInfo(A).arrayLeafElementType()>, source: A):
+    Tensor<#typeInfo(A).arrayLeafElementType()> {
   return value;
 }
 

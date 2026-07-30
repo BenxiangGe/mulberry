@@ -36,6 +36,10 @@ ERROR(expected_fun_struct,
 ERROR(expected_type, "expected type")
 ERROR(expected_id, "expected identifier")
 ERROR(expected_expr, "expected expression")
+ERROR(expected_comptime, "expected `comptime`")
+ERROR(comptime_value_requires_no_semi,
+      "the final comptime expression must not end with `;`")
+ERROR(unknown_intrinsic, "unknown compiler intrinsic")
 ERROR(unexpected_const_parameter_modifier,
       "function parameters are readonly by default; use `mut` for mutable parameters")
 ERROR(invalid_integer_literal, "invalid integer literal")

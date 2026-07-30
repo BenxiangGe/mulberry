@@ -81,8 +81,8 @@ struct ByteBuffer {
   }
 
   pub fn pushQuotedString(mut self: ByteBuffer, value: String): () {
-    # This writer only supports trusted ASCII tensor names. General JSON
-    # escaping can be added when user-provided names become part of the API.
+    // This writer only supports trusted ASCII tensor names. General JSON
+    // escaping can be added when user-provided names become part of the API.
     self.pushChar('"');
     self.pushString(value);
     self.pushChar('"');

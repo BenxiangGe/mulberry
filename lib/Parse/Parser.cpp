@@ -213,6 +213,21 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   if (tokenIs(Token::kw_fn))
     return parseFunctionType(typeNode);
 
+  if (tokenIs(Token::hash)) {
+    auto location = tokenLoc();
+    unique_ptr<Expr> expression;
+    if (parseIntrinsicExpr(location, expression))
+      return failure();
+    while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
+      if (tokenIs(Token::dot) && parseMemberAccess(expression))
+        return failure();
+      if (tokenIs(Token::l_square) && parseIndex(expression))
+        return failure();
+    }
+    typeNode = make_unique<ComputedTypeNode>(location, std::move(expression));
+    return success();
+  }
+
   auto location = tokenLoc();
   std::string name;
   if (parseQualifiedName(name, diag::expected_type))
@@ -222,9 +237,6 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
     unique_ptr<Expr> expression;
     if (name == builtins::sizeOf || name == builtins::alignOf) {
       if (parseTypeLayoutExpr(location, name, expression))
-        return failure();
-    } else if (name == builtins::typeInfo) {
-      if (parseTypeInfoExpr(location, expression))
         return failure();
     } else if (parseFunctionCall(location, name, expression)) {
       return failure();
@@ -618,6 +630,38 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
   }
 }
 
+auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
+    -> MulberryResult {
+  auto location = tokenLoc();
+  if (parseToken(Token::kw_comptime, diag::expected_comptime))
+    return failure();
+  if (parseToken(Token::l_brace, diag::expected_l_brace))
+    return failure();
+
+  VectorUniquePtr<Stat> statements;
+  while (tokenIs(Token::kw_const)) {
+    unique_ptr<Stat> statement;
+    if (parseStatement(statement))
+      return failure();
+    statements.push_back(std::move(statement));
+  }
+
+  if (tokenIs(Token::r_brace))
+    return emitError(diag::expected_expr);
+
+  unique_ptr<Expr> result;
+  if (parseExpression(result))
+    return failure();
+  if (tokenIs(Token::semi))
+    return emitError(diag::comptime_value_requires_no_semi);
+  if (parseToken(Token::r_brace, diag::expected_r_brace))
+    return failure();
+
+  block = make_unique<ComptimeBlockExpr>(location, std::move(statements),
+                                         std::move(result));
+  return success();
+}
+
 auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
@@ -731,8 +775,10 @@ auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   unique_ptr<Expr> whereCondition;
   if (tokenIs(Token::identifier) && spelling() == "where") {
     consume(Token::identifier);
-    if (parseExpression(whereCondition))
+    unique_ptr<ComptimeBlockExpr> comptimeBlock;
+    if (parseComptimeBlock(comptimeBlock))
       return failure();
+    whereCondition = std::move(comptimeBlock);
   }
   if (parseToken(Token::l_brace, diag::expected_l_brace))
     return failure();
@@ -987,6 +1033,8 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
     return parseNegativeFloat(expr);
   case Token::identifier:
     return parseIdentifierExpr(expr);
+  case Token::hash:
+    return parseIntrinsicExpr(tokenLoc(), expr);
   case Token::pipe:
     return parseLambdaExpr(expr);
   case Token::kw_match:
@@ -1373,8 +1421,6 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   case Token::l_paren:
     if (name == builtins::sizeOf || name == builtins::alignOf)
       return parseTypeLayoutExpr(location, name, expr);
-    if (name == builtins::typeInfo)
-      return parseTypeInfoExpr(location, expr);
     if (name == builtins::objectIdentity)
       return parseObjectIdentityExpr(location, expr);
     if (isTypeLikeName(name))
@@ -1417,6 +1463,22 @@ auto Parser::parseTypeInfoExpr(llvm::SMLoc location, unique_ptr<Expr> &expr)
 
   expr = make_unique<TypeInfoExpr>(location, std::move(typeNode));
   return success();
+}
+
+auto Parser::parseIntrinsicExpr(llvm::SMLoc location,
+                                unique_ptr<Expr> &expr)
+    -> MulberryResult {
+  consume(Token::hash);
+  if (!tokenIs(Token::identifier))
+    return emitError(diag::expected_id);
+
+  auto name = spelling().str();
+  consume(Token::identifier);
+  if (name == builtins::typeInfo)
+    return parseTypeInfoExpr(location, expr);
+  if (name == builtins::typeOf)
+    return parseFunctionCall(location, name, expr);
+  return emitError(diag::unknown_intrinsic);
 }
 
 auto Parser::parseObjectIdentityExpr(llvm::SMLoc location,

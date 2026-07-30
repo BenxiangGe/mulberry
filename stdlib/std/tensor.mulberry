@@ -68,7 +68,7 @@ fn rowMajorStrides(shape: List<UInt64>): List<UInt64> {
 }
 
 fn appendShape<A>(value: A, mut shape: List<UInt64>): () {
-  const info = typeInfo(A);
+  const info = #typeInfo(A);
   if info.isArray() {
     const length = info.arrayLength();
     shape.push(length);
@@ -77,7 +77,7 @@ fn appendShape<A>(value: A, mut shape: List<UInt64>): () {
 }
 
 fn flattenInto<A, T>(value: A, mut data: Ptr<T>, offset: UInt64): UInt64 {
-  const info = typeInfo(A);
+  const info = #typeInfo(A);
   if info.isArray() {
     const length = info.arrayLength();
     var nextOffset = offset;
@@ -93,19 +93,19 @@ fn flattenInto<A, T>(value: A, mut data: Ptr<T>, offset: UInt64): UInt64 {
   }
 }
 
-fn from<A>(value: A): Tensor<typeInfo(A).arrayLeafElementType()> {
-  const info = typeInfo(A);
+fn from<A>(value: A): Tensor<#typeInfo(A).arrayLeafElementType()> {
+  const info = #typeInfo(A);
   const rank = info.arrayRank();
   var sizes: List<UInt64> = list.withCapacity(rank);
   appendShape(value, sizes);
 
   const count = numel(sizes);
-  var storage: TensorStorage<typeInfo(A).arrayLeafElementType()> =
+  var storage: TensorStorage<#typeInfo(A).arrayLeafElementType()> =
       std.tensor.__allocate(count);
   var data = storage.data;
   flattenInto(value, data, 0);
 
-  return Tensor<typeInfo(A).arrayLeafElementType()> {
+  return Tensor<#typeInfo(A).arrayLeafElementType()> {
     storage, data, rank, count, sizes, rowMajorStrides(sizes)
   };
 }

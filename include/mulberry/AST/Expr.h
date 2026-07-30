@@ -45,6 +45,7 @@ public:
     Expr_Assign,
     Expr_Binary,
     Expr_Block,
+    Expr_ComptimeBlock,
     Expr_TypeInfo,
     Expr_TypeLayout,
     Expr_HeapAlloc,
@@ -91,6 +92,30 @@ public:
     return _statements.begin();
   }
   auto end() const -> decltype(_statements.end()) { return _statements.end(); }
+};
+
+// A comptime block has a value, unlike the ordinary statement-only block.
+// Keeping a separate node prevents this rule from leaking into runtime blocks.
+class ComptimeBlockExpr final : public Expr {
+public:
+  ComptimeBlockExpr(llvm::SMLoc location, VectorUniquePtr<Stat> statements,
+                    std::unique_ptr<Expr> result)
+      : Expr{Expr_ComptimeBlock, location},
+        _statements(std::move(statements)), _result(std::move(result)) {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_ComptimeBlock;
+  }
+
+  auto statements() const -> const VectorUniquePtr<Stat> & {
+    return _statements;
+  }
+
+  auto result() const -> const std::unique_ptr<Expr> & { return _result; }
+
+private:
+  VectorUniquePtr<Stat> _statements;
+  std::unique_ptr<Expr> _result;
 };
 
 } // end namespace mulberry

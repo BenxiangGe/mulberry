@@ -67,6 +67,7 @@ private:
   auto dump(const Expr *node) -> void;
   auto dump(const UnitExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
+  auto dump(const ComptimeBlockExpr *node) -> void;
   auto dump(const LambdaExpr *node) -> void;
   auto dump(const MatchExpr *node) -> void;
   auto dump(const MatchExprArm *node) -> void;
@@ -441,7 +442,8 @@ auto Dumper::dump(const Expr *node) -> void {
             IntegerWidenExpr,
             BoolLiteralExpr, StringLiteralExpr, InterpolatedStringExpr,
             ObjectIdentityExpr, CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr,
-            LambdaExpr, HeapAllocExpr, ArrayLiteralExpr, IndexExpr,
+            ComptimeBlockExpr, LambdaExpr, HeapAllocExpr, ArrayLiteralExpr,
+            IndexExpr,
             VariableExpr, MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
       .Default(
@@ -459,6 +461,14 @@ auto Dumper::dump(const BlockExpr *node, std::string_view string) -> void {
   errs() << string << "\n";
   for (auto &expr : *node)
     dump(expr.get());
+}
+
+auto Dumper::dump(const ComptimeBlockExpr *node) -> void {
+  INDENT();
+  errs() << "ComptimeBlockExpr " << loc(node) << "\n";
+  for (auto &statement : node->statements())
+    dump(statement.get());
+  dump(node->result().get());
 }
 
 auto Dumper::dump(const LambdaExpr *node) -> void {

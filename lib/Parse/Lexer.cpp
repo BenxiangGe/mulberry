@@ -130,6 +130,12 @@ auto Lexer::lexToken() -> Token {
     case '*':
       return formToken(Token::star, tokStart);
     case '/':
+      if (peek() == '/') {
+        ++_curPtr;
+        while (peek() != '\n' && peek() != 0)
+          ++_curPtr;
+        goto Restart;
+      }
       return formToken(Token::div, tokStart);
     case '%':
       return formToken(Token::rem, tokStart);
@@ -154,16 +160,17 @@ auto Lexer::lexToken() -> Token {
     case '8':
     case '9':
       return lexNumber(tokStart);
-    case '#': {
+    case '#':
       if (_mode == Mode::StringInterpolation)
         return formToken(Token::error, tokStart);
-      while (true) {
-        if (peek() == '\n' || peek() == 0) {
-          goto Restart;
-        }
-        _curPtr++;
+      // LLVM lit directives use `# RUN:`/`# CHECK:` in source files. They
+      // are test metadata, not Mulberry syntax; intrinsic names have no gap.
+      if (peek() == ' ' || peek() == '\t' || peek() == '\n' || peek() == 0) {
+        while (peek() != '\n' && peek() != 0)
+          ++_curPtr;
+        goto Restart;
       }
-    }
+      return formToken(Token::hash, tokStart);
     }
   }
 }
