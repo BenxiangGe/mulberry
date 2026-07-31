@@ -43,8 +43,8 @@ public:
         _token(_lexer.lexToken()),
         _sourceManager(sourceManager) {}
 
-  auto parse(std::unique_ptr<Expr> &expr) -> MulberryResult {
-    if (parseAccess(expr))
+  auto parse(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
+    if (llvm::failed(parseAccess(expr)))
       return failure();
     if (!_token.is(Token::eof))
       return emitError(diag::invalid_string_interpolation_access);
@@ -56,7 +56,7 @@ private:
   Token _token;
   llvm::SourceMgr &_sourceManager;
 
-  auto emitError(const llvm::Twine &message) -> MulberryResult {
+  auto emitError(const llvm::Twine &message) -> llvm::LogicalResult {
     _sourceManager.PrintMessage(_token.getLoc(),
                                 llvm::SourceMgr::DiagKind::DK_Error,
                                 message);
@@ -68,7 +68,7 @@ private:
     _token = _lexer.lexToken();
   }
 
-  auto parseAccess(std::unique_ptr<Expr> &expr) -> MulberryResult {
+  auto parseAccess(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
     if (!_token.is(Token::identifier))
       return emitError(diag::expected_string_interpolation_access);
 
@@ -79,16 +79,16 @@ private:
 
     while (_token.is(Token::dot) || _token.is(Token::l_square)) {
       if (_token.is(Token::dot)) {
-        if (parseMember(expr))
+        if (llvm::failed(parseMember(expr)))
           return failure();
-      } else if (parseIndex(expr)) {
+      } else if (llvm::failed(parseIndex(expr))) {
         return failure();
       }
     }
     return success();
   }
 
-  auto parseMember(std::unique_ptr<Expr> &expr) -> MulberryResult {
+  auto parseMember(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
     auto location = _token.getLoc();
     consume(Token::dot);
     if (!_token.is(Token::identifier))
@@ -100,7 +100,7 @@ private:
     return success();
   }
 
-  auto parseIndex(std::unique_ptr<Expr> &expr) -> MulberryResult {
+  auto parseIndex(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
     auto location = expr->location();
     consume(Token::l_square);
     if (_token.is(Token::r_square))
@@ -109,7 +109,7 @@ private:
     std::vector<std::unique_ptr<Expr>> indices;
     while (true) {
       std::unique_ptr<Expr> index;
-      if (parseIndexValue(index))
+      if (llvm::failed(parseIndexValue(index)))
         return failure();
       indices.push_back(std::move(index));
 
@@ -128,7 +128,7 @@ private:
     return success();
   }
 
-  auto parseIndexValue(std::unique_ptr<Expr> &expr) -> MulberryResult {
+  auto parseIndexValue(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
     if (!_token.is(Token::integer_literal))
       return parseAccess(expr);
 
@@ -146,15 +146,15 @@ private:
 };
 } // namespace
 
-auto Parser::parseModule(unique_ptr<Module> &module) -> MulberryResult {
+auto Parser::parseModule(unique_ptr<Module> &module) -> llvm::LogicalResult {
   auto loc = tokenLoc();
-  if (tokenIs(Token::kw_package) && parsePackageDecl())
+  if (tokenIs(Token::kw_package) && llvm::failed(parsePackageDecl()))
     return failure();
 
   VectorUniquePtr<Decl> declarations;
   while (!tokenIs(Token::eof)) {
     unique_ptr<Decl> decl;
-    if (parseDeclaration(decl))
+    if (llvm::failed(parseDeclaration(decl)))
       return failure();
     declarations.push_back(std::move(decl));
   }
@@ -170,17 +170,17 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
                        const char *const end_error,
                        VectorUniquePtr<T> &elements,
                        ParseElement parseElement)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   while (!tokenIs(end) && !tokenIs(Token::eof)) {
     unique_ptr<T> exp;
-    if (parseElement(exp))
+    if (llvm::failed(parseElement(exp)))
       return failure();
     elements.push_back(std::move(exp));
 
     if (tokenIs(end))
       break;
 
-    if (parseToken(separator, separator_error))
+    if (llvm::failed(parseToken(separator, separator_error)))
       return failure();
   }
   return parseToken(end, end_error);
@@ -189,24 +189,24 @@ auto Parser::parseList(Token::Kind separator, Token::Kind end,
 // _____________________________________________________________________________
 // Parse Identifiers
 
-auto Parser::parsePackageDecl() -> MulberryResult {
+auto Parser::parsePackageDecl() -> llvm::LogicalResult {
   consume(Token::kw_package);
-  if (parseQualifiedName(_packageName, diag::expected_id) ||
-      parseToken(Token::semi, diag::expected_semi))
+  if (llvm::failed(parseQualifiedName(_packageName, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
   return success();
 }
 
-auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
+auto Parser::parseUnitType(unique_ptr<TypeNode> &typeNode) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::l_paren);
-  if (parseToken(Token::r_paren, diag::expected_l_paren))
+  if (llvm::failed(parseToken(Token::r_paren, diag::expected_l_paren)))
     return failure();
   typeNode = make_unique<UnitTypeNode>(location);
   return success();
 }
 
-auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
+auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> llvm::LogicalResult {
   if (tokenIs(Token::l_paren))
     return parseUnitType(typeNode);
 
@@ -216,12 +216,12 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   if (tokenIs(Token::hash)) {
     auto location = tokenLoc();
     unique_ptr<Expr> expression;
-    if (parseIntrinsicExpr(location, expression))
+    if (llvm::failed(parseIntrinsicExpr(location, expression)))
       return failure();
     while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
-      if (tokenIs(Token::dot) && parseMemberAccess(expression))
+      if (tokenIs(Token::dot) && llvm::failed(parseMemberAccess(expression)))
         return failure();
-      if (tokenIs(Token::l_square) && parseIndex(expression))
+      if (tokenIs(Token::l_square) && llvm::failed(parseIndex(expression)))
         return failure();
     }
     typeNode = make_unique<ComputedTypeNode>(location, std::move(expression));
@@ -230,22 +230,22 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
 
   auto location = tokenLoc();
   std::string name;
-  if (parseQualifiedName(name, diag::expected_type))
+  if (llvm::failed(parseQualifiedName(name, diag::expected_type)))
     return failure();
 
   if (tokenIs(Token::l_paren)) {
     unique_ptr<Expr> expression;
     if (name == builtins::sizeOf || name == builtins::alignOf) {
-      if (parseTypeLayoutExpr(location, name, expression))
+      if (llvm::failed(parseTypeLayoutExpr(location, name, expression)))
         return failure();
-    } else if (parseFunctionCall(location, name, expression)) {
+    } else if (llvm::failed(parseFunctionCall(location, name, expression))) {
       return failure();
     }
 
     while (tokenIs(Token::dot) || tokenIs(Token::l_square)) {
-      if (tokenIs(Token::dot) && parseMemberAccess(expression))
+      if (tokenIs(Token::dot) && llvm::failed(parseMemberAccess(expression)))
         return failure();
-      if (tokenIs(Token::l_square) && parseIndex(expression))
+      if (tokenIs(Token::l_square) && llvm::failed(parseIndex(expression)))
         return failure();
     }
     typeNode = make_unique<ComputedTypeNode>(location, std::move(expression));
@@ -257,7 +257,7 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
 
   if (tokenIs(Token::less)) {
     std::vector<ComptimeArg> arguments;
-    if (parseGenericTypeArgs(arguments))
+    if (llvm::failed(parseGenericTypeArgs(arguments)))
       return failure();
     typeNode = make_unique<GenericTypeNode>(
         location, name, std::move(arguments));
@@ -267,7 +267,7 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
   auto elementTypeNode = make_unique<NamedTypeNode>(location, name);
   if (tokenIs(Token::l_square)) {
     std::vector<int64_t> shape;
-    if (parseArrayTypeSuffix(shape))
+    if (llvm::failed(parseArrayTypeSuffix(shape)))
       return failure();
     typeNode = make_unique<ArrayTypeNode>(
         std::move(elementTypeNode), std::move(shape), location);
@@ -279,10 +279,10 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> MulberryResult {
 }
 
 auto Parser::parseFunctionType(unique_ptr<TypeNode> &typeNode)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_fn);
-  if (parseToken(Token::l_paren, diag::expected_l_paren))
+  if (llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
 
   VectorUniquePtr<TypeNode> parameterTypes;
@@ -290,20 +290,20 @@ auto Parser::parseFunctionType(unique_ptr<TypeNode> &typeNode)
   while (!tokenIs(Token::r_paren) && !tokenIs(Token::eof)) {
     parameterCanMutateObject.push_back(consumeIf(Token::kw_mut));
     unique_ptr<TypeNode> parameterType;
-    if (parseType(parameterType))
+    if (llvm::failed(parseType(parameterType)))
       return failure();
     parameterTypes.push_back(std::move(parameterType));
 
     if (tokenIs(Token::r_paren))
       break;
-    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+    if (llvm::failed(parseToken(Token::comma, diag::expected_comma_or_r_paren)))
       return failure();
   }
 
   unique_ptr<TypeNode> returnType;
-  if (parseToken(Token::r_paren, diag::expected_r_paren) ||
-      parseToken(Token::colon, diag::expected_colon) ||
-      parseType(returnType))
+  if (llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)) ||
+      llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+      llvm::failed(parseType(returnType)))
     return failure();
 
   typeNode = make_unique<FunctionTypeNode>(
@@ -313,7 +313,7 @@ auto Parser::parseFunctionType(unique_ptr<TypeNode> &typeNode)
 }
 
 auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::less);
   if (isGenericClosingToken())
     return emitError(diag::expected_type);
@@ -331,7 +331,7 @@ auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
       }
     } else {
       unique_ptr<TypeNode> argumentTypeNode;
-      if (parseType(argumentTypeNode))
+      if (llvm::failed(parseType(argumentTypeNode)))
         return failure();
       arguments.push_back(ComptimeArg(std::move(argumentTypeNode)));
     }
@@ -339,7 +339,7 @@ auto Parser::parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
     if (isGenericClosingToken())
       break;
 
-    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+    if (llvm::failed(parseToken(Token::comma, diag::expected_comma_or_r_paren)))
       return failure();
   }
   return parseGenericClose();
@@ -349,7 +349,7 @@ auto Parser::isGenericClosingToken() -> bool {
   return tokenIs(Token::greater) || tokenIs(Token::shift_right);
 }
 
-auto Parser::parseGenericClose() -> MulberryResult {
+auto Parser::parseGenericClose() -> llvm::LogicalResult {
   if (consumeIf(Token::greater))
     return success();
   if (!tokenIs(Token::shift_right))
@@ -365,20 +365,20 @@ auto Parser::parseGenericClose() -> MulberryResult {
 
 auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
                                  bool allowTraitConstraint)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::less);
   if (tokenIs(Token::greater))
     return emitError(diag::expected_id);
 
   while (!tokenIs(Token::greater) && !tokenIs(Token::eof)) {
     auto parameterName = spelling();
-    if (parseToken(Token::identifier, diag::expected_id))
+    if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
       return failure();
     auto parameterKind = ComptimeParam::Kind::Type;
     std::string traitName;
     if (consumeIf(Token::colon)) {
       std::string annotation;
-      if (parseQualifiedName(annotation, diag::expected_type))
+      if (llvm::failed(parseQualifiedName(annotation, diag::expected_type)))
         return failure();
       if (annotation == "UInt64")
         parameterKind = ComptimeParam::Kind::UInt64;
@@ -393,19 +393,19 @@ auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
     if (tokenIs(Token::greater))
       break;
 
-    if (parseToken(Token::comma, diag::expected_comma_or_r_paren))
+    if (llvm::failed(parseToken(Token::comma, diag::expected_comma_or_r_paren)))
       return failure();
   }
   return parseToken(Token::greater, diag::expected_greater);
 }
 
 auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
-                          llvm::SMLoc location) -> MulberryResult {
-  if (parseToken(Token::less, diag::expected_less))
+                          llvm::SMLoc location) -> llvm::LogicalResult {
+  if (llvm::failed(parseToken(Token::less, diag::expected_less)))
     return failure();
 
   unique_ptr<TypeNode> pointeeTypeNode;
-  if (parseType(pointeeTypeNode) || parseGenericClose())
+  if (llvm::failed(parseType(pointeeTypeNode)) || llvm::failed(parseGenericClose()))
     return failure();
 
   typeNode = make_unique<PtrTypeNode>(std::move(pointeeTypeNode), location);
@@ -413,15 +413,15 @@ auto Parser::parsePtrType(unique_ptr<TypeNode> &typeNode,
 }
 
 auto Parser::parseQualifiedName(std::string &name, const char *const message)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   name = std::string(spelling());
-  if (parseToken(Token::identifier, message))
+  if (llvm::failed(parseToken(Token::identifier, message)))
     return failure();
 
   while (consumeIf(Token::dot)) {
     name += ".";
     name += spelling();
-    if (parseToken(Token::identifier, diag::expected_id))
+    if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
       return failure();
   }
 
@@ -429,10 +429,10 @@ auto Parser::parseQualifiedName(std::string &name, const char *const message)
 }
 
 auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
-                               const char *const message) -> MulberryResult {
+                               const char *const message) -> llvm::LogicalResult {
   auto location = tokenLoc();
   std::string name;
-  if (parseQualifiedName(name, message))
+  if (llvm::failed(parseQualifiedName(name, message)))
     return failure();
   name = qualifyPackageName(name);
   functionName = make_unique<FunctionName>(location, name);
@@ -440,10 +440,10 @@ auto Parser::parseFunctionName(unique_ptr<FunctionName> &functionName,
 }
 
 auto Parser::parseStructName(unique_ptr<StructName> &structName,
-                             const char *const message) -> MulberryResult {
+                             const char *const message) -> llvm::LogicalResult {
   auto location = tokenLoc();
   std::string name;
-  if (parseQualifiedName(name, message))
+  if (llvm::failed(parseQualifiedName(name, message)))
     return failure();
   name = qualifyPackageName(name);
   structName = make_unique<StructName>(location, name);
@@ -463,7 +463,7 @@ auto Parser::qualifyPackageName(std::string_view name) const -> std::string {
 // _____________________________________________________________________________
 // Parse Declarations
 
-auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   switch (tokenKind()) {
   case Token::kw_import:
     return parseImportDecl(decl);
@@ -488,38 +488,38 @@ auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> MulberryResult {
   }
 }
 
-auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_import);
 
   std::string moduleName;
-  if (parseQualifiedName(moduleName, diag::expected_id) ||
-      parseToken(Token::semi, diag::expected_semi))
+  if (llvm::failed(parseQualifiedName(moduleName, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
 
   decl = make_unique<ImportDecl>(loc, moduleName);
   return success();
 }
 
-auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   unique_ptr<Prototype> proto;
   unique_ptr<FunctionDecl> functionDecl;
-  if (parsePrototype(proto) ||
-      parseFunctionDeclBody(loc, std::move(proto), functionDecl))
+  if (llvm::failed(parsePrototype(proto)) ||
+      llvm::failed(parseFunctionDeclBody(loc, std::move(proto), functionDecl)))
     return failure();
 
   decl = std::move(functionDecl);
   return success();
 }
 
-auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_extern);
 
   unique_ptr<Prototype> proto;
-  if (parsePrototype(proto, /*qualifyName=*/false) ||
-      parseToken(Token::semi, diag::expected_semi))
+  if (llvm::failed(parsePrototype(proto, /*qualifyName=*/false)) ||
+      llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
 
   decl = make_unique<FunctionDecl>(loc, std::move(proto), nullptr,
@@ -528,7 +528,7 @@ auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 }
 
 auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_fn);
 
@@ -536,29 +536,29 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
   unique_ptr<FunctionName> name;
   std::vector<ComptimeParam> comptimeParameters;
   if (qualifyName) {
-    if (parseFunctionName(name, diag::expected_id))
+    if (llvm::failed(parseFunctionName(name, diag::expected_id)))
       return failure();
   } else {
     auto nameLocation = tokenLoc();
     std::string methodName;
-    if (parseQualifiedName(methodName, diag::expected_id))
+    if (llvm::failed(parseQualifiedName(methodName, diag::expected_id)))
       return failure();
     name = make_unique<FunctionName>(nameLocation, methodName);
   }
 
   if (tokenIs(Token::less) &&
-      parseComptimeParams(comptimeParameters,
-                          /*allowTraitConstraint=*/true))
+      llvm::failed(parseComptimeParams(comptimeParameters,
+                          /*allowTraitConstraint=*/true)))
     return failure();
-  if (parseToken(Token::l_paren, diag::expected_l_paren))
+  if (llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
 
   // Parse List
   VectorUniquePtr<ParameterDecl> parameters;
   unique_ptr<TypeNode> typeNode;
-  if (parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
+  if (llvm::failed(parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
                 diag::expected_r_paren, parameters,
-                [this](unique_ptr<ParameterDecl> &elem) -> MulberryResult {
+                [this](unique_ptr<ParameterDecl> &elem) -> llvm::LogicalResult {
                   bool canMutateObject = false;
                   if (tokenIs(Token::kw_const))
                     return emitError(diag::unexpected_const_parameter_modifier);
@@ -568,16 +568,17 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
                   }
                   unique_ptr<VariableExpr> param;
                   unique_ptr<TypeNode> typeNode;
-                  if (parseVariableExpr(param) ||
-                      parseToken(Token::colon, diag::expected_colon) ||
-                      parseType(typeNode))
+                  if (llvm::failed(parseVariableExpr(param)) ||
+                      llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+                      llvm::failed(parseType(typeNode)))
                     return failure();
                   elem = make_unique<ParameterDecl>(
                       param->location(), std::move(param), std::move(typeNode),
                       canMutateObject);
                   return success();
-                }) ||
-      parseToken(Token::colon, diag::expected_colon) || parseType(typeNode))
+                })) ||
+      llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+      llvm::failed(parseType(typeNode)))
     return failure();
 
   // Make Proto
@@ -590,10 +591,10 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
 auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
                                    unique_ptr<Prototype> proto,
                                    unique_ptr<FunctionDecl> &functionDecl)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   unique_ptr<BlockExpr> body;
-  if (parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(body))
+  if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+      llvm::failed(parseBlockExpr(body)))
     return failure();
 
   functionDecl = make_unique<FunctionDecl>(
@@ -602,19 +603,19 @@ auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
 }
 
 auto Parser::parseStructMethod(unique_ptr<FunctionDecl> &method)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consumeIf(Token::kw_pub);
 
   unique_ptr<Prototype> proto;
-  if (parsePrototype(proto, /*qualifyName=*/false) ||
-      parseFunctionDeclBody(loc, std::move(proto), method))
+  if (llvm::failed(parsePrototype(proto, /*qualifyName=*/false)) ||
+      llvm::failed(parseFunctionDeclBody(loc, std::move(proto), method)))
     return failure();
 
   return success();
 }
 
-auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
+auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   VectorUniquePtr<Stat> statements;
   while (true) {
@@ -624,24 +625,24 @@ auto Parser::parseBlockExpr(unique_ptr<BlockExpr> &block) -> MulberryResult {
     }
 
     unique_ptr<Stat> stat;
-    if (parseStatement(stat))
+    if (llvm::failed(parseStatement(stat)))
       return failure();
     statements.push_back(std::move(stat));
   }
 }
 
 auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
-  if (parseToken(Token::kw_comptime, diag::expected_comptime))
+  if (llvm::failed(parseToken(Token::kw_comptime, diag::expected_comptime)))
     return failure();
-  if (parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<Stat> statements;
   while (tokenIs(Token::kw_const)) {
     unique_ptr<Stat> statement;
-    if (parseStatement(statement))
+    if (llvm::failed(parseStatement(statement)))
       return failure();
     statements.push_back(std::move(statement));
   }
@@ -650,11 +651,11 @@ auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
     return emitError(diag::expected_expr);
 
   unique_ptr<Expr> result;
-  if (parseExpression(result))
+  if (llvm::failed(parseExpression(result)))
     return failure();
   if (tokenIs(Token::semi))
     return emitError(diag::comptime_value_requires_no_semi);
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
   block = make_unique<ComptimeBlockExpr>(location, std::move(statements),
@@ -662,19 +663,19 @@ auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
   return success();
 }
 
-auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
 
   // Parse name
   unique_ptr<StructName> name;
-  if (parseStructName(name, diag::expected_id) ||
-      parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseStructName(name, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<FieldDecl> fields;
   VectorUniquePtr<FunctionDecl> methods;
-  if (parseStructMembers(fields, methods))
+  if (llvm::failed(parseStructMembers(fields, methods)))
     return failure();
 
   decl = make_unique<StructDecl>(
@@ -682,24 +683,24 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_trait);
 
   std::string name;
-  if (parseQualifiedName(name, diag::expected_id) ||
-      parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseQualifiedName(name, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
   name = qualifyPackageName(name);
 
   VectorUniquePtr<TraitMethodDecl> methods;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     unique_ptr<TraitMethodDecl> method;
-    if (parseTraitMethod(method))
+    if (llvm::failed(parseTraitMethod(method)))
       return failure();
     methods.push_back(std::move(method));
   }
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
   decl = make_unique<TraitDecl>(location, name, std::move(methods));
@@ -707,14 +708,14 @@ auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 }
 
 auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
-  if (parseToken(Token::kw_fn, diag::expected_fun_struct))
+  if (llvm::failed(parseToken(Token::kw_fn, diag::expected_fun_struct)))
     return failure();
 
   std::string name = spelling().str();
-  if (parseToken(Token::identifier, diag::expected_id) ||
-      parseToken(Token::l_paren, diag::expected_l_paren))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
 
   auto receiverCanMutateObject = consumeIf(Token::kw_mut);
@@ -730,9 +731,9 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
     auto canMutateObject = consumeIf(Token::kw_mut);
     unique_ptr<VariableExpr> parameter;
     unique_ptr<TypeNode> typeNode;
-    if (parseVariableExpr(parameter) ||
-        parseToken(Token::colon, diag::expected_colon) ||
-        parseType(typeNode))
+    if (llvm::failed(parseVariableExpr(parameter)) ||
+        llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+        llvm::failed(parseType(typeNode)))
       return failure();
     parameters.push_back(make_unique<ParameterDecl>(
         parameter->location(), std::move(parameter), std::move(typeNode),
@@ -740,15 +741,15 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
   }
 
   unique_ptr<TypeNode> returnTypeNode;
-  if (parseToken(Token::r_paren, diag::expected_r_paren) ||
-      parseToken(Token::colon, diag::expected_colon) ||
-      parseType(returnTypeNode))
+  if (llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)) ||
+      llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+      llvm::failed(parseType(returnTypeNode)))
     return failure();
 
   unique_ptr<BlockExpr> body;
   if (consumeIf(Token::semi)) {
-  } else if (parseToken(Token::l_brace, diag::expected_l_brace) ||
-             parseBlockExpr(body)) {
+  } else if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+             llvm::failed(parseBlockExpr(body))) {
     return failure();
   }
 
@@ -758,39 +759,39 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
   return success();
 }
 
-auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_impl);
 
   std::string traitName;
   std::vector<ComptimeParam> comptimeParameters;
   unique_ptr<TypeNode> targetTypeNode;
-  if (tokenIs(Token::less) && parseComptimeParams(comptimeParameters))
+  if (tokenIs(Token::less) && llvm::failed(parseComptimeParams(comptimeParameters)))
     return failure();
-  if (parseQualifiedName(traitName, diag::expected_id) ||
-      parseToken(Token::kw_for, diag::expected_for) ||
-      parseType(targetTypeNode))
+  if (llvm::failed(parseQualifiedName(traitName, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::kw_for, diag::expected_for)) ||
+      llvm::failed(parseType(targetTypeNode)))
     return failure();
 
   unique_ptr<Expr> whereCondition;
   if (tokenIs(Token::identifier) && spelling() == "where") {
     consume(Token::identifier);
     unique_ptr<ComptimeBlockExpr> comptimeBlock;
-    if (parseComptimeBlock(comptimeBlock))
+    if (llvm::failed(parseComptimeBlock(comptimeBlock)))
       return failure();
     whereCondition = std::move(comptimeBlock);
   }
-  if (parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<FunctionDecl> methods;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     unique_ptr<FunctionDecl> method;
-    if (parseStructMethod(method))
+    if (llvm::failed(parseStructMethod(method)))
       return failure();
     methods.push_back(std::move(method));
   }
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
   decl = make_unique<ImplDecl>(
@@ -802,11 +803,11 @@ auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 
 auto Parser::parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
                                 VectorUniquePtr<FunctionDecl> &methods)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     if (tokenIs(Token::kw_pub) || tokenIs(Token::kw_fn)) {
       unique_ptr<FunctionDecl> method;
-      if (parseStructMethod(method))
+      if (llvm::failed(parseStructMethod(method)))
         return failure();
       methods.push_back(std::move(method));
       consumeIf(Token::comma);
@@ -815,33 +816,33 @@ auto Parser::parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
 
     unique_ptr<VariableExpr> var;
     unique_ptr<TypeNode> typeNode;
-    if (parseVariableExpr(var) ||
-        parseToken(Token::colon, diag::expected_colon) ||
-        parseType(typeNode))
+    if (llvm::failed(parseVariableExpr(var)) ||
+        llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
+        llvm::failed(parseType(typeNode)))
       return failure();
     fields.push_back(make_unique<FieldDecl>(
         var->location(), std::move(var), std::move(typeNode)));
 
     if (!tokenIs(Token::r_brace) &&
-        parseToken(Token::comma, diag::expected_comma_or_r_brace))
+        llvm::failed(parseToken(Token::comma, diag::expected_comma_or_r_brace)))
       return failure();
   }
   return parseToken(Token::r_brace, diag::expected_r_brace);
 }
 
 auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (!tokenIs(Token::kw_struct))
     return parseType(typeNode);
 
   auto location = tokenLoc();
   consume(Token::kw_struct);
-  if (parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<FieldDecl> fields;
   VectorUniquePtr<FunctionDecl> methods;
-  if (parseStructMembers(fields, methods))
+  if (llvm::failed(parseStructMembers(fields, methods)))
     return failure();
 
   typeNode = make_unique<StructTypeNode>(
@@ -849,7 +850,7 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
   return success();
 }
 
-auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
+auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   auto location = tokenLoc();
   // `data` is contextual so existing fields and parameters named data remain
   // ordinary identifiers outside declaration position.
@@ -857,14 +858,14 @@ auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
   consume(Token::identifier);
 
   std::string name = std::string(spelling());
-  if (parseToken(Token::identifier, diag::expected_id))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
     return failure();
   name = qualifyPackageName(name);
 
   std::vector<ComptimeParam> parameters;
-  if (tokenIs(Token::less) && parseComptimeParams(parameters))
+  if (tokenIs(Token::less) && llvm::failed(parseComptimeParams(parameters)))
     return failure();
-  if (parseToken(Token::assign, diag::expected_assign))
+  if (llvm::failed(parseToken(Token::assign, diag::expected_assign)))
     return failure();
 
   VectorUniquePtr<DataConstructorDecl> constructors;
@@ -878,12 +879,12 @@ auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 
     VectorUniquePtr<TypeNode> payloadTypes;
     if (consumeIf(Token::l_paren)) {
-      if (parseList(Token::comma, Token::r_paren,
+      if (llvm::failed(parseList(Token::comma, Token::r_paren,
                     diag::expected_comma_or_r_paren,
                     diag::expected_r_paren, payloadTypes,
                     [this](unique_ptr<TypeNode> &typeNode) {
                       return parseType(typeNode);
-                    }))
+                    })))
         return failure();
     }
 
@@ -893,7 +894,7 @@ auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
       break;
   }
 
-  if (parseToken(Token::semi, diag::expected_semi))
+  if (llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
   decl = std::make_unique<DataDecl>(location, name, std::move(parameters),
                                     std::move(constructors));
@@ -901,27 +902,27 @@ auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> MulberryResult {
 }
 
 auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_comptime);
 
   std::string name = std::string(spelling());
-  if (parseToken(Token::identifier, diag::expected_id))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
     return failure();
   name = qualifyPackageName(name);
 
   std::vector<ComptimeParam> parameters;
   if (tokenIs(Token::less)) {
-    if (parseComptimeParams(parameters) ||
-        parseToken(Token::assign, diag::expected_assign))
+    if (llvm::failed(parseComptimeParams(parameters)) ||
+        llvm::failed(parseToken(Token::assign, diag::expected_assign)))
       return failure();
-  } else if (parseToken(Token::assign, diag::expected_assign)) {
+  } else if (llvm::failed(parseToken(Token::assign, diag::expected_assign))) {
     return failure();
   }
 
   unique_ptr<TypeNode> bodyTypeNode;
-  if (parseComptimeAliasBody(bodyTypeNode) ||
-      parseToken(Token::semi, diag::expected_semi))
+  if (llvm::failed(parseComptimeAliasBody(bodyTypeNode)) ||
+      llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
 
   decl = make_unique<ComptimeTypeAliasDecl>(
@@ -930,7 +931,7 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
 }
 
 auto Parser::parseArrayTypeSuffix(std::vector<int64_t> &shape)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::l_square);
   if (!tokenIs(Token::integer_literal))
     return emitError(diag::expected_expr);
@@ -944,7 +945,7 @@ auto Parser::parseArrayTypeSuffix(std::vector<int64_t> &shape)
   return parseToken(Token::r_square, diag::expected_r_square);
 }
 
-auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> elements;
@@ -954,33 +955,33 @@ auto Parser::parseArrayLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
       unique_ptr<Expr> subExpr;
 
       if (tokenIs(Token::l_square)) {
-        if (parseArrayLiteral(subExpr))
+        if (llvm::failed(parseArrayLiteral(subExpr)))
           return failure();
       } else {
-        if (parseExpression(subExpr))
+        if (llvm::failed(parseExpression(subExpr)))
           return failure();
       }
       elements.push_back(std::move(subExpr));
     } while (consumeIf(Token::comma));
   }
-  if (parseToken(Token::r_square, diag::expected_r_square))
+  if (llvm::failed(parseToken(Token::r_square, diag::expected_r_square)))
     return failure();
   expr = make_unique<ArrayLiteralExpr>(loc, std::move(elements));
 
   return success();
 }
 
-auto Parser::parseIndex(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseIndex(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto location = expr->location();
   consume(Token::l_square); // '['
   std::vector<std::unique_ptr<Expr>> indices;
   do {
     unique_ptr<Expr> subExpr;
-    if (parseExpression(subExpr))
+    if (llvm::failed(parseExpression(subExpr)))
       return failure();
     indices.push_back(std::move(subExpr));
   } while (consumeIf(Token::comma) && !tokenIs(Token::r_square));
-  if (parseToken(Token::r_square, diag::expected_r_square))
+  if (llvm::failed(parseToken(Token::r_square, diag::expected_r_square)))
     return failure();
 
   expr = std::make_unique<IndexExpr>(location, std::move(expr),
@@ -991,15 +992,15 @@ auto Parser::parseIndex(unique_ptr<Expr> &expr) -> MulberryResult {
 // _____________________________________________________________________________
 // Parse Expressions
 
-auto Parser::parseExpression(unique_ptr<Expr> &expr) -> MulberryResult {
-  if (parsePrimaryExpression(expr)) {
+auto Parser::parseExpression(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
+  if (llvm::failed(parsePrimaryExpression(expr))) {
     return failure();
   } else {
     return parseBinaryExpRHS(0, expr);
   }
 }
 
-auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto oldStopBeforeStructLiteral = _stopBeforeStructLiteral;
   // In `if/while flag { ... }`, keep `{` for the block instead of parsing
   // `flag { ... }` as a struct literal.
@@ -1012,14 +1013,14 @@ auto Parser::parseBlockCondition(unique_ptr<Expr> &expr) -> MulberryResult {
 auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
                               Token::Kind separator, Token::Kind end,
                               const char *const separator_error,
-                              const char *const end_error) -> MulberryResult {
+                              const char *const end_error) -> llvm::LogicalResult {
   return parseList(separator, end, separator_error, end_error, expressions,
-                   [this](unique_ptr<Expr> &elem) -> MulberryResult {
+                   [this](unique_ptr<Expr> &elem) -> llvm::LogicalResult {
                      return parseExpression(elem);
                    });
 }
 
-auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   switch (tokenKind()) {
   case Token::integer_literal:
     return parseIntegerLiteral(expr);
@@ -1056,7 +1057,7 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
   case Token::l_paren: {
     auto location = tokenLoc();
     consume(Token::l_paren);
-    if (parseToken(Token::r_paren, diag::expected_l_paren))
+    if (llvm::failed(parseToken(Token::r_paren, diag::expected_l_paren)))
       return failure();
     expr = make_unique<UnitExpr>(location);
     return success();
@@ -1067,16 +1068,16 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> MulberryResult {
 }
 
 auto Parser::parseVariableExpr(unique_ptr<VariableExpr> &identifier)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   auto name = spelling();
-  if (parseToken(Token::identifier, diag::expected_id))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
     return failure();
   identifier = make_unique<VariableExpr>(location, name);
   return success();
 }
 
-auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::pipe);
 
@@ -1084,18 +1085,18 @@ auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> MulberryResult {
   while (!tokenIs(Token::pipe) && !tokenIs(Token::eof)) {
     auto parameterLocation = tokenLoc();
     auto name = spelling();
-    if (parseToken(Token::identifier, diag::expected_id))
+    if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
       return failure();
     parameters.push_back({parameterLocation, name.str()});
 
     if (tokenIs(Token::pipe))
       break;
-    if (parseToken(Token::comma, diag::expected_comma_or_pipe))
+    if (llvm::failed(parseToken(Token::comma, diag::expected_comma_or_pipe)))
       return failure();
   }
 
   unique_ptr<Expr> body;
-  if (parseToken(Token::pipe, diag::expected_pipe) || parseExpression(body))
+  if (llvm::failed(parseToken(Token::pipe, diag::expected_pipe)) || llvm::failed(parseExpression(body)))
     return failure();
   expr = make_unique<LambdaExpr>(location, std::move(parameters),
                                  std::move(body));
@@ -1103,23 +1104,23 @@ auto Parser::parseLambdaExpr(unique_ptr<Expr> &expr) -> MulberryResult {
 }
 
 auto Parser::parseDataPattern(unique_ptr<DataPattern> &pattern)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   std::string constructorName;
-  if (parseQualifiedName(constructorName,
-                         diag::expected_data_constructor_name))
+  if (llvm::failed(parseQualifiedName(constructorName,
+                         diag::expected_data_constructor_name)))
     return failure();
   if (!isTypeLikeName(constructorName))
     return emitError(diag::expected_data_constructor_name);
 
   VectorUniquePtr<VariableExpr> bindings;
   if (consumeIf(Token::l_paren) &&
-      parseList(Token::comma, Token::r_paren,
+      llvm::failed(parseList(Token::comma, Token::r_paren,
                 diag::expected_comma_or_r_paren, diag::expected_r_paren,
                 bindings,
                 [this](unique_ptr<VariableExpr> &binding) {
                   return parseVariableExpr(binding);
-                }))
+                })))
     return failure();
 
   pattern = make_unique<DataPattern>(
@@ -1129,22 +1130,22 @@ auto Parser::parseDataPattern(unique_ptr<DataPattern> &pattern)
 
 auto Parser::parseMatchExprArmBlock(unique_ptr<BlockExpr> &bodyBlock,
                                     unique_ptr<Expr> &resultExpr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   VectorUniquePtr<Stat> statements;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     if (tokenIs(Token::identifier) && spelling() == "yield") {
       consume(Token::identifier);
-      if (parseExpression(resultExpr) ||
-          parseToken(Token::semi, diag::expected_semi) ||
-          parseToken(Token::r_brace, diag::expected_r_brace))
+      if (llvm::failed(parseExpression(resultExpr)) ||
+          llvm::failed(parseToken(Token::semi, diag::expected_semi)) ||
+          llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
         return failure();
       bodyBlock = make_unique<BlockExpr>(location, std::move(statements));
       return success();
     }
 
     unique_ptr<Stat> statement;
-    if (parseStatement(statement))
+    if (llvm::failed(parseStatement(statement)))
       return failure();
     statements.push_back(std::move(statement));
   }
@@ -1152,34 +1153,34 @@ auto Parser::parseMatchExprArmBlock(unique_ptr<BlockExpr> &bodyBlock,
   return emitError(diag::expected_terminal_yield);
 }
 
-auto Parser::parseMatchExpr(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseMatchExpr(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_match);
 
   unique_ptr<Expr> value;
-  if (parseBlockCondition(value) ||
-      parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseBlockCondition(value)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<MatchExprArm> arms;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     unique_ptr<DataPattern> pattern;
-    if (parseDataPattern(pattern) ||
-        parseToken(Token::fat_arrow, diag::expected_fat_arrow))
+    if (llvm::failed(parseDataPattern(pattern)) ||
+        llvm::failed(parseToken(Token::fat_arrow, diag::expected_fat_arrow)))
       return failure();
 
     auto armLocation = pattern->location();
     unique_ptr<BlockExpr> bodyBlock;
     unique_ptr<Expr> resultExpr;
     if (consumeIf(Token::l_brace)) {
-      if (parseMatchExprArmBlock(bodyBlock, resultExpr))
+      if (llvm::failed(parseMatchExprArmBlock(bodyBlock, resultExpr)))
         return failure();
       consumeIf(Token::comma);
     } else {
       VectorUniquePtr<Stat> statements;
       bodyBlock = make_unique<BlockExpr>(tokenLoc(), std::move(statements));
-      if (parseExpression(resultExpr) ||
-          parseToken(Token::comma, diag::expected_comma))
+      if (llvm::failed(parseExpression(resultExpr)) ||
+          llvm::failed(parseToken(Token::comma, diag::expected_comma)))
         return failure();
     }
 
@@ -1188,26 +1189,26 @@ auto Parser::parseMatchExpr(unique_ptr<Expr> &expr) -> MulberryResult {
         std::move(resultExpr)));
   }
 
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
   expr = make_unique<MatchExpr>(location, std::move(value), std::move(arms));
   return success();
 }
 
-auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_if);
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> thenBlock;
   unique_ptr<BlockExpr> elseBlock;
-  if (parseBlockCondition(condition) ||
-      parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(thenBlock))
+  if (llvm::failed(parseBlockCondition(condition)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+      llvm::failed(parseBlockExpr(thenBlock)))
     return failure();
 
   if (consumeIf(Token::kw_else)) {
-    if (parseToken(Token::l_brace, diag::expected_l_brace) ||
-        parseBlockExpr(elseBlock))
+    if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+        llvm::failed(parseBlockExpr(elseBlock)))
       return failure();
   }
 
@@ -1216,31 +1217,31 @@ auto Parser::parseIfStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseMatchStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseMatchStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_match);
 
   unique_ptr<Expr> value;
-  if (parseBlockCondition(value) ||
-      parseToken(Token::l_brace, diag::expected_l_brace))
+  if (llvm::failed(parseBlockCondition(value)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
 
   VectorUniquePtr<MatchArm> arms;
   while (!tokenIs(Token::r_brace) && !tokenIs(Token::eof)) {
     unique_ptr<DataPattern> pattern;
-    if (parseDataPattern(pattern) ||
-        parseToken(Token::fat_arrow, diag::expected_fat_arrow))
+    if (llvm::failed(parseDataPattern(pattern)) ||
+        llvm::failed(parseToken(Token::fat_arrow, diag::expected_fat_arrow)))
       return failure();
 
     auto patternLocation = pattern->location();
     unique_ptr<BlockExpr> bodyBlock;
     if (consumeIf(Token::l_brace)) {
-      if (parseBlockExpr(bodyBlock))
+      if (llvm::failed(parseBlockExpr(bodyBlock)))
         return failure();
     } else {
       auto bodyLocation = tokenLoc();
       unique_ptr<Stat> bodyStatement;
-      if (parseStatement(bodyStatement))
+      if (llvm::failed(parseStatement(bodyStatement)))
         return failure();
       VectorUniquePtr<Stat> statements;
       statements.push_back(std::move(bodyStatement));
@@ -1251,41 +1252,41 @@ auto Parser::parseMatchStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
         patternLocation, std::move(pattern), std::move(bodyBlock)));
   }
 
-  if (parseToken(Token::r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
   stat = make_unique<MatchStat>(location, std::move(value), std::move(arms));
   return success();
 }
 
-auto Parser::parseWhileStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseWhileStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_while);
   unique_ptr<Expr> condition;
   unique_ptr<BlockExpr> bodyBlock;
-  if (parseBlockCondition(condition) ||
-      parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(bodyBlock))
+  if (llvm::failed(parseBlockCondition(condition)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+      llvm::failed(parseBlockExpr(bodyBlock)))
     return failure();
   stat =
       make_unique<WhileStat>(loc, std::move(condition), std::move(bodyBlock));
   return success();
 }
 
-auto Parser::parseBreakStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseBreakStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_break);
   stat = make_unique<BreakStat>(loc);
   return success();
 }
 
-auto Parser::parseContinueStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseContinueStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_continue);
   stat = make_unique<ContinueStat>(loc);
   return success();
 }
 
-auto Parser::parseReturnStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseReturnStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_return);
   if (tokenIs(Token::semi)) {
@@ -1294,29 +1295,29 @@ auto Parser::parseReturnStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   }
 
   unique_ptr<Expr> expression;
-  if (parseExpression(expression))
+  if (llvm::failed(parseExpression(expression)))
     return failure();
   stat = make_unique<ReturnStat>(loc, std::move(expression));
   return success();
 }
 
-auto Parser::parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseForStat(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_for);
 
   auto variableName = spelling();
-  if (parseToken(Token::identifier, diag::expected_id) ||
-      parseToken(Token::kw_in, diag::expected_in))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)) ||
+      llvm::failed(parseToken(Token::kw_in, diag::expected_in)))
     return failure();
 
   unique_ptr<Expr> startExpr;
   unique_ptr<Expr> endExpr;
   unique_ptr<BlockExpr> bodyBlock;
-  if (parseExpression(startExpr) ||
-      parseToken(Token::dot_dot, diag::expected_dot_dot) ||
-      parseBlockCondition(endExpr) ||
-      parseToken(Token::l_brace, diag::expected_l_brace) ||
-      parseBlockExpr(bodyBlock))
+  if (llvm::failed(parseExpression(startExpr)) ||
+      llvm::failed(parseToken(Token::dot_dot, diag::expected_dot_dot)) ||
+      llvm::failed(parseBlockCondition(endExpr)) ||
+      llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)) ||
+      llvm::failed(parseBlockExpr(bodyBlock)))
     return failure();
 
   stat = make_unique<ForStat>(loc, variableName, std::move(startExpr),
@@ -1324,7 +1325,7 @@ auto Parser::parseForStat(std::unique_ptr<Stat> &stat) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseIntegerLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseIntegerLiteral(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   auto spelling = token().getSpelling().str();
   consume(Token::integer_literal);
@@ -1332,7 +1333,7 @@ auto Parser::parseIntegerLiteral(unique_ptr<Expr> &expr) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseFloat(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseFloat(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   if (auto value = token().getFloat32Value()) {
     consume(Token::float_literal);
@@ -1342,7 +1343,7 @@ auto Parser::parseFloat(unique_ptr<Expr> &expr) -> MulberryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::diff);
   if (!tokenIs(Token::float_literal))
@@ -1357,7 +1358,7 @@ auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> MulberryResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseString(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseString(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   auto spelling = token().getSpelling();
   auto segments = token().getStringLiteralSegments();
@@ -1385,7 +1386,7 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> MulberryResult {
     unique_ptr<Expr> access;
     auto source = spelling.substr(segment.sourceOffset, segment.sourceLength);
     InterpolationAccessParser parser(source, _sourceManager);
-    if (parser.parse(access))
+    if (llvm::failed(parser.parse(access)))
       return failure();
     expressions.push_back(std::move(access));
   }
@@ -1395,7 +1396,7 @@ auto Parser::parseString(unique_ptr<Expr> &expr) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseChar(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseChar(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   if (auto value = token().getCharLiteralValue()) {
     consume(Token::char_literal);
@@ -1405,10 +1406,10 @@ auto Parser::parseChar(unique_ptr<Expr> &expr) -> MulberryResult {
   return emitError(diag::expected_expr);
 }
 
-auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
+auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto location = tokenLoc();
   std::string name;
-  if (parseQualifiedName(name, diag::expected_id))
+  if (llvm::failed(parseQualifiedName(name, diag::expected_id)))
     return failure();
   switch (tokenKind()) {
   case Token::less:
@@ -1440,11 +1441,11 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> MulberryResult {
 }
 
 auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
-                                 unique_ptr<Expr> &expr) -> MulberryResult {
+                                 unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   consume(Token::l_paren);
 
   unique_ptr<TypeNode> typeNode;
-  if (parseType(typeNode) || parseToken(Token::r_paren, diag::expected_r_paren))
+  if (llvm::failed(parseType(typeNode)) || llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)))
     return failure();
 
   auto query = name == builtins::sizeOf ? TypeLayoutExpr::Query::SizeOf
@@ -1454,11 +1455,11 @@ auto Parser::parseTypeLayoutExpr(llvm::SMLoc location, std::string_view name,
 }
 
 auto Parser::parseTypeInfoExpr(llvm::SMLoc location, unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::l_paren);
 
   unique_ptr<TypeNode> typeNode;
-  if (parseType(typeNode) || parseToken(Token::r_paren, diag::expected_r_paren))
+  if (llvm::failed(parseType(typeNode)) || llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)))
     return failure();
 
   expr = make_unique<TypeInfoExpr>(location, std::move(typeNode));
@@ -1467,7 +1468,7 @@ auto Parser::parseTypeInfoExpr(llvm::SMLoc location, unique_ptr<Expr> &expr)
 
 auto Parser::parseIntrinsicExpr(llvm::SMLoc location,
                                 unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::hash);
   if (!tokenIs(Token::identifier))
     return emitError(diag::expected_id);
@@ -1483,12 +1484,12 @@ auto Parser::parseIntrinsicExpr(llvm::SMLoc location,
 
 auto Parser::parseObjectIdentityExpr(llvm::SMLoc location,
                                      unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::l_paren);
 
   unique_ptr<Expr> value;
-  if (parseExpression(value) ||
-      parseToken(Token::r_paren, diag::expected_r_paren))
+  if (llvm::failed(parseExpression(value)) ||
+      llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)))
     return failure();
 
   expr = make_unique<ObjectIdentityExpr>(location, std::move(value));
@@ -1496,20 +1497,20 @@ auto Parser::parseObjectIdentityExpr(llvm::SMLoc location,
 }
 
 auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
-                                unique_ptr<Expr> &expr) -> MulberryResult {
+                                unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   if (name != "heap.alloc")
     return emitError(diag::expected_expr);
 
   consume(Token::less);
   unique_ptr<TypeNode> typeNode;
-  if (parseType(typeNode) || parseGenericClose() ||
-      parseToken(Token::l_paren, diag::expected_l_paren))
+  if (llvm::failed(parseType(typeNode)) || llvm::failed(parseGenericClose()) ||
+      llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
 
   unique_ptr<Expr> count;
-  if (!tokenIs(Token::r_paren) && parseExpression(count))
+  if (!tokenIs(Token::r_paren) && llvm::failed(parseExpression(count)))
     return failure();
-  if (parseToken(Token::r_paren, diag::expected_r_paren))
+  if (llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)))
     return failure();
 
   expr = make_unique<HeapAllocExpr>(location, std::move(typeNode),
@@ -1518,11 +1519,11 @@ auto Parser::parseHeapAllocExpr(llvm::SMLoc location, std::string_view name,
 }
 
 auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
-                               unique_ptr<Expr> &expr) -> MulberryResult {
+                               unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   consume(Token::l_paren);
   auto expressions = VectorUniquePtr<Expr>();
-  if (parseExpressions(expressions, Token::comma, Token::r_paren,
-                       diag::expected_comma_or_r_paren, diag::expected_r_paren))
+  if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_paren,
+                       diag::expected_comma_or_r_paren, diag::expected_r_paren)))
     return failure();
   expr = make_unique<CallExpr>(location, name, std::move(expressions));
   return success();
@@ -1531,12 +1532,12 @@ auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
 auto Parser::parseDataConstructorExpr(llvm::SMLoc location,
                                       std::string_view name,
                                       unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   consume(Token::l_paren);
   VectorUniquePtr<Expr> expressions;
-  if (parseExpressions(expressions, Token::comma, Token::r_paren,
+  if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_paren,
                        diag::expected_comma_or_r_paren,
-                       diag::expected_r_paren))
+                       diag::expected_r_paren)))
     return failure();
   expr = std::make_unique<DataConstructorExpr>(
       location, name, std::move(expressions));
@@ -1545,11 +1546,11 @@ auto Parser::parseDataConstructorExpr(llvm::SMLoc location,
 
 auto Parser::parseStructLiteral(llvm::SMLoc location,
                                 unique_ptr<TypeNode> typeNode,
-                                unique_ptr<Expr> &expr) -> MulberryResult {
+                                unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   consume(Token::l_brace);
   auto expressions = VectorUniquePtr<Expr>();
-  if (parseExpressions(expressions, Token::comma, Token::r_brace,
-                       diag::expected_comma_or_r_brace, diag::expected_r_brace))
+  if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_brace,
+                       diag::expected_comma_or_r_brace, diag::expected_r_brace)))
     return failure();
   expr = make_unique<StructLiteralExpr>(
       location, std::move(typeNode), std::move(expressions));
@@ -1558,9 +1559,9 @@ auto Parser::parseStructLiteral(llvm::SMLoc location,
 
 auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
                                        std::string_view name,
-                                       unique_ptr<Expr> &expr) -> MulberryResult {
+                                       unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   std::vector<ComptimeArg> arguments;
-  if (parseGenericTypeArgs(arguments))
+  if (llvm::failed(parseGenericTypeArgs(arguments)))
     return failure();
 
   auto typeNode = make_unique<GenericTypeNode>(
@@ -1571,7 +1572,7 @@ auto Parser::parseGenericStructLiteral(llvm::SMLoc location,
 }
 
 auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   while (true) {
     int tokPrec = getTokenPrecedence();
     if (tokPrec < exprPrec)
@@ -1580,12 +1581,12 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
     Token t = token();
 
     if (t.is(Token::dot)) {
-      if (parseMemberAccess(expr))
+      if (llvm::failed(parseMemberAccess(expr)))
         return failure();
       continue;
     }
     if (t.is(Token::l_square)) {
-      if (parseIndex(expr))
+      if (llvm::failed(parseIndex(expr)))
         return failure();
       continue;
     }
@@ -1600,15 +1601,15 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
     auto location = tokenLoc();
 
     unique_ptr<Expr> rhs;
-    if (parsePrimaryExpression(rhs))
+    if (llvm::failed(parsePrimaryExpression(rhs)))
       return emitError(diag::expected_expr);
 
     int nextPrec = getTokenPrecedence();
     if (tokPrec < nextPrec) {
-      if (parseBinaryExpRHS(tokPrec + 1, rhs))
+      if (llvm::failed(parseBinaryExpRHS(tokPrec + 1, rhs)))
         return failure();
     } else if ((tokPrec == nextPrec) && isTokenRightAssociative()) {
-      if (parseBinaryExpRHS(tokPrec, rhs))
+      if (llvm::failed(parseBinaryExpRHS(tokPrec, rhs)))
         return failure();
     }
     if (t.is(Token::assign)) {
@@ -1622,20 +1623,20 @@ auto Parser::parseBinaryExpRHS(int exprPrec, std::unique_ptr<Expr> &expr)
 }
 
 auto Parser::parseMemberAccess(std::unique_ptr<Expr> &expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::dot);
 
   auto fieldName = spelling();
-  if (parseToken(Token::identifier, diag::expected_id))
+  if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
     return failure();
 
   if (tokenIs(Token::l_paren)) {
     consume(Token::l_paren);
     auto expressions = VectorUniquePtr<Expr>();
-    if (parseExpressions(expressions, Token::comma, Token::r_paren,
+    if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_paren,
                          diag::expected_comma_or_r_paren,
-                         diag::expected_r_paren))
+                         diag::expected_r_paren)))
       return failure();
     expr = std::make_unique<CallExpr>(
         location, std::move(expr), fieldName, std::move(expressions));
@@ -1754,8 +1755,8 @@ auto Parser::tokenToOperator(Token token) -> BinaryExpr::Operator {
 // _____________________________________________________________________________
 // Parse Statements
 
-auto Parser::parseStatement(unique_ptr<Stat> &stat) -> MulberryResult {
-  if (parseStatementWithoutSemi(stat))
+auto Parser::parseStatement(unique_ptr<Stat> &stat) -> llvm::LogicalResult {
+  if (llvm::failed(parseStatementWithoutSemi(stat)))
     return failure();
 
   auto kind = stat->getKind();
@@ -1768,7 +1769,7 @@ auto Parser::parseStatement(unique_ptr<Stat> &stat) -> MulberryResult {
   return success();
 }
 
-auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   switch (tokenKind()) {
   case Token::kw_var:
     return parseVarDecl(stat);
@@ -1791,7 +1792,7 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult
   default: {
     auto loc = tokenLoc();
     unique_ptr<Expr> expr;
-    if (parseExpression(expr))
+    if (llvm::failed(parseExpression(expr)))
       return failure();
     stat = make_unique<ExprStat>(loc, std::move(expr));
     return success();
@@ -1799,26 +1800,26 @@ auto Parser::parseStatementWithoutSemi(unique_ptr<Stat> &stat) -> MulberryResult
   }
 }
 
-auto Parser::parseVarDecl(unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseVarDecl(unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   return parseVariableDecl(stat, /*isConst=*/false);
 }
 
-auto Parser::parseConstDecl(unique_ptr<Stat> &stat) -> MulberryResult {
+auto Parser::parseConstDecl(unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   return parseVariableDecl(stat, /*isConst=*/true);
 }
 
 auto Parser::parseVariableDecl(unique_ptr<Stat> &stat, bool isConst)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(isConst ? Token::kw_const : Token::kw_var);
   unique_ptr<VariableExpr> var;
   unique_ptr<TypeNode> typeNode;
   unique_ptr<Expr> e;
-  if (parseVariableExpr(var))
+  if (llvm::failed(parseVariableExpr(var)))
     return failure();
-  if (consumeIf(Token::colon) && parseType(typeNode))
+  if (consumeIf(Token::colon) && llvm::failed(parseType(typeNode)))
     return failure();
-  if (parseToken(Token::assign, diag::expected_assign) || parseExpression(e))
+  if (llvm::failed(parseToken(Token::assign, diag::expected_assign)) || llvm::failed(parseExpression(e)))
     return failure();
   stat = make_unique<VariableStat>(loc, std::move(var), std::move(typeNode),
                                    std::move(e), isConst,

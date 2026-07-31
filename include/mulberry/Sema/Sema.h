@@ -8,6 +8,7 @@
 #ifndef MULBERRY_SEMA_H
 #define MULBERRY_SEMA_H
 
+#include "llvm/Support/LogicalResult.h"
 #include <map>
 #include <string>
 #include <string_view>
@@ -18,13 +19,12 @@ class SourceMgr;
 
 namespace mulberry {
 class Module;
-class MulberryResult;
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST)
-    -> MulberryResult;
+    -> llvm::LogicalResult;
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST,
           const std::map<std::string, std::string> &importAliases)
-    -> MulberryResult;
+    -> llvm::LogicalResult;
 
 } // end namespace mulberry
 

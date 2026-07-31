@@ -986,13 +986,13 @@ public:
     registerBuiltinHandlers();
   }
 
-  auto sema(Module &node) -> MulberryResult {
+  auto sema(Module &node) -> llvm::LogicalResult {
     for (auto &decl : node)
-      if (sema(decl.get()))
+      if (llvm::failed(sema(decl.get())))
         return failure();
 
     for (size_t i = 0; i < _instantiatedFunctions.size(); ++i) {
-      if (sema(_instantiatedFunctions[i].get()))
+      if (llvm::failed(sema(_instantiatedFunctions[i].get())))
         return failure();
     }
 
@@ -1016,7 +1016,7 @@ public:
 
 private:
   using BuiltinHandler =
-      std::function<MulberryResult(Expr *, const Type *)>;
+      std::function<llvm::LogicalResult(Expr *, const Type *)>;
 
   const llvm::SourceMgr &_sourceManager;
   TypeContext _typeContext;
@@ -1046,26 +1046,26 @@ private:
   // Semantic Analysis
 
   // Declarations
-  auto sema(Decl *node) -> MulberryResult;
-  auto sema(Prototype *node) -> MulberryResult;
+  auto sema(Decl *node) -> llvm::LogicalResult;
+  auto sema(Prototype *node) -> llvm::LogicalResult;
   auto semaFunctionParameters(Prototype *node,
                               std::vector<const Type *> &parameterTypes,
                               std::vector<bool> &parameterCanMutateObject)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaFunctionSignature(Prototype *node, bool isExtern = false)
-      -> MulberryResult;
-  auto sema(FunctionDecl *node) -> MulberryResult;
-  auto sema(StructDecl *node) -> MulberryResult;
-  auto sema(DataDecl *node) -> MulberryResult;
-  auto sema(ComptimeTypeAliasDecl *node) -> MulberryResult;
-  auto sema(TraitDecl *node) -> MulberryResult;
-  auto sema(ImplDecl *node) -> MulberryResult;
+      -> llvm::LogicalResult;
+  auto sema(FunctionDecl *node) -> llvm::LogicalResult;
+  auto sema(StructDecl *node) -> llvm::LogicalResult;
+  auto sema(DataDecl *node) -> llvm::LogicalResult;
+  auto sema(ComptimeTypeAliasDecl *node) -> llvm::LogicalResult;
+  auto sema(TraitDecl *node) -> llvm::LogicalResult;
+  auto sema(ImplDecl *node) -> llvm::LogicalResult;
   auto resolveTraitConstraints(const Node *node,
                                std::vector<ComptimeParam> &parameters)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto traitMethodFunctionName(const TraitDecl *trait, const Type *targetType,
                                std::string_view methodName) const
       -> std::string;
@@ -1073,115 +1073,115 @@ private:
                                      const TraitMethodDecl *method,
                                      const Type *targetType,
                                      std::string &functionName)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto instantiateGenericTraitMethod(const ImplDecl *impl,
                                      const FunctionDecl *method,
                                      const TraitMethodDecl *contract,
                                      const Type *targetType,
                                      std::string &functionName)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto genericTraitImplementationMatches(const ImplDecl *impl,
                                          const Type *type, bool &matches)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto findMatchingGenericTraitImplementations(
       const Type *type, const TraitDecl *trait,
-      std::vector<const ImplDecl *> &implementations) -> MulberryResult;
+      std::vector<const ImplDecl *> &implementations) -> llvm::LogicalResult;
   auto materializeGenericTraitImplementation(const Node *diagnosticNode,
                                              const Type *type,
                                              const TraitDecl *trait,
-                                             bool &matched) -> MulberryResult;
+                                             bool &matched) -> llvm::LogicalResult;
   auto materializeGenericTraitMethod(const Node *diagnosticNode,
                                      const Type *type,
                                      std::string_view methodName,
                                      std::string &functionName)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto checkTraitConstraints(
       const Node *node, const std::vector<ComptimeParam> &parameters,
       const std::vector<InferredComptimeArgument> &arguments)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto typeConformsToTrait(const Node *diagnosticNode, const Type *type,
                            const TraitDecl *trait, bool &conforms)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
 
   // Expressions
-  auto sema(Expr *node) -> MulberryResult;
-  auto sema(Expr *node, const Type *type) -> MulberryResult;
+  auto sema(Expr *node) -> llvm::LogicalResult;
+  auto sema(Expr *node, const Type *type) -> llvm::LogicalResult;
   auto semaExpected(std::unique_ptr<Expr> &node, const Type *type)
-      -> MulberryResult;
-  auto sema(UnitExpr *node) -> MulberryResult;
-  auto sema(BlockExpr *node) -> MulberryResult;
-  auto sema(ComptimeBlockExpr *node) -> MulberryResult;
-  auto sema(LambdaExpr *node) -> MulberryResult;
+      -> llvm::LogicalResult;
+  auto sema(UnitExpr *node) -> llvm::LogicalResult;
+  auto sema(BlockExpr *node) -> llvm::LogicalResult;
+  auto sema(ComptimeBlockExpr *node) -> llvm::LogicalResult;
+  auto sema(LambdaExpr *node) -> llvm::LogicalResult;
   auto sema(LambdaExpr *node, const FunctionType *functionType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto sema(MatchExpr *node, const Type *expectedType = nullptr)
-      -> MulberryResult;
-  auto sema(TryExpr *node) -> MulberryResult;
+      -> llvm::LogicalResult;
+  auto sema(TryExpr *node) -> llvm::LogicalResult;
   auto semaLambda(LambdaExpr *node,
                   const std::vector<const Type *> &parameterTypes,
                   const std::vector<bool> &parameterCanMutateObject,
                   const Type *expectedReturnType,
-                  std::string_view packageName) -> MulberryResult;
-  auto sema(CallExpr *node) -> MulberryResult;
-  auto sema(DataConstructorExpr *node) -> MulberryResult;
+                  std::string_view packageName) -> llvm::LogicalResult;
+  auto sema(CallExpr *node) -> llvm::LogicalResult;
+  auto sema(DataConstructorExpr *node) -> llvm::LogicalResult;
   auto sema(DataConstructorExpr *node, const DataType *dataType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaIndirectCall(CallExpr *node, const FunctionType *functionType,
-                        const Type *expectedType = nullptr) -> MulberryResult;
-  auto sema(StructLiteralExpr *node) -> MulberryResult;
-  auto sema(VariableExpr *node) -> MulberryResult;
-  auto sema(MemberExpr *node) -> MulberryResult;
-  auto sema(AssignExpr *node) -> MulberryResult;
-  auto sema(IntegerLiteralExpr *node) -> MulberryResult;
-  auto sema(IntegerLiteralExpr *node, const Type *type) -> MulberryResult;
-  auto sema(IntegerWidenExpr *node) -> MulberryResult;
-  auto sema(FloatLiteralExpr *node) -> MulberryResult;
-  auto sema(BoolLiteralExpr *node) -> MulberryResult;
-  auto sema(StringLiteralExpr *node) -> MulberryResult;
-  auto sema(InterpolatedStringExpr *node) -> MulberryResult;
-  auto sema(ObjectIdentityExpr *node) -> MulberryResult;
-  auto sema(CharLiteralExpr *node) -> MulberryResult;
+                        const Type *expectedType = nullptr) -> llvm::LogicalResult;
+  auto sema(StructLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(VariableExpr *node) -> llvm::LogicalResult;
+  auto sema(MemberExpr *node) -> llvm::LogicalResult;
+  auto sema(AssignExpr *node) -> llvm::LogicalResult;
+  auto sema(IntegerLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(IntegerLiteralExpr *node, const Type *type) -> llvm::LogicalResult;
+  auto sema(IntegerWidenExpr *node) -> llvm::LogicalResult;
+  auto sema(FloatLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(BoolLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(StringLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(InterpolatedStringExpr *node) -> llvm::LogicalResult;
+  auto sema(ObjectIdentityExpr *node) -> llvm::LogicalResult;
+  auto sema(CharLiteralExpr *node) -> llvm::LogicalResult;
   auto evaluateComptime(Expr *node) -> ComptimeEvaluation;
   auto evaluateComptimeBlock(ComptimeBlockExpr *node) -> ComptimeEvaluation;
   auto evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation;
   auto evaluateComptimeBinary(BinaryExpr *node) -> ComptimeEvaluation;
   auto comptimeRuntimeType(const ComptimeValue &value) -> const Type *;
   auto setComptimeResultType(Expr *node, const ComptimeValue &value) -> void;
-  auto sema(TypeLayoutExpr *node) -> MulberryResult;
-  auto sema(HeapAllocExpr *node) -> MulberryResult;
-  auto sema(BinaryExpr *node) -> MulberryResult;
-  auto sema(BinaryExpr *node, const Type *expectedType) -> MulberryResult;
+  auto sema(TypeLayoutExpr *node) -> llvm::LogicalResult;
+  auto sema(HeapAllocExpr *node) -> llvm::LogicalResult;
+  auto sema(BinaryExpr *node) -> llvm::LogicalResult;
+  auto sema(BinaryExpr *node, const Type *expectedType) -> llvm::LogicalResult;
   auto checkStringConcatFunction(Expr *node, const Type *stringType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaFormatValueCall(std::unique_ptr<Expr> &expression,
-                           const Type *stringType) -> MulberryResult;
-  auto checkAssignable(const Expr *expr) -> MulberryResult;
-  auto checkConstObjectUseAsMutable(const Expr *expr) -> MulberryResult;
+                           const Type *stringType) -> llvm::LogicalResult;
+  auto checkAssignable(const Expr *expr) -> llvm::LogicalResult;
+  auto checkConstObjectUseAsMutable(const Expr *expr) -> llvm::LogicalResult;
   auto canMutateObjectReference(const Expr *expr) -> bool;
   auto checkMutableObjectArgument(const FunctionType *functionType, size_t index,
-                                  const Expr *arg) -> MulberryResult;
-  auto sema(ArrayLiteralExpr *expr) -> MulberryResult;
-  auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> MulberryResult;
+                                  const Expr *arg) -> llvm::LogicalResult;
+  auto sema(ArrayLiteralExpr *expr) -> llvm::LogicalResult;
+  auto sema(ArrayLiteralExpr *expr, const ArrayType *type) -> llvm::LogicalResult;
   auto arrayLiteralTypeWithLeaf(const ArrayLiteralExpr *expr,
                                 const Type *leafType) -> const ArrayType *;
-  auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr) -> MulberryResult;
-  auto semaTensorDisposeCall(CallExpr *node) -> MulberryResult;
+  auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr) -> llvm::LogicalResult;
+  auto semaTensorDisposeCall(CallExpr *node) -> llvm::LogicalResult;
   auto semaTensorStorageAllocCall(CallExpr *node, const Type *expectedType)
-      -> MulberryResult;
-  auto sema(IndexExpr *expr) -> MulberryResult;
+      -> llvm::LogicalResult;
+  auto sema(IndexExpr *expr) -> llvm::LogicalResult;
   auto semaArrayLiteralElement(std::unique_ptr<Expr> &expr, const Type *type)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaGenericCall(CallExpr *node, const GenericFunctionSymbol *symbol,
-                       const Type *expectedType = nullptr) -> MulberryResult;
+                       const Type *expectedType = nullptr) -> llvm::LogicalResult;
   auto semaMethodCall(CallExpr *node,
-                      const Type *expectedType = nullptr) -> MulberryResult;
+                      const Type *expectedType = nullptr) -> llvm::LogicalResult;
   auto semaDottedMethodCall(CallExpr *node,
                             const Type *expectedType = nullptr)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto declareStructMethods(std::string_view ownerName,
                             const VectorUniquePtr<FunctionDecl> &methods,
                             const std::vector<ComptimeParam> &typeParameters,
-                            std::string_view packageName) -> MulberryResult;
+                            std::string_view packageName) -> llvm::LogicalResult;
 
   // Compiler builtins
   auto registerBuiltinHandlers() -> void;
@@ -1190,42 +1190,42 @@ private:
   auto lookupBuiltinHandler(std::string_view name) const
       -> const BuiltinHandler *;
   auto semaToUInt8(CallExpr *node, const Type *expectedType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaToUInt64(CallExpr *node, const Type *expectedType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto semaToFloat32(CallExpr *node, const Type *expectedType)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
 
   // Statements
-  auto sema(Stat *node) -> MulberryResult;
-  auto sema(VariableStat *node) -> MulberryResult;
-  auto sema(ExprStat *node) -> MulberryResult;
-  auto sema(IfStat *node) -> MulberryResult;
-  auto sema(MatchStat *node) -> MulberryResult;
+  auto sema(Stat *node) -> llvm::LogicalResult;
+  auto sema(VariableStat *node) -> llvm::LogicalResult;
+  auto sema(ExprStat *node) -> llvm::LogicalResult;
+  auto sema(IfStat *node) -> llvm::LogicalResult;
+  auto sema(MatchStat *node) -> llvm::LogicalResult;
   auto checkMatchPattern(DataPattern *pattern, const DataType *dataType,
                          std::vector<bool> &covered,
                          const DataConstructor *&constructor)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto declareMatchPatternBindings(DataPattern *pattern,
                                    const DataConstructor *constructor)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto checkExhaustiveMatch(const Node *node,
                             const std::vector<bool> &covered)
-      -> MulberryResult;
-  auto sema(WhileStat *node) -> MulberryResult;
-  auto sema(ForStat *node) -> MulberryResult;
-  auto sema(BreakStat *node) -> MulberryResult;
-  auto sema(ContinueStat *node) -> MulberryResult;
-  auto sema(ReturnStat *node) -> MulberryResult;
+      -> llvm::LogicalResult;
+  auto sema(WhileStat *node) -> llvm::LogicalResult;
+  auto sema(ForStat *node) -> llvm::LogicalResult;
+  auto sema(BreakStat *node) -> llvm::LogicalResult;
+  auto sema(ContinueStat *node) -> llvm::LogicalResult;
+  auto sema(ReturnStat *node) -> llvm::LogicalResult;
 
   // Errors
-  auto emitError(const Node *node, const llvm::Twine &msg) -> MulberryResult {
+  auto emitError(const Node *node, const llvm::Twine &msg) -> llvm::LogicalResult {
     _sourceManager.PrintMessage(node->location(),
                                 llvm::SourceMgr::DiagKind::DK_Error, msg);
     return failure();
   }
 
-  auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> MulberryResult {
+  auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> llvm::LogicalResult {
     _sourceManager.PrintMessage(loc, llvm::SourceMgr::DiagKind::DK_Error, msg);
     return failure();
   }
@@ -1246,7 +1246,7 @@ private:
            path.find("/stdlib/") != std::string::npos;
   }
 
-  auto checkInternalFeature(llvm::SMLoc location) -> MulberryResult {
+  auto checkInternalFeature(llvm::SMLoc location) -> llvm::LogicalResult {
     if (isInternalSourceLocation(location))
       return success();
     return emitError(location, diag::internal_only);
@@ -1435,7 +1435,7 @@ private:
   auto resolveType(const NamedTypeNode *typeNode) -> const Type * {
     auto *type = lookupType(typeNode->name());
     if (!type) {
-      emitError(typeNode, diag::undefined_type);
+      (void)emitError(typeNode, diag::undefined_type);
       return nullptr;
     }
 
@@ -1451,7 +1451,7 @@ private:
                        bool canMutateObject = true,
                        std::optional<ComptimeValue> comptimeValue = std::nullopt,
                        bool isComptimeOnly = false)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     return _symbols.declareVariable(name, type, isConstBinding,
                                     canMutateObject, std::move(comptimeValue),
                                     isComptimeOnly);
@@ -1541,7 +1541,7 @@ private:
   auto declareFunction(std::string_view name, const FunctionType *type,
                        bool isExtern,
                        std::string_view packageName = {})
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (packageName.empty())
       packageName = _currentPackageName;
     _functionPackages[std::string(name)] = std::string(packageName);
@@ -1551,24 +1551,24 @@ private:
   auto declareGenericFunction(std::string_view name,
                               const FunctionDecl *decl,
                               std::string_view packageName = {})
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (packageName.empty())
       packageName = _currentPackageName;
     _genericFunctionPackages[std::string(name)] = std::string(packageName);
     return _symbols.declareGenericFunction(name, decl);
   }
 
-  auto declareType(std::string_view name, const Type *type) -> MulberryResult {
+  auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult {
     return _symbols.declareType(name, type);
   }
 
   auto declareBuiltinType(BuiltinTypeKind kind) -> const BuiltinType * {
     auto *type = _typeContext.getBuiltinType(kind);
-    declareType(type->name(), type);
+    (void)declareType(type->name(), type);
     return type;
   }
 
-  auto declareStructType(const StructType *type) -> MulberryResult {
+  auto declareStructType(const StructType *type) -> llvm::LogicalResult {
     return declareType(type->name(), type);
   }
 
@@ -2015,7 +2015,7 @@ private:
                                   std::string_view name,
                                   const Type *argumentType,
                                   std::string &concreteName)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     auto *symbol = lookupGenericFunction(name);
     if (!symbol) {
       auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
@@ -2048,7 +2048,7 @@ private:
     VariableScope signatureScope(_symbols);
     PackageScope packageScope(_currentPackageName,
                               genericFunctionPackageName(name));
-    if (semaFunctionSignature(concreteFunction->proto().get()))
+    if (llvm::failed(semaFunctionSignature(concreteFunction->proto().get())))
       return failure();
     auto *signature = lookupFunction(concreteName);
     if (!signature)
@@ -2087,7 +2087,7 @@ private:
   }
 
   auto rejectUnitType(const TypeNode *typeNode, const Type *type)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (!isUnitType(type))
       return success();
 
@@ -2095,7 +2095,7 @@ private:
   }
 
   auto rejectUnitElementType(const TypeNode *typeNode, const Type *type)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (!hasUnitElementType(type))
       return success();
 
@@ -2110,18 +2110,18 @@ private:
     auto &shape = typeNode->shape();
     if (shape.size() == 1 && shape.front() >= 0) {
       if (!isArrayElementType(elementType)) {
-        emitError(typeNode->elementTypeNode(), diag::mismatch_type);
+        (void)emitError(typeNode->elementTypeNode(), diag::mismatch_type);
         return nullptr;
       }
       return _typeContext.createArrayType(elementType, shape.front());
     }
 
-    emitError(typeNode, diag::mismatch_type);
+    (void)emitError(typeNode, diag::mismatch_type);
     return nullptr;
   }
 
   auto resolveType(const PtrTypeNode *typeNode) -> const Type * {
-    if (checkInternalFeature(typeNode->location()))
+    if (llvm::failed(checkInternalFeature(typeNode->location())))
       return nullptr;
 
     auto *pointeeType = resolveType(typeNode->pointeeTypeNode());
@@ -2162,7 +2162,7 @@ private:
       fieldDecl->setType(fieldType);
       auto fieldName = variable->name();
       if (!declareName(fieldNames, fieldName)) {
-        emitError(variable, diag::redefinition_var);
+        (void)emitError(variable, diag::redefinition_var);
         return std::nullopt;
       }
       fields.push_back(StructField{fieldName, fieldType, fieldIndex++});
@@ -2193,7 +2193,7 @@ private:
       return nullptr;
     if (result.kind != ComptimeEvaluation::Kind::Value ||
         result.value->kind() != ComptimeValue::Kind::Type) {
-      emitError(typeNode, diag::expected_comptime_type);
+      (void)emitError(typeNode, diag::expected_comptime_type);
       return nullptr;
     }
 
@@ -2205,7 +2205,7 @@ private:
 
   auto completeDataType(const DataDecl *decl, DataType *dataType,
                         const std::vector<TypeSubstitution> &substitutions)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     std::vector<DataConstructor> constructors;
     for (auto &constructorDecl : decl->constructors()) {
       std::vector<const Type *> payloadTypes;
@@ -2243,7 +2243,7 @@ private:
 
     PackageScope packageScope(_currentPackageName,
                               packageNameOf(decl->name()));
-    if (completeDataType(decl, dataType, substitutions))
+    if (llvm::failed(completeDataType(decl, dataType, substitutions)))
       return nullptr;
     return dataType;
   }
@@ -2254,7 +2254,7 @@ private:
       if (arguments.size() != 2 ||
           arguments[0].kind() != ComptimeArg::Kind::Type ||
           arguments[1].kind() != ComptimeArg::Kind::UInt64) {
-        emitError(typeNode, diag::mismatch_type);
+        (void)emitError(typeNode, diag::mismatch_type);
         return nullptr;
       }
 
@@ -2262,7 +2262,7 @@ private:
       if (!elementType)
         return nullptr;
       if (!isArrayElementType(elementType)) {
-        emitError(arguments[0].typeNode(), diag::mismatch_type);
+        (void)emitError(arguments[0].typeNode(), diag::mismatch_type);
         return nullptr;
       }
       return _typeContext.createArrayType(elementType,
@@ -2273,7 +2273,7 @@ private:
     if (!declarationName.empty()) {
       auto *decl = _symbols.lookupDataDecl(declarationName)->decl;
       if (typeNode->arguments().size() != decl->parameters().size()) {
-        emitError(typeNode, diag::mismatch_type);
+        (void)emitError(typeNode, diag::mismatch_type);
         return nullptr;
       }
 
@@ -2310,7 +2310,7 @@ private:
           continue;
         }
 
-        emitError(typeNode, diag::mismatch_type);
+        (void)emitError(typeNode, diag::mismatch_type);
         return nullptr;
       }
       return instantiateDataType(decl, arguments, substitutions);
@@ -2321,11 +2321,11 @@ private:
                       ? nullptr
                       : _symbols.lookupComptimeTypeAlias(aliasName);
     if (!alias) {
-      emitError(typeNode, diag::undefined_type);
+      (void)emitError(typeNode, diag::undefined_type);
       return nullptr;
     }
     if (typeNode->arguments().size() != alias->parameters.size()) {
-      emitError(typeNode, diag::mismatch_type);
+      (void)emitError(typeNode, diag::mismatch_type);
       return nullptr;
     }
 
@@ -2365,7 +2365,7 @@ private:
         continue;
       }
 
-      emitError(typeNode, diag::mismatch_type);
+      (void)emitError(typeNode, diag::mismatch_type);
       return nullptr;
     }
 
@@ -2425,9 +2425,10 @@ private:
     auto *type = resolveType(typeNode);
     if (!type)
       return nullptr;
-    if (unitPolicy == UnitPolicy::Reject && rejectUnitType(typeNode, type))
+    if (unitPolicy == UnitPolicy::Reject &&
+        llvm::failed(rejectUnitType(typeNode, type)))
       return nullptr;
-    if (rejectUnitElementType(typeNode, type))
+    if (llvm::failed(rejectUnitElementType(typeNode, type)))
       return nullptr;
     return type;
   }
@@ -2544,7 +2545,7 @@ auto SemaImpl::lookupBuiltinHandler(std::string_view name) const
 }
 
 auto SemaImpl::semaToUInt8(CallExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &arguments = node->expressions();
   if (arguments.size() != 1) {
     auto diagnostic =
@@ -2554,7 +2555,7 @@ auto SemaImpl::semaToUInt8(CallExpr *node, const Type *expectedType)
 
   auto *parameterType =
       _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
-  if (sema(arguments.front().get(), parameterType))
+  if (llvm::failed(sema(arguments.front().get(), parameterType)))
     return failure();
   if (!sameType(arguments.front()->type(), parameterType))
     return emitError(arguments.front().get(), diag::mismatch_type);
@@ -2567,7 +2568,7 @@ auto SemaImpl::semaToUInt8(CallExpr *node, const Type *expectedType)
 }
 
 auto SemaImpl::semaToUInt64(CallExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &arguments = node->expressions();
   if (arguments.size() != 1) {
     auto diagnostic =
@@ -2577,7 +2578,7 @@ auto SemaImpl::semaToUInt64(CallExpr *node, const Type *expectedType)
 
   auto *parameterType =
       _typeContext.getBuiltinType(BuiltinTypeKind::UInt8);
-  if (sema(arguments.front().get(), parameterType))
+  if (llvm::failed(sema(arguments.front().get(), parameterType)))
     return failure();
   if (!sameType(arguments.front()->type(), parameterType))
     return emitError(arguments.front().get(), diag::mismatch_type);
@@ -2590,7 +2591,7 @@ auto SemaImpl::semaToUInt64(CallExpr *node, const Type *expectedType)
 }
 
 auto SemaImpl::semaToFloat32(CallExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &arguments = node->expressions();
   if (arguments.size() != 1) {
     auto diagnostic =
@@ -2600,7 +2601,7 @@ auto SemaImpl::semaToFloat32(CallExpr *node, const Type *expectedType)
 
   auto *parameterType =
       _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
-  if (sema(arguments.front().get(), parameterType))
+  if (llvm::failed(sema(arguments.front().get(), parameterType)))
     return failure();
   if (!sameType(arguments.front()->type(), parameterType))
     return emitError(arguments.front().get(), diag::mismatch_type);
@@ -2612,7 +2613,7 @@ auto SemaImpl::semaToFloat32(CallExpr *node, const Type *expectedType)
   return success();
 }
 
-auto SemaImpl::sema(Decl *node) -> MulberryResult {
+auto SemaImpl::sema(Decl *node) -> llvm::LogicalResult {
   switch (node->getKind()) {
   case Decl::Decl_Import:
     return success();
@@ -2631,7 +2632,7 @@ auto SemaImpl::sema(Decl *node) -> MulberryResult {
   }
 }
 
-auto SemaImpl::sema(Prototype *node) -> MulberryResult {
+auto SemaImpl::sema(Prototype *node) -> llvm::LogicalResult {
   if (node->isGeneric())
     return success();
 
@@ -2641,7 +2642,7 @@ auto SemaImpl::sema(Prototype *node) -> MulberryResult {
 auto SemaImpl::semaFunctionParameters(
     Prototype *node, std::vector<const Type *> &parameterTypes,
     std::vector<bool> &parameterCanMutateObject)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (const auto &indexedParameter : llvm::enumerate(node->parameters())) {
     auto &par = indexedParameter.value();
     auto *parameterType = checkType(par->typeNode(), UnitPolicy::Reject);
@@ -2649,8 +2650,8 @@ auto SemaImpl::semaFunctionParameters(
       return failure();
     par->setType(parameterType);
     auto canMutateObject = par->canMutateObject();
-    if (declareVariable(par->variable()->name(), parameterType,
-                        !canMutateObject, canMutateObject))
+    if (llvm::failed(declareVariable(par->variable()->name(), parameterType,
+                        !canMutateObject, canMutateObject)))
       return emitError(par->variable().get(), diag::redefinition_var);
     parameterTypes.push_back(parameterType);
     parameterCanMutateObject.push_back(canMutateObject);
@@ -2660,7 +2661,7 @@ auto SemaImpl::semaFunctionParameters(
 
 auto SemaImpl::bindFunctionParameters(Prototype *node,
                                       const FunctionSymbol *signature)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &parameters = node->parameters();
   for (size_t i = 0; i < parameters.size(); ++i) {
     auto &parameter = parameters[i];
@@ -2668,8 +2669,8 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
     auto canMutateObject =
         signature->type->parameterCanMutateObject()[i];
     parameter->setType(parameterType);
-    if (declareVariable(parameter->variable()->name(), parameterType,
-                        !canMutateObject, canMutateObject))
+    if (llvm::failed(declareVariable(parameter->variable()->name(), parameterType,
+                        !canMutateObject, canMutateObject)))
       return emitError(parameter->variable().get(), diag::redefinition_var);
   }
   node->setType(signature->type->returnType());
@@ -2677,10 +2678,10 @@ auto SemaImpl::bindFunctionParameters(Prototype *node,
 }
 
 auto SemaImpl::semaFunctionSignature(Prototype *node, bool isExtern)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   std::vector<const Type *> parameterTypes;
   std::vector<bool> parameterCanMutateObject;
-  if (semaFunctionParameters(node, parameterTypes, parameterCanMutateObject))
+  if (llvm::failed(semaFunctionParameters(node, parameterTypes, parameterCanMutateObject)))
     return failure();
 
   auto *returnType = resolveType(node->returnTypeNode());
@@ -2692,14 +2693,14 @@ auto SemaImpl::semaFunctionSignature(Prototype *node, bool isExtern)
   auto *functionType = _typeContext.createFunctionType(
       std::move(parameterTypes), std::move(parameterCanMutateObject),
       returnType);
-  if (declareFunction(name, functionType, isExtern)) {
+  if (llvm::failed(declareFunction(name, functionType, isExtern))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return emitError(node->id().get(), diagnostic);
   }
   return success();
 }
 
-auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
+auto SemaImpl::sema(FunctionDecl *node) -> llvm::LogicalResult {
   auto functionPackage = node->isExtern()
                              ? _currentPackageName
                              : functionPackageName(node->proto()->id()->name());
@@ -2714,15 +2715,15 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   }
 
   if (node->proto()->isGeneric()) {
-    if (resolveTraitConstraints(node->proto().get(),
-                                node->proto()->comptimeParameters()))
+    if (llvm::failed(resolveTraitConstraints(node->proto().get(),
+                                node->proto()->comptimeParameters())))
       return failure();
     auto name = node->proto()->id()->name();
     if (lookupFunction(name) || lookupGenericFunction(name)) {
       auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
       return emitError(node->proto()->id().get(), diagnostic);
     }
-    if (declareGenericFunction(name, node)) {
+    if (llvm::failed(declareGenericFunction(name, node))) {
       auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
       return emitError(node->proto()->id().get(), diagnostic);
     }
@@ -2732,10 +2733,10 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   _symbols.resetVariables();
   auto *signature = lookupFunction(node->proto()->id()->name());
   if (signature) {
-    if (bindFunctionParameters(node->proto().get(), signature))
+    if (llvm::failed(bindFunctionParameters(node->proto().get(), signature)))
       return failure();
   } else {
-    if (sema(node->proto().get()))
+    if (llvm::failed(sema(node->proto().get())))
       return failure();
     signature = lookupFunction(node->proto()->id()->name());
     if (!signature)
@@ -2743,7 +2744,7 @@ auto SemaImpl::sema(FunctionDecl *node) -> MulberryResult {
   }
   FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
                                           signature->type->returnType());
-  if (sema(node->body().get()))
+  if (llvm::failed(sema(node->body().get())))
     return failure();
 
   auto hasReturn = containsReturnStat(node->body().get());
@@ -2757,7 +2758,7 @@ auto SemaImpl::declareStructMethods(
     std::string_view ownerName, const VectorUniquePtr<FunctionDecl> &methods,
     const std::vector<ComptimeParam> &typeParameters,
     std::string_view packageName)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   NameSet methodNames;
   for (auto &method : methods) {
     auto *prototype = method->proto().get();
@@ -2781,10 +2782,10 @@ auto SemaImpl::declareStructMethods(
     }
 
     if (prototype->isGeneric()) {
-      if (resolveTraitConstraints(prototype,
-                                  prototype->comptimeParameters()))
+      if (llvm::failed(resolveTraitConstraints(prototype,
+                                  prototype->comptimeParameters())))
         return failure();
-      if (declareGenericFunction(fullName, method.get(), packageName)) {
+      if (llvm::failed(declareGenericFunction(fullName, method.get(), packageName))) {
         auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
                                                fullName);
         return emitError(prototype->id().get(), diagnostic);
@@ -2793,13 +2794,13 @@ auto SemaImpl::declareStructMethods(
     }
 
     _functionPackages[fullName] = std::string(packageName);
-    if (sema(method.get()))
+    if (llvm::failed(sema(method.get())))
       return failure();
   }
   return success();
 }
 
-auto SemaImpl::sema(StructDecl *node) -> MulberryResult {
+auto SemaImpl::sema(StructDecl *node) -> llvm::LogicalResult {
   PackageScope packageScope(_currentPackageName,
                             packageNameOf(node->id()->name()));
   std::vector<StructField> fields;
@@ -2823,28 +2824,28 @@ auto SemaImpl::sema(StructDecl *node) -> MulberryResult {
   auto *structType =
       _typeContext.createStructType(id->name(), std::move(fields));
   id->setType(structType);
-  if (declareStructType(structType))
+  if (llvm::failed(declareStructType(structType)))
     return emitError(id, diag::redefinition_type);
-  if (declareStructMethods(id->name(), node->methods(), {},
-                           packageNameOf(id->name())))
+  if (llvm::failed(declareStructMethods(id->name(), node->methods(), {},
+                           packageNameOf(id->name()))))
     return failure();
   return success();
 }
 
-auto SemaImpl::sema(DataDecl *node) -> MulberryResult {
+auto SemaImpl::sema(DataDecl *node) -> llvm::LogicalResult {
   if (_symbols.lookupType(node->name()) ||
       _symbols.lookupComptimeTypeAlias(node->name()) ||
       _symbols.lookupDataDecl(node->name()))
     return emitError(node, diag::redefinition_type);
 
-  if (_symbols.declareDataDecl(node->name(), node))
+  if (llvm::failed(_symbols.declareDataDecl(node->name(), node)))
     return emitError(node, diag::redefinition_type);
 
   for (const auto &indexedConstructor :
        llvm::enumerate(node->constructors())) {
     auto &constructor = indexedConstructor.value();
-    if (_symbols.declareDataConstructor(
-            constructor->name(), node, indexedConstructor.index()))
+    if (llvm::failed(_symbols.declareDataConstructor(
+            constructor->name(), node, indexedConstructor.index())))
       return emitError(constructor.get(),
                        diag::redefinition_data_constructor);
   }
@@ -2860,14 +2861,14 @@ auto SemaImpl::sema(DataDecl *node) -> MulberryResult {
 
   // Publish a non-generic shell before resolving its constructors so direct
   // self-reference can resolve through the ordinary type symbol table.
-  if (declareType(node->name(), dataType))
+  if (llvm::failed(declareType(node->name(), dataType)))
     return emitError(node, diag::redefinition_type);
   PackageScope packageScope(_currentPackageName,
                             packageNameOf(node->name()));
   return completeDataType(node, dataType, {});
 }
 
-auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
+auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> llvm::LogicalResult {
   auto packageName = packageNameOf(node->name());
   PackageScope packageScope(_currentPackageName, packageName);
   if (_symbols.lookupType(node->name()) ||
@@ -2878,7 +2879,7 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
     auto *bodyType = checkType(node->bodyTypeNode(), UnitPolicy::Reject);
     if (!bodyType)
       return failure();
-    if (_symbols.declareType(node->name(), bodyType))
+    if (llvm::failed(_symbols.declareType(node->name(), bodyType)))
       return emitError(node, diag::redefinition_type);
     if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode()))
       return declareStructMethods(node->name(), structTypeNode->methods(), {},
@@ -2886,15 +2887,15 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
     return success();
   }
 
-  if (_symbols.declareComptimeTypeAlias(
+  if (llvm::failed(_symbols.declareComptimeTypeAlias(
           node->name(), packageName,
           std::vector<ComptimeParam>(node->parameters().begin(),
                                      node->parameters().end()),
-          node->bodyTypeNode()))
+          node->bodyTypeNode())))
     return emitError(node, diag::redefinition_type);
   if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode())) {
-    if (declareStructMethods(node->name(), structTypeNode->methods(),
-                             node->parameters(), packageName))
+    if (llvm::failed(declareStructMethods(node->name(), structTypeNode->methods(),
+                             node->parameters(), packageName)))
       return failure();
   }
   return success();
@@ -2902,7 +2903,7 @@ auto SemaImpl::sema(ComptimeTypeAliasDecl *node) -> MulberryResult {
 
 auto SemaImpl::resolveTraitConstraints(
     const Node *node, std::vector<ComptimeParam> &parameters)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (auto &parameter : parameters) {
     if (!parameter.hasTraitConstraint())
       continue;
@@ -2919,13 +2920,13 @@ auto SemaImpl::resolveTraitConstraints(
   return success();
 }
 
-auto SemaImpl::sema(TraitDecl *node) -> MulberryResult {
+auto SemaImpl::sema(TraitDecl *node) -> llvm::LogicalResult {
   if (_symbols.lookupTrait(node->name())) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait,
                                            node->name());
     return emitError(node, diagnostic);
   }
-  if (_symbols.declareTrait(node->name(), node)) {
+  if (llvm::failed(_symbols.declareTrait(node->name(), node))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait,
                                            node->name());
     return emitError(node, diagnostic);
@@ -2973,7 +2974,7 @@ auto SemaImpl::traitMethodFunctionName(const TraitDecl *trait,
 
 auto SemaImpl::instantiateTraitDefaultMethod(
     const TraitDecl *trait, const TraitMethodDecl *method,
-    const Type *targetType, std::string &functionName) -> MulberryResult {
+    const Type *targetType, std::string &functionName) -> llvm::LogicalResult {
   functionName = traitMethodFunctionName(trait, targetType, method->name());
   if (lookupFunction(functionName))
     return success();
@@ -3004,7 +3005,7 @@ auto SemaImpl::instantiateTraitDefaultMethod(
   // The body belongs to the trait's package, not to the concrete impl site.
   VariableScope signatureScope(_symbols);
   PackageScope packageScope(_currentPackageName, packageNameOf(trait->name()));
-  if (semaFunctionSignature(function->proto().get()))
+  if (llvm::failed(semaFunctionSignature(function->proto().get())))
     return failure();
 
   LLVM_DEBUG(llvm::dbgs() << "instantiate default trait method `"
@@ -3016,7 +3017,7 @@ auto SemaImpl::instantiateTraitDefaultMethod(
 auto SemaImpl::instantiateGenericTraitMethod(
     const ImplDecl *impl, const FunctionDecl *method,
     const TraitMethodDecl *contract, const Type *targetType,
-    std::string &functionName) -> MulberryResult {
+    std::string &functionName) -> llvm::LogicalResult {
   functionName = traitMethodFunctionName(impl->trait(), targetType,
                                          method->proto()->id()->name());
   if (lookupFunction(functionName))
@@ -3033,7 +3034,7 @@ auto SemaImpl::instantiateGenericTraitMethod(
 
   VariableScope signatureScope(_symbols);
   PackageScope packageScope(_currentPackageName, impl->packageName());
-  if (semaFunctionSignature(function->proto().get()))
+  if (llvm::failed(semaFunctionSignature(function->proto().get())))
     return failure();
   auto *signature = lookupFunction(functionName);
   if (!signature)
@@ -3050,7 +3051,7 @@ auto SemaImpl::instantiateGenericTraitMethod(
   return success();
 }
 
-auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
+auto SemaImpl::sema(ImplDecl *node) -> llvm::LogicalResult {
   PackageScope packageScope(_currentPackageName, node->packageName());
   auto *trait = lookupTrait(node->traitName());
   if (!trait) {
@@ -3096,7 +3097,7 @@ auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
       return emitError(node, diagnostic);
     }
 
-    if (_symbols.declareGenericTraitImplementation(node))
+    if (llvm::failed(_symbols.declareGenericTraitImplementation(node)))
       return emitError(node, diag::mismatch_type);
     LLVM_DEBUG(llvm::dbgs() << "register conditional trait implementation `"
                             << trait->name() << "` for `"
@@ -3138,7 +3139,7 @@ auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
           formatNameDiagnostic(diag::trait_method_signature, methodName);
       return emitError(prototype->id().get(), diagnostic);
     }
-    if (sema(method.get()))
+    if (llvm::failed(sema(method.get())))
       return failure();
 
     auto *signature = lookupFunction(fullName);
@@ -3162,8 +3163,8 @@ auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
 
     if (contract.second->hasDefaultBody()) {
       std::string functionName;
-      if (instantiateTraitDefaultMethod(trait, contract.second, targetType,
-                                        functionName))
+      if (llvm::failed(instantiateTraitDefaultMethod(trait, contract.second, targetType,
+                                        functionName)))
         return failure();
       methodFunctionNames.insert({contract.first, std::move(functionName)});
       continue;
@@ -3174,8 +3175,8 @@ auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
     return emitError(node, diagnostic);
   }
 
-  if (_symbols.declareTraitImplementation(
-          trait, targetType, node, std::move(methodFunctionNames))) {
+  if (llvm::failed(_symbols.declareTraitImplementation(
+          trait, targetType, node, std::move(methodFunctionNames)))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
                                            trait->name());
     return emitError(node, diagnostic);
@@ -3189,7 +3190,7 @@ auto SemaImpl::sema(ImplDecl *node) -> MulberryResult {
 auto SemaImpl::genericTraitImplementationMatches(const ImplDecl *impl,
                                                  const Type *type,
                                                  bool &matches)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &parameters = impl->comptimeParameters();
   auto argumentTypeNode = typeToTypeNode(type, impl->location());
   std::vector<TypeSubstitution> substitutions;
@@ -3217,13 +3218,13 @@ auto SemaImpl::genericTraitImplementationMatches(const ImplDecl *impl,
 
 auto SemaImpl::findMatchingGenericTraitImplementations(
     const Type *type, const TraitDecl *trait,
-    std::vector<const ImplDecl *> &implementations) -> MulberryResult {
+    std::vector<const ImplDecl *> &implementations) -> llvm::LogicalResult {
   for (auto *impl : _symbols.genericTraitImplementations()) {
     if (impl->trait() != trait)
       continue;
 
     bool matches = false;
-    if (genericTraitImplementationMatches(impl, type, matches))
+    if (llvm::failed(genericTraitImplementationMatches(impl, type, matches)))
       return failure();
     if (matches)
       implementations.push_back(impl);
@@ -3233,14 +3234,15 @@ auto SemaImpl::findMatchingGenericTraitImplementations(
 
 auto SemaImpl::materializeGenericTraitImplementation(
     const Node *diagnosticNode, const Type *type, const TraitDecl *trait,
-    bool &matched) -> MulberryResult {
+    bool &matched) -> llvm::LogicalResult {
   if (_symbols.lookupTraitImplementation(trait, type)) {
     matched = true;
     return success();
   }
 
   std::vector<const ImplDecl *> implementations;
-  if (findMatchingGenericTraitImplementations(type, trait, implementations))
+  if (llvm::failed(
+          findMatchingGenericTraitImplementations(type, trait, implementations)))
     return failure();
   if (implementations.empty()) {
     matched = false;
@@ -3269,8 +3271,8 @@ auto SemaImpl::materializeGenericTraitImplementation(
     std::string functionName;
     auto method = implementationMethods.find(contract.first);
     if (method != implementationMethods.end()) {
-      if (instantiateGenericTraitMethod(implementation, method->second,
-                                        contract.second, type, functionName))
+      if (llvm::failed(instantiateGenericTraitMethod(implementation, method->second,
+                                        contract.second, type, functionName)))
         return failure();
     } else {
       if (!contract.second->hasDefaultBody()) {
@@ -3278,15 +3280,15 @@ auto SemaImpl::materializeGenericTraitImplementation(
             formatNameDiagnostic(diag::missing_trait_method, contract.first);
         return emitError(diagnosticNode, diagnostic);
       }
-      if (instantiateTraitDefaultMethod(trait, contract.second, type,
-                                        functionName))
+      if (llvm::failed(instantiateTraitDefaultMethod(trait, contract.second, type,
+                                        functionName)))
         return failure();
     }
     methodFunctionNames.insert({contract.first, std::move(functionName)});
   }
 
-  if (_symbols.declareTraitImplementation(
-          trait, type, implementation, std::move(methodFunctionNames))) {
+  if (llvm::failed(_symbols.declareTraitImplementation(
+          trait, type, implementation, std::move(methodFunctionNames)))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
                                            trait->name());
     return emitError(diagnosticNode, diagnostic);
@@ -3302,7 +3304,7 @@ auto SemaImpl::materializeGenericTraitMethod(const Node *diagnosticNode,
                                              const Type *type,
                                              std::string_view methodName,
                                              std::string &functionName)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   std::vector<const TraitDecl *> traits;
   for (auto *impl : _symbols.genericTraitImplementations()) {
     auto *trait = impl->trait();
@@ -3323,8 +3325,8 @@ auto SemaImpl::materializeGenericTraitMethod(const Node *diagnosticNode,
 
   for (auto *trait : traits) {
     bool matched = false;
-    if (materializeGenericTraitImplementation(diagnosticNode, type, trait,
-                                              matched))
+    if (llvm::failed(materializeGenericTraitImplementation(
+            diagnosticNode, type, trait, matched)))
       return failure();
     if (!matched)
       continue;
@@ -3341,7 +3343,7 @@ auto SemaImpl::materializeGenericTraitMethod(const Node *diagnosticNode,
 
 auto SemaImpl::typeConformsToTrait(const Node *diagnosticNode,
                                    const Type *type, const TraitDecl *trait,
-                                   bool &conforms) -> MulberryResult {
+                                   bool &conforms) -> llvm::LogicalResult {
   return materializeGenericTraitImplementation(diagnosticNode, type, trait,
                                                 conforms);
 }
@@ -3349,14 +3351,15 @@ auto SemaImpl::typeConformsToTrait(const Node *diagnosticNode,
 auto SemaImpl::checkTraitConstraints(
     const Node *node, const std::vector<ComptimeParam> &parameters,
     const std::vector<InferredComptimeArgument> &arguments)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (size_t index = 0; index < parameters.size(); ++index) {
     auto &parameter = parameters[index];
     if (!parameter.trait)
       continue;
     auto *type = arguments[index].type;
     bool conforms = false;
-    if (type && typeConformsToTrait(node, type, parameter.trait, conforms))
+    if (type && llvm::failed(
+                    typeConformsToTrait(node, type, parameter.trait, conforms)))
       return failure();
     if (conforms)
       continue;
@@ -3368,7 +3371,7 @@ auto SemaImpl::checkTraitConstraints(
   return success();
 }
 
-auto SemaImpl::sema(Expr *node) -> MulberryResult {
+auto SemaImpl::sema(Expr *node) -> llvm::LogicalResult {
   switch (node->getKind()) {
   case Expr::Expr_Unit:
     return sema(cast<UnitExpr>(node));
@@ -3425,7 +3428,7 @@ auto SemaImpl::sema(Expr *node) -> MulberryResult {
   }
 }
 
-auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
+auto SemaImpl::sema(Expr *node, const Type *type) -> llvm::LogicalResult {
   if (auto *matchExpr = dyn_cast<MatchExpr>(node))
     return sema(matchExpr, type);
 
@@ -3496,8 +3499,8 @@ auto SemaImpl::sema(Expr *node, const Type *type) -> MulberryResult {
 }
 
 auto SemaImpl::semaExpected(std::unique_ptr<Expr> &node, const Type *type)
-    -> MulberryResult {
-  if (sema(node.get(), type))
+    -> llvm::LogicalResult {
+  if (llvm::failed(sema(node.get(), type)))
     return failure();
 
   if (sameType(node->type(), type))
@@ -3514,7 +3517,7 @@ auto SemaImpl::semaExpected(std::unique_ptr<Expr> &node, const Type *type)
   return success();
 }
 
-auto SemaImpl::sema(DataConstructorExpr *node) -> MulberryResult {
+auto SemaImpl::sema(DataConstructorExpr *node) -> llvm::LogicalResult {
   std::string resolvedName;
   auto *symbol = lookupDataConstructor(node->name(), resolvedName);
   if (!symbol)
@@ -3529,7 +3532,7 @@ auto SemaImpl::sema(DataConstructorExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(DataConstructorExpr *node,
-                    const DataType *dataType) -> MulberryResult {
+                    const DataType *dataType) -> llvm::LogicalResult {
   std::string resolvedName;
   auto *symbol = lookupDataConstructor(node->name(), resolvedName);
   if (!symbol)
@@ -3547,7 +3550,7 @@ auto SemaImpl::sema(DataConstructorExpr *node,
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto *payloadType = constructor.payloadTypes()[i];
-    if (semaExpected(expressions[i], payloadType))
+    if (llvm::failed(semaExpected(expressions[i], payloadType)))
       return failure();
   }
 
@@ -3563,7 +3566,7 @@ auto SemaImpl::sema(DataConstructorExpr *node,
 auto SemaImpl::semaGenericCall(CallExpr *node,
                                const GenericFunctionSymbol *symbol,
                                const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto *genericFunction = symbol->decl;
   auto *genericProto = genericFunction->proto().get();
   auto name = genericProto->id()->name();
@@ -3600,7 +3603,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
 
   auto semaArgument = [&](std::unique_ptr<Expr> &argument,
                           const TypeNode *parameterTypeNode)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     auto *literal = dyn_cast<ArrayLiteralExpr>(argument.get());
     auto *namedType = dyn_cast<NamedTypeNode>(parameterTypeNode);
     auto parameterIndex = namedType
@@ -3657,7 +3660,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
       continue;
     }
 
-    if (semaArgument(expressions[i], parameterTypeNode))
+    if (llvm::failed(semaArgument(expressions[i], parameterTypeNode)))
       return failure();
     auto matched =
         node->isLoweredMethodCall() && i == 0
@@ -3696,9 +3699,9 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     }
 
     auto *lambda = cast<LambdaExpr>(expressions[index].get());
-    if (semaLambda(lambda, lambdaParameterTypes,
+    if (llvm::failed(semaLambda(lambda, lambdaParameterTypes,
                    functionPattern->parameterCanMutateObject(),
-                   /*expectedReturnType=*/nullptr, callerPackageName))
+                   /*expectedReturnType=*/nullptr, callerPackageName)))
       return failure();
     if (!matchGenericType(functionPattern, lambda->type(),
                           comptimeParameters, inferredArguments))
@@ -3709,7 +3712,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (!argument.isResolved())
       return emitError(node, diag::mismatch_type);
 
-  if (checkTraitConstraints(node, comptimeParameters, inferredArguments))
+  if (llvm::failed(checkTraitConstraints(node, comptimeParameters, inferredArguments)))
     return failure();
 
   auto substitutions =
@@ -3722,9 +3725,9 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
 
     auto &argument = expressions[index];
     if (node->isLoweredMethodCall() && index == 0) {
-      if (sema(argument.get()))
+      if (llvm::failed(sema(argument.get())))
         return failure();
-    } else if (semaExpected(argument, parameterType)) {
+    } else if (llvm::failed(semaExpected(argument, parameterType))) {
       return failure();
     }
   }
@@ -3738,7 +3741,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
         genericFunctionPackageName(name);
 
     VariableScope signatureScope(_symbols);
-    if (semaFunctionSignature(concreteFunction->proto().get()))
+    if (llvm::failed(semaFunctionSignature(concreteFunction->proto().get())))
       return failure();
     auto *signature = lookupFunction(concreteName);
     if (!signature)
@@ -3761,7 +3764,7 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (checkMutableObjectArgument(signature->type, i, arg.get()))
+    if (llvm::failed(checkMutableObjectArgument(signature->type, i, arg.get())))
       return failure();
   }
 
@@ -3770,22 +3773,22 @@ auto SemaImpl::semaGenericCall(CallExpr *node,
   return success();
 }
 
-auto SemaImpl::sema(UnitExpr *node) -> MulberryResult {
+auto SemaImpl::sema(UnitExpr *node) -> llvm::LogicalResult {
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(BlockExpr *node) -> MulberryResult {
+auto SemaImpl::sema(BlockExpr *node) -> llvm::LogicalResult {
   VariableScope blockScope(_symbols);
   for (auto &expr : *node)
-    if (sema(expr.get()))
+    if (llvm::failed(sema(expr.get())))
       return failure();
 
   node->setType(_typeContext.getBuiltinType(BuiltinTypeKind::Unit));
   return success();
 }
 
-auto SemaImpl::sema(ComptimeBlockExpr *node) -> MulberryResult {
+auto SemaImpl::sema(ComptimeBlockExpr *node) -> llvm::LogicalResult {
   auto evaluation = evaluateComptimeBlock(node);
   if (evaluation.kind == ComptimeEvaluation::Kind::Error)
     return failure();
@@ -3794,14 +3797,14 @@ auto SemaImpl::sema(ComptimeBlockExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(LambdaExpr *node) -> MulberryResult {
+auto SemaImpl::sema(LambdaExpr *node) -> llvm::LogicalResult {
   return emitError(node, diag::lambda_expected_function_type);
 }
 
 auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto *value = node->value().get();
-  if (sema(value))
+  if (llvm::failed(sema(value)))
     return failure();
 
   auto *dataType = getDataType(value->type());
@@ -3814,29 +3817,29 @@ auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
   for (auto &arm : node->arms()) {
     auto *pattern = arm->pattern().get();
     const DataConstructor *constructor = nullptr;
-    if (checkMatchPattern(pattern, dataType, covered, constructor))
+    if (llvm::failed(checkMatchPattern(pattern, dataType, covered, constructor)))
       return failure();
     if (containsReturnStat(arm->bodyBlock().get()))
       return emitError(arm.get(), diag::match_expression_arm_return);
 
     VariableScope patternScope(_symbols);
-    if (declareMatchPatternBindings(pattern, constructor))
+    if (llvm::failed(declareMatchPatternBindings(pattern, constructor)))
       return failure();
 
     VariableScope bodyScope(_symbols);
     IsolatedWhileScope isolatedWhileScope(_whileDepth);
     for (auto &statement : arm->bodyBlock()->statements())
-      if (sema(statement.get()))
+      if (llvm::failed(sema(statement.get())))
         return failure();
     arm->bodyBlock()->setType(
         _typeContext.getBuiltinType(BuiltinTypeKind::Unit));
 
     auto &armResult = arm->resultExpr();
     if (resultType) {
-      if (semaExpected(armResult, resultType))
+      if (llvm::failed(semaExpected(armResult, resultType)))
         return failure();
     } else {
-      if (sema(armResult.get()))
+      if (llvm::failed(sema(armResult.get())))
         return failure();
       resultType = armResult->type();
     }
@@ -3847,7 +3850,7 @@ auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
       canMutateObject = false;
   }
 
-  if (checkExhaustiveMatch(node, covered))
+  if (llvm::failed(checkExhaustiveMatch(node, covered)))
     return failure();
   if (!resultType)
     return emitError(node, diag::mismatch_type);
@@ -3856,12 +3859,12 @@ auto SemaImpl::sema(MatchExpr *node, const Type *expectedType)
   return success();
 }
 
-auto SemaImpl::sema(TryExpr *node) -> MulberryResult {
+auto SemaImpl::sema(TryExpr *node) -> llvm::LogicalResult {
   if (!_currentFunctionReturnType)
     return emitError(node, diag::try_outside_result_function);
 
   auto *value = node->value().get();
-  if (sema(value))
+  if (llvm::failed(sema(value)))
     return failure();
 
   auto operandTypes = getResultTypeArguments(value->type());
@@ -3882,7 +3885,7 @@ auto SemaImpl::sema(TryExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(LambdaExpr *node, const FunctionType *functionType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto packageName = _currentPackageName;
   return semaLambda(node, functionType->parameterTypes(),
                     functionType->parameterCanMutateObject(),
@@ -3893,7 +3896,7 @@ auto SemaImpl::semaLambda(
     LambdaExpr *node, const std::vector<const Type *> &parameterTypes,
     const std::vector<bool> &parameterCanMutateObject,
     const Type *expectedReturnType, std::string_view packageName)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &parameters = node->parameters();
   if (parameters.size() != parameterTypes.size())
     return emitError(node, diag::wrong_num_arg);
@@ -3905,17 +3908,17 @@ auto SemaImpl::semaLambda(
     auto &parameter = parameters[i];
     parameter.type = parameterTypes[i];
     auto canMutateObject = parameterCanMutateObject[i];
-    if (declareVariable(parameter.name, parameter.type,
+    if (llvm::failed(declareVariable(parameter.name, parameter.type,
                         /*isConstBinding=*/!canMutateObject,
-                        canMutateObject))
+                        canMutateObject)))
       return emitError(parameter.location, diag::redefinition_var);
   }
 
   auto &body = node->body();
   FunctionReturnTypeScope returnTypeScope(_currentFunctionReturnType,
                                           expectedReturnType);
-  if (expectedReturnType ? semaExpected(body, expectedReturnType)
-                         : sema(body.get()))
+  if (expectedReturnType ? llvm::failed(semaExpected(body, expectedReturnType))
+                         : llvm::failed(sema(body.get())))
     return failure();
   auto *returnType = body->type();
   if (!returnType)
@@ -3968,8 +3971,8 @@ auto SemaImpl::semaLambda(
       std::make_unique<BlockExpr>(node->location(), std::move(statements));
   functionBody->setType(_typeContext.getBuiltinType(BuiltinTypeKind::Unit));
 
-  if (declareFunction(functionName, functionType, /*isExtern=*/false,
-                      packageName)) {
+  if (llvm::failed(declareFunction(functionName, functionType, /*isExtern=*/false,
+                      packageName))) {
     auto diagnostic =
         formatNameDiagnostic(diag::redefinition_func, functionName);
     return emitError(node, diagnostic);
@@ -3982,7 +3985,7 @@ auto SemaImpl::semaLambda(
   return success();
 }
 
-auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
+auto SemaImpl::sema(CallExpr *node) -> llvm::LogicalResult {
   if (node->hasReceiver())
     return semaMethodCall(node);
 
@@ -4001,7 +4004,7 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
 
   node->setName(canonicalizeImportedName(node->name()));
   if (node->name().rfind("std.internal.", 0) == 0 &&
-      checkInternalFeature(node->location()))
+      llvm::failed(checkInternalFeature(node->location())))
     return failure();
 
   if (auto *handler = lookupBuiltinHandler(node->name())) {
@@ -4035,15 +4038,15 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
     auto &arg = expressions[i];
     auto *parameterType = signature->type->parameterTypes()[i];
     if (node->isLoweredMethodCall() && i == 0) {
-      if (sema(arg.get()))
+      if (llvm::failed(sema(arg.get())))
         return failure();
-    } else if (semaExpected(arg, parameterType)) {
+    } else if (llvm::failed(semaExpected(arg, parameterType))) {
       return failure();
     }
     if (!sameCallArgumentType(parameterType, arg->type(),
                               node->isLoweredMethodCall() && i == 0))
       return emitError(arg.get(), diag::mismatch_type);
-    if (checkMutableObjectArgument(signature->type, i, arg.get()))
+    if (llvm::failed(checkMutableObjectArgument(signature->type, i, arg.get())))
       return failure();
   }
 
@@ -4057,7 +4060,7 @@ auto SemaImpl::sema(CallExpr *node) -> MulberryResult {
 
 auto SemaImpl::semaIndirectCall(CallExpr *node,
                                 const FunctionType *functionType,
-                                const Type *expectedType) -> MulberryResult {
+                                const Type *expectedType) -> llvm::LogicalResult {
   auto &expressions = node->expressions();
   auto &parameterTypes = functionType->parameterTypes();
   if (expressions.size() != parameterTypes.size()) {
@@ -4068,9 +4071,9 @@ auto SemaImpl::semaIndirectCall(CallExpr *node,
 
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &argument = expressions[i];
-    if (semaExpected(argument, parameterTypes[i]))
+    if (llvm::failed(semaExpected(argument, parameterTypes[i])))
       return failure();
-    if (checkMutableObjectArgument(functionType, i, argument.get()))
+    if (llvm::failed(checkMutableObjectArgument(functionType, i, argument.get())))
       return failure();
   }
 
@@ -4083,11 +4086,11 @@ auto SemaImpl::semaIndirectCall(CallExpr *node,
 }
 
 auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (!node->hasReceiver())
     return semaDottedMethodCall(node, expectedType);
 
-  if (sema(node->receiver().get()))
+  if (llvm::failed(sema(node->receiver().get())))
     return failure();
 
   auto *receiverType = node->receiver()->type();
@@ -4126,8 +4129,8 @@ auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
   }
 
   std::string functionName;
-  if (materializeGenericTraitMethod(node, traitReceiverType, methodName,
-                                    functionName))
+  if (llvm::failed(materializeGenericTraitMethod(
+          node, traitReceiverType, methodName, functionName)))
     return failure();
   if (!functionName.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "resolve conditional trait method `"
@@ -4143,7 +4146,7 @@ auto SemaImpl::semaMethodCall(CallExpr *node, const Type *expectedType)
 }
 
 auto SemaImpl::semaDottedMethodCall(CallExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto name = std::string(node->name());
   auto dot = name.rfind('.');
   if (dot == std::string::npos) {
@@ -4158,7 +4161,7 @@ auto SemaImpl::semaDottedMethodCall(CallExpr *node, const Type *expectedType)
   return semaMethodCall(node, expectedType);
 }
 
-auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(StructLiteralExpr *node) -> llvm::LogicalResult {
   auto *type = resolveType(node->typeNode());
   auto *structType = mulberry::getStructType(type);
   if (!structType)
@@ -4173,7 +4176,7 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
   for (size_t i = 0; i < expressions.size(); ++i) {
     auto &expr = expressions[i];
     auto &field = fields[i];
-    if (semaExpected(expr, field.type()))
+    if (llvm::failed(semaExpected(expr, field.type())))
       return failure();
   }
 
@@ -4181,7 +4184,7 @@ auto SemaImpl::sema(StructLiteralExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(VariableExpr *node) -> MulberryResult {
+auto SemaImpl::sema(VariableExpr *node) -> llvm::LogicalResult {
   auto *symbol = lookupVariable(node->name());
   if (symbol && _noncapturingLambdaDepth > 0 &&
       !_symbols.lookupCurrentVariable(node->name()))
@@ -4218,8 +4221,8 @@ auto SemaImpl::sema(VariableExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
-  if (sema(node->base().get()))
+auto SemaImpl::sema(MemberExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(sema(node->base().get())))
     return failure();
 
   auto *baseType = node->base()->type();
@@ -4235,7 +4238,7 @@ auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
   if (!field->type())
     return emitError(node, diag::mismatch_type);
   if (mulberry::isPtrType(field->type()) &&
-      checkInternalFeature(node->location()))
+      llvm::failed(checkInternalFeature(node->location())))
     return failure();
 
   node->setType(field->type());
@@ -4244,7 +4247,7 @@ auto SemaImpl::sema(MemberExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(IntegerLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(IntegerLiteralExpr *node) -> llvm::LogicalResult {
   if (!node->hasValidSpelling())
     return emitError(node, diag::invalid_integer_literal);
   if (!node->getUInt64Value())
@@ -4256,7 +4259,7 @@ auto SemaImpl::sema(IntegerLiteralExpr *node) -> MulberryResult {
 }
 
 auto SemaImpl::sema(IntegerLiteralExpr *node, const Type *type)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (!node->hasValidSpelling())
     return emitError(node, diag::invalid_integer_literal);
 
@@ -4286,8 +4289,8 @@ auto SemaImpl::sema(IntegerLiteralExpr *node, const Type *type)
   return sema(node);
 }
 
-auto SemaImpl::sema(IntegerWidenExpr *node) -> MulberryResult {
-  if (sema(node->value().get()))
+auto SemaImpl::sema(IntegerWidenExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(sema(node->value().get())))
     return failure();
   if (!isIntegerWidening(
           node->value()->type(),
@@ -4297,17 +4300,17 @@ auto SemaImpl::sema(IntegerWidenExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(FloatLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(FloatLiteralExpr *node) -> llvm::LogicalResult {
   setBuiltinType(node, BuiltinTypeKind::Float32);
   return success();
 }
 
-auto SemaImpl::sema(BoolLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(BoolLiteralExpr *node) -> llvm::LogicalResult {
   setBuiltinType(node, BuiltinTypeKind::Bool);
   return success();
 }
 
-auto SemaImpl::sema(StringLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(StringLiteralExpr *node) -> llvm::LogicalResult {
   auto *type = lookupType("String");
   if (!type)
     return emitError(node, diag::undefined_type);
@@ -4315,28 +4318,28 @@ auto SemaImpl::sema(StringLiteralExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(InterpolatedStringExpr *node) -> MulberryResult {
+auto SemaImpl::sema(InterpolatedStringExpr *node) -> llvm::LogicalResult {
   auto *stringType = lookupType("String");
   if (!stringType)
     return emitError(node, diag::undefined_type);
 
   for (auto &segment : node->segments()) {
-    if (semaFormatValueCall(segment, stringType))
+    if (llvm::failed(semaFormatValueCall(segment, stringType)))
       return failure();
   }
 
   if (node->segments().size() > 1 &&
-      checkStringConcatFunction(node, stringType))
+      llvm::failed(checkStringConcatFunction(node, stringType)))
     return failure();
   node->setType(stringType);
   return success();
 }
 
-auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
-  if (checkInternalFeature(node->location()))
+auto SemaImpl::sema(ObjectIdentityExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(checkInternalFeature(node->location())))
     return failure();
 
-  if (sema(node->value().get()))
+  if (llvm::failed(sema(node->value().get())))
     return failure();
 
   auto *valueType = node->value()->type();
@@ -4369,12 +4372,12 @@ auto SemaImpl::sema(ObjectIdentityExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(CharLiteralExpr *node) -> MulberryResult {
+auto SemaImpl::sema(CharLiteralExpr *node) -> llvm::LogicalResult {
   setBuiltinType(node, BuiltinTypeKind::UInt8);
   return success();
 }
 
-auto SemaImpl::sema(TypeLayoutExpr *node) -> MulberryResult {
+auto SemaImpl::sema(TypeLayoutExpr *node) -> llvm::LogicalResult {
   auto *queriedType = resolveType(node->typeNode());
   if (!queriedType)
     return failure();
@@ -4391,8 +4394,8 @@ auto SemaImpl::sema(TypeLayoutExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
-  if (checkInternalFeature(node->location()))
+auto SemaImpl::sema(HeapAllocExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(checkInternalFeature(node->location())))
     return failure();
 
   auto *allocatedType = checkType(node->typeNode(), UnitPolicy::Reject);
@@ -4400,7 +4403,7 @@ auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
     return failure();
 
   if (node->count()) {
-    if (sema(node->count().get()))
+    if (llvm::failed(sema(node->count().get())))
       return failure();
     if (!isUInt64Type(node->count()->type()))
       return emitError(node->count().get(), diag::mismatch_type);
@@ -4411,24 +4414,24 @@ auto SemaImpl::sema(HeapAllocExpr *node) -> MulberryResult {
   return success();
 }
 
-auto SemaImpl::sema(AssignExpr *node) -> MulberryResult {
-  if (sema(node->lhs().get()) ||
-      semaExpected(node->rhs(), node->lhs()->type()))
+auto SemaImpl::sema(AssignExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(sema(node->lhs().get())) ||
+      llvm::failed(semaExpected(node->rhs(), node->lhs()->type())))
     return failure();
   if (!node->lhs()->isLvalue())
     return emitError(node->lhs().get(), diag::expected_lvalue);
-  if (checkAssignable(node->lhs().get()))
+  if (llvm::failed(checkAssignable(node->lhs().get())))
     return failure();
   setBuiltinType(node, BuiltinTypeKind::Unit);
   return success();
 }
 
-auto SemaImpl::sema(BinaryExpr *node) -> MulberryResult {
+auto SemaImpl::sema(BinaryExpr *node) -> llvm::LogicalResult {
   return sema(node, nullptr);
 }
 
 auto SemaImpl::sema(BinaryExpr *node, const Type *expectedType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   using Operator = BinaryExpr::Operator;
   auto &lhs = node->lhs();
   auto &rhs = node->rhs();
@@ -4436,14 +4439,14 @@ auto SemaImpl::sema(BinaryExpr *node, const Type *expectedType)
   if (node->opEnum() == Operator::ShiftLeft ||
       node->opEnum() == Operator::ShiftRight) {
     if (expectedType && isIntegerType(expectedType)) {
-      if (semaExpected(lhs, expectedType))
+      if (llvm::failed(semaExpected(lhs, expectedType)))
         return failure();
-    } else if (sema(lhs.get())) {
+    } else if (llvm::failed(sema(lhs.get()))) {
       return failure();
     }
 
     auto *countType = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
-    if (semaExpected(rhs, countType))
+    if (llvm::failed(semaExpected(rhs, countType)))
       return failure();
     if (!isIntegerType(lhs->type()) || !isUInt64Type(rhs->type()))
       return emitError(lhs.get(), diag::mismatch_type);
@@ -4455,32 +4458,32 @@ auto SemaImpl::sema(BinaryExpr *node, const Type *expectedType)
   }
 
   if (expectedType && isIntegerType(expectedType)) {
-    if (semaExpected(lhs, expectedType) || semaExpected(rhs, expectedType))
+    if (llvm::failed(semaExpected(lhs, expectedType)) || llvm::failed(semaExpected(rhs, expectedType)))
       return failure();
   } else {
-    if (sema(lhs.get()))
+    if (llvm::failed(sema(lhs.get())))
       return failure();
 
     auto *stringType = lookupType("String");
     if (node->opEnum() == Operator::Add && stringType &&
         sameType(lhs->type(), stringType)) {
-      if (sema(rhs.get()))
+      if (llvm::failed(sema(rhs.get())))
         return failure();
-      if (semaFormatValueCall(rhs, stringType))
+      if (llvm::failed(semaFormatValueCall(rhs, stringType)))
         return failure();
-      if (checkStringConcatFunction(node, stringType))
+      if (llvm::failed(checkStringConcatFunction(node, stringType)))
         return failure();
       node->setType(stringType);
       return success();
     }
 
     if (isIntegerType(lhs->type())) {
-      if (semaExpected(rhs, lhs->type()))
+      if (llvm::failed(semaExpected(rhs, lhs->type())))
         return failure();
     } else {
-      if (sema(rhs.get()))
+      if (llvm::failed(sema(rhs.get())))
         return failure();
-      if (isIntegerType(rhs->type()) && semaExpected(lhs, rhs->type()))
+      if (isIntegerType(rhs->type()) && llvm::failed(semaExpected(lhs, rhs->type())))
         return failure();
     }
   }
@@ -4554,7 +4557,7 @@ auto SemaImpl::sema(BinaryExpr *node, const Type *expectedType)
 
 auto SemaImpl::checkStringConcatFunction(Expr *node,
                                          const Type *stringType)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto functionName = resolveFunctionName("std.string.concat");
   auto *signature = lookupFunction(functionName);
   if (signature && signature->type->parameterTypes().size() == 2 &&
@@ -4607,14 +4610,14 @@ auto SemaImpl::evaluateComptime(Expr *node) -> ComptimeEvaluation {
 
   if (auto *value = dyn_cast<IntegerLiteralExpr>(node)) {
     if (!value->hasValidSpelling()) {
-      emitError(value, diag::invalid_integer_literal);
+      (void)emitError(value, diag::invalid_integer_literal);
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     }
     if (isIntegerType(value->type()))
       return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
     auto uint64Value = value->getUInt64Value();
     if (!uint64Value) {
-      emitError(value, diag::integer_literal_overflows);
+      (void)emitError(value, diag::integer_literal_overflows);
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     }
     setBuiltinType(value, BuiltinTypeKind::UInt64);
@@ -4662,7 +4665,7 @@ auto SemaImpl::evaluateComptimeBlock(ComptimeBlockExpr *node)
     -> ComptimeEvaluation {
   VariableScope blockScope(_symbols);
   for (auto &statement : node->statements()) {
-    if (sema(statement.get()))
+    if (llvm::failed(sema(statement.get())))
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
   }
 
@@ -4679,11 +4682,11 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
       if (arguments.size() != 1) {
         auto diagnostic = formatNameSizeDiagnostic(
             diag::func_param, node->name(), 1);
-        emitError(node, diagnostic);
+        (void)emitError(node, diagnostic);
         return {ComptimeEvaluation::Kind::Error, std::nullopt};
       }
       auto *expression = arguments.front().get();
-      if (sema(expression))
+      if (llvm::failed(sema(expression)))
         return {ComptimeEvaluation::Kind::Error, std::nullopt};
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(expression->type()), true};
@@ -4724,7 +4727,7 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
     if (arguments.empty())
       return true;
     auto diagnostic = formatNameSizeDiagnostic(diag::func_param, name, 0);
-    emitError(node, diagnostic);
+    (void)emitError(node, diagnostic);
     return false;
   };
 
@@ -4764,7 +4767,7 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     auto *arrayType = getArrayType(type);
     if (!arrayType) {
-      emitError(node, diag::invalid_reflection_query);
+      (void)emitError(node, diag::invalid_reflection_query);
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     }
     if (name == "arrayElementType")
@@ -4782,7 +4785,7 @@ auto SemaImpl::evaluateComptimeCall(CallExpr *node) -> ComptimeEvaluation {
   }
 
   auto diagnostic = formatNameDiagnostic(diag::undefined_func, name);
-  emitError(node, diagnostic);
+  (void)emitError(node, diagnostic);
   return {ComptimeEvaluation::Kind::Error, std::nullopt};
 }
 
@@ -4812,7 +4815,7 @@ auto SemaImpl::evaluateComptimeBinary(BinaryExpr *node)
   auto cannotEvaluate = [&]() -> ComptimeEvaluation {
     if (!isComptimeOnly)
       return {EvaluationKind::Runtime, std::nullopt};
-    emitError(node, diag::expected_comptime_value);
+    (void)emitError(node, diag::expected_comptime_value);
     return {EvaluationKind::Error, std::nullopt};
   };
 
@@ -4911,8 +4914,8 @@ auto SemaImpl::evaluateComptimeBinary(BinaryExpr *node)
 
 auto SemaImpl::semaFormatValueCall(std::unique_ptr<Expr> &expression,
                                    const Type *stringType)
-    -> MulberryResult {
-  if (sema(expression.get()))
+    -> llvm::LogicalResult {
+  if (llvm::failed(sema(expression.get())))
     return failure();
   if (isUnitType(expression->type()))
     return emitError(expression.get(), diag::mismatch_type);
@@ -4924,14 +4927,14 @@ auto SemaImpl::semaFormatValueCall(std::unique_ptr<Expr> &expression,
       location, "std.string.formatValue", std::move(arguments));
   auto *callExpr = call.get();
   expression = std::move(call);
-  if (sema(callExpr, stringType))
+  if (llvm::failed(sema(callExpr, stringType)))
     return failure();
   if (!sameType(callExpr->type(), stringType))
     return emitError(callExpr, diag::mismatch_type);
   return success();
 }
 
-auto SemaImpl::checkAssignable(const Expr *expr) -> MulberryResult {
+auto SemaImpl::checkAssignable(const Expr *expr) -> llvm::LogicalResult {
   if (auto *var = llvm::dyn_cast<VariableExpr>(expr)) {
     auto *symbol = lookupVariable(var->name());
     if (!symbol)
@@ -4975,7 +4978,7 @@ auto SemaImpl::canMutateObjectReference(const Expr *expr) -> bool {
 }
 
 auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (auto *matchExpr = llvm::dyn_cast<MatchExpr>(expr)) {
     if (!matchExpr->canMutateObject())
       return emitError(matchExpr, diag::readonly_to_mutable_reference);
@@ -5008,7 +5011,7 @@ auto SemaImpl::checkConstObjectUseAsMutable(const Expr *expr)
 
 auto SemaImpl::checkMutableObjectArgument(const FunctionType *functionType,
                                           size_t index, const Expr *arg)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (!functionType->parameterCanMutateObject()[index])
     return success();
   if (!isMutableSourceObjectType(functionType->parameterTypes()[index]))
@@ -5033,18 +5036,18 @@ auto SemaImpl::arrayLiteralTypeWithLeaf(const ArrayLiteralExpr *expr,
 }
 
 auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &elements = expr->getElements();
   if (elements.empty())
     return emitError(expr, diag::expected_expr);
 
-  auto semaElement = [&](Expr *element) -> MulberryResult {
+  auto semaElement = [&](Expr *element) -> llvm::LogicalResult {
     if (auto *nestedLiteral = dyn_cast<ArrayLiteralExpr>(element))
       return semaDefaultArrayLiteral(nestedLiteral);
     return sema(element);
   };
 
-  if (semaElement(elements.front().get()))
+  if (llvm::failed(semaElement(elements.front().get())))
     return failure();
 
   auto *elementType = elements.front()->type();
@@ -5053,7 +5056,7 @@ auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
 
   for (size_t index = 1; index < elements.size(); ++index) {
     auto &element = elements[index];
-    if (semaElement(element.get()))
+    if (llvm::failed(semaElement(element.get())))
       return failure();
     if (!sameType(elementType, element->type()))
       return emitError(element.get(), diag::mismatch_type);
@@ -5065,7 +5068,7 @@ auto SemaImpl::semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
   return success();
 }
 
-auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> MulberryResult {
+auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> llvm::LogicalResult {
   auto &expressions = node->expressions();
   if (expressions.size() != 1) {
     auto diagnostic =
@@ -5074,9 +5077,9 @@ auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> MulberryResult {
   }
 
   auto *tensor = expressions.front().get();
-  if (sema(tensor) || !tensorElementType(tensor->type()))
+  if (llvm::failed(sema(tensor)) || !tensorElementType(tensor->type()))
     return emitError(tensor, diag::mismatch_type);
-  if (checkConstObjectUseAsMutable(tensor))
+  if (llvm::failed(checkConstObjectUseAsMutable(tensor)))
     return failure();
 
   setBuiltinType(node, BuiltinTypeKind::Unit);
@@ -5085,8 +5088,8 @@ auto SemaImpl::semaTensorDisposeCall(CallExpr *node) -> MulberryResult {
 
 auto SemaImpl::semaTensorStorageAllocCall(CallExpr *node,
                                           const Type *expectedType)
-    -> MulberryResult {
-  if (checkInternalFeature(node->location()))
+    -> llvm::LogicalResult {
+  if (llvm::failed(checkInternalFeature(node->location())))
     return failure();
 
   auto &expressions = node->expressions();
@@ -5098,7 +5101,7 @@ auto SemaImpl::semaTensorStorageAllocCall(CallExpr *node,
 
   if (!expectedType || !tensorStorageElementType(expectedType))
     return emitError(node, diag::mismatch_type);
-  if (sema(expressions.front().get()) ||
+  if (llvm::failed(sema(expressions.front().get())) ||
       !isUInt64Type(expressions.front()->type()))
     return emitError(expressions.front().get(), diag::mismatch_type);
 
@@ -5106,18 +5109,18 @@ auto SemaImpl::semaTensorStorageAllocCall(CallExpr *node,
   return success();
 }
 
-auto SemaImpl::sema(ArrayLiteralExpr *expr) -> MulberryResult {
+auto SemaImpl::sema(ArrayLiteralExpr *expr) -> llvm::LogicalResult {
   return semaDefaultArrayLiteral(expr);
 }
 
 auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &elements = expr->getElements();
   if (elements.size() != type->size())
     return emitError(expr, diag::mismatch_type);
 
   for (auto &element : elements) {
-    if (semaArrayLiteralElement(element, type->elementType()))
+    if (llvm::failed(semaArrayLiteralElement(element, type->elementType())))
       return failure();
   }
 
@@ -5127,7 +5130,7 @@ auto SemaImpl::sema(ArrayLiteralExpr *expr, const ArrayType *type)
 
 auto SemaImpl::semaArrayLiteralElement(std::unique_ptr<Expr> &expr,
                                        const Type *type)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   if (auto *arrayLiteral = llvm::dyn_cast<ArrayLiteralExpr>(expr.get())) {
     auto *arrayType = mulberry::getArrayType(type);
     if (!arrayType)
@@ -5141,8 +5144,8 @@ auto SemaImpl::semaArrayLiteralElement(std::unique_ptr<Expr> &expr,
   return semaExpected(expr, type);
 }
 
-auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
-  if (sema(expr->base().get()))
+auto SemaImpl::sema(IndexExpr *expr) -> llvm::LogicalResult {
+  if (llvm::failed(sema(expr->base().get())))
     return failure();
 
   if (auto *elementType = tensorElementType(expr->base()->type())) {
@@ -5150,7 +5153,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
       return emitError(expr, diag::mismatch_type);
 
     for (auto &index : expr->indices()) {
-      if (sema(index.get()))
+      if (llvm::failed(sema(index.get())))
         return failure();
       if (!isUInt64Type(index->type()))
         return emitError(index.get(), diag::mismatch_type);
@@ -5166,17 +5169,17 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
     if (expr->indices().size() != 1)
       return emitError(expr, diag::mismatch_type);
     auto &index = expr->indices().front();
-    if (sema(index.get()))
+    if (llvm::failed(sema(index.get())))
       return failure();
     if (!isUInt64Type(index->type()))
       return emitError(index.get(), diag::mismatch_type);
 
     std::string getFunctionName;
     std::string setFunctionName;
-    if (instantiateGenericFunction(expr, "std.list.List.get",
-                                   elementType, getFunctionName) ||
-        instantiateGenericFunction(expr, "std.list.List.set",
-                                   elementType, setFunctionName))
+    if (llvm::failed(instantiateGenericFunction(expr, "std.list.List.get",
+                                   elementType, getFunctionName)) ||
+        llvm::failed(instantiateGenericFunction(expr, "std.list.List.set",
+                                   elementType, setFunctionName)))
       return failure();
 
     expr->setType(elementType);
@@ -5189,7 +5192,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
     if (expr->indices().size() != 1)
       return emitError(expr, diag::mismatch_type);
     auto &index = expr->indices().front();
-    if (sema(index.get()))
+    if (llvm::failed(sema(index.get())))
       return failure();
     if (!isUInt64Type(index->type()))
       return emitError(index.get(), diag::mismatch_type);
@@ -5205,7 +5208,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
     if (expr->indices().size() != 1)
       return emitError(expr, diag::mismatch_type);
     auto &index = expr->indices().front();
-    if (sema(index.get()))
+    if (llvm::failed(sema(index.get())))
       return failure();
     if (!isUInt64Type(index->type()))
       return emitError(index.get(), diag::mismatch_type);
@@ -5219,7 +5222,7 @@ auto SemaImpl::sema(IndexExpr *expr) -> MulberryResult {
   return emitError(expr, diag::mismatch_type);
 }
 
-auto SemaImpl::sema(IfStat *node) -> MulberryResult {
+auto SemaImpl::sema(IfStat *node) -> llvm::LogicalResult {
   auto condition = evaluateComptime(node->conditionExpr().get());
   if (condition.kind == ComptimeEvaluation::Kind::Error)
     return failure();
@@ -5240,13 +5243,13 @@ auto SemaImpl::sema(IfStat *node) -> MulberryResult {
   }
 
   auto conditionExpr = node->conditionExpr().get();
-  if (sema(conditionExpr))
+  if (llvm::failed(sema(conditionExpr)))
     return failure();
   if (!isBoolType(conditionExpr->type()))
     return emitError(conditionExpr, diag::expected_bool);
 
   auto thenBlock = node->thenBlock().get();
-  if (sema(thenBlock))
+  if (llvm::failed(sema(thenBlock)))
     return failure();
 
   if (!node->hasElseBlock()) {
@@ -5254,7 +5257,7 @@ auto SemaImpl::sema(IfStat *node) -> MulberryResult {
   }
 
   auto elseBlock = node->elseBlock().get();
-  if (sema(elseBlock))
+  if (llvm::failed(sema(elseBlock)))
     return failure();
 
   return success();
@@ -5263,7 +5266,7 @@ auto SemaImpl::sema(IfStat *node) -> MulberryResult {
 auto SemaImpl::checkMatchPattern(
     DataPattern *pattern, const DataType *dataType,
     std::vector<bool> &covered, const DataConstructor *&constructor)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto &constructors = dataType->constructors();
   std::string resolvedName;
   auto *symbol = lookupDataConstructor(pattern->constructorName(),
@@ -5293,29 +5296,29 @@ auto SemaImpl::checkMatchPattern(
 
 auto SemaImpl::declareMatchPatternBindings(
     DataPattern *pattern, const DataConstructor *constructor)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (size_t i = 0; i < pattern->bindings().size(); ++i) {
     auto *binding = pattern->bindings()[i].get();
     auto *payloadType = constructor->payloadTypes()[i];
-    if (declareVariable(binding->name(), payloadType,
+    if (llvm::failed(declareVariable(binding->name(), payloadType,
                         /*isConstBinding=*/true,
-                        /*canMutateObject=*/false))
+                        /*canMutateObject=*/false)))
       return emitError(binding, diag::redefinition_var);
   }
   return success();
 }
 
 auto SemaImpl::checkExhaustiveMatch(
-    const Node *node, const std::vector<bool> &covered) -> MulberryResult {
+    const Node *node, const std::vector<bool> &covered) -> llvm::LogicalResult {
   for (auto isCovered : covered)
     if (!isCovered)
       return emitError(node, diag::non_exhaustive_match);
   return success();
 }
 
-auto SemaImpl::sema(MatchStat *node) -> MulberryResult {
+auto SemaImpl::sema(MatchStat *node) -> llvm::LogicalResult {
   auto *value = node->value().get();
-  if (sema(value))
+  if (llvm::failed(sema(value)))
     return failure();
 
   auto *dataType = getDataType(value->type());
@@ -5326,47 +5329,47 @@ auto SemaImpl::sema(MatchStat *node) -> MulberryResult {
   for (auto &arm : node->arms()) {
     auto *pattern = arm->pattern().get();
     const DataConstructor *constructor = nullptr;
-    if (checkMatchPattern(pattern, dataType, covered, constructor))
+    if (llvm::failed(checkMatchPattern(pattern, dataType, covered, constructor)))
       return failure();
 
     VariableScope armScope(_symbols);
-    if (declareMatchPatternBindings(pattern, constructor) ||
-        sema(arm->bodyBlock().get()))
+    if (llvm::failed(declareMatchPatternBindings(pattern, constructor)) ||
+        llvm::failed(sema(arm->bodyBlock().get())))
       return failure();
   }
 
   return checkExhaustiveMatch(node, covered);
 }
 
-auto SemaImpl::sema(WhileStat *node) -> MulberryResult {
+auto SemaImpl::sema(WhileStat *node) -> llvm::LogicalResult {
   auto conditionExpr = node->conditionExpr().get();
-  if (sema(conditionExpr))
+  if (llvm::failed(sema(conditionExpr)))
     return failure();
   if (!isBoolType(conditionExpr->type()))
     return emitError(conditionExpr, diag::expected_bool);
 
   auto bodyBlock = node->bodyBlock().get();
   WhileScope whileScope(_whileDepth);
-  if (sema(bodyBlock))
+  if (llvm::failed(sema(bodyBlock)))
     return failure();
 
   return success();
 }
 
-auto SemaImpl::sema(BreakStat *node) -> MulberryResult {
+auto SemaImpl::sema(BreakStat *node) -> llvm::LogicalResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
   return success();
 }
 
-auto SemaImpl::sema(ContinueStat *node) -> MulberryResult {
+auto SemaImpl::sema(ContinueStat *node) -> llvm::LogicalResult {
   if (_whileDepth == 0)
     return emitError(node, diag::loop_control_outside_loop);
   return success();
 }
 
-auto SemaImpl::sema(ForStat *node) -> MulberryResult {
-  if (sema(node->startExpr().get()) || sema(node->endExpr().get()))
+auto SemaImpl::sema(ForStat *node) -> llvm::LogicalResult {
+  if (llvm::failed(sema(node->startExpr().get())) || llvm::failed(sema(node->endExpr().get())))
     return failure();
 
   if (!isUInt64Type(node->startExpr()->type()))
@@ -5376,19 +5379,19 @@ auto SemaImpl::sema(ForStat *node) -> MulberryResult {
 
   VariableScope loopScope(_symbols);
   auto *uint64Type = _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
-  if (declareVariable(node->variableName(), uint64Type,
+  if (llvm::failed(declareVariable(node->variableName(), uint64Type,
                       /*isConstBinding=*/true,
-                      /*canMutateObject=*/false))
+                      /*canMutateObject=*/false)))
     return emitError(node, diag::redefinition_var);
 
   auto bodyBlock = node->bodyBlock().get();
-  if (sema(bodyBlock))
+  if (llvm::failed(sema(bodyBlock)))
     return failure();
 
   return success();
 }
 
-auto SemaImpl::sema(Stat *node) -> MulberryResult {
+auto SemaImpl::sema(Stat *node) -> llvm::LogicalResult {
   switch (node->getKind()) {
   case Stat::Stat_VariableDecl:
     return sema(cast<VariableStat>(node));
@@ -5411,7 +5414,7 @@ auto SemaImpl::sema(Stat *node) -> MulberryResult {
   }
 }
 
-auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
+auto SemaImpl::sema(VariableStat *node) -> llvm::LogicalResult {
   auto var = node->variable().get();
   auto &initExpr = node->init();
 
@@ -5425,7 +5428,7 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   std::optional<ComptimeValue> comptimeValue;
   auto initializerWasTyped = false;
   if (node->isConstBinding() && declaredType && isIntegerType(declaredType)) {
-    if (semaExpected(initExpr, declaredType))
+    if (llvm::failed(semaExpected(initExpr, declaredType)))
       return failure();
     initializerWasTyped = true;
   }
@@ -5451,10 +5454,10 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
 
       node->setType(valueType);
       node->setComptimeValue(*evaluation.value);
-      if (declareVariable(var->name(), valueType,
+      if (llvm::failed(declareVariable(var->name(), valueType,
                           /*isConstBinding=*/true,
                           /*canMutateObject=*/false, evaluation.value,
-                          /*isComptimeOnly=*/true))
+                          /*isComptimeOnly=*/true)))
         return emitError(var, diag::redefinition_var);
       return success();
     }
@@ -5463,10 +5466,10 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   const Type *varType = nullptr;
   if (declaredType) {
     varType = declaredType;
-    if (!initializerWasTyped && semaExpected(initExpr, varType))
+    if (!initializerWasTyped && llvm::failed(semaExpected(initExpr, varType)))
       return failure();
   } else {
-    if (sema(initExpr.get()))
+    if (llvm::failed(sema(initExpr.get())))
       return failure();
     varType = initExpr->type();
     if (!varType)
@@ -5478,17 +5481,17 @@ auto SemaImpl::sema(VariableStat *node) -> MulberryResult {
   if (canMutateObject && isMutableSourceObjectType(varType) &&
       !canMutateObjectReference(initExpr.get()))
     return emitError(initExpr.get(), diag::readonly_to_mutable_binding);
-  if (declareVariable(var->name(), varType, node->isConstBinding(),
-                      canMutateObject, std::move(comptimeValue)))
+  if (llvm::failed(declareVariable(var->name(), varType, node->isConstBinding(),
+                      canMutateObject, std::move(comptimeValue))))
     return emitError(var, diag::redefinition_var);
   return success();
 }
 
-auto SemaImpl::sema(ExprStat *node) -> MulberryResult {
+auto SemaImpl::sema(ExprStat *node) -> llvm::LogicalResult {
   return sema(node->expression().get());
 }
 
-auto SemaImpl::sema(ReturnStat *node) -> MulberryResult {
+auto SemaImpl::sema(ReturnStat *node) -> llvm::LogicalResult {
   if (!_currentFunctionReturnType)
     return emitError(node, diag::return_outside_function);
 
@@ -5502,9 +5505,9 @@ auto SemaImpl::sema(ReturnStat *node) -> MulberryResult {
   if (getPtrType(_currentFunctionReturnType)) {
     // The internal Ptr<T> -> Ptr<U> cast is valid only at a declared return
     // boundary. Keep ordinary expected-value contexts type-safe.
-    if (sema(expression.get()))
+    if (llvm::failed(sema(expression.get())))
       return failure();
-  } else if (semaExpected(expression, _currentFunctionReturnType)) {
+  } else if (llvm::failed(semaExpected(expression, _currentFunctionReturnType))) {
     return failure();
   }
   if (!sameReturnType(_currentFunctionReturnType, expression->type()))
@@ -5515,13 +5518,13 @@ auto SemaImpl::sema(ReturnStat *node) -> MulberryResult {
 namespace mulberry {
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   return SemaImpl(sourceManager).sema(moduleAST);
 }
 
 auto sema(const llvm::SourceMgr &sourceManager, Module &moduleAST,
           const std::map<std::string, std::string> &importAliases)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   return SemaImpl(sourceManager, importAliases).sema(moduleAST);
 }
 

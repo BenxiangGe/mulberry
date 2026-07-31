@@ -7,7 +7,6 @@
 
 #include "mulberry/MLIRGen/MLIRGen.h"
 #include "mulberry/AST/AST.h"
-#include "mulberry/Basic/MulberryResult.h"
 #include "mulberry/Basic/Logging.h"
 #include "mulberry/Basic/ScopeStack.h"
 #include "mulberry/BigInt/BigIntOps.h"
@@ -194,7 +193,7 @@ public:
     registerBuiltinHandlers();
   }
 
-  auto gen(const Module &node) -> MulberryResult;
+  auto gen(const Module &node) -> llvm::LogicalResult;
 
   mlir::ModuleOp module;
 
@@ -551,7 +550,7 @@ auto MLIRGenImpl::lookupBuiltinHandler(std::string_view name) const
   return &iter->second;
 }
 
-auto MLIRGenImpl::gen(const Module &node) -> MulberryResult {
+auto MLIRGenImpl::gen(const Module &node) -> llvm::LogicalResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
 
   for (auto &decl : node) {
@@ -2763,7 +2762,7 @@ namespace mulberry {
 
 auto mlirGen(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context,
              const Module &moduleAST, mlir::OwningOpRef<mlir::ModuleOp> &module)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto generator = MLIRGenImpl(sourceManager, context);
   auto result = generator.gen(moduleAST);
   module = generator.module;

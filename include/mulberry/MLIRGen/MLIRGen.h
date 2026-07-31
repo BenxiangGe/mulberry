@@ -8,6 +8,8 @@
 #ifndef MULBERRY_MLIRGEN_H
 #define MULBERRY_MLIRGEN_H
 
+#include "llvm/Support/LogicalResult.h"
+
 namespace mlir {
 class MLIRContext;
 template <typename OpTy> class OwningOpRef;
@@ -20,11 +22,10 @@ class SourceMgr;
 
 namespace mulberry {
 class Module;
-class MulberryResult;
 
 auto mlirGen(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context,
              const Module &moduleAST, mlir::OwningOpRef<mlir::ModuleOp> &module)
-    -> MulberryResult;
+    -> llvm::LogicalResult;
 
 } // end namespace mulberry
 

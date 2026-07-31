@@ -603,15 +603,15 @@ auto Compilation::make(llvm::StringRef filename,
   return compilation;
 }
 
-auto Compilation::parse(std::unique_ptr<Module> &module) -> MulberryResult {
+auto Compilation::parse(std::unique_ptr<Module> &module) -> llvm::LogicalResult {
   _importAliases.clear();
   _loadedModules.clear();
   _usedBundledPackages.clear();
 
-  if (parseFile(_inputFilename, llvm::SMLoc(), module))
+  if (llvm::failed(parseFile(_inputFilename, llvm::SMLoc(), module)))
     return failure();
 
-  if (!isBundledPackage(module->packageName()) && loadPrelude(*module))
+  if (!isBundledPackage(module->packageName()) && llvm::failed(loadPrelude(*module)))
     return failure();
 
   return loadImports(*module);
@@ -619,7 +619,7 @@ auto Compilation::parse(std::unique_ptr<Module> &module) -> MulberryResult {
 
 auto Compilation::parseFile(const std::string &filename,
                             llvm::SMLoc includeLocation,
-                            std::unique_ptr<Module> &module) -> MulberryResult {
+                            std::unique_ptr<Module> &module) -> llvm::LogicalResult {
   auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
   if (auto ec = fileOrErr.getError()) {
     llvm::errs() << "error: " << ec.message() << ": '" << filename << "'\n";
@@ -658,11 +658,11 @@ auto Compilation::resolveImportPath(std::string_view moduleName)
   return path;
 }
 
-auto Compilation::loadPrelude(Module &module) -> MulberryResult {
+auto Compilation::loadPrelude(Module &module) -> llvm::LogicalResult {
   std::unique_ptr<Module> preludeModule;
   auto preludePath = resolveStdlibPath("prelude.mulberry");
-  if (parseFile(preludePath, module.location(), preludeModule) ||
-      loadImports(*preludeModule))
+  if (llvm::failed(parseFile(preludePath, module.location(), preludeModule)) ||
+      llvm::failed(loadImports(*preludeModule)))
     return failure();
 
   VectorUniquePtr<Decl> declarations = preludeModule->takeDeclarations();
@@ -673,7 +673,7 @@ auto Compilation::loadPrelude(Module &module) -> MulberryResult {
   return success();
 }
 
-auto Compilation::loadImports(Module &module) -> MulberryResult {
+auto Compilation::loadImports(Module &module) -> llvm::LogicalResult {
   VectorUniquePtr<Decl> mergedDeclarations;
   for (auto &decl : module.takeDeclarations()) {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
@@ -720,8 +720,8 @@ auto Compilation::loadImports(Module &module) -> MulberryResult {
 
       if (_loadedModules.insert(moduleName).second) {
         std::unique_ptr<Module> importedModule;
-        if (parseFile(importPath, importDecl->location(), importedModule) ||
-            loadImports(*importedModule))
+        if (llvm::failed(parseFile(importPath, importDecl->location(), importedModule)) ||
+            llvm::failed(loadImports(*importedModule)))
           return failure();
 
         for (auto &importedDecl : importedModule->takeDeclarations())
@@ -739,7 +739,7 @@ auto Compilation::loadImports(Module &module) -> MulberryResult {
 }
 
 auto Compilation::loadBundledPackage(std::string_view moduleName)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   auto spec = findBundledPackageSpec(moduleName);
   if (!spec)
     return success();
@@ -780,35 +780,35 @@ auto Compilation::loadBundledPackage(std::string_view moduleName)
   return success();
 }
 
-auto Compilation::loadUsedBundledPackages() -> MulberryResult {
+auto Compilation::loadUsedBundledPackages() -> llvm::LogicalResult {
   for (auto &moduleName : _usedBundledPackages) {
-    if (loadBundledPackage(moduleName))
+    if (llvm::failed(loadBundledPackage(moduleName)))
       return failure();
   }
   return success();
 }
 
 auto Compilation::addBundledPackagePreCorePipelines(mlir::PassManager &pm)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (auto &moduleName : _usedBundledPackages) {
     auto spec = findBundledPackageSpec(moduleName);
     if (!spec || spec->preCorePipeline.empty())
       continue;
 
-    if (addPassPipeline(pm, spec->preCorePipeline))
+    if (llvm::failed(addPassPipeline(pm, spec->preCorePipeline)))
       return failure();
   }
   return success();
 }
 
 auto Compilation::addBundledPackagePostCorePipelines(mlir::PassManager &pm)
-    -> MulberryResult {
+    -> llvm::LogicalResult {
   for (auto &moduleName : _usedBundledPackages) {
     auto spec = findBundledPackageSpec(moduleName);
     if (!spec || spec->postCorePipeline.empty())
       continue;
 
-    if (addPassPipeline(pm, spec->postCorePipeline))
+    if (llvm::failed(addPassPipeline(pm, spec->postCorePipeline)))
       return failure();
     if (spec->runSymbolDCEAfterPostCore)
       pm.addPass(mlir::createSymbolDCEPass());
@@ -817,20 +817,22 @@ auto Compilation::addBundledPackagePostCorePipelines(mlir::PassManager &pm)
 }
 
 auto Compilation::addPassPipeline(mlir::PassManager &pm,
-                                  llvm::StringRef pipeline) -> MulberryResult {
+                                  llvm::StringRef pipeline) -> llvm::LogicalResult {
   if (mlir::failed(mlir::parsePassPipeline(pipeline, pm, llvm::errs())))
     return failure();
   return success();
 }
 
 auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
-                          Lowering lowering) -> MulberryResult {
+                          Lowering lowering) -> llvm::LogicalResult {
   std::unique_ptr<Module> moduleAST;
-  if (parse(moduleAST))
+  if (llvm::failed(parse(moduleAST)))
     return failure();
 
-  if (mulberry::sema(_sourceManager, *moduleAST.get(), _importAliases) ||
-      mlirGen(_sourceManager, _mlirContext, *moduleAST, module))
+  if (llvm::failed(
+          mulberry::sema(_sourceManager, *moduleAST.get(), _importAliases)) ||
+      llvm::failed(
+          mlirGen(_sourceManager, _mlirContext, *moduleAST, module)))
     return failure();
 
   mlir::PassManager pm(module.get()->getName());
@@ -838,11 +840,11 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   if (_enableOpt)
     optPM.addPass(mlir::createCanonicalizerPass());
 
-  if (lowering >= Lowering::Mulberry && loadUsedBundledPackages())
+  if (lowering >= Lowering::Mulberry && llvm::failed(loadUsedBundledPackages()))
     return failure();
 
   if (lowering >= Lowering::Mulberry &&
-      addBundledPackagePreCorePipelines(pm))
+      llvm::failed(addBundledPackagePreCorePipelines(pm)))
     return failure();
 
   if (lowering >= Lowering::Mulberry)
@@ -852,7 +854,7 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
     pm.addPass(mulberry_core::createLowerMulberry());
 
   if (lowering >= Lowering::Mulberry &&
-      addBundledPackagePostCorePipelines(pm))
+      llvm::failed(addBundledPackagePostCorePipelines(pm)))
     return failure();
 
   if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty())
@@ -876,8 +878,9 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
 
 auto Compilation::typecheck() -> int {
   std::unique_ptr<Module> module;
-  if (parse(module) ||
-      mulberry::sema(_sourceManager, *module.get(), _importAliases))
+  if (llvm::failed(parse(module)) ||
+      llvm::failed(
+          mulberry::sema(_sourceManager, *module.get(), _importAliases)))
     return EXIT_FAILURE;
 
   return EXIT_SUCCESS;
@@ -889,7 +892,7 @@ auto Compilation::jit() -> int {
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, Lowering::LLVM))
+  if (llvm::failed(genMLIR(module, Lowering::LLVM)))
     return EXIT_FAILURE;
 
   registerLLVMTranslations(*module);
@@ -950,7 +953,7 @@ auto Compilation::genObjectFile(const char *outputFileName,
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, Lowering::LLVM))
+  if (llvm::failed(genMLIR(module, Lowering::LLVM)))
     return EXIT_FAILURE;
 
   auto targetMachine = createTargetMachine();
@@ -1013,7 +1016,7 @@ auto Compilation::dumpTokens() -> int {
 
 auto Compilation::dumpParse() -> int {
   std::unique_ptr<Module> module;
-  if (parse(module))
+  if (llvm::failed(parse(module)))
     return EXIT_FAILURE;
 
   mulberry::dumpAST(_sourceManager, *module);
@@ -1022,8 +1025,9 @@ auto Compilation::dumpParse() -> int {
 
 auto Compilation::dumpAST() -> int {
   std::unique_ptr<Module> module;
-  if (parse(module) ||
-      mulberry::sema(_sourceManager, *module.get(), _importAliases))
+  if (llvm::failed(parse(module)) ||
+      llvm::failed(
+          mulberry::sema(_sourceManager, *module.get(), _importAliases)))
     return EXIT_FAILURE;
 
   mulberry::dumpAST(_sourceManager, *module);
@@ -1032,7 +1036,7 @@ auto Compilation::dumpAST() -> int {
 
 auto Compilation::dumpMLIR(Lowering lowering) -> int {
   mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, lowering))
+  if (llvm::failed(genMLIR(module, lowering)))
     return EXIT_FAILURE;
 
   module->dump();
@@ -1045,7 +1049,7 @@ auto Compilation::dumpLLVM() -> int {
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::OwningOpRef<mlir::ModuleOp> module;
-  if (genMLIR(module, Lowering::LLVM))
+  if (llvm::failed(genMLIR(module, Lowering::LLVM)))
     return EXIT_FAILURE;
 
   auto targetMachine = createTargetMachine();

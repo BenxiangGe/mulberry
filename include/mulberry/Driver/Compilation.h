@@ -10,6 +10,7 @@
 
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
 #include <memory>
@@ -29,7 +30,6 @@ namespace llvm {
 
 namespace mulberry {
 class Module;
-class MulberryResult;
 
 class Compilation {
 public:
@@ -63,23 +63,23 @@ private:
   std::set<std::string> _usedBundledPackages;
   std::set<std::string> _loadedBundledPackages;
 
-  auto parse(std::unique_ptr<Module> &module) -> MulberryResult;
+  auto parse(std::unique_ptr<Module> &module) -> llvm::LogicalResult;
   auto parseFile(const std::string &filename, llvm::SMLoc includeLocation,
-                 std::unique_ptr<Module> &module) -> MulberryResult;
-  auto loadPrelude(Module &module) -> MulberryResult;
-  auto loadImports(Module &module) -> MulberryResult;
+                 std::unique_ptr<Module> &module) -> llvm::LogicalResult;
+  auto loadPrelude(Module &module) -> llvm::LogicalResult;
+  auto loadImports(Module &module) -> llvm::LogicalResult;
   auto resolveStdlibPath(std::string_view relativePath) -> std::string;
   auto resolveImportPath(std::string_view moduleName) -> std::string;
-  auto loadBundledPackage(std::string_view moduleName) -> MulberryResult;
-  auto loadUsedBundledPackages() -> MulberryResult;
+  auto loadBundledPackage(std::string_view moduleName) -> llvm::LogicalResult;
+  auto loadUsedBundledPackages() -> llvm::LogicalResult;
   auto addBundledPackagePreCorePipelines(mlir::PassManager &pm)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto addBundledPackagePostCorePipelines(mlir::PassManager &pm)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto addPassPipeline(mlir::PassManager &pm, llvm::StringRef pipeline)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
-      -> MulberryResult;
+      -> llvm::LogicalResult;
   auto genObjectFile(const char *outputFileName, bool addExecutableWrapper)
       -> int;
 };

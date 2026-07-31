@@ -9,9 +9,9 @@
 #define MULBERRY_SYMBOLS_H
 
 #include "mulberry/AST/Type.h"
-#include "mulberry/Basic/MulberryResult.h"
 #include "mulberry/Basic/ScopeStack.h"
 #include "mulberry/Basic/Types.h"
+#include "llvm/Support/LogicalResult.h"
 #include <functional>
 #include <map>
 #include <optional>
@@ -77,7 +77,7 @@ class Symbols {
 public:
   auto declareFunction(std::string_view name, const FunctionType *type,
                        bool isExtern)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     return declareSymbol(_functionsByName, name,
                          FunctionSymbol{type, isExtern});
   }
@@ -90,7 +90,7 @@ public:
   }
 
   auto declareGenericFunction(std::string_view name,
-                              const FunctionDecl *decl) -> MulberryResult {
+                              const FunctionDecl *decl) -> llvm::LogicalResult {
     return declareSymbol(_genericFunctionsByName, name,
                          GenericFunctionSymbol{decl});
   }
@@ -104,7 +104,7 @@ public:
   }
 
   auto declareDataDecl(std::string_view name, const DataDecl *decl)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     return declareSymbol(_dataDeclsByName, name, DataDeclSymbol{decl});
   }
 
@@ -116,7 +116,7 @@ public:
   }
 
   auto declareDataConstructor(std::string_view name, const DataDecl *decl,
-                              unsigned index) -> MulberryResult {
+                              unsigned index) -> llvm::LogicalResult {
     return declareSymbol(_dataConstructorsByName, name,
                          DataConstructorSymbol{decl, index});
   }
@@ -130,7 +130,7 @@ public:
   }
 
   auto declareTrait(std::string_view name, const TraitDecl *decl)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     return declareSymbol(_traitsByName, name, TraitSymbol{decl});
   }
 
@@ -144,7 +144,7 @@ public:
   auto declareTraitImplementation(
       const TraitDecl *trait, const Type *type, const ImplDecl *decl,
       std::map<std::string, std::string, std::less<>> methodFunctionNames)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     auto key = std::make_pair(trait, type);
     if (_traitImplementations.find(key) != _traitImplementations.end())
       return failure();
@@ -162,7 +162,7 @@ public:
   }
 
   auto declareGenericTraitImplementation(const ImplDecl *decl)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     _genericTraitImplementations.push_back(decl);
     return success();
   }
@@ -184,7 +184,7 @@ public:
     return nullptr;
   }
 
-  auto declareType(std::string_view name, const Type *type) -> MulberryResult {
+  auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult {
     return declareSymbol(_typesByName, name, type);
   }
 
@@ -199,7 +199,7 @@ public:
                                 std::string_view packageName,
                                 std::vector<ComptimeParam> parameters,
                                 const TypeNode *bodyTypeNode)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     return declareSymbol(_comptimeTypeAliasesByName, name,
                          ComptimeTypeAliasSymbol{
                              std::string(packageName), std::move(parameters),
@@ -230,14 +230,14 @@ public:
                        bool canMutateObject = true,
                        std::optional<ComptimeValue> comptimeValue = std::nullopt,
                        bool isComptimeOnly = false)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (_variableScopes.empty())
       enterVariableScope();
 
-    if (declareSymbol(_variableScopes.currentScope(), name,
+    if (llvm::failed(declareSymbol(_variableScopes.currentScope(), name,
                       VariableSymbol{type, isConstBinding, canMutateObject,
                                      std::move(comptimeValue),
-                                     isComptimeOnly}))
+                                     isComptimeOnly})))
       return failure();
     return success();
   }
@@ -253,7 +253,7 @@ public:
 private:
   template <typename T>
   auto declareSymbol(NameMap<T> &symbols, std::string_view name, T value)
-      -> MulberryResult {
+      -> llvm::LogicalResult {
     if (symbols.find(name) != symbols.end())
       return failure();
     symbols.insert(std::make_pair(std::string(name), std::move(value)));
