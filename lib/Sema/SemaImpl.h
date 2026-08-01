@@ -1,0 +1,288 @@
+//===--- SemaImpl.h - Mulberry semantic implementation context -*- C++ -*-===//
+//
+// This source file is part of the Mulberry open source project
+// See LICENSE.txt for license information
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef MULBERRY_SEMA_IMPL_H
+#define MULBERRY_SEMA_IMPL_H
+
+#include "SemaData.h"
+#include "Symbols.h"
+#include "mulberry/AST/AST.h"
+#include "llvm/Support/SourceMgr.h"
+#include "mulberry/Sema/DiagnosticsSema.h"
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace mulberry {
+
+class SemaImpl {
+  friend class ComptimeSema;
+  friend class DeclarationSema;
+  friend class ExpressionSema;
+  friend class StatementSema;
+  friend class TraitSema;
+
+public:
+  SemaImpl(const llvm::SourceMgr &sourceManager)
+      : _sourceManager{sourceManager} {
+    addBuiltins();
+    registerBuiltinHandlers();
+  }
+
+  SemaImpl(const llvm::SourceMgr &sourceManager,
+           const std::map<std::string, std::string> &importAliases)
+      : _sourceManager{sourceManager}, _importAliases{importAliases} {
+    addBuiltins();
+    registerBuiltinHandlers();
+  }
+
+  auto sema(Module &node) -> llvm::LogicalResult;
+
+private:
+  using BuiltinHandler =
+      std::function<llvm::LogicalResult(Expr *, const Type *)>;
+
+  const llvm::SourceMgr &_sourceManager;
+  TypeContext _typeContext;
+  Symbols _symbols;
+  std::map<std::string, const StructType *> _genericStructTypes;
+  std::map<std::string, DataType *> _dataTypes;
+  std::map<std::string, const FunctionSymbol *> _instantiatedFunctionSymbols;
+  std::map<std::string, std::string> _functionPackages;
+  std::map<std::string, std::string> _genericFunctionPackages;
+  std::map<std::string, std::string> _instantiatedFunctionPackages;
+  std::map<std::string, BuiltinHandler, std::less<>> _builtinHandlers;
+  VectorUniquePtr<FunctionDecl> _instantiatedFunctions;
+  VectorUniquePtr<FunctionDecl> _lambdaFunctions;
+  const std::map<std::string, std::string> &_importAliases =
+      emptyImportAliases();
+  std::string _currentPackageName;
+  const Type *_currentFunctionReturnType = nullptr;
+  int _whileDepth = 0;
+  int _noncapturingLambdaDepth = 0;
+  uint64_t _lambdaCounter = 0;
+
+  enum class UnitPolicy {
+    Allow,
+    Reject,
+  };
+
+  // Semantic Analysis
+
+  // Declarations
+  auto sema(Decl *node) -> llvm::LogicalResult;
+  // Expressions
+  auto sema(Expr *node) -> llvm::LogicalResult;
+  auto sema(Expr *node, const Type *type) -> llvm::LogicalResult;
+  auto semaExpected(std::unique_ptr<Expr> &node, const Type *type)
+      -> llvm::LogicalResult;
+  auto sema(BlockExpr *node) -> llvm::LogicalResult;
+  // Compiler builtins
+  auto registerBuiltinHandlers() -> void;
+  auto registerBuiltinHandler(std::string_view name, BuiltinHandler handler)
+      -> void;
+  auto lookupBuiltinHandler(std::string_view name) const
+      -> const BuiltinHandler *;
+  auto semaToUInt8(CallExpr *node, const Type *expectedType)
+      -> llvm::LogicalResult;
+  auto semaToUInt64(CallExpr *node, const Type *expectedType)
+      -> llvm::LogicalResult;
+  auto semaToFloat32(CallExpr *node, const Type *expectedType)
+      -> llvm::LogicalResult;
+
+  // Statements
+  auto sema(Stat *node) -> llvm::LogicalResult;
+
+  // Errors
+  auto emitError(const Node *node, const llvm::Twine &msg) -> llvm::LogicalResult ;
+
+  auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> llvm::LogicalResult ;
+
+  auto isInternalSourceLocation(llvm::SMLoc location) const -> bool ;
+
+  auto checkInternalFeature(llvm::SMLoc location) -> llvm::LogicalResult ;
+
+  auto lookupVariable(std::string_view name) -> const VariableSymbol * ;
+
+  auto addBuiltins() -> void ;
+
+  auto lookupFunction(std::string_view name) -> const FunctionSymbol * ;
+
+  auto lookupGenericFunction(std::string_view name)
+      -> const GenericFunctionSymbol * ;
+
+  static auto emptyImportAliases()
+      -> const std::map<std::string, std::string> & ;
+
+  auto canonicalizeImportedName(std::string_view name) const -> std::string ;
+
+  auto qualifyCurrentPackageName(std::string_view name) const -> std::string ;
+
+  auto lookupType(std::string_view name) -> const Type * ;
+
+  auto comptimeTypeAliasName(std::string_view name) -> std::string ;
+
+  auto lookupComptimeTypeAlias(std::string_view name)
+      -> const ComptimeTypeAliasSymbol * ;
+
+  auto dataDeclName(std::string_view name) -> std::string ;
+
+  auto lookupDataConstructor(std::string_view name,
+                             std::string &resolvedName)
+      -> const DataConstructorSymbol * ;
+
+  auto resolveType(const NamedTypeNode *typeNode) -> const Type * ;
+
+  auto resolveType(const UnitTypeNode *typeNode) -> const Type * ;
+
+  auto declareVariable(std::string_view name, const Type *type,
+                       bool isConstBinding = false,
+                       bool canMutateObject = true,
+                       std::optional<ComptimeValue> comptimeValue = std::nullopt,
+                       bool isComptimeOnly = false)
+      -> llvm::LogicalResult ;
+
+  class VariableScope {
+  public:
+    explicit VariableScope(Symbols &symbols) : _symbols(symbols) {
+      _symbols.enterVariableScope();
+    }
+
+    ~VariableScope() { _symbols.leaveVariableScope(); }
+
+  private:
+    Symbols &_symbols;
+  };
+
+  class PackageScope {
+  public:
+    PackageScope(std::string &currentPackageName, std::string_view packageName)
+        : _currentPackageName(currentPackageName),
+          _oldPackageName(currentPackageName) {
+      _currentPackageName = packageName;
+    }
+
+    ~PackageScope() { _currentPackageName = _oldPackageName; }
+
+  private:
+    std::string &_currentPackageName;
+    std::string _oldPackageName;
+  };
+
+  class WhileScope {
+  public:
+    explicit WhileScope(int &whileDepth) : _whileDepth(whileDepth) {
+      ++_whileDepth;
+    }
+
+    ~WhileScope() { --_whileDepth; }
+
+  private:
+    int &_whileDepth;
+  };
+
+  class IsolatedWhileScope {
+  public:
+    explicit IsolatedWhileScope(int &whileDepth)
+        : _whileDepth(whileDepth), _oldWhileDepth(whileDepth) {
+      _whileDepth = 0;
+    }
+
+    ~IsolatedWhileScope() { _whileDepth = _oldWhileDepth; }
+
+  private:
+    int &_whileDepth;
+    int _oldWhileDepth;
+  };
+
+  class NoncapturingLambdaScope {
+  public:
+    explicit NoncapturingLambdaScope(int &depth) : _depth(depth) { ++_depth; }
+
+    ~NoncapturingLambdaScope() { --_depth; }
+
+  private:
+    int &_depth;
+  };
+
+  class FunctionReturnTypeScope {
+  public:
+    FunctionReturnTypeScope(const Type *&currentFunctionReturnType,
+                            const Type *returnType)
+        : _currentFunctionReturnType(currentFunctionReturnType),
+          _oldFunctionReturnType(currentFunctionReturnType) {
+      _currentFunctionReturnType = returnType;
+    }
+
+    ~FunctionReturnTypeScope() {
+      _currentFunctionReturnType = _oldFunctionReturnType;
+    }
+
+  private:
+    const Type *&_currentFunctionReturnType;
+    const Type *_oldFunctionReturnType;
+  };
+
+  auto declareFunction(std::string_view name, const FunctionType *type,
+                       bool isExtern,
+                       std::string_view packageName = {})
+      -> llvm::LogicalResult;
+
+  auto declareGenericFunction(std::string_view name,
+                              const FunctionDecl *decl,
+                              std::string_view packageName = {})
+      -> llvm::LogicalResult;
+
+  auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult ;
+
+  auto declareStructType(const StructType *type) -> llvm::LogicalResult ;
+
+  auto resolveType(const ArrayTypeNode *typeNode) -> const Type * ;
+
+  auto resolveType(const PtrTypeNode *typeNode) -> const Type * ;
+
+  auto resolveType(const FunctionTypeNode *typeNode) -> const Type * ;
+
+  auto resolveStructFields(const StructTypeNode *typeNode)
+      -> std::optional<std::vector<StructField>> ;
+
+  auto resolveType(const StructTypeNode *typeNode, std::string_view name)
+      -> const StructType * ;
+
+  auto resolveType(const StructTypeNode *typeNode, std::string_view name,
+                   ComptimeAliasOrigin origin) -> const StructType * ;
+
+  auto resolveType(const ComputedTypeNode *typeNode) -> const Type * ;
+
+  auto completeDataType(const DataDecl *decl, DataType *dataType,
+                        const std::vector<TypeSubstitution> &substitutions)
+      -> llvm::LogicalResult ;
+
+  auto instantiateDataType(
+      const DataDecl *decl, const std::vector<ComptimeArgument> &arguments,
+      const std::vector<TypeSubstitution> &substitutions) -> DataType * ;
+
+  auto resolveType(const GenericTypeNode *typeNode) -> const Type * ;
+
+  auto resolveType(const TypeNode *typeNode) -> const Type * ;
+
+  auto checkType(const TypeNode *typeNode, UnitPolicy unitPolicy)
+      -> const Type * ;
+
+  auto setBuiltinType(Expr *expr, BuiltinTypeKind kind) -> void ;
+
+};
+
+} // namespace mulberry
+
+#endif // MULBERRY_SEMA_IMPL_H

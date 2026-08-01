@@ -1,0 +1,26 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn read<T>(values: List<T>, index: UInt64): T {
+  return values[index];
+}
+
+fn write<T>(mut values: List<T>, index: UInt64, value: T): () {
+  values[index] = value;
+}
+
+fn main(): UInt64 {
+  var values = list.from([10, 20, 30]);
+  write(values, 1, 42);
+  io.println(read(values, 1));
+  io.println(read(values, 0) + read(values, 1) + read(values, 2));
+  return 0;
+}
+
+# MLIR-LABEL: func.func @write__UInt64
+# MLIR: call @std_list_List_set__UInt64
+# MLIR-LABEL: func.func @read__UInt64
+# MLIR: call @std_list_List_get__UInt64
+# JIT: 42
+# JIT-NEXT: 82
