@@ -13,6 +13,10 @@ add_mlir_dialect_library(mulberryMLIRGen
         Conversion/ConvertMulberryToLLVM.cpp
         Conversion/LowerResultTry.cpp
         Conversion/LowerMulberry.cpp
+        Conversion/LowerMulberrySupport.cpp
+        Conversion/LowerMulberryCore.cpp
+        Conversion/LowerMulberryBigInt.cpp
+        Conversion/LowerMulberryTensor.cpp
 
         # IR
         ${LIB_HEADERS}/IR/MulberryDialect.h
