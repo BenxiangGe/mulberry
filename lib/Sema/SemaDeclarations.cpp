@@ -108,10 +108,8 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
   if (node->isExtern()) {
     if (node->proto()->isGeneric())
       return _sema.emitError(node->proto()->id().get(), diag::mismatch_type);
-    _sema._symbols.resetVariables();
-    auto result = semaFunctionSignature(node->proto().get(), true);
-    _sema._symbols.resetVariables();
-    return result;
+    SemaImpl::FunctionScope functionScope(_sema);
+    return semaFunctionSignature(node->proto().get(), true);
   }
 
   if (node->proto()->isGeneric()) {
@@ -131,7 +129,7 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
     return success();
   }
 
-  _sema._symbols.resetVariables();
+  SemaImpl::FunctionScope functionScope(_sema);
   auto *signature = _sema.lookupFunction(node->proto()->id()->name());
   if (signature) {
     if (llvm::failed(bindFunctionParameters(node->proto().get(), signature)))

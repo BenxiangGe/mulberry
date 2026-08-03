@@ -1,0 +1,5 @@
+# RUN: printf 'extern fn missing(): UInt64; const poisoned = 9; missing()\npoisoned\n1 + 2\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: imb: evaluation failed:
+# CHECK: error: undefined variable
+# CHECK: {{^}}3{{$}}

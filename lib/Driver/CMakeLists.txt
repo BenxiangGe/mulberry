@@ -9,6 +9,8 @@ set(MULBERRY_MLIR_RUNTIME_LIBS
 add_library(mulberryDriver STATIC
         ${LIB_HEADERS}/Compilation.h
         Compilation.cpp
+        ${LIB_HEADERS}/JitSession.h
+        JitSession.cpp
 )
 
 target_compile_definitions(mulberryDriver PRIVATE
@@ -37,6 +39,7 @@ target_link_libraries(mulberryDriver
         MLIRRegisterAllExtensions
         MLIRSCFTransforms
         MLIRTargetLLVMIRExport
+        LLVMOrcJIT
         ${targets}
 )
 

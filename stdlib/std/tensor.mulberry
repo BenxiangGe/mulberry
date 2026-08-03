@@ -3,6 +3,7 @@ package std.tensor;
 import list;
 import list.List;
 import internal.ptr;
+import string.String;
 
 extern fn mulberry_zero_memory(data: Ptr<UInt8>, byteSize: UInt64): ();
 
@@ -22,6 +23,37 @@ comptime Tensor<T> = struct {
 
   pub fn ndim(self: Tensor<T>): UInt64 {
     return self.rank;
+  }
+
+  pub fn toString(self: Tensor<T>): String {
+    if std.tensor.__isDisposed(self) {
+      return "Tensor(disposed)";
+    }
+
+    const displayLimit = 16;
+    var result: String = "Tensor(shape: [";
+    var dimension = 0;
+    while dimension < self.rank {
+      if dimension != 0 {
+        result = result + ", ";
+      }
+      result = result + std.string.formatValue(self.sizes[dimension]);
+      dimension = dimension + 1;
+    }
+    result = result + "], values: [";
+
+    var index = 0;
+    while index < self.numel and index < displayLimit {
+      if index != 0 {
+        result = result + ", ";
+      }
+      result = result + std.string.formatValue(self.data[index]);
+      index = index + 1;
+    }
+    if self.numel > displayLimit {
+      result = result + ", ...";
+    }
+    return result + "])";
   }
 
   pub fn numel(self: Tensor<T>): UInt64 {

@@ -1,0 +1,12 @@
+# RUN: printf 'import io; import list; import tensor; var xs = list.from([1, 2, 3])\nxs\nvar values = [1, 2, 3]\nvalues\nvar nested = list.from([list.from([1, 2]), list.from([3, 4])])\nnested\nvar large = list.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])\nlarge\nstruct Pair { x: UInt64, y: UInt64 }\nvar pairs: List<Pair> = list.from([Pair { 10, 32 }, Pair { 4, 9 }])\npairs\nvar x = tensor.from([[1.0], [0.0]])\nx\nx.dispose()\nx\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# Container values are printed through their source-level Show methods. The
+# REPL's automatic display path must not reinterpret the object reference as
+# an integer result.
+# CHECK: List[1, 2, 3]
+# CHECK-NEXT: [1, 2, 3]
+# CHECK-NEXT: List[List[1, 2], List[3, 4]]
+# CHECK-NEXT: List[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, ...]
+# CHECK-NEXT: List[Pair@0x{{[0-9a-f]+}}, Pair@0x{{[0-9a-f]+}}]
+# CHECK-NEXT: Tensor(shape: [2, 1], values: [1, 0])
+# CHECK-NEXT: Tensor(disposed)

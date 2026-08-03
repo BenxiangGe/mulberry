@@ -1,0 +1,5 @@
+# RUN: mkdir -p %t
+# RUN: printf 'fn double(value: UInt64): UInt64 { return value + value; }\n' > %t/loaded.mulberry
+# RUN: printf ':l %t/loaded.mulberry\ndouble(21)\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: 42

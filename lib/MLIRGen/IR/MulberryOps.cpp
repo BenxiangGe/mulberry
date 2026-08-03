@@ -78,6 +78,13 @@ auto AllocaOp::verify() -> LogicalResult {
   return success();
 }
 
+auto ReplSlotOp::verify() -> LogicalResult {
+  auto resultPointeeType = getPtrPointeeType(getResult().getType());
+  if (resultPointeeType != getElementType())
+    return emitOpError("result pointer pointee type must match REPL slot type");
+  return success();
+}
+
 auto HeapAllocOp::verify() -> LogicalResult {
   auto resultPointeeType = getPtrPointeeType(getResult().getType());
   if (resultPointeeType != getElementType())
@@ -281,6 +288,10 @@ static auto verifyTensorObject(Operation* op, Type type) -> LogicalResult {
 }
 
 auto TensorDisposeOp::verify() -> LogicalResult {
+  return verifyTensorObject(getOperation(), getTensor().getType());
+}
+
+auto TensorIsDisposedOp::verify() -> LogicalResult {
   return verifyTensorObject(getOperation(), getTensor().getType());
 }
 

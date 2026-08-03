@@ -1,0 +1,36 @@
+# REQUIRES: expect
+# RUN: expect %s "$(command -v imb)" | FileCheck %s
+
+set timeout 10
+log_user 0
+set imb [lindex $argv 0]
+
+# Run imb as a real foreground job so Ctrl-Z is handled by the shell's job
+# control, not just by sending SIGCONT directly to the child.
+spawn env HOME=/dev/null TERM=xterm-256color bash --noprofile --norc -i
+expect -re {bash-[0-9.]+[$#] }
+send -- "PS1='__SHELL__# '; export PS1\r"
+expect -re {__SHELL__# }
+
+send -- "$imb\r"
+expect -re {imb > }
+send -- "1 + 2"
+send -- "\032"
+expect -re {Stopped}
+expect -re {__SHELL__# }
+
+send -- "fg\r"
+expect -re {(?s)imb > .*1 \+ 2}
+send -- "\r"
+expect -re {(?s)\r\n3\r\n.*imb > }
+
+send -- ":quit\r"
+after 1000
+expect -re {__SHELL__# }
+send -- "echo __IMB_EXITED__\r"
+expect -re {__IMB_EXITED__}
+send -- "exit\r"
+expect eof
+puts "CTRL_Z_FG_OK"
+
+# CHECK: CTRL_Z_FG_OK

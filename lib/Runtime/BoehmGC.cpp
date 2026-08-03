@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <map>
 
 #include <gc.h>
 
@@ -17,6 +19,11 @@ struct TensorStorage {
   void* allocated;
   void* data;
   bool disposed;
+};
+
+struct ReplSlot {
+  void* address = nullptr;
+  uint64_t size = 0;
 };
 
 auto initializeRuntime() -> void {
@@ -29,6 +36,11 @@ auto initializeRuntime() -> void {
   // not have when called late from JIT-generated code.
   GC_INIT();
   initialized = true;
+}
+
+auto replSlots() -> std::map<uint64_t, ReplSlot>& {
+  static std::map<uint64_t, ReplSlot> slots;
+  return slots;
 }
 
 auto disposeTensorStorage(TensorStorage* storage) -> void {
@@ -54,6 +66,28 @@ extern "C" void mulberry_runtime_init() {
 extern "C" void* mulberry_boehm_malloc(uint64_t size) {
   initializeRuntime();
   return GC_malloc(size);
+}
+
+extern "C" void* mulberry_repl_get_slot(uint64_t slot, uint64_t size) {
+  initializeRuntime();
+  auto &slots = replSlots();
+  auto found = slots.find(slot);
+  if (found != slots.end()) {
+    if (found->second.size != size) {
+      std::fputs("fatal: REPL slot type changed", stderr);
+      std::abort();
+    }
+    return found->second.address;
+  }
+
+  auto *address = GC_malloc(size);
+  if (!address) {
+    std::fputs("fatal: failed to allocate REPL slot", stderr);
+    std::abort();
+  }
+  std::memset(address, 0, size);
+  slots.emplace(slot, ReplSlot{address, size});
+  return address;
 }
 
 extern "C" void mulberry_boehm_free(void* pointer) {

@@ -882,6 +882,45 @@ public:
   }
 };
 
+class TensorIsDisposedOpLowering
+    : public OpConversionPattern<TensorIsDisposedOp> {
+public:
+  using OpConversionPattern<
+      TensorIsDisposedOp>::OpConversionPattern;
+
+  auto matchAndRewrite(TensorIsDisposedOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto tensorPtrType = llvm::dyn_cast<PtrType>(op.getTensor().getType());
+    auto tensorType = tensorPtrType
+                          ? llvm::dyn_cast<RecordType>(
+                                tensorPtrType.getPointeeType())
+                          : RecordType{};
+    auto storageType = tensorType ? getTensorStorageType(tensorType)
+                                  : RecordType{};
+    if (!tensorType || !storageType)
+      return rewriter.notifyMatchFailure(
+          op, "tensor disposed query needs a Tensor object reference");
+
+    auto storage = loadTensorStorageReference(
+        op.getLoc(), rewriter, adaptor.getTensor(), tensorType);
+    if (failed(storage))
+      return rewriter.notifyMatchFailure(
+          op, "tensor disposed query needs shared storage");
+
+    auto disposedAddress = createRecordFieldAddress(
+        op.getLoc(), rewriter, *storage, storageType, "disposed");
+    if (failed(disposedAddress))
+      return rewriter.notifyMatchFailure(
+          op, "tensor disposed query needs a disposed flag");
+
+    auto disposed = LLVM::LoadOp::create(
+        rewriter, op.getLoc(), rewriter.getI1Type(), *disposedAddress);
+    rewriter.replaceOp(op, disposed.getResult());
+    return success();
+  }
+};
+
 class TensorAssertAliveOpLowering
     : public OpConversionPattern<TensorAssertAliveOp> {
 public:
@@ -955,7 +994,8 @@ void populateMulberryTensorLoweringPatterns(RewritePatternSet& patterns,
                                             TypeConverter& typeConverter,
                                             MLIRContext* context) {
   patterns.add<TensorStorageAllocOpLowering, TensorAssertAliveOpLowering,
-               TensorDisposeOpLowering, TensorPackOpLowering,
+               TensorDisposeOpLowering, TensorIsDisposedOpLowering,
+               TensorPackOpLowering,
                TensorViewOpLowering>(typeConverter, context);
   patterns.add<TensorOwnershipCallOpLowering>(
       typeConverter, context, PatternBenefit(2));

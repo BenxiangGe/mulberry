@@ -17,6 +17,9 @@
 
 namespace {
 
+// Enabled only by imb so batch print retains its no-newline semantics.
+bool replPrintMode = false;
+
 extern "C" void* mulberry_boehm_malloc(uint64_t size);
 
 auto makeString(std::string_view value) -> MulberryString {
@@ -69,6 +72,18 @@ auto formatObjectIdentity(MulberryString typeName, const void* object)
 }
 
 } // namespace
+
+extern "C" void mulberry_runtime_enable_repl_print() {
+  replPrintMode = true;
+}
+
+// Unit externs use this C-interface symbol spelling at the MLIR boundary.
+extern "C" void _mlir_ciface_mulberry_repl_print_end() {
+  if (!replPrintMode)
+    return;
+  std::fputc('\n', stdout);
+  std::fflush(stdout);
+}
 
 extern "C" void _mlir_ciface_mulberry_string_from_bool(MulberryString* result,
                                                          bool value) {

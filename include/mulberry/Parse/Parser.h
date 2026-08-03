@@ -32,12 +32,15 @@ public:
         _sourceManager{sourceManager} {}
 
   auto parseModule(std::unique_ptr<Module> &module) -> llvm::LogicalResult;
+  auto parseReplModule(std::unique_ptr<Module> &module,
+                       std::string_view functionName) -> llvm::LogicalResult;
 
 private:
   Token _token;
   std::unique_ptr<Lexer> _lexer;
   llvm::SourceMgr &_sourceManager;
   bool _stopBeforeStructLiteral = false;
+  bool _parsingReplModule = false;
   std::string _packageName;
 
   // ___________________________________________________________________________
@@ -228,6 +231,8 @@ private:
   // Parse Statements
 
   auto parseStatement(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult;
+  auto parseReplStatement(std::unique_ptr<Stat> &stat)
+      -> llvm::LogicalResult;
   auto parseStatementWithoutSemi(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult;
 
   auto parseVarDecl(std::unique_ptr<Stat> &stat) -> llvm::LogicalResult;

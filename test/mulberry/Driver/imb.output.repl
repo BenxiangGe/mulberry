@@ -1,0 +1,8 @@
+# RUN: printf 'import io; io.print(1 + 2)\nio.println("")\nvar s = 121\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# `print` writes the expression value. The Unit result of `print` and the
+# variable declaration must not add an internal wrapper value such as `0`.
+# The expression result must be a complete line; otherwise a wrapper `0`
+# could make `io.print(1 + 2)` look like `30`.
+# CHECK: 3{{$}}
+# CHECK-NOT: 0

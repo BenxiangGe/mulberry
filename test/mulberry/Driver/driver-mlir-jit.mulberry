@@ -41,8 +41,8 @@ fn main(): UInt64 {
 # MLIRLLVM: llvm.call @std_io_println__UInt64
 # MLIRLLVM: llvm.func @_mlir_ciface_main() -> i64
 # MLIRLLVM: llvm.func @std_io_println__UInt64
-# MLIRLLVM: llvm.call @std_io_print__UInt64
-# MLIRLLVM: llvm.func @std_io_print__UInt64
+# MLIRLLVM: llvm.call @std.io.writeText
+# MLIRLLVM: llvm.call @std.io.writeText
 # MLIRLLVM-NOT: mulberry.
 # MLIRLLVM-NOT: func.func
 # MLIRLLVM-NOT: builtin.unrealized_conversion_cast
@@ -53,8 +53,8 @@ fn main(): UInt64 {
 # LLVM: call void @std_io_println__UInt64
 # LLVM: define i64 @_mlir_ciface_main()
 # LLVM: define void @std_io_println__UInt64
-# LLVM: call void @std_io_print__UInt64
-# LLVM: define void @std_io_print__UInt64
+# LLVM: call void @std.io.writeText
+# LLVM: call void @std.io.writeText
 
 # JIT: 1
 # JIT-NEXT: 0

@@ -1608,6 +1608,23 @@ auto ExpressionSema::semaTensorDisposeCall(CallExpr *node) -> llvm::LogicalResul
   return success();
 }
 
+auto ExpressionSema::semaTensorIsDisposedCall(CallExpr *node)
+    -> llvm::LogicalResult {
+  auto &expressions = node->expressions();
+  if (expressions.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return _sema.emitError(node, diagnostic);
+  }
+
+  auto *tensor = expressions.front().get();
+  if (llvm::failed(sema(tensor)) || !getTensorElementType(tensor->type()))
+    return _sema.emitError(tensor, diag::mismatch_type);
+
+  _sema.setBuiltinType(node, BuiltinTypeKind::Bool);
+  return success();
+}
+
 auto ExpressionSema::semaTensorStorageAllocCall(CallExpr *node,
                                           const Type *expectedType)
     -> llvm::LogicalResult {

@@ -1,0 +1,8 @@
+# RUN: printf 'import io; io.print("1")\nio.print("1\\n")\nio.println("2")\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# The REPL adds a line ending after `print`, while the batch runtime keeps the
+# language-level no-newline behavior.
+# CHECK: 1
+# CHECK-NEXT: 1
+# CHECK-EMPTY:
+# CHECK-NEXT: 2

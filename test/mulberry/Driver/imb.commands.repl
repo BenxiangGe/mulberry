@@ -1,0 +1,17 @@
+# RUN: printf ':help\n:h :type\n:type 1 + 2\n:t true\n:type "hello"\nstruct Point { x: UInt64, y: UInt64 }\nvar point = Point { 3, 4 }\n:type point\n:type point.x\nimport io;\n:type io.print(1)\n:type var temporary = 7\n:t temporary\n:unknown\n:pwd\n:cd /tmp\n:pwd\n:cd /definitely/not/a/mulberry/directory\n:pwd\n:q\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: :h, :help [command]
+# CHECK: :type <expression>
+# CHECK: UInt64
+# CHECK: Bool
+# CHECK: String
+# CHECK: Point
+# CHECK: UInt64
+# CHECK: Unit
+# CHECK-NOT: ^1$
+# CHECK: imb: :type expects an expression
+# CHECK: error:
+# CHECK: imb: unknown command ':unknown'
+# CHECK: /tmp
+# CHECK: No such file or directory
+# CHECK: /tmp

@@ -9,11 +9,30 @@
 #define MULBERRY_MODULE_H
 
 #include "mulberry/AST/Node.h"
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mulberry {
 class Decl;
+class FunctionType;
+class Stat;
+class Type;
+
+struct ReplVariableBinding {
+  std::string name;
+  const Type *type = nullptr;
+  uint64_t slot = 0;
+  bool isConstBinding = false;
+  bool canMutateObject = true;
+};
+
+struct ReplFunctionBinding {
+  std::string name;
+  const FunctionType *type = nullptr;
+  bool isExtern = false;
+};
 
 class Module : public Node {
 public:
@@ -38,9 +57,47 @@ public:
     _declarations = std::move(declarations);
   }
 
+  auto statements() const -> const VectorUniquePtr<Stat> & {
+    return _statements;
+  }
+
+  auto setStatements(VectorUniquePtr<Stat> statements) -> void {
+    _statements = std::move(statements);
+  }
+
+  auto isRepl() const -> bool { return !_replFunctionName.empty(); }
+
+  auto setReplFunctionName(std::string_view functionName) -> void {
+    _replFunctionName = functionName;
+  }
+
+  auto replFunctionName() const -> std::string_view {
+    return _replFunctionName;
+  }
+
+  auto replVariables() const -> const std::vector<ReplVariableBinding> & {
+    return _replVariables;
+  }
+
+  auto setReplVariables(std::vector<ReplVariableBinding> variables) -> void {
+    _replVariables = std::move(variables);
+  }
+
+  auto replFunctions() const -> const std::vector<ReplFunctionBinding> & {
+    return _replFunctions;
+  }
+
+  auto setReplFunctions(std::vector<ReplFunctionBinding> functions) -> void {
+    _replFunctions = std::move(functions);
+  }
+
 private:
   std::string _packageName;
   VectorUniquePtr<Decl> _declarations;
+  VectorUniquePtr<Stat> _statements;
+  std::string _replFunctionName;
+  std::vector<ReplVariableBinding> _replVariables;
+  std::vector<ReplFunctionBinding> _replFunctions;
 
 public:
   auto begin() const -> decltype(_declarations.begin()) {

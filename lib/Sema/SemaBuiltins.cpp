@@ -32,6 +32,12 @@ auto SemaImpl::registerBuiltinHandlers() -> void {
             cast<CallExpr>(node));
       });
   registerBuiltinHandler(
+      "std.tensor.__isDisposed",
+      [this](Expr *node, const Type *) {
+        return ExpressionSema(*this).semaTensorIsDisposedCall(
+            cast<CallExpr>(node));
+      });
+  registerBuiltinHandler(
       "std.core.toUInt8",
       [this](Expr *node, const Type *expectedType) {
         return semaToUInt8(cast<CallExpr>(node), expectedType);

@@ -92,6 +92,7 @@ public:
   auto semaDefaultArrayLiteral(ArrayLiteralExpr *expr)
       -> llvm::LogicalResult;
   auto semaTensorDisposeCall(CallExpr *node) -> llvm::LogicalResult;
+  auto semaTensorIsDisposedCall(CallExpr *node) -> llvm::LogicalResult;
   auto semaTensorStorageAllocCall(CallExpr *node, const Type *expectedType)
       -> llvm::LogicalResult;
   auto sema(ArrayLiteralExpr *expr) -> llvm::LogicalResult;

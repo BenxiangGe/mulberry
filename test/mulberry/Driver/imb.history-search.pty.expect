@@ -1,0 +1,39 @@
+# REQUIRES: expect
+# RUN: expect %s "$(command -v imb)" %t.home | FileCheck %s
+
+set timeout 5
+log_user 0
+set imb [lindex $argv 0]
+set home [lindex $argv 1]
+file mkdir [file join $home .mulberry]
+
+# Store a command that will later be accepted through the history completion.
+spawn env HOME=$home TERM=xterm-256color $imb
+expect -re {imb > }
+send -- "var x = 123\r"
+expect -re {imb > }
+send -- ":quit\r"
+expect eof
+
+# The accepted full history entry must still allow ordinary navigation to the
+# older `456` entry instead of starting a search for the full entry itself.
+spawn env HOME=$home TERM=xterm-256color $imb
+expect -re {imb > }
+send -- "456\r"
+expect "456"
+expect "456"
+expect -re {imb > }
+send -- "var"
+expect -re {x = 123}
+send -- "\033\[C"
+send -- "\033\[A"
+expect -re {456}
+send -- "\r"
+expect "456"
+expect -re {imb > }
+send -- ":quit\r"
+expect eof
+
+puts "HISTORY_NAVIGATION_OK"
+
+# CHECK: HISTORY_NAVIGATION_OK

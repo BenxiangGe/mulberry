@@ -56,6 +56,15 @@ qualified-name            -> identifier (`.` identifier)*
 优先。例如参数名为 `result` 时，`result.size()` 仍是该对象的 method call；只有当前
 作用域没有同名变量时，`result.foo()` 才会按 package alias 解析。
 
+`imb` 将当前工作目录作为本地模块根目录，例如在 `/work/demo` 中输入
+`import a.b.c` 会加载 `/work/demo/a/b/c.mulberry`。本地模块必须声明匹配的
+`package a.b.c;`。普通 `.mulberry` 文件中的 import 仍需要分号；只有 REPL submission
+的最后一个 declaration 或 statement 可以用 EOF 代替分号。
+
+`imb :load path`（简写为 `:l`）按当前工作目录解析相对路径，并把整个文件作为一个
+REPL submission 加入当前 session。文件失败时，新增加的变量、函数、trait 和 import
+不会保留；已经发生的运行时外部副作用不能回滚。
+
 ## Declarations
 
 ```text

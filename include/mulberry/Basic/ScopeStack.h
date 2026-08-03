@@ -17,9 +17,23 @@ public:
 
   auto currentScope() -> Scope& { return _scopes.back(); }
 
+  auto currentScope() const -> const Scope& { return _scopes.back(); }
+
+  auto size() const -> size_t { return _scopes.size(); }
+
   auto empty() const -> bool { return _scopes.empty(); }
 
   auto lookup(std::string_view name) -> typename Scope::mapped_type * {
+    for (auto scope = _scopes.rbegin(); scope != _scopes.rend(); ++scope) {
+      auto symbol = scope->find(name);
+      if (symbol != scope->end())
+        return &symbol->second;
+    }
+    return nullptr;
+  }
+
+  auto lookup(std::string_view name) const
+      -> const typename Scope::mapped_type * {
     for (auto scope = _scopes.rbegin(); scope != _scopes.rend(); ++scope) {
       auto symbol = scope->find(name);
       if (symbol != scope->end())

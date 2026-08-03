@@ -23,6 +23,7 @@ set(MULBERRY_TEST_DEPENDS
         mulberry-opt
         mulberry-translate
         mulberry-driver
+        imb
         mulberryRuntime
         MulberryNNPackage
 )

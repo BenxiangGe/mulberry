@@ -2,6 +2,7 @@ package std.list;
 
 import internal.ptr;
 import random;
+import string.String;
 
 comptime List<T> = struct {
   length: UInt64,
@@ -10,6 +11,23 @@ comptime List<T> = struct {
 
   pub fn size(self: List<T>): UInt64 {
     return self.length;
+  }
+
+  pub fn toString(self: List<T>): String {
+    const displayLimit = 16;
+    var result: String = "List[";
+    var index = 0;
+    while index < self.length and index < displayLimit {
+      if index != 0 {
+        result = result + ", ";
+      }
+      result = result + std.string.formatValue(self.data[index]);
+      index = index + 1;
+    }
+    if self.length > displayLimit {
+      result = result + ", ...";
+    }
+    return result + "]";
   }
 
   pub fn get(self: List<T>, index: UInt64): T {

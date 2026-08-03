@@ -225,6 +225,37 @@ public:
   }
 };
 
+class ReplSlotOpLowering : public OpConversionPattern<ReplSlotOp> {
+public:
+  using OpConversionPattern<ReplSlotOp>::OpConversionPattern;
+
+  auto matchAndRewrite(ReplSlotOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto resultPtrType = llvm::dyn_cast<PtrType>(op.getResult().getType());
+    if (!resultPtrType)
+      return rewriter.notifyMatchFailure(
+          op, "REPL slot result must be a Mulberry pointer");
+
+    auto storageType = convertBackendValueType(
+        resultPtrType.getPointeeType());
+    if (!storageType)
+      return rewriter.notifyMatchFailure(
+          op, "REPL slot needs a lowerable storage type");
+
+    auto sizeInBytes = createSizeOf(op.getLoc(), rewriter, *storageType);
+    auto slot = callRuntimeValue(
+        op.getLoc(), rewriter, op, "mulberry_repl_get_slot",
+        getPtrType(op.getContext()),
+        ValueRange{adaptor.getSlot(), sizeInBytes});
+    if (failed(slot))
+      return failure();
+
+    rewriter.replaceOp(op, *slot);
+    return success();
+  }
+};
+
 class HeapAllocOpLowering : public OpConversionPattern<HeapAllocOp> {
 public:
   using OpConversionPattern<HeapAllocOp>::OpConversionPattern;
@@ -407,7 +438,8 @@ public:
 void populateMulberryCoreLoweringPatterns(RewritePatternSet& patterns,
                                           TypeConverter& typeConverter,
                                           MLIRContext* context) {
-  patterns.add<AllocaOpLowering, CallIndirectTypeConversion,
+  patterns.add<AllocaOpLowering, ReplSlotOpLowering,
+               CallIndirectTypeConversion,
                DataConstructOpLowering, DataTagOpLowering,
                DataUnpackOpLowering, FunctionConstantTypeConversion,
                HeapAllocOpLowering, LoadOpLowering, PtrCastOpLowering,

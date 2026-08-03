@@ -112,6 +112,7 @@ fn main(): UInt64 {
 # MLIR-DAG: func.func @std_string_formatValue__Array_UInt64__2_
 # MLIR-DAG: call @std.string.Show__Array_UInt64__2_.toString
 # MLIR-DAG: func.func @std.string.Show__Array_UInt64__2_.toString
+# MLIR-DAG: call @std_string_objectToString__Array_UInt64__2_
 # MLIR-DAG: func.func @std_string_formatValue__Box__UInt64
 # MLIR-DAG: call @Box_toString__UInt64
 # MLIR-DAG: func.func @std_string_formatValue__PlainBox__UInt64
@@ -123,6 +124,6 @@ fn main(): UInt64 {
 # JIT-NEXT: count=18446744073709551615, point=Point(4, 9)
 # JIT-NEXT: plain Plain@0x[[IDENTITY:[0-9a-f]+]]
 # JIT-NEXT: alias Plain@0x[[IDENTITY]]
-# JIT-NEXT: array Array<UInt64, 2>@0x{{[0-9a-f]+}}
+# JIT-NEXT: array [1, 2]
 # JIT-NEXT: generic <18446744073709551615> <Point(4, 9)>
 # JIT-NEXT: boxes Box(12) PlainBox<UInt64>@0x{{[0-9a-f]+}}

@@ -6,6 +6,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "mulberry/Driver/Compilation.h"
+#include "mulberry/Driver/JitSession.h"
+#include "mulberry/AST/AST.h"
 #include "mulberry/BigInt/BigIntDialect.h"
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
 #include "mulberry/MLIRGen/IR/MulberryDialect.h"
@@ -56,6 +58,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -583,6 +586,8 @@ static auto makeContext() -> mlir::MLIRContext {
 
 Compilation::Compilation() : _mlirContext{makeContext()} {}
 
+Compilation::~Compilation() = default;
+
 auto Compilation::make(llvm::StringRef filename,
                        bool enableOpt) -> std::unique_ptr<Compilation> {
   auto compilation = std::make_unique<Compilation>();
@@ -604,33 +609,85 @@ auto Compilation::make(llvm::StringRef filename,
 }
 
 auto Compilation::parse(std::unique_ptr<Module> &module) -> llvm::LogicalResult {
-  _importAliases.clear();
-  _loadedModules.clear();
-  _usedBundledPackages.clear();
-
   if (llvm::failed(parseFile(_inputFilename, llvm::SMLoc(), module)))
     return failure();
 
-  if (!isBundledPackage(module->packageName()) && llvm::failed(loadPrelude(*module)))
+  return prepareModule(module);
+}
+
+auto Compilation::parseSource(llvm::StringRef source,
+                              llvm::StringRef sourceName,
+                              std::unique_ptr<Module> &module)
+    -> llvm::LogicalResult {
+  auto buffer = llvm::MemoryBuffer::getMemBufferCopy(source, sourceName);
+  if (llvm::failed(parseBuffer(std::move(buffer), llvm::SMLoc(), module)))
     return failure();
 
-  return loadImports(*module);
+  return prepareModule(module);
+}
+
+auto Compilation::parseReplSource(llvm::StringRef source,
+                                  llvm::StringRef sourceName,
+                                  llvm::StringRef functionName,
+                                  std::unique_ptr<Module> &module)
+    -> llvm::LogicalResult {
+  auto buffer = llvm::MemoryBuffer::getMemBufferCopy(source, sourceName);
+  auto bufferId = _sourceManager.AddNewSourceBuffer(std::move(buffer),
+                                                    llvm::SMLoc());
+  auto lexer = std::make_unique<Lexer>(_sourceManager, bufferId);
+  auto parser = Parser{std::move(lexer), _sourceManager};
+  if (llvm::failed(parser.parseReplModule(module, functionName)))
+    return failure();
+
+  return prepareModule(module);
 }
 
 auto Compilation::parseFile(const std::string &filename,
                             llvm::SMLoc includeLocation,
-                            std::unique_ptr<Module> &module) -> llvm::LogicalResult {
+                            std::unique_ptr<Module> &module)
+    -> llvm::LogicalResult {
   auto fileOrErr = llvm::MemoryBuffer::getFileOrSTDIN(filename);
   if (auto ec = fileOrErr.getError()) {
     llvm::errs() << "error: " << ec.message() << ": '" << filename << "'\n";
     return failure();
   }
 
-  auto bufferId = _sourceManager.AddNewSourceBuffer(std::move(fileOrErr.get()),
+  return parseBuffer(std::move(fileOrErr.get()), includeLocation, module);
+}
+
+auto Compilation::parseBuffer(std::unique_ptr<llvm::MemoryBuffer> buffer,
+                              llvm::SMLoc includeLocation,
+                              std::unique_ptr<Module> &module)
+    -> llvm::LogicalResult {
+  auto bufferId = _sourceManager.AddNewSourceBuffer(std::move(buffer),
                                                     includeLocation);
   auto lexer = std::make_unique<Lexer>(_sourceManager, bufferId);
   auto parser = Parser{std::move(lexer), _sourceManager};
   return parser.parseModule(module);
+}
+
+auto Compilation::prepareModule(std::unique_ptr<Module> &module)
+    -> llvm::LogicalResult {
+  setLocalImportRoot(module->location());
+  if (module->isRepl()) {
+    _usedBundledPackages.clear();
+    if (!_replPrepared) {
+      if (!isBundledPackage(module->packageName()) &&
+          llvm::failed(loadPrelude(*module)))
+        return failure();
+      _replPrepared = true;
+    }
+    return loadImports(*module);
+  }
+
+  _importAliases.clear();
+  _loadedModules.clear();
+  _usedBundledPackages.clear();
+
+  if (!isBundledPackage(module->packageName()) && llvm::failed(loadPrelude(*module)))
+    return failure();
+
+  return loadImports(*module);
 }
 
 auto Compilation::resolveStdlibPath(std::string_view relativePath)
@@ -647,15 +704,51 @@ auto Compilation::resolveStdlibPath(std::string_view relativePath)
   return std::string(fullPath.str());
 }
 
-auto Compilation::resolveImportPath(std::string_view moduleName)
+auto Compilation::resolveBundledImportPath(std::string_view importName)
     -> std::string {
-  auto normalizedName = normalizeBundledImportName(moduleName);
+  auto normalizedName = normalizeBundledImportName(importName);
   std::string relativePath(normalizedName);
   std::replace(relativePath.begin(), relativePath.end(), '.', '/');
   auto path = resolveStdlibPath(relativePath + ".mulberry");
   if (!llvm::sys::fs::exists(path))
     return {};
   return path;
+}
+
+auto Compilation::resolveLocalImportPath(std::string_view moduleName)
+    -> std::string {
+  if (_localImportRoot.empty() || isBundledPackage(moduleName))
+    return {};
+
+  std::string relativePath(moduleName);
+  std::replace(relativePath.begin(), relativePath.end(), '.', '/');
+  std::filesystem::path path(_localImportRoot);
+  path /= relativePath + ".mulberry";
+
+  std::error_code error;
+  if (!std::filesystem::exists(path, error) || error)
+    return {};
+  return path.lexically_normal().string();
+}
+
+auto Compilation::setLocalImportRoot(llvm::SMLoc location) -> void {
+  std::error_code error;
+  auto root = std::filesystem::current_path(error);
+  if (error)
+    root = ".";
+
+  auto bufferId = _sourceManager.FindBufferContainingLoc(location);
+  if (bufferId != 0) {
+    auto identifier = std::string(
+        _sourceManager.getMemoryBuffer(bufferId)->getBufferIdentifier());
+    if (!identifier.empty() && identifier != "-" && identifier.front() != '<') {
+      std::filesystem::path sourcePath(identifier);
+      if (sourcePath.has_parent_path())
+        root = sourcePath.parent_path();
+    }
+  }
+
+  _localImportRoot = root.lexically_normal().string();
 }
 
 auto Compilation::loadPrelude(Module &module) -> llvm::LogicalResult {
@@ -677,29 +770,26 @@ auto Compilation::loadImports(Module &module) -> llvm::LogicalResult {
   VectorUniquePtr<Decl> mergedDeclarations;
   for (auto &decl : module.takeDeclarations()) {
     if (auto *importDecl = llvm::dyn_cast<ImportDecl>(decl.get())) {
-      auto importName =
-          normalizeBundledImportName(importDecl->moduleName());
-      if (isInternalBundledImport(importName) &&
-          !isInternalSourceLocation(_sourceManager, importDecl->location())) {
-        _sourceManager.PrintMessage(
-            importDecl->location(), llvm::SourceMgr::DiagKind::DK_Error,
-            "internal package is not available to user code");
-        return failure();
-      }
-
-      auto segments = splitQualifiedName(importName);
+      auto segments = splitQualifiedName(importDecl->moduleName());
       std::string moduleName;
       std::string importPath;
       std::string importedName;
 
       for (size_t moduleSize = segments.size(); moduleSize > 0; --moduleSize) {
         auto candidateModuleName = joinQualifiedName(segments, 0, moduleSize);
-        auto candidatePath = resolveImportPath(candidateModuleName);
-        if (candidatePath.empty())
-          continue;
+        auto candidatePath =
+            resolveBundledImportPath(candidateModuleName);
+        if (!candidatePath.empty()) {
+          moduleName = normalizeBundledImportName(candidateModuleName);
+          importPath = std::move(candidatePath);
+        } else {
+          candidatePath = resolveLocalImportPath(candidateModuleName);
+          if (candidatePath.empty())
+            continue;
+          moduleName = std::move(candidateModuleName);
+          importPath = std::move(candidatePath);
+        }
 
-        moduleName = std::move(candidateModuleName);
-        importPath = std::move(candidatePath);
         if (moduleSize < segments.size())
           importedName =
               joinQualifiedName(segments, moduleSize, segments.size());
@@ -707,8 +797,16 @@ auto Compilation::loadImports(Module &module) -> llvm::LogicalResult {
       }
 
       if (moduleName.empty()) {
-        llvm::errs() << "error: unable to resolve bundled import: '"
+        llvm::errs() << "error: unable to resolve import: '"
                      << importDecl->moduleName() << "'\n";
+        return failure();
+      }
+
+      if (isInternalBundledImport(moduleName) &&
+          !isInternalSourceLocation(_sourceManager, importDecl->location())) {
+        _sourceManager.PrintMessage(
+            importDecl->location(), llvm::SourceMgr::DiagKind::DK_Error,
+            "internal package is not available to user code");
         return failure();
       }
 
@@ -720,8 +818,22 @@ auto Compilation::loadImports(Module &module) -> llvm::LogicalResult {
 
       if (_loadedModules.insert(moduleName).second) {
         std::unique_ptr<Module> importedModule;
-        if (llvm::failed(parseFile(importPath, importDecl->location(), importedModule)) ||
-            llvm::failed(loadImports(*importedModule)))
+        if (llvm::failed(
+                parseFile(importPath, importDecl->location(), importedModule)))
+          return failure();
+
+        if (importedModule->packageName() != moduleName) {
+          std::string message = "module '" + moduleName +
+                                "' declares package '" +
+                                std::string(importedModule->packageName()) +
+                                "'";
+          _sourceManager.PrintMessage(
+              importDecl->location(), llvm::SourceMgr::DiagKind::DK_Error,
+              message);
+          return failure();
+        }
+
+        if (llvm::failed(loadImports(*importedModule)))
           return failure();
 
         for (auto &importedDecl : importedModule->takeDeclarations())
@@ -823,16 +935,18 @@ auto Compilation::addPassPipeline(mlir::PassManager &pm,
   return success();
 }
 
-auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
-                          Lowering lowering) -> llvm::LogicalResult {
-  std::unique_ptr<Module> moduleAST;
-  if (llvm::failed(parse(moduleAST)))
-    return failure();
-
-  if (llvm::failed(
-          mulberry::sema(_sourceManager, *moduleAST.get(), _importAliases)) ||
+auto Compilation::compileModule(
+    Module &moduleAST, mlir::OwningOpRef<mlir::ModuleOp> &module,
+    Lowering lowering) -> llvm::LogicalResult {
+  auto semaResult = moduleAST.isRepl()
+                        ? (_replSema
+                               ? _replSema->sema(moduleAST)
+                               : llvm::failure())
+                        : mulberry::sema(_sourceManager, moduleAST,
+                                         _importAliases);
+  if (llvm::failed(semaResult) ||
       llvm::failed(
-          mlirGen(_sourceManager, _mlirContext, *moduleAST, module)))
+          mlirGen(_sourceManager, _mlirContext, moduleAST, module)))
     return failure();
 
   mlir::PassManager pm(module.get()->getName());
@@ -876,6 +990,149 @@ auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
   return pm.run(*module);
 }
 
+auto Compilation::compileSource(llvm::StringRef source,
+                                llvm::StringRef sourceName,
+                                mlir::OwningOpRef<mlir::ModuleOp> &module,
+                                Lowering lowering) -> llvm::LogicalResult {
+  std::unique_ptr<Module> moduleAST;
+  if (llvm::failed(parseSource(source, sourceName, moduleAST)))
+    return failure();
+
+  return compileModule(*moduleAST, module, lowering);
+}
+
+auto Compilation::compileReplSource(
+    llvm::StringRef source, llvm::StringRef sourceName,
+    llvm::StringRef functionName,
+    mlir::OwningOpRef<mlir::ModuleOp> &module, Lowering lowering)
+    -> llvm::LogicalResult {
+  auto savedImportAliases = _importAliases;
+  auto savedLoadedModules = _loadedModules;
+  auto savedUsedBundledPackages = _usedBundledPackages;
+  auto savedLocalImportRoot = _localImportRoot;
+  auto savedReplPrepared = _replPrepared;
+  std::unique_ptr<Module> moduleAST;
+  if (llvm::failed(
+          parseReplSource(source, sourceName, functionName, moduleAST))) {
+    _importAliases = std::move(savedImportAliases);
+    _loadedModules = std::move(savedLoadedModules);
+    _usedBundledPackages = std::move(savedUsedBundledPackages);
+    _localImportRoot = std::move(savedLocalImportRoot);
+    _replPrepared = savedReplPrepared;
+    return failure();
+  }
+
+  if (!_replSema)
+    _replSema = std::make_unique<SemaSession>(_sourceManager, _importAliases);
+
+  auto result = compileModule(*moduleAST, module, lowering);
+  if (llvm::succeeded(result)) {
+    _replSema->retainDeclarations(moduleAST->takeDeclarations());
+    _pendingReplImportState = ReplImportState{
+        std::move(savedImportAliases), std::move(savedLoadedModules),
+        std::move(savedUsedBundledPackages), std::move(savedLocalImportRoot),
+        savedReplPrepared};
+  }
+  if (llvm::failed(result)) {
+    _replSema->rollbackReplSubmission();
+    _importAliases = std::move(savedImportAliases);
+    _loadedModules = std::move(savedLoadedModules);
+    _usedBundledPackages = std::move(savedUsedBundledPackages);
+    _localImportRoot = std::move(savedLocalImportRoot);
+    _replPrepared = savedReplPrepared;
+  }
+  return result;
+}
+
+auto Compilation::replTypeOf(llvm::StringRef source, llvm::StringRef sourceName,
+                             std::string &typeName) -> llvm::LogicalResult {
+  typeName.clear();
+  auto savedImportAliases = _importAliases;
+  auto savedLoadedModules = _loadedModules;
+  auto savedUsedBundledPackages = _usedBundledPackages;
+  auto savedLocalImportRoot = _localImportRoot;
+  auto savedReplPrepared = _replPrepared;
+
+  std::unique_ptr<Module> moduleAST;
+  auto restore = [&]() -> void {
+    if (_replSema)
+      _replSema->rollbackReplSubmission();
+    _importAliases = std::move(savedImportAliases);
+    _loadedModules = std::move(savedLoadedModules);
+    _usedBundledPackages = std::move(savedUsedBundledPackages);
+    _localImportRoot = std::move(savedLocalImportRoot);
+    _replPrepared = savedReplPrepared;
+  };
+
+  if (llvm::failed(parseReplSource(source, sourceName, "__imb_type",
+                                   moduleAST))) {
+    restore();
+    return failure();
+  }
+
+  if (!_replSema)
+    _replSema = std::make_unique<SemaSession>(_sourceManager, _importAliases);
+
+  if (llvm::failed(_replSema->sema(*moduleAST, /*checkReplResult=*/false))) {
+    restore();
+    return failure();
+  }
+
+  if (moduleAST->statements().empty() ||
+      !llvm::isa<ExprStat>(moduleAST->statements().back().get())) {
+    restore();
+    llvm::errs() << "imb: :type expects an expression\n";
+    return failure();
+  }
+
+  auto *expression = llvm::cast<ExprStat>(moduleAST->statements().back().get());
+  typeName = formatType(expression->expression()->type());
+  restore();
+  return success();
+}
+
+auto Compilation::commitReplSubmission() -> void {
+  if (_replSema)
+    _replSema->commitReplSubmission();
+  _pendingReplImportState.reset();
+}
+
+auto Compilation::rollbackReplSubmission() -> void {
+  if (_replSema)
+    _replSema->rollbackReplSubmission();
+  if (!_pendingReplImportState)
+    return;
+
+  auto pendingState = std::move(_pendingReplImportState);
+  _importAliases = std::move(pendingState->importAliases);
+  _loadedModules = std::move(pendingState->loadedModules);
+  _usedBundledPackages = std::move(pendingState->usedBundledPackages);
+  _localImportRoot = std::move(pendingState->localImportRoot);
+  _replPrepared = pendingState->replPrepared;
+}
+
+auto Compilation::replCompletionNames() const -> std::vector<std::string> {
+  if (!_replSema)
+    return {};
+  return _replSema->completionNames();
+}
+
+auto Compilation::replCompletionMembers(std::string_view receiver) const
+    -> std::vector<std::string> {
+  if (!_replSema)
+    return {};
+  return _replSema->completionMembers(receiver);
+}
+
+auto Compilation::genMLIR(mlir::OwningOpRef<mlir::ModuleOp> &module,
+                          Lowering lowering) -> llvm::LogicalResult {
+  std::unique_ptr<Module> moduleAST;
+  if (llvm::failed(parse(moduleAST)))
+    return failure();
+
+  return compileModule(*moduleAST, module, lowering);
+}
+
 auto Compilation::typecheck() -> int {
   std::unique_ptr<Module> module;
   if (llvm::failed(parse(module)) ||
@@ -887,52 +1144,33 @@ auto Compilation::typecheck() -> int {
 }
 
 auto Compilation::jit() -> int {
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
-
   mlir::OwningOpRef<mlir::ModuleOp> module;
   if (llvm::failed(genMLIR(module, Lowering::LLVM)))
     return EXIT_FAILURE;
 
-  registerLLVMTranslations(*module);
-
-  auto targetMachine = createTargetMachine();
-  if (!targetMachine) {
-    llvm::errs() << "error: failed to create target machine: "
-                 << llvm::toString(targetMachine.takeError()) << "\n";
+  auto jit = JitSession::create(_enableOpt);
+  if (!jit) {
+    llvm::errs() << "error: failed to create JIT session: "
+                 << llvm::toString(jit.takeError()) << "\n";
     return EXIT_FAILURE;
   }
 
-  auto transformer = mlir::makeOptimizingTransformer(
-      _enableOpt ? 3 : 0, 0, targetMachine->get());
-
-  mlir::ExecutionEngineOptions options;
-  options.transformer = transformer;
-  options.jitCodeGenOptLevel =
-      _enableOpt ? llvm::CodeGenOptLevel::Aggressive
-                 : llvm::CodeGenOptLevel::None;
-
-  auto runtimeLibPath = getRuntimeLibPath();
-  std::vector<llvm::StringRef> sharedLibPaths;
-  if (!runtimeLibPath.empty())
-    sharedLibPaths.push_back(runtimeLibPath);
-  options.sharedLibPaths = sharedLibPaths;
-
-  auto engine = mlir::ExecutionEngine::create(*module, options,
-                                              std::move(*targetMachine));
-  if (!engine) {
-    llvm::errs() << "error: failed to create execution engine: "
-                 << llvm::toString(engine.takeError()) << "\n";
+  if (auto error = (*jit)->addModule(*module)) {
+    llvm::errs() << "error: failed to add module to JIT session: "
+                 << llvm::toString(std::move(error)) << "\n";
     return EXIT_FAILURE;
   }
 
-  (*engine)->initialize();
+  if (auto error = (*jit)->initialize()) {
+    llvm::errs() << "error: failed to initialize JIT session: "
+                 << llvm::toString(std::move(error)) << "\n";
+    return EXIT_FAILURE;
+  }
+
   mulberry_runtime_init();
 
   uint64_t result = 0;
-  auto error =
-      (*engine)->invoke("main", mlir::ExecutionEngine::result(result));
+  auto error = (*jit)->invoke({}, "main", result);
   if (error) {
     llvm::errs() << "error: JIT invocation failed: "
                  << llvm::toString(std::move(error)) << "\n";

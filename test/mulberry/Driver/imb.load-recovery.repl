@@ -1,0 +1,7 @@
+# RUN: mkdir -p %t
+# RUN: printf 'fn poisoned(): UInt64 { return 99; }\nmissing()\n' > %t/broken.mulberry
+# RUN: printf ':load %t/broken.mulberry\npoisoned()\n1 + 2\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: error: cannot find function `missing`
+# CHECK: error: cannot find function `poisoned`
+# CHECK: 3

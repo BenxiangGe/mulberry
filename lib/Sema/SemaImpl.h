@@ -29,30 +29,64 @@ class SemaImpl {
   friend class ComptimeSema;
   friend class DeclarationSema;
   friend class ExpressionSema;
+  friend class SemaSession;
   friend class StatementSema;
   friend class TraitSema;
 
 public:
-  SemaImpl(const llvm::SourceMgr &sourceManager)
-      : _sourceManager{sourceManager} {
+  SemaImpl(const llvm::SourceMgr &sourceManager, bool persistent = false)
+      : _sourceManager{sourceManager}, _persistent{persistent} {
+    if (_persistent)
+      _symbols.resetVariables();
     addBuiltins();
     registerBuiltinHandlers();
   }
 
   SemaImpl(const llvm::SourceMgr &sourceManager,
-           const std::map<std::string, std::string> &importAliases)
-      : _sourceManager{sourceManager}, _importAliases{importAliases} {
+           const std::map<std::string, std::string> &importAliases,
+           bool persistent = false)
+      : _sourceManager{sourceManager}, _persistent{persistent},
+        _importAliases{importAliases} {
+    if (_persistent)
+      _symbols.resetVariables();
     addBuiltins();
     registerBuiltinHandlers();
   }
 
-  auto sema(Module &node) -> llvm::LogicalResult;
+  auto sema(Module &node, bool checkReplResult = true)
+      -> llvm::LogicalResult;
+  auto completionNames() const -> std::vector<std::string> {
+    return _symbols.completionNames();
+  }
+  auto completionMembers(std::string_view receiver) const
+      -> std::vector<std::string>;
 
 private:
+  struct State {
+    Symbols symbols;
+    std::map<std::string, const StructType *> genericStructTypes;
+    std::map<std::string, DataType *> dataTypes;
+    std::map<std::string, const FunctionSymbol *> instantiatedFunctionSymbols;
+    std::map<std::string, std::string> functionPackages;
+    std::map<std::string, std::string> genericFunctionPackages;
+    std::map<std::string, std::string> instantiatedFunctionPackages;
+    size_t instantiatedFunctions = 0;
+    size_t lambdaFunctions = 0;
+    std::string currentPackageName;
+    int whileDepth = 0;
+    int noncapturingLambdaDepth = 0;
+    uint64_t lambdaCounter = 0;
+    uint64_t nextReplSlot = 0;
+  };
+
+  auto saveState() const -> State;
+  auto restoreState(State state) -> void;
+
   using BuiltinHandler =
       std::function<llvm::LogicalResult(Expr *, const Type *)>;
 
   const llvm::SourceMgr &_sourceManager;
+  bool _persistent = false;
   TypeContext _typeContext;
   Symbols _symbols;
   std::map<std::string, const StructType *> _genericStructTypes;
@@ -71,6 +105,7 @@ private:
   int _whileDepth = 0;
   int _noncapturingLambdaDepth = 0;
   uint64_t _lambdaCounter = 0;
+  uint64_t _nextReplSlot = 0;
 
   enum class UnitPolicy {
     Allow,
@@ -78,6 +113,8 @@ private:
   };
 
   // Semantic Analysis
+
+  auto semaModule(Module &node, bool checkReplResult) -> llvm::LogicalResult;
 
   // Declarations
   auto sema(Decl *node) -> llvm::LogicalResult;
@@ -112,7 +149,8 @@ private:
 
   auto checkInternalFeature(llvm::SMLoc location) -> llvm::LogicalResult ;
 
-  auto lookupVariable(std::string_view name) -> const VariableSymbol * ;
+  auto lookupVariable(std::string_view name) const
+      -> const VariableSymbol * ;
 
   auto addBuiltins() -> void ;
 
@@ -151,6 +189,27 @@ private:
                        std::optional<ComptimeValue> comptimeValue = std::nullopt,
                        bool isComptimeOnly = false)
       -> llvm::LogicalResult ;
+
+  auto beginFunctionScope() -> void {
+    if (_persistent)
+      _symbols.enterVariableScope();
+    else
+      _symbols.resetVariables();
+  }
+
+  auto endFunctionScope() -> void { _symbols.leaveVariableScope(); }
+
+  class FunctionScope {
+  public:
+    explicit FunctionScope(SemaImpl &sema) : _sema(sema) {
+      _sema.beginFunctionScope();
+    }
+
+    ~FunctionScope() { _sema.endFunctionScope(); }
+
+  private:
+    SemaImpl &_sema;
+  };
 
   class VariableScope {
   public:

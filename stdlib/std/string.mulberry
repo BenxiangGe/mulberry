@@ -78,6 +78,24 @@ impl Show for Integer {
 
 impl<T> Show for T where comptime { #typeInfo(T).isObject() } {
   fn toString(self: T): String {
+    const info = #typeInfo(T);
+    if info.isArray() {
+      const displayLimit = 16;
+      var result: String = "[";
+      var index = 0;
+      const length = info.arrayLength();
+      while index < length and index < displayLimit {
+        if index != 0 {
+          result = result + ", ";
+        }
+        result = result + formatValue(self[index]);
+        index = index + 1;
+      }
+      if length > displayLimit {
+        result = result + ", ...";
+      }
+      return result + "]";
+    }
     return objectToString(self);
   }
 }

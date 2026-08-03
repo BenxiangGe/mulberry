@@ -27,6 +27,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -209,13 +210,17 @@ private:
   NameMap<DeclaredFunction> _functionsByName;
   NameMap<BuiltinHandler> _builtinHandlers;
   llvm::StringRef _fileNameIdentifier;
+  const Module *_replModule = nullptr;
   MLIRTypeConverter _typeConverter{_builder};
 
   // Declarations
+  auto declareReplFunctions(const Module &node) -> void;
+  auto seedReplBindings(const Module &node, mlir::Location location) -> void;
   auto declareFunction(const FunctionDecl *node) -> func::FuncOp;
   auto gen(const Prototype *node, bool isExtern) -> func::FuncOp;
   auto gen(const FunctionDecl *node) -> func::FuncOp;
   auto gen(const StructDecl *node) -> void;
+  auto genReplFunction(const Module &node) -> void;
 
   // Expressions
   auto gen(const Expr *node) -> mlir::Value;
@@ -508,6 +513,15 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
         return genTensorDispose(cast<CallExpr>(node));
       });
   registerBuiltinHandler(
+      "std.tensor.__isDisposed",
+      [this](const Expr *node) {
+        auto tensor = genObjectReference(
+            cast<CallExpr>(node)->expressions().front().get());
+        return mulberry_core::TensorIsDisposedOp::create(
+                   _builder, loc(node), _builder.getI1Type(), tensor)
+            .getResult();
+      });
+  registerBuiltinHandler(
       "std.core.toUInt8",
       [this](const Expr *node) {
         auto *call = cast<CallExpr>(node);
@@ -552,6 +566,10 @@ auto MLIRGenImpl::lookupBuiltinHandler(std::string_view name) const
 
 auto MLIRGenImpl::gen(const Module &node) -> llvm::LogicalResult {
   module = mlir::ModuleOp::create(_builder.getUnknownLoc());
+  _replModule = node.isRepl() ? &node : nullptr;
+
+  if (_replModule)
+    declareReplFunctions(node);
 
   for (auto &decl : node) {
     if (auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get()))
@@ -612,12 +630,126 @@ auto MLIRGenImpl::gen(const Module &node) -> llvm::LogicalResult {
     }
   }
 
+  if (node.isRepl())
+    genReplFunction(node);
+
   if (failed(mlir::verify(module))) {
     module.emitError("module verification error");
     return failure();
   }
 
   return success();
+}
+
+auto MLIRGenImpl::declareReplFunctions(const Module &node) -> void {
+  std::set<std::string, std::less<>> currentFunctionNames;
+  for (auto &decl : node.declarations()) {
+    if (auto *function = llvm::dyn_cast<FunctionDecl>(decl.get())) {
+      currentFunctionNames.insert(
+          std::string(function->proto()->id()->name()));
+      continue;
+    }
+    if (auto *structDecl = llvm::dyn_cast<StructDecl>(decl.get())) {
+      for (auto &method : structDecl->methods())
+        currentFunctionNames.insert(
+            std::string(method->proto()->id()->name()));
+      continue;
+    }
+    if (auto *implDecl = llvm::dyn_cast<ImplDecl>(decl.get())) {
+      for (auto &method : implDecl->methods())
+        currentFunctionNames.insert(
+            std::string(method->proto()->id()->name()));
+    }
+  }
+
+  for (const auto &binding : node.replFunctions()) {
+    if (currentFunctionNames.count(binding.name) != 0 ||
+        findFunction(binding.name) != _functionsByName.end())
+      continue;
+
+    llvm::SmallVector<mlir::Type, 3> argumentTypes;
+    for (auto *parameterType : binding.type->parameterTypes())
+      argumentTypes.push_back(
+          getParameterMLIRType(parameterType, binding.isExtern));
+
+    llvm::SmallVector<mlir::Type, 1> resultTypes;
+    if (!isUnitType(binding.type->returnType()))
+      resultTypes.push_back(
+          getReturnMLIRType(binding.type->returnType(), binding.isExtern));
+
+    auto functionType = _builder.getFunctionType(argumentTypes, resultTypes);
+    mlir::OperationState state(_builder.getUnknownLoc(),
+                               func::FuncOp::getOperationName());
+    func::FuncOp::build(_builder, state, binding.name, functionType);
+    auto function = llvm::cast<func::FuncOp>(mlir::Operation::create(state));
+    // A declaration-only func.func must be private for MLIR verification. Its
+    // LLVM declaration remains externally resolvable through the submission
+    // JITDylib link order.
+    mlir::SymbolTable::setSymbolVisibility(
+        function, mlir::SymbolTable::Visibility::Private);
+    module.push_back(function);
+    setFunction(binding.name, function, binding.isExtern);
+    DBG("declare persistent REPL function `{0}`", binding.name);
+  }
+}
+
+auto MLIRGenImpl::seedReplBindings(const Module &node,
+                                   mlir::Location location) -> void {
+  for (const auto &binding : node.replVariables()) {
+    if (isUnitType(binding.type))
+      continue;
+
+    auto elementType = isObjectReferenceType(binding.type)
+                           ? getSourceMLIRType(binding.type)
+                           : getStorageMLIRType(binding.type);
+    auto pointerType = getPtrType(elementType);
+    auto slot = arith::ConstantIntOp::create(
+        _builder, location, binding.slot, /*width=*/64);
+    auto storage = mulberry_core::ReplSlotOp::create(
+        _builder, location, pointerType, elementType, slot);
+    if (isObjectReferenceType(binding.type))
+      setVariableObjectReference(binding.name, storage.getResult());
+    else
+      setVariableAddress(binding.name, storage.getResult());
+    DBG("bind persistent REPL variable `{0}` to slot {1}", binding.name,
+        binding.slot);
+  }
+}
+
+auto MLIRGenImpl::genReplFunction(const Module &node) -> void {
+  auto location = _builder.getUnknownLoc();
+  auto functionType = _builder.getFunctionType({}, {_builder.getI64Type()});
+  auto function = func::FuncOp::create(
+      location, std::string(node.replFunctionName()), functionType);
+  module.push_back(function);
+
+  resetVariableScopes();
+  auto &entryBlock = *function.addEntryBlock();
+  _builder.setInsertionPointToStart(&entryBlock);
+  seedReplBindings(node, location);
+
+  auto &statements = node.statements();
+  if (statements.empty()) {
+    func::ReturnOp::create(_builder, location,
+                           createUInt64Constant(0, location));
+  } else {
+    for (size_t index = 0; index + 1 < statements.size(); ++index)
+      gen(statements[index].get());
+
+    auto *last = statements.back().get();
+    if (auto *expression = llvm::dyn_cast<ExprStat>(last)) {
+      auto value = gen(expression->expression().get());
+      if (isUnitType(expression->expression()->type()))
+        value = createUInt64Constant(0, loc(expression));
+      else
+        value = castToType(value, _builder.getI64Type(), loc(expression));
+      func::ReturnOp::create(_builder, loc(expression), value);
+    } else {
+      gen(last);
+      func::ReturnOp::create(_builder, loc(last),
+                             createUInt64Constant(0, loc(last)));
+    }
+  }
 }
 
 auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
@@ -670,6 +802,11 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> func::FuncOp {
 
   auto &entryBlock = *func.addEntryBlock();
   _builder.setInsertionPointToStart(&entryBlock);
+  if (_replModule) {
+    seedReplBindings(*_replModule, loc(node));
+    // Parameters shadow session bindings with the same source name.
+    enterVariableScope();
+  }
   for (const auto &varValue : llvm::zip(node->proto()->parameters(),
                                         entryBlock.getArguments())) {
     auto &var = std::get<0>(varValue);

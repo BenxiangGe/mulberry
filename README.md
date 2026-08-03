@@ -191,6 +191,20 @@ static linkage；MLIR runner utils 和 Boehm GC 仍由上游构建方式决定�
 cmake --build build/release --target check-mulberry
 ```
 
+## REPL
+
+`imb` 是 Mulberry 的交互式 shell。它使用 JIT 执行每次输入，并在当前 session 中
+保留变量、函数、类型和 import，支持多行输入、Tab 补全、ghost suggestion、持久
+history，以及 `:help`、`:type`、`:load` 等内部命令。
+
+```sh
+make mulberry-build
+./build/release/bin/imb
+```
+
+完整的启动方式、内部命令、模块加载、历史搜索和编辑快捷键见
+[REPL 使用说明](docs/REPL.md)。
+
 ## MNIST 示例
 
 仓库包含 Michael Nielsen MNIST 784-30-10 网络的推理和训练 smoke：

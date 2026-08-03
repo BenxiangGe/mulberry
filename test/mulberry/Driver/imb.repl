@@ -1,0 +1,11 @@
+# RUN: printf '1 + 2\nconst x = 40; x + 2\nfn add(x: UInt64, y: UInt64): UInt64 { return x + y; } add(20, 22)\nvar s = 121\ns\nio.println(7)\nimport io; io.println(9)\ntrue\n1 +\n2\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: 3
+# CHECK-NEXT: 42
+# CHECK-NEXT: 42
+# A variable declaration has no result, but the binding remains usable.
+# CHECK-NEXT: 121
+# CHECK-NEXT: 7
+# CHECK-NEXT: 9
+# CHECK-NEXT: true
+# CHECK-NEXT: 3

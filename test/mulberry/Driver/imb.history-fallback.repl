@@ -1,0 +1,3 @@
+# RUN: printf '1 + 2\n:quit\n' | env HOME=/dev/null stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: 3

@@ -100,6 +100,22 @@ def Mulberry_AllocaOp : Mulberry_Op<"alloca"> {
   let hasVerifier = 1;
 }
 
+def Mulberry_ReplSlotOp : Mulberry_Op<"repl.slot"> {
+  let summary = "Get persistent storage for a REPL source binding";
+  let description = [{
+    The slot id is stable for the lifetime of an interactive compilation
+    session. The runtime owns the returned storage, so later submissions can
+    load and store the same source binding without rebuilding old modules.
+  }];
+
+  let arguments = (ins TypeAttr:$elementType, I64:$slot);
+  let results = (outs Mulberry_AnyPtrType:$result);
+
+  let assemblyFormat = "$elementType `,` $slot attr-dict `:` type($result)";
+
+  let hasVerifier = 1;
+}
+
 def Mulberry_HeapAllocOp : Mulberry_Op<"heap.alloc"> {
   let summary = "Allocate a Mulberry heap object";
 
@@ -226,6 +242,17 @@ def Mulberry_TensorDisposeOp : Mulberry_Op<"tensor.dispose"> {
   let summary = "Dispose a source Tensor object's shared payload";
 
   let arguments = (ins Mulberry_AnyPtrType:$tensor);
+
+  let assemblyFormat = "$tensor attr-dict `:` type($tensor)";
+
+  let hasVerifier = 1;
+}
+
+def Mulberry_TensorIsDisposedOp : Mulberry_Op<"tensor.is_disposed"> {
+  let summary = "Read whether a source Tensor object's payload is disposed";
+
+  let arguments = (ins Mulberry_AnyPtrType:$tensor);
+  let results = (outs I1:$result);
 
   let assemblyFormat = "$tensor attr-dict `:` type($tensor)";
 

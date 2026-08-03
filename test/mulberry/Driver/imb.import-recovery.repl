@@ -1,0 +1,5 @@
+# RUN: printf 'import io; extern fn missing(): UInt64; missing()\nimport io; io.println(9)\n1 + 2\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: imb: evaluation failed:
+# CHECK: {{^}}9{{$}}
+# CHECK-NEXT: 3

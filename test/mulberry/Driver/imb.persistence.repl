@@ -1,0 +1,10 @@
+# RUN: printf 'var x = 40\nx + 2\nx = 41\nx + 1\nstruct Point { x: UInt64, y: UInt64 }\nvar point = Point { 3, 4 }\npoint.x\npoint.x = 9\npoint.x\nfn addOne(value: UInt64): UInt64 { return value + 1; }\naddOne(point.x)\ndata Maybe = None | Some(UInt64);\nfn score(value: Maybe): UInt64 { return match value { Some(score) => score, None() => 0, }; }\nscore(Some(7))\ntrait Twice { fn twice(self): UInt64 { return self + self; } }\nimpl Twice for UInt64 {}\nx.twice()\nimport io; io.println(9)\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: 42
+# CHECK-NEXT: 42
+# CHECK-NEXT: 3
+# CHECK-NEXT: 9
+# CHECK-NEXT: 10
+# CHECK-NEXT: 7
+# CHECK-NEXT: 82
+# CHECK-NEXT: 9

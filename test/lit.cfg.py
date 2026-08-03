@@ -21,7 +21,7 @@ config.name = "Mulberry"
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = [".mlir", ".mulberry"]
+config.suffixes = [".mlir", ".mulberry", ".repl", ".expect"]
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)
@@ -37,6 +37,9 @@ config.substitutions.append(
 # Nielsen's mnist.pkl.gz is a NumPy pickle. Keep this explicit so lit's own
 # Python environment does not accidentally pick a venv without numpy.
 config.substitutions.append(("%numpy_python", "/usr/bin/python3"))
+
+if lit.util.which("expect"):
+    config.available_features.add("expect")
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
@@ -63,7 +66,8 @@ tools = [
     "mulberry-capi-test",
     "mulberry-opt",
     "mulberry-translate",
-    "mulberry-driver"
+    "mulberry-driver",
+    "imb"
 ]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)

@@ -1,0 +1,137 @@
+diff --git a/src/editline.c b/src/editline.c
+--- a/src/editline.c
++++ b/src/editline.c
+@@ -979,8 +979,26 @@
+       case KEY_CTRL_L:
+         edit_clear_screen(env, &eb);
+         break;
+       case KEY_CTRL_Z:
++#if !defined(_WIN32)
++        // Ctrl-Z arrives as a byte because raw mode disables ISIG. Restore
++        // the terminal before stopping so the parent shell can use it.
++        term_end_raw(env->term, true);
++        term_writeln(env->term, "");
++        term_flush(env->term);
++        if (tty_suspend(env->tty)) {
++          term_start_raw(env->term);
++          eb.cur_rows = 1;
++          eb.cur_row = 0;
++          edit_refresh(env, &eb);
++          break;
++        }
++        tty_start_raw(env->tty);
++        term_start_raw(env->term);
++#endif
++        // Windows has no POSIX job-control equivalent; retain Isocline's
++        // existing Ctrl-Z undo behavior there.
+       case WITH_CTRL('_'):
+         edit_undo_restore(env, &eb);
+         break;
+       case KEY_CTRL_Y:
+@@ -1007,4 +1007,15 @@
+       case KEY_UP:
+-        edit_cursor_row_up(env,&eb);
++        if (eb.pos == sbuf_len(eb.input) && sbuf_len(eb.input) > 0 &&
++            sbuf_find_line_start(eb.input, eb.pos) == 0) {
++          if (edit_history_has_current_input(env, &eb)) {
++            edit_cursor_row_up(env,&eb);
++          }
++          else {
++            edit_history_search_with_current_input(env, &eb);
++          }
++        }
++        else {
++          edit_cursor_row_up(env,&eb);
++        }
+         break;
+       case KEY_DOWN:
+diff --git a/src/editline_history.c b/src/editline_history.c
+--- a/src/editline_history.c
++++ b/src/editline_history.c
+@@ -258,3 +258,19 @@ static void edit_history_search_with_current_word(ic_env_t* env, editor_t* eb) {
+   edit_history_search( env, eb, initial);
+   mem_free(env->mem, initial);
+ }
++
++static bool edit_history_has_current_input(ic_env_t* env, editor_t* eb) {
++  const char* input = sbuf_string(eb->input);
++  for (ssize_t index = 0; index < history_count(env->history); ++index) {
++    const char* entry = history_get(env->history, index);
++    if (entry != NULL && strcmp(entry, input) == 0)
++      return true;
++  }
++  return false;
++}
++
++static void edit_history_search_with_current_input(ic_env_t* env, editor_t* eb) {
++  char* initial = sbuf_strdup(eb->input);
++  edit_history_search(env, eb, initial);
++  mem_free(env->mem, initial);
++}
+diff --git a/src/tty.h b/src/tty.h
+--- a/src/tty.h
++++ b/src/tty.h
+@@ -28,4 +28,5 @@ ic_private bool   tty_is_utf8(const tty_t* tty);
+ ic_private bool   tty_start_raw(tty_t* tty);
+ ic_private void   tty_end_raw(tty_t* tty);
++ic_private bool   tty_suspend(tty_t* tty);
+ ic_private code_t tty_read(tty_t* tty);
+ ic_private bool   tty_read_timeout(tty_t* tty, long timeout_ms, code_t* c );
+diff --git a/src/tty.c b/src/tty.c
+--- a/src/tty.c
++++ b/src/tty.c
+@@ -581,3 +581,3 @@
+ static bool sigaction_is_valid( struct sigaction* sa ) {
+-  return (sa->sa_sigaction != NULL && sa->sa_handler != SIG_DFL && sa->sa_handler != SIG_IGN);
++  return (sa->sa_handler != SIG_IGN);
+ }
+@@ -602,5 +602,7 @@
+   if (sh->signum == signum) {
+-    if (sigaction_is_valid(&sh->action.previous)) {
++    if (sh->action.previous.sa_sigaction != NULL &&
++        sh->action.previous.sa_handler != SIG_DFL &&
++        sh->action.previous.sa_handler != SIG_IGN) {
+       (sh->action.previous.sa_sigaction)(signum, siginfo, uap);
+     }
+   }
+@@ -619,8 +621,8 @@
+     if (sigaction( sh->signum, NULL, &sh->action.previous) == 0) {            // get previous
+       if (sh->action.previous.sa_handler != SIG_IGN) {                        // if not to be ignored
+         if (sigaction( sh->signum, &handler, &sh->action.previous ) < 0) {    // install our handler
+-          sh->action.previous.sa_sigaction = NULL;       // do not restore on error
++          // Keep the captured action so a failed install can still be restored.
+         }
+         else if (sh->signum == SIGWINCH) {
+           sig_tty->has_term_resize_event = true;
+         };
+@@ -687,6 +689,18 @@ static bool tty_init_raw(tty_t* tty)
+   return true;
+ }
+ 
++ic_private bool tty_suspend(tty_t* tty) {
++  if (tty == NULL || !tty->raw_enabled) return false;
++  tty_end_raw(tty);
++  signals_restore();
++  // SIGTSTP is restored to its inherited action above. With the usual
++  // default action, raise() stops the process until the shell resumes it.
++  int result = raise(SIGTSTP);
++  if (!tty_init_raw(tty)) return false;
++  if (!tty_start_raw(tty)) return false;
++  return result == 0;
++}
++
+ static void tty_done_raw(tty_t* tty) {
+   ic_unused(tty);
+   signals_restore();
+@@ -878,6 +892,11 @@ ic_private void tty_end_raw(tty_t* tty) {
+   tty->raw_enabled = false;
+ }
+ 
++ic_private bool tty_suspend(tty_t* tty) {
++  ic_unused(tty);
++  return false;
++}
++
+ static bool tty_init_raw(tty_t* tty) {
+   tty->hcon = GetStdHandle( STD_INPUT_HANDLE );
+   tty->has_term_resize_event = true;

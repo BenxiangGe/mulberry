@@ -31,6 +31,8 @@ extern fn mulberry_file_has_error(file: Ptr<UInt8>): Bool;
 extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn writeString(value: String): ();
+// `imb` enables this hook; batch programs keep `print` without a newline.
+extern fn mulberry_repl_print_end(): ();
 
 fn writeText(value: String): () {
   writeString(value);
@@ -38,10 +40,11 @@ fn writeText(value: String): () {
 
 fn print<T>(value: T): () {
   writeText("{$value}");
+  mulberry_repl_print_end();
 }
 
 fn println<T>(value: T): () {
-  print(value);
+  writeText("{$value}");
   writeText("\n");
 }
 

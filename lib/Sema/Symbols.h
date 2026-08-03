@@ -35,6 +35,7 @@ struct VariableSymbol {
   bool canMutateObject = true;
   std::optional<ComptimeValue> comptimeValue;
   bool isComptimeOnly = false;
+  std::optional<uint64_t> replSlot;
 };
 
 struct FunctionSymbol {
@@ -87,6 +88,14 @@ public:
     if (symbol == _functionsByName.end())
       return nullptr;
     return &symbol->second;
+  }
+
+  auto functions() const -> const NameMap<FunctionSymbol> & {
+    return _functionsByName;
+  }
+
+  auto genericFunctions() const -> const NameMap<GenericFunctionSymbol> & {
+    return _genericFunctionsByName;
   }
 
   auto declareGenericFunction(std::string_view name,
@@ -219,6 +228,8 @@ public:
     enterVariableScope();
   }
 
+  auto variableScopeDepth() const -> size_t { return _variableScopes.size(); }
+
   auto enterVariableScope() -> void { _variableScopes.enterScope(); }
 
   auto leaveVariableScope() -> void {
@@ -229,7 +240,8 @@ public:
                        bool isConstBinding = false,
                        bool canMutateObject = true,
                        std::optional<ComptimeValue> comptimeValue = std::nullopt,
-                       bool isComptimeOnly = false)
+                       bool isComptimeOnly = false,
+                       std::optional<uint64_t> replSlot = std::nullopt)
       -> llvm::LogicalResult {
     if (_variableScopes.empty())
       enterVariableScope();
@@ -237,17 +249,43 @@ public:
     if (llvm::failed(declareSymbol(_variableScopes.currentScope(), name,
                       VariableSymbol{type, isConstBinding, canMutateObject,
                                      std::move(comptimeValue),
-                                     isComptimeOnly})))
+                                     isComptimeOnly, replSlot})))
       return failure();
     return success();
   }
 
-  auto lookupVariable(std::string_view name) -> const VariableSymbol * {
+  auto lookupVariable(std::string_view name) const -> const VariableSymbol * {
     return _variableScopes.lookup(name);
   }
 
   auto lookupCurrentVariable(std::string_view name) -> const VariableSymbol * {
     return _variableScopes.lookupCurrent(name);
+  }
+
+  auto currentVariables() const -> const NameMap<VariableSymbol> & {
+    return _variableScopes.currentScope();
+  }
+
+  auto completionNames() const -> std::vector<std::string> {
+    std::vector<std::string> result;
+    auto appendNames = [&result](const auto &symbols) {
+      for (const auto &[name, symbol] : symbols) {
+        (void)symbol;
+        if (name.find('.') == std::string::npos)
+          result.push_back(name);
+      }
+    };
+
+    appendNames(_functionsByName);
+    appendNames(_genericFunctionsByName);
+    appendNames(_dataDeclsByName);
+    appendNames(_dataConstructorsByName);
+    appendNames(_traitsByName);
+    appendNames(_typesByName);
+    appendNames(_comptimeTypeAliasesByName);
+    if (!_variableScopes.empty())
+      appendNames(_variableScopes.currentScope());
+    return result;
   }
 
 private:

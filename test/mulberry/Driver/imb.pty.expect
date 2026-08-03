@@ -1,0 +1,92 @@
+# REQUIRES: expect
+# RUN: expect %s "$(command -v imb)" | FileCheck %s
+# RUN: mkdir -p %t.home/.mulberry
+# RUN: printf 'io.print(6 * 7)\n' > %t.home/.mulberry/mulberry-history
+# RUN: expect %s "$(command -v imb)" %t.home | FileCheck %s --check-prefix=PERSISTENT
+
+set timeout 5
+log_user 0
+set imb [lindex $argv 0]
+set home [lindex $argv 1]
+if {$home eq ""} {
+  set home /dev/null
+}
+spawn env HOME=$home TERM=xterm-256color $imb
+
+# The first submission makes `answer` a semantic completion candidate. A single
+# Tab must complete it before the next Enter submits the expression.
+expect -re {imb > }
+send -- "const answer = 41\r"
+expect -re {imb > }
+send -- "answ\t\r"
+expect "41"
+expect -re {imb > }
+
+# Member completion uses the Sema-known fields and methods of a persistent
+# REPL object. The prefixes are deliberately unique so one Tab accepts them.
+send -- "struct Point { value: UInt64, pub fn double(self: Point): UInt64 { return self.value + self.value; } }\r"
+expect -re {imb > }
+send -- "var point = Point { 7 }\r"
+expect -re {imb > }
+send -- "point.v\t\r"
+expect "7"
+expect -re {imb > }
+send -- "point.d\t()\r"
+expect "14"
+expect -re {imb > }
+
+# Package completion resolves the import alias before querying package
+# functions. `writeT` becomes `writeText` before the call is submitted.
+send -- "import io;\r"
+expect -re {imb > }
+send -- "io.writeT\t(\"member\")\r"
+expect "member"
+expect -re {imb > }
+
+# The previous full command becomes a history autosuggestion. Right-arrow
+# accepts the gray suffix, so Enter executes the complete call rather than the
+# short prefix `io.pr`.
+send -- "io.print(6 * 7)\r"
+expect "42"
+expect -re {imb > }
+
+# Up-arrow performs substring history search when a non-empty input is at the
+# end of the line. `print` therefore finds the earlier `io.print(...)` command,
+# even though it is not a prefix; Enter accepts the selected history result.
+send -- "print"
+send -- "\033\[A"
+expect -re {io\.print\(6 \* 7\)}
+send -- "\r"
+expect "42"
+expect -re {imb > }
+
+send -- "io.pr"
+expect -re {int\(6 \* 7\)}
+send -- "\033\[C\r"
+expect "42"
+expect -re {imb > }
+
+# A non-newline print must be visible before the REPL reads the next command.
+send -- "io.print(6 * 7)\r"
+expect "42"
+expect -re {imb > }
+send -- "1 + 1\r"
+expect "2"
+expect -re {imb > }
+
+# Ctrl-C on the continuation prompt must discard `1 +`, so this evaluates to 4
+# rather than accidentally compiling a combined expression that evaluates to 5.
+send -- "1 +\r"
+expect -re {\. }
+send -- "\003"
+expect -re {imb > }
+send -- "2 + 2\r"
+expect "4"
+expect -re {imb > }
+
+send -- ":quit\r"
+expect eof
+puts "PTY_REPL_OK"
+
+# CHECK: PTY_REPL_OK
+# PERSISTENT: PTY_REPL_OK

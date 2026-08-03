@@ -164,6 +164,42 @@ auto Parser::parseModule(unique_ptr<Module> &module) -> llvm::LogicalResult {
   return success();
 }
 
+auto Parser::parseReplModule(unique_ptr<Module> &module,
+                              std::string_view functionName)
+    -> llvm::LogicalResult {
+  _parsingReplModule = true;
+  auto loc = tokenLoc();
+  if (tokenIs(Token::kw_package) && llvm::failed(parsePackageDecl()))
+    return failure();
+
+  VectorUniquePtr<Decl> declarations;
+  VectorUniquePtr<Stat> statements;
+  while (!tokenIs(Token::eof)) {
+    if (tokenIs(Token::kw_import) || tokenIs(Token::kw_extern) ||
+        tokenIs(Token::kw_fn) || tokenIs(Token::kw_struct) ||
+        tokenIs(Token::kw_trait) || tokenIs(Token::kw_impl) ||
+        tokenIs(Token::kw_comptime) ||
+        (tokenIs(Token::identifier) && spelling() == "data")) {
+      unique_ptr<Decl> declaration;
+      if (llvm::failed(parseDeclaration(declaration)))
+        return failure();
+      declarations.push_back(std::move(declaration));
+      continue;
+    }
+
+    unique_ptr<Stat> statement;
+    if (llvm::failed(parseReplStatement(statement)))
+      return failure();
+    statements.push_back(std::move(statement));
+  }
+
+  module = make_unique<Module>(loc, std::move(declarations));
+  module->setPackageName(_packageName);
+  module->setStatements(std::move(statements));
+  module->setReplFunctionName(functionName);
+  return success();
+}
+
 template <typename T, typename ParseElement>
 auto Parser::parseList(Token::Kind separator, Token::Kind end,
                        const char *const separator_error,
@@ -493,9 +529,14 @@ auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   consume(Token::kw_import);
 
   std::string moduleName;
-  if (llvm::failed(parseQualifiedName(moduleName, diag::expected_id)) ||
-      llvm::failed(parseToken(Token::semi, diag::expected_semi)))
+  if (llvm::failed(parseQualifiedName(moduleName, diag::expected_id)))
     return failure();
+
+  // In a REPL submission, EOF terminates the final declaration just like it
+  // terminates the final statement. Normal source files still require `;`.
+  if (!consumeIf(Token::semi) &&
+      !(_parsingReplModule && tokenIs(Token::eof)))
+    return emitError(diag::expected_semi);
 
   decl = make_unique<ImportDecl>(loc, moduleName);
   return success();
@@ -1763,6 +1804,24 @@ auto Parser::parseStatement(unique_ptr<Stat> &stat) -> llvm::LogicalResult {
   if (kind == Stat::Stat_VariableDecl || kind == Stat::Stat_Return ||
       kind == Stat::Stat_Expression)
     return parseToken(Token::semi, diag::expected_semi);
+
+  if (kind == Stat::Stat_Break || kind == Stat::Stat_Continue)
+    consumeIf(Token::semi);
+  return success();
+}
+
+auto Parser::parseReplStatement(unique_ptr<Stat> &stat)
+    -> llvm::LogicalResult {
+  if (llvm::failed(parseStatementWithoutSemi(stat)))
+    return failure();
+
+  auto kind = stat->getKind();
+  if (kind == Stat::Stat_VariableDecl || kind == Stat::Stat_Return ||
+      kind == Stat::Stat_Expression) {
+    if (consumeIf(Token::semi) || tokenIs(Token::eof))
+      return success();
+    return emitError(diag::expected_semi);
+  }
 
   if (kind == Stat::Stat_Break || kind == Stat::Stat_Continue)
     consumeIf(Token::semi);
