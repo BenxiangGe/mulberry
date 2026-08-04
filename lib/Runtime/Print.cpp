@@ -51,6 +51,15 @@ auto formatFloat(float value) -> MulberryString {
       std::string_view(buffer, static_cast<size_t>(length)));
 }
 
+auto formatDouble(double value) -> MulberryString {
+  char buffer[128];
+  auto length = std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+  if (length < 0 || static_cast<size_t>(length) >= sizeof(buffer))
+    std::abort();
+  return makeString(
+      std::string_view(buffer, static_cast<size_t>(length)));
+}
+
 auto formatObjectIdentity(MulberryString typeName, const void* object)
     -> MulberryString {
   char addressBuffer[2 * sizeof(uintptr_t)];
@@ -100,9 +109,19 @@ extern "C" void _mlir_ciface_mulberry_string_from_u64(
   *result = formatInteger(value);
 }
 
+extern "C" void _mlir_ciface_mulberry_string_from_i64(
+    MulberryString* result, int64_t value) {
+  *result = formatInteger(value);
+}
+
 extern "C" void _mlir_ciface_mulberry_string_from_f32(
     MulberryString* result, float value) {
   *result = formatFloat(value);
+}
+
+extern "C" void _mlir_ciface_mulberry_string_from_f64(
+    MulberryString* result, double value) {
+  *result = formatDouble(value);
 }
 
 extern "C" void _mlir_ciface_mulberry_string_object_identity(

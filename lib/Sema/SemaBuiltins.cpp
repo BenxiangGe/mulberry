@@ -52,6 +52,11 @@ auto SemaImpl::registerBuiltinHandlers() -> void {
       [this](Expr *node, const Type *expectedType) {
         return semaToFloat32(cast<CallExpr>(node), expectedType);
       });
+  registerBuiltinHandler(
+      "std.core.toFloat64",
+      [this](Expr *node, const Type *expectedType) {
+        return semaToFloat64(cast<CallExpr>(node), expectedType);
+      });
 }
 
 auto SemaImpl::registerBuiltinHandler(std::string_view name,
@@ -135,6 +140,29 @@ auto SemaImpl::semaToFloat32(CallExpr *node, const Type *expectedType)
     return emitError(arguments.front().get(), diag::mismatch_type);
 
   auto *resultType = _typeContext.getBuiltinType(BuiltinTypeKind::Float32);
+  if (expectedType && !sameType(expectedType, resultType))
+    return emitError(node, diag::mismatch_type);
+  node->setType(resultType);
+  return success();
+}
+
+auto SemaImpl::semaToFloat64(CallExpr *node, const Type *expectedType)
+    -> llvm::LogicalResult {
+  auto &arguments = node->expressions();
+  if (arguments.size() != 1) {
+    auto diagnostic =
+        formatNameSizeDiagnostic(diag::func_param, node->name(), 1);
+    return emitError(node, diagnostic);
+  }
+
+  auto *parameterType =
+      _typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
+  if (llvm::failed(sema(arguments.front().get(), parameterType)))
+    return failure();
+  if (!sameType(arguments.front()->type(), parameterType))
+    return emitError(arguments.front().get(), diag::mismatch_type);
+
+  auto *resultType = _typeContext.getBuiltinType(BuiltinTypeKind::Float64);
   if (expectedType && !sameType(expectedType, resultType))
     return emitError(node, diag::mismatch_type);
   node->setType(resultType);

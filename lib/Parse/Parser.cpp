@@ -1072,7 +1072,7 @@ auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> llvm::LogicalResu
   case Token::char_literal:
     return parseChar(expr);
   case Token::diff:
-    return parseNegativeFloat(expr);
+    return parseNegativeNumber(expr);
   case Token::identifier:
     return parseIdentifierExpr(expr);
   case Token::hash:
@@ -1376,7 +1376,7 @@ auto Parser::parseIntegerLiteral(unique_ptr<Expr> &expr) -> llvm::LogicalResult 
 
 auto Parser::parseFloat(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
-  if (auto value = token().getFloat32Value()) {
+  if (auto value = token().getFloat64Value()) {
     consume(Token::float_literal);
     expr = make_unique<FloatLiteralExpr>(loc, std::move(*value));
     return success();
@@ -1384,13 +1384,22 @@ auto Parser::parseFloat(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   return emitError(diag::float_literal_invalid);
 }
 
-auto Parser::parseNegativeFloat(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
+auto Parser::parseNegativeNumber(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::diff);
+  if (tokenIs(Token::integer_literal)) {
+    if (!token().hasValidIntegerLiteralSpelling())
+      return emitError(diag::invalid_integer_literal);
+    auto spelling = "-" + token().getSpelling().str();
+    consume(Token::integer_literal);
+    expr = make_unique<IntegerLiteralExpr>(loc, std::move(spelling));
+    return success();
+  }
+
   if (!tokenIs(Token::float_literal))
     return emitError(diag::expected_expr);
 
-  if (auto value = token().getFloat32Value()) {
+  if (auto value = token().getFloat64Value()) {
     consume(Token::float_literal);
     value->changeSign();
     expr = make_unique<FloatLiteralExpr>(loc, std::move(*value));

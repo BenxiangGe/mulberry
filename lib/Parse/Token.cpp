@@ -43,6 +43,10 @@ auto Token::getFloat32Value() const -> std::optional<llvm::APFloat> {
   return llvm::APFloat(llvm::APFloat::IEEEsingle(), _spelling);
 }
 
+auto Token::getFloat64Value() const -> std::optional<llvm::APFloat> {
+  return llvm::APFloat(llvm::APFloat::IEEEdouble(), _spelling);
+}
+
 auto Token::getStringLiteralSegments() const
     -> std::optional<std::vector<StringLiteralSegment>> {
   if (_kind != string_literal || _spelling.size() < 2 ||

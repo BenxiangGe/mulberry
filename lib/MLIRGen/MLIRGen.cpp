@@ -545,6 +545,14 @@ auto MLIRGenImpl::registerBuiltinHandlers() -> void {
         return arith::UIToFPOp::create(
             _builder, loc(call), getSourceMLIRType(call), value);
       });
+  registerBuiltinHandler(
+      "std.core.toFloat64",
+      [this](const Expr *node) {
+        auto *call = cast<CallExpr>(node);
+        auto value = gen(call->expressions().front().get());
+        return arith::UIToFPOp::create(
+            _builder, loc(call), getSourceMLIRType(call), value);
+      });
 }
 
 auto MLIRGenImpl::registerBuiltinHandler(std::string_view name,
@@ -1531,10 +1539,17 @@ auto MLIRGenImpl::gen(const IntegerLiteralExpr *node) -> mlir::Value {
                                       std::string(node->spelling()));
   }
 
-  auto value = node->getUInt64Value();
-  assert(value && "Sema must validate UInt64 integer literals");
   mlir::Type type = getSourceMLIRType(node);
   auto intType = llvm::cast<mlir::IntegerType>(type);
+  if (mulberry::isInt64Type(node->type())) {
+    auto value = node->getInt64Value();
+    assert(value && "Sema must validate Int64 integer literals");
+    return arith::ConstantIntOp::create(_builder, loc(node), *value,
+                                        intType.getWidth());
+  }
+
+  auto value = node->getUInt64Value();
+  assert(value && "Sema must validate unsigned integer literals");
   return arith::ConstantIntOp::create(_builder, loc(node), *value,
                                       intType.getWidth());
 }
@@ -1547,15 +1562,27 @@ auto MLIRGenImpl::gen(const IntegerWidenExpr *node) -> mlir::Value {
   if (!value.getType().isInteger(64))
     llvm_unreachable("Integer widening source must be an 8- or 64-bit integer");
 
-  DBG("generate UInt widening to bigint Integer");
+  if (mulberry::isInt64Type(node->value()->type())) {
+    DBG("generate Int64 widening to bigint Integer");
+    return bigint::FromInt64Op::create(_builder, loc(node),
+                                       getSourceMLIRType(node), value);
+  }
+
+  DBG("generate unsigned integer widening to bigint Integer");
   return bigint::FromUInt64Op::create(_builder, loc(node),
                                       getSourceMLIRType(node), value);
 }
 
 auto MLIRGenImpl::gen(const FloatLiteralExpr *node) -> mlir::Value {
   mlir::Type type = getSourceMLIRType(node);
+  auto value = node->value();
+  if (mulberry::isFloat32Type(node->type())) {
+    bool losesInfo = false;
+    value.convert(llvm::APFloat::IEEEsingle(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+  }
   return arith::ConstantFloatOp::create(
-      _builder, loc(node), llvm::cast<mlir::FloatType>(type), node->value());
+      _builder, loc(node), llvm::cast<mlir::FloatType>(type), value);
 }
 
 auto MLIRGenImpl::gen(const BoolLiteralExpr *node) -> mlir::Value {
@@ -1881,6 +1908,7 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
     }
   }
 
+  auto isSignedInteger = mulberry::isInt64Type(node->lhs()->type());
   switch (op) {
   case Operator::Add:
     return arith::AddIOp::create(_builder, loc(node), lhs, rhs);
@@ -1889,15 +1917,25 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
   case Operator::Mul:
     return arith::MulIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Div:
+    if (isSignedInteger)
+      return arith::DivSIOp::create(_builder, loc(node), lhs, rhs);
     return arith::DivUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Rem:
+    if (isSignedInteger)
+      return arith::RemSIOp::create(_builder, loc(node), lhs, rhs);
     return arith::RemUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::ShiftLeft:
+    return arith::ShLIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::ShiftRight:
+    if (isSignedInteger)
+      return arith::ShRSIOp::create(_builder, loc(node), lhs, rhs);
+    return arith::ShRUIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::BitAnd:
+    return arith::AndIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::BitOr:
+    return arith::OrIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::BitXor:
-    llvm_unreachable("Integer-only bit operation reached scalar lowering");
+    return arith::XOrIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::And:
     return arith::AndIOp::create(_builder, loc(node), lhs, rhs);
   case Operator::Or:
@@ -1910,16 +1948,28 @@ auto MLIRGenImpl::gen(const BinaryExpr *node) -> mlir::Value {
         _builder, loc(node), arith::CmpIPredicate::ne, lhs, rhs);
   case Operator::LT:
     return arith::CmpIOp::create(
-        _builder, loc(node), arith::CmpIPredicate::ult, lhs, rhs);
+        _builder, loc(node),
+        isSignedInteger ? arith::CmpIPredicate::slt
+                        : arith::CmpIPredicate::ult,
+        lhs, rhs);
   case Operator::LE:
     return arith::CmpIOp::create(
-        _builder, loc(node), arith::CmpIPredicate::ule, lhs, rhs);
+        _builder, loc(node),
+        isSignedInteger ? arith::CmpIPredicate::sle
+                        : arith::CmpIPredicate::ule,
+        lhs, rhs);
   case Operator::GT:
     return arith::CmpIOp::create(
-        _builder, loc(node), arith::CmpIPredicate::ugt, lhs, rhs);
+        _builder, loc(node),
+        isSignedInteger ? arith::CmpIPredicate::sgt
+                        : arith::CmpIPredicate::ugt,
+        lhs, rhs);
   case Operator::GE:
     return arith::CmpIOp::create(
-        _builder, loc(node), arith::CmpIPredicate::uge, lhs, rhs);
+        _builder, loc(node),
+        isSignedInteger ? arith::CmpIPredicate::sge
+                        : arith::CmpIPredicate::uge,
+        lhs, rhs);
   }
 
   llvm_unreachable("Unexpected statement");

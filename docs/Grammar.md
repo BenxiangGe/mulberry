@@ -248,8 +248,13 @@ array-type-suffix         -> `[` integer-literal `]`
 `T[N]` 是固定长度 `Array<T, N>` 的 source sugar。多维或动态 ranked tensor spelling
 已删除；需要 numeric buffer 时使用 `Tensor<T>`。
 
+非负 integer literal 默认是 `UInt64`，负 integer literal 默认是 `Int64`；float literal
+默认是 `Float32`。显式 annotation 或 operand context 可以把 integer literal 定型为
+`Int64`，把 float literal 定型为 `Float64`。`Int64` 的 `/`、`%`、comparison、bitwise
+和 shift 都是 fixed-width signed operations；`Float64` 与 `Float32` variable 不自动混算。
+
 `Integer` 是预声明的 signed arbitrary-precision builtin type。它支持 type position、reflection、
-contextual integer literal typing、`UInt8`/`UInt64` 到 `Integer` 的单向提升，以及 `+`、`-`、`*`、
+contextual integer literal typing、`UInt8`/`UInt64`/`Int64` 到 `Integer` 的单向提升，以及 `+`、`-`、`*`、
 `&`、`|`、`^`、`<<`、`>>` 和 comparison。shift 的左 operand 是 `Integer`，右 operand 是
 `UInt64`；负 `Integer` 的 bitwise 与 right shift 采用 infinite two's-complement semantics。
 semantic MLIR 使用 `!bigint.int` 表示 `Integer`；lowering 将其接到 GC-managed BigInt runtime，

@@ -188,7 +188,7 @@ private:
 
   auto parseIntegerLiteral(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
   auto parseFloat(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
-  auto parseNegativeFloat(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
+  auto parseNegativeNumber(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
   auto parseString(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
   auto parseChar(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
 

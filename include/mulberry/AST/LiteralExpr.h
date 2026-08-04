@@ -38,12 +38,20 @@ public:
 
   auto spelling() const -> std::string_view { return _spelling; }
 
+  auto isNegative() const -> bool {
+    return !_spelling.empty() && _spelling.front() == '-';
+  }
+
   auto hasValidSpelling() const -> bool {
     return isValidIntegerLiteralSpelling(_spelling);
   }
 
   auto getUInt64Value() const -> std::optional<uint64_t> {
     return parseUInt64IntegerLiteral(_spelling);
+  }
+
+  auto getInt64Value() const -> std::optional<int64_t> {
+    return parseInt64IntegerLiteral(_spelling);
   }
 
 private:

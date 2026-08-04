@@ -28,10 +28,48 @@ auto isHexLiteral(std::string_view spelling) -> bool {
   return spelling.size() >= 2 && spelling[0] == '0' && spelling[1] == 'x';
 }
 
+auto stripSign(std::string_view spelling, bool &isNegative)
+    -> std::string_view {
+  isNegative = !spelling.empty() && spelling.front() == '-';
+  if (isNegative)
+    spelling.remove_prefix(1);
+  return spelling;
+}
+
+auto parseUnsignedMagnitude(std::string_view spelling)
+    -> std::optional<uint64_t> {
+  uint64_t radix = 10;
+  size_t index = 0;
+  if (isHexLiteral(spelling)) {
+    radix = 16;
+    index = 2;
+  }
+
+  uint64_t result = 0;
+  for (; index < spelling.size(); ++index) {
+    char value = spelling[index];
+    if (value == '_')
+      continue;
+
+    auto digit = hexDigitValue(value);
+    if (!digit || *digit >= radix)
+      return std::nullopt;
+    if (result > (std::numeric_limits<uint64_t>::max() - *digit) / radix)
+      return std::nullopt;
+    result = result * radix + *digit;
+  }
+  return result;
+}
+
 } // namespace
 
 auto mulberry::isValidIntegerLiteralSpelling(std::string_view spelling)
     -> bool {
+  if (spelling.empty())
+    return false;
+
+  if (!spelling.empty() && spelling.front() == '-')
+    spelling.remove_prefix(1);
   if (spelling.empty())
     return false;
 
@@ -78,25 +116,35 @@ auto mulberry::parseUInt64IntegerLiteral(std::string_view spelling)
   if (!isValidIntegerLiteralSpelling(spelling))
     return std::nullopt;
 
-  uint64_t radix = 10;
-  size_t index = 0;
-  if (isHexLiteral(spelling)) {
-    radix = 16;
-    index = 2;
+  bool isNegative = false;
+  auto magnitudeSpelling = stripSign(spelling, isNegative);
+  if (isNegative)
+    return std::nullopt;
+  return parseUnsignedMagnitude(magnitudeSpelling);
+}
+
+auto mulberry::parseInt64IntegerLiteral(std::string_view spelling)
+    -> std::optional<int64_t> {
+  if (!isValidIntegerLiteralSpelling(spelling))
+    return std::nullopt;
+
+  bool isNegative = false;
+  auto magnitudeSpelling = stripSign(spelling, isNegative);
+  auto magnitude = parseUnsignedMagnitude(magnitudeSpelling);
+  if (!magnitude)
+    return std::nullopt;
+
+  if (!isNegative) {
+    if (*magnitude > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+      return std::nullopt;
+    return static_cast<int64_t>(*magnitude);
   }
 
-  uint64_t result = 0;
-  for (; index < spelling.size(); ++index) {
-    char value = spelling[index];
-    if (value == '_')
-      continue;
-
-    auto digit = hexDigitValue(value);
-    if (!digit || *digit >= radix)
-      return std::nullopt;
-    if (result > (std::numeric_limits<uint64_t>::max() - *digit) / radix)
-      return std::nullopt;
-    result = result * radix + *digit;
-  }
-  return result;
+  auto minimumMagnitude = static_cast<uint64_t>(
+      std::numeric_limits<int64_t>::max()) + 1;
+  if (*magnitude > minimumMagnitude)
+    return std::nullopt;
+  if (*magnitude == minimumMagnitude)
+    return std::numeric_limits<int64_t>::min();
+  return -static_cast<int64_t>(*magnitude);
 }

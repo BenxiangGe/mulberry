@@ -43,6 +43,16 @@ def BigInt_FromUInt64Op : BigInt_Op<"from_uint64", [Pure]> {
                        "type($result)";
 }
 
+def BigInt_FromInt64Op : BigInt_Op<"from_int64", [Pure]> {
+  let summary = "Widen an Int64 into an arbitrary-precision integer";
+
+  let arguments = (ins I64:$value);
+  let results = (outs BigInt_IntType:$result);
+
+  let assemblyFormat = "$value attr-dict `:` type($value) `->` "
+                       "type($result)";
+}
+
 class BigInt_BinaryOp<string mnemonic> : BigInt_Op<mnemonic,
                                                     [Pure,
                                                      SameOperandsAndResultType]> {

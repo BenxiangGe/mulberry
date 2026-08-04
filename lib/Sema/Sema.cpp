@@ -162,7 +162,8 @@ auto SemaImpl::completionMembers(std::string_view receiver) const
 auto SemaImpl::addBuiltins() -> void {
     for (auto kind : {BuiltinTypeKind::Unit, BuiltinTypeKind::Bool,
                       BuiltinTypeKind::UInt8, BuiltinTypeKind::UInt64,
-                      BuiltinTypeKind::Integer, BuiltinTypeKind::Float32}) {
+                      BuiltinTypeKind::Int64, BuiltinTypeKind::Integer,
+                      BuiltinTypeKind::Float32, BuiltinTypeKind::Float64}) {
       auto *type = _typeContext.getBuiltinType(kind);
       (void)declareType(type->name(), type);
     }

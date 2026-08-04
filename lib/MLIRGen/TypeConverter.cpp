@@ -25,10 +25,14 @@ auto MLIRTypeConverter::convertLayout(const BuiltinType& type) const
     return _builder.getI8Type();
   case BuiltinTypeKind::UInt64:
     return _builder.getI64Type();
+  case BuiltinTypeKind::Int64:
+    return _builder.getI64Type();
   case BuiltinTypeKind::Integer:
     return mlir::bigint::IntType::get(_builder.getContext());
   case BuiltinTypeKind::Float32:
     return _builder.getF32Type();
+  case BuiltinTypeKind::Float64:
+    return _builder.getF64Type();
   case BuiltinTypeKind::Bool:
     return _builder.getI1Type();
   }

@@ -6,8 +6,10 @@
 - `Bool`
 - `UInt8`
 - `UInt64`
+- `Int64`
 - `Integer`
 - `Float32`
+- `Float64`
 - `Char`
 
 普通 object 类型由语言/stdlib 提供，例如 `String`、`Array<T, N>`、`List<T>`、
@@ -48,10 +50,11 @@
 - `core.toUInt64(UInt8): UInt64`
 - `core.toUInt8(UInt64): UInt8`
 - `core.toFloat32(UInt64): Float32`
+- `core.toFloat64(UInt64): Float64`
 
-三个 `core.to*` conversion 是 compiler builtin source function，分别直接生成
-`arith.extui`、`arith.trunci` 和 `arith.uitofp`。它们不经过 stdlib wrapper 或 runtime
-C bridge。
+四个 `core.to*` conversion 是 compiler builtin source function，分别直接生成
+`arith.extui`、`arith.trunci` 和 `arith.uitofp`（Float32/Float64 各一个）。它们不经过
+stdlib wrapper 或 runtime C bridge。
 
 `string.formatValue<T: Show>()` 是普通 constrained stdlib generic，函数体只调用
 `value.toString()`。`Show` 是 special language trait：String、builtin scalar 和 source
@@ -128,6 +131,22 @@ signature 和 generic alias 的 type position。
 - `UInt64 >= UInt64 : Bool`
 - `UInt64 == UInt64 : Bool`
 - `UInt64 != UInt64 : Bool`
+- `Int64 + Int64 : Int64`
+- `Int64 - Int64 : Int64`
+- `Int64 * Int64 : Int64`
+- `Int64 / Int64 : Int64`
+- `Int64 % Int64 : Int64`
+- `Int64 << UInt64 : Int64`
+- `Int64 >> UInt64 : Int64`
+- `Int64 & Int64 : Int64`
+- `Int64 | Int64 : Int64`
+- `Int64 ^ Int64 : Int64`
+- `Int64 < Int64 : Bool`
+- `Int64 <= Int64 : Bool`
+- `Int64 > Int64 : Bool`
+- `Int64 >= Int64 : Bool`
+- `Int64 == Int64 : Bool`
+- `Int64 != Int64 : Bool`
 - `Float32 + Float32 : Float32`
 - `Float32 - Float32 : Float32`
 - `Float32 * Float32 : Float32`
@@ -138,7 +157,22 @@ signature 和 generic alias 的 type position。
 - `Float32 >= Float32 : Bool`
 - `Float32 == Float32 : Bool`
 - `Float32 != Float32 : Bool`
+- `Float64 + Float64 : Float64`
+- `Float64 - Float64 : Float64`
+- `Float64 * Float64 : Float64`
+- `Float64 / Float64 : Float64`
+- `Float64 < Float64 : Bool`
+- `Float64 <= Float64 : Bool`
+- `Float64 > Float64 : Bool`
+- `Float64 >= Float64 : Bool`
+- `Float64 == Float64 : Bool`
+- `Float64 != Float64 : Bool`
 - `Bool == Bool : Bool`
 - `Bool != Bool : Bool`
 - `Bool and Bool : Bool`
 - `Bool or Bool : Bool`
+
+非负 integer literal 默认是 `UInt64`，负 literal 默认是 `Int64`；float literal 默认是
+`Float32`。显式 expected type 可以把 literal 定型为 `Int64` 或 `Float64`。两个不同的
+fixed-width numeric variable 不会自动混算，只有 literal 会根据另一侧已知类型进行上下文
+定型；fixed-width integer 到 `Integer` 是唯一的 implicit numeric widening。

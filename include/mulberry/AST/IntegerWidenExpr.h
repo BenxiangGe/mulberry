@@ -15,7 +15,7 @@
 namespace mulberry {
 
 // Sema inserts this only for the one implicit numeric conversion Mulberry
-// permits: UInt8/UInt64 to the arbitrary-precision Integer object.
+// permits: fixed-width integers to the arbitrary-precision Integer object.
 class IntegerWidenExpr final : public Expr {
 public:
   IntegerWidenExpr(llvm::SMLoc location, std::unique_ptr<Expr> value)

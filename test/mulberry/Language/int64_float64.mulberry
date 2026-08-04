@@ -1,0 +1,56 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+
+fn main(): UInt64 {
+  const negative: Int64 = 1 - 2;
+  const inferredSubtraction = 1 - 2;
+  const inferredNegative = -1 + 2;
+  const negativeSeven: Int64 = -7;
+  const negativeEight: Int64 = -8;
+  const negativeOne: Int64 = -1;
+  const quotient: Int64 = negativeSeven / 2;
+  const remainder: Int64 = negativeSeven % 2;
+  const shifted: Int64 = negativeEight >> 1;
+  const masked: Int64 = negativeOne & 3;
+  const widened: Integer = negative;
+  const converted: Float64 = core.toFloat64(42);
+  const sum: Float64 = converted + 0.5;
+  const precise: Float64 = core.toFloat64(9007199254740992);
+  const next: Float64 = precise + 1.0;
+
+  io.println(negative);
+  io.println(inferredSubtraction);
+  io.println(inferredNegative);
+  io.println(quotient);
+  io.println(remainder);
+  io.println(core.boolToUInt64(shifted == -4));
+  io.println(core.boolToUInt64(masked == 3));
+  io.println(core.boolToUInt64(widened == -1));
+  io.println(sum);
+  io.println(core.boolToUInt64(sum == 42.5));
+  io.println(core.boolToUInt64(next == precise));
+  return 0;
+}
+
+# MLIR: arith.divsi
+# MLIR: arith.remsi
+# MLIR: arith.shrsi
+# MLIR: arith.andi
+# MLIR: arith.addf
+# MLIR: arith.cmpf
+# MLIR: f64
+
+# JIT: -1
+# JIT-NEXT: -1
+# JIT-NEXT: 1
+# JIT-NEXT: -3
+# JIT-NEXT: -1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 1
+# JIT-NEXT: 42.5
+# JIT-NEXT: 1
+# JIT-NEXT: 1

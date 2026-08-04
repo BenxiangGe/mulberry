@@ -80,10 +80,14 @@ auto BuiltinType::name() const -> std::string_view {
     return "UInt8";
   case BuiltinTypeKind::UInt64:
     return "UInt64";
+  case BuiltinTypeKind::Int64:
+    return "Int64";
   case BuiltinTypeKind::Integer:
     return "Integer";
   case BuiltinTypeKind::Float32:
     return "Float32";
+  case BuiltinTypeKind::Float64:
+    return "Float64";
   }
   return {};
 }
@@ -283,9 +287,12 @@ auto sizeOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::UInt8:
     return 1;
   case BuiltinTypeKind::UInt64:
+  case BuiltinTypeKind::Int64:
     return 8;
   case BuiltinTypeKind::Float32:
     return 4;
+  case BuiltinTypeKind::Float64:
+    return 8;
   case BuiltinTypeKind::Unit:
   case BuiltinTypeKind::Integer:
     return std::nullopt;
@@ -299,9 +306,12 @@ auto alignOfBuiltinType(const BuiltinType& type) -> std::optional<uint64_t> {
   case BuiltinTypeKind::UInt8:
     return 1;
   case BuiltinTypeKind::UInt64:
+  case BuiltinTypeKind::Int64:
     return 8;
   case BuiltinTypeKind::Float32:
     return 4;
+  case BuiltinTypeKind::Float64:
+    return 8;
   case BuiltinTypeKind::Unit:
   case BuiltinTypeKind::Integer:
     return std::nullopt;
@@ -446,6 +456,11 @@ auto getUInt64Type() -> const BuiltinType * {
   return &type;
 }
 
+auto getInt64Type() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::Int64};
+  return &type;
+}
+
 auto getIntegerType() -> const BuiltinType * {
   static const BuiltinType type{BuiltinTypeKind::Integer};
   return &type;
@@ -453,6 +468,11 @@ auto getIntegerType() -> const BuiltinType * {
 
 auto getFloat32Type() -> const BuiltinType * {
   static const BuiltinType type{BuiltinTypeKind::Float32};
+  return &type;
+}
+
+auto getFloat64Type() -> const BuiltinType * {
+  static const BuiltinType type{BuiltinTypeKind::Float64};
   return &type;
 }
 
@@ -528,6 +548,10 @@ auto isUInt64Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::UInt64);
 }
 
+auto isInt64Type(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::Int64);
+}
+
 auto isIntegerType(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Integer);
 }
@@ -538,6 +562,10 @@ auto isBoolType(const Type *type) -> bool {
 
 auto isFloat32Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Float32);
+}
+
+auto isFloat64Type(const Type *type) -> bool {
+  return isBuiltinType(type, BuiltinTypeKind::Float64);
 }
 
 auto isFileType(const Type *type) -> bool {
@@ -554,8 +582,12 @@ auto isFileType(const Type *type) -> bool {
 }
 
 auto isNumericType(const Type *type) -> bool {
-  return isUInt8Type(type) || isUInt64Type(type) || isIntegerType(type) ||
-         isFloat32Type(type);
+  return isUInt8Type(type) || isUInt64Type(type) || isInt64Type(type) ||
+         isIntegerType(type) || isFloat32Type(type) || isFloat64Type(type);
+}
+
+auto isFixedWidthIntegerType(const Type *type) -> bool {
+  return isUInt8Type(type) || isUInt64Type(type) || isInt64Type(type);
 }
 
 auto isEquatableType(const Type *type) -> bool {
@@ -691,10 +723,14 @@ auto TypeContext::getBuiltinType(BuiltinTypeKind kind) const
     return getUInt8Type();
   case BuiltinTypeKind::UInt64:
     return getUInt64Type();
+  case BuiltinTypeKind::Int64:
+    return getInt64Type();
   case BuiltinTypeKind::Integer:
     return getIntegerType();
   case BuiltinTypeKind::Float32:
     return getFloat32Type();
+  case BuiltinTypeKind::Float64:
+    return getFloat64Type();
   }
   return nullptr;
 }

@@ -86,6 +86,25 @@ public:
   }
 };
 
+class BigIntFromInt64OpLowering
+    : public OpConversionPattern<bigint::FromInt64Op> {
+public:
+  using OpConversionPattern<bigint::FromInt64Op>::OpConversionPattern;
+
+  auto matchAndRewrite(bigint::FromInt64Op op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    auto value = callRuntimeValue(
+        op.getLoc(), rewriter, op, "mulberry_bigint_from_int64",
+        getPtrType(op.getContext()), ValueRange{adaptor.getValue()});
+    if (failed(value))
+      return rewriter.notifyMatchFailure(
+          op, "could not create signed BigInt widening runtime call");
+    rewriter.replaceOp(op, *value);
+    return success();
+  }
+};
+
 class BigIntNegOpLowering : public OpConversionPattern<bigint::NegOp> {
 public:
   using OpConversionPattern<bigint::NegOp>::OpConversionPattern;
@@ -306,7 +325,8 @@ void populateMulberryBigIntLoweringPatterns(RewritePatternSet& patterns,
                                             TypeConverter& typeConverter,
                                             MLIRContext* context) {
   patterns.add<BigIntAddOpLowering, BigIntAndOpLowering, BigIntCmpOpLowering,
-               BigIntConstantOpLowering, BigIntFromUInt64OpLowering,
+               BigIntConstantOpLowering, BigIntFromInt64OpLowering,
+               BigIntFromUInt64OpLowering,
                BigIntMulOpLowering, BigIntNegOpLowering, BigIntOrOpLowering,
                BigIntShiftLeftOpLowering, BigIntShiftRightOpLowering,
                BigIntSubOpLowering, BigIntXorOpLowering>(typeConverter,

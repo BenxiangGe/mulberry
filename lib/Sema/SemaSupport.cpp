@@ -175,8 +175,7 @@ auto isMutableSourceObjectType(const Type *type) -> bool {
 
 auto isIntegerWidening(const Type *sourceType, const Type *targetType)
     -> bool {
-  return isIntegerType(targetType) &&
-         (isUInt8Type(sourceType) || isUInt64Type(sourceType));
+  return isIntegerType(targetType) && isFixedWidthIntegerType(sourceType);
 }
 
 auto mangleTypeName(std::string name) -> std::string {

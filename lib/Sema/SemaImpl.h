@@ -136,6 +136,8 @@ private:
       -> llvm::LogicalResult;
   auto semaToFloat32(CallExpr *node, const Type *expectedType)
       -> llvm::LogicalResult;
+  auto semaToFloat64(CallExpr *node, const Type *expectedType)
+      -> llvm::LogicalResult;
 
   // Statements
   auto sema(Stat *node) -> llvm::LogicalResult;

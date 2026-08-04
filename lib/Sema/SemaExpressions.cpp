@@ -61,6 +61,14 @@ auto getResultTypeArguments(const Type *type)
   return ResultTypeArguments{arguments[0].type(), arguments[1].type()};
 }
 
+auto isIntegerLikeType(const Type *type) -> bool {
+  return isIntegerType(type) || isFixedWidthIntegerType(type);
+}
+
+auto isFloatingPointType(const Type *type) -> bool {
+  return isFloat32Type(type) || isFloat64Type(type);
+}
+
 auto getStdlibListElementType(const Type *type) -> const Type * {
   auto *structType = getStructType(type);
   if (!structType)
@@ -205,6 +213,9 @@ auto ExpressionSema::sema(Expr *node, const Type *type) -> llvm::LogicalResult {
 
   if (auto *integerLiteral = dyn_cast<IntegerLiteralExpr>(node))
     return sema(integerLiteral, type);
+
+  if (auto *floatLiteral = dyn_cast<FloatLiteralExpr>(node))
+    return sema(floatLiteral, type);
 
   if (auto *binary = dyn_cast<BinaryExpr>(node))
     return sema(binary, type);
@@ -1113,11 +1124,14 @@ auto ExpressionSema::sema(MemberExpr *node) -> llvm::LogicalResult {
 auto ExpressionSema::sema(IntegerLiteralExpr *node) -> llvm::LogicalResult {
   if (!node->hasValidSpelling())
     return _sema.emitError(node, diag::invalid_integer_literal);
-  if (!node->getUInt64Value())
+  if (node->isNegative() ? !node->getInt64Value() : !node->getUInt64Value())
     return _sema.emitError(node, diag::integer_literal_overflows);
-  _sema.setBuiltinType(node, BuiltinTypeKind::UInt64);
+  _sema.setBuiltinType(node, node->isNegative() ? BuiltinTypeKind::Int64
+                                                : BuiltinTypeKind::UInt64);
   LLVM_DEBUG(llvm::dbgs() << "type integer literal `" << node->spelling()
-                          << "` as UInt64\n");
+                          << "` as "
+                          << (node->isNegative() ? "Int64" : "UInt64")
+                          << "\n");
   return success();
 }
 
@@ -1132,6 +1146,16 @@ auto ExpressionSema::sema(IntegerLiteralExpr *node, const Type *type)
                             << "` as Integer\n");
     return success();
   }
+
+  if (isInt64Type(type)) {
+    if (!node->getInt64Value())
+      return _sema.emitError(node, diag::integer_literal_overflows);
+    node->setType(type);
+    return success();
+  }
+
+  if (node->isNegative())
+    return _sema.emitError(node, diag::mismatch_type);
 
   auto value = node->getUInt64Value();
   if (!value)
@@ -1166,6 +1190,15 @@ auto ExpressionSema::sema(IntegerWidenExpr *node) -> llvm::LogicalResult {
 auto ExpressionSema::sema(FloatLiteralExpr *node) -> llvm::LogicalResult {
   _sema.setBuiltinType(node, BuiltinTypeKind::Float32);
   return success();
+}
+
+auto ExpressionSema::sema(FloatLiteralExpr *node, const Type *type)
+    -> llvm::LogicalResult {
+  if (isFloatingPointType(type)) {
+    node->setType(type);
+    return success();
+  }
+  return sema(node);
 }
 
 auto ExpressionSema::sema(BoolLiteralExpr *node) -> llvm::LogicalResult {
@@ -1298,10 +1331,24 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
   using Operator = BinaryExpr::Operator;
   auto &lhs = node->lhs();
   auto &rhs = node->rhs();
+  const Type *operandType = expectedType;
+
+  // A literal-only subtraction has no operand type to guide it. Use the
+  // signed domain when both literals fit, so `1 - 2` behaves naturally in
+  // the REPL while typed UInt64 expressions keep their existing semantics.
+  if (!expectedType && node->opEnum() == Operator::Diff) {
+    auto *lhsLiteral = dyn_cast<IntegerLiteralExpr>(lhs.get());
+    auto *rhsLiteral = dyn_cast<IntegerLiteralExpr>(rhs.get());
+    auto *int64Type =
+        _sema._typeContext.getBuiltinType(BuiltinTypeKind::Int64);
+    if (lhsLiteral && rhsLiteral && lhsLiteral->getInt64Value() &&
+        rhsLiteral->getInt64Value())
+      operandType = int64Type;
+  }
 
   if (node->opEnum() == Operator::ShiftLeft ||
       node->opEnum() == Operator::ShiftRight) {
-    if (expectedType && isIntegerType(expectedType)) {
+    if (expectedType && isIntegerLikeType(expectedType)) {
       if (llvm::failed(semaExpected(lhs, expectedType)))
         return failure();
     } else if (llvm::failed(sema(lhs.get()))) {
@@ -1311,7 +1358,7 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
     auto *countType = _sema._typeContext.getBuiltinType(BuiltinTypeKind::UInt64);
     if (llvm::failed(semaExpected(rhs, countType)))
       return failure();
-    if (!isIntegerType(lhs->type()) || !isUInt64Type(rhs->type()))
+    if (!isIntegerLikeType(lhs->type()) || !isUInt64Type(rhs->type()))
       return _sema.emitError(lhs.get(), diag::mismatch_type);
     if (expectedType && !sameType(lhs->type(), expectedType))
       return _sema.emitError(lhs.get(), diag::mismatch_type);
@@ -1320,8 +1367,9 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
     return success();
   }
 
-  if (expectedType && isIntegerType(expectedType)) {
-    if (llvm::failed(semaExpected(lhs, expectedType)) || llvm::failed(semaExpected(rhs, expectedType)))
+  if (operandType && isNumericType(operandType)) {
+    if (llvm::failed(semaExpected(lhs, operandType)) ||
+        llvm::failed(semaExpected(rhs, operandType)))
       return failure();
   } else {
     if (llvm::failed(sema(lhs.get())))
@@ -1340,14 +1388,49 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
       return success();
     }
 
+    auto *integerType =
+        _sema._typeContext.getBuiltinType(BuiltinTypeKind::Integer);
     if (isIntegerType(lhs->type())) {
-      if (llvm::failed(semaExpected(rhs, lhs->type())))
+      if (llvm::failed(semaExpected(rhs, integerType)))
         return failure();
-    } else {
-      if (llvm::failed(sema(rhs.get())))
+    } else if (llvm::failed(sema(rhs.get()))) {
+      return failure();
+    }
+
+    auto *lhsType = lhs->type();
+    auto *rhsType = rhs->type();
+    if (isIntegerType(lhsType) || isIntegerType(rhsType)) {
+      if (llvm::failed(semaExpected(lhs, integerType)) ||
+          llvm::failed(semaExpected(rhs, integerType)))
         return failure();
-      if (isIntegerType(rhs->type()) && llvm::failed(semaExpected(lhs, rhs->type())))
-        return failure();
+    } else if (isIntegerLikeType(lhsType) &&
+               isIntegerLikeType(rhsType) && !sameType(lhsType, rhsType)) {
+      auto *lhsLiteral = dyn_cast<IntegerLiteralExpr>(lhs.get());
+      auto *rhsLiteral = dyn_cast<IntegerLiteralExpr>(rhs.get());
+      if (lhsLiteral && rhsLiteral && lhsLiteral->isNegative() !=
+                                         rhsLiteral->isNegative()) {
+        if (lhsLiteral->isNegative()) {
+          if (llvm::failed(semaExpected(rhs, lhsType)))
+            return failure();
+        } else if (llvm::failed(semaExpected(lhs, rhsType))) {
+          return failure();
+        }
+      } else if (lhsLiteral) {
+        if (llvm::failed(semaExpected(lhs, rhsType)))
+          return failure();
+      } else if (rhsLiteral) {
+        if (llvm::failed(semaExpected(rhs, lhsType)))
+          return failure();
+      }
+    } else if (isFloatingPointType(lhsType) &&
+               isFloatingPointType(rhsType) && !sameType(lhsType, rhsType)) {
+      if (dyn_cast<FloatLiteralExpr>(lhs.get())) {
+        if (llvm::failed(semaExpected(lhs, rhsType)))
+          return failure();
+      } else if (dyn_cast<FloatLiteralExpr>(rhs.get())) {
+        if (llvm::failed(semaExpected(rhs, lhsType)))
+          return failure();
+      }
     }
   }
 
@@ -1369,23 +1452,22 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
     return success();
   }
   case Operator::Div: {
-    // Integer division is fallible and will be exposed as bigint.div(), not
-    // as the fixed-width `/` operator.
+    // BigInt division is fallible and remains exposed as bigint.div().
     if (isIntegerType(lhsType) || !isNumericType(lhsType))
       return _sema.emitError(lhs.get(), diag::mismatch_type);
     node->setType(lhsType);
     return success();
   }
   case Operator::Rem: {
-    if (!isUInt64Type(lhsType))
+    if (!isUInt64Type(lhsType) && !isInt64Type(lhsType))
       return _sema.emitError(lhs.get(), diag::mismatch_type);
-    _sema.setBuiltinType(node, BuiltinTypeKind::UInt64);
+    node->setType(lhsType);
     return success();
   }
   case Operator::BitAnd:
   case Operator::BitOr:
   case Operator::BitXor: {
-    if (!isIntegerType(lhsType))
+    if (!isIntegerLikeType(lhsType))
       return _sema.emitError(lhs.get(), diag::mismatch_type);
     node->setType(lhsType);
     return success();

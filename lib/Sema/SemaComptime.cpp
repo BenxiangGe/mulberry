@@ -60,7 +60,8 @@ auto ComptimeSema::evaluateComptime(Expr *node) -> ComptimeEvaluation {
       (void)_sema.emitError(value, diag::invalid_integer_literal);
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     }
-    if (isIntegerType(value->type()))
+    if (value->isNegative() || isIntegerType(value->type()) ||
+        isInt64Type(value->type()))
       return {ComptimeEvaluation::Kind::Runtime, std::nullopt};
     auto uint64Value = value->getUInt64Value();
     if (!uint64Value) {
@@ -180,8 +181,9 @@ auto ComptimeSema::evaluateComptimeCall(CallExpr *node)
   };
 
   if (name == "isBool" || name == "isUInt8" || name == "isUInt64" ||
-      name == "isInteger" || name == "isFloat32" || name == "isArray" ||
-      name == "isStruct" || name == "isObject") {
+      name == "isInt64" || name == "isInteger" || name == "isFloat32" ||
+      name == "isFloat64" || name == "isArray" || name == "isStruct" ||
+      name == "isObject") {
     if (!requireNoArguments())
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     if (name == "isBool")
@@ -193,12 +195,18 @@ auto ComptimeSema::evaluateComptimeCall(CallExpr *node)
     if (name == "isUInt64")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isUInt64Type(type)), true};
+    if (name == "isInt64")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isInt64Type(type)), true};
     if (name == "isInteger")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isIntegerType(type)), true};
     if (name == "isFloat32")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isFloat32Type(type)), true};
+    if (name == "isFloat64")
+      return {ComptimeEvaluation::Kind::Value,
+              ComptimeValue(isFloat64Type(type)), true};
     if (name == "isArray")
       return {ComptimeEvaluation::Kind::Value,
               ComptimeValue(isArrayType(type)), true};

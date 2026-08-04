@@ -23,6 +23,7 @@ struct MulberryBigInt {
 extern "C" {
 
 MulberryBigInt* mulberry_bigint_from_uint64(uint64_t value);
+MulberryBigInt* mulberry_bigint_from_int64(int64_t value);
 MulberryBigInt* mulberry_bigint_from_literal(const char* spelling,
                                              uint64_t length);
 

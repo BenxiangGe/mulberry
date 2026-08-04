@@ -23,8 +23,10 @@ enum class BuiltinTypeKind {
   Bool,
   UInt8,
   UInt64,
+  Int64,
   Integer,
   Float32,
+  Float64,
 };
 
 class Type {
@@ -230,10 +232,13 @@ auto isBuiltinType(const Type *type, BuiltinTypeKind kind) -> bool;
 auto isUnitType(const Type *type) -> bool;
 auto isUInt8Type(const Type *type) -> bool;
 auto isUInt64Type(const Type *type) -> bool;
+auto isInt64Type(const Type *type) -> bool;
 auto isIntegerType(const Type *type) -> bool;
 auto isBoolType(const Type *type) -> bool;
 auto isFloat32Type(const Type *type) -> bool;
+auto isFloat64Type(const Type *type) -> bool;
 auto isFileType(const Type *type) -> bool;
+auto isFixedWidthIntegerType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;
 auto isArrayElementType(const Type *type) -> bool;

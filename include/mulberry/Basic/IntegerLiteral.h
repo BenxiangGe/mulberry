@@ -17,6 +17,8 @@ namespace mulberry {
 auto isValidIntegerLiteralSpelling(std::string_view spelling) -> bool;
 auto parseUInt64IntegerLiteral(std::string_view spelling)
     -> std::optional<uint64_t>;
+auto parseInt64IntegerLiteral(std::string_view spelling)
+    -> std::optional<int64_t>;
 
 } // namespace mulberry
 

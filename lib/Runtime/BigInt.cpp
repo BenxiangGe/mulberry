@@ -495,6 +495,14 @@ auto parseLiteral(std::string_view spelling) -> MulberryBigInt* {
   if (spelling.empty())
     return nullptr;
 
+  int8_t sign = 1;
+  if (spelling.front() == '-') {
+    sign = -1;
+    spelling.remove_prefix(1);
+    if (spelling.empty())
+      return nullptr;
+  }
+
   uint32_t base = 10;
   size_t index = 0;
   if (spelling.size() >= 2 && spelling[0] == '0' && spelling[1] == 'x') {
@@ -558,7 +566,7 @@ auto parseLiteral(std::string_view spelling) -> MulberryBigInt* {
   if (!sawDigit)
     return nullptr;
 
-  return makeValue(1, limbs);
+  return makeValue(sign, limbs);
 }
 
 } // namespace
@@ -572,6 +580,20 @@ extern "C" MulberryBigInt* mulberry_bigint_from_uint64(uint64_t value) {
       limbs.push_back(high);
   }
   return makeValue(1, limbs);
+}
+
+extern "C" MulberryBigInt* mulberry_bigint_from_int64(int64_t value) {
+  auto magnitude = value < 0
+                       ? static_cast<uint64_t>(-(value + 1)) + 1
+                       : static_cast<uint64_t>(value);
+  Limbs limbs;
+  if (magnitude != 0) {
+    limbs.push_back(static_cast<Limb>(magnitude));
+    auto high = static_cast<Limb>(magnitude >> 32);
+    if (high != 0)
+      limbs.push_back(high);
+  }
+  return makeValue(value < 0 ? -1 : 1, limbs);
 }
 
 extern "C" MulberryBigInt* mulberry_bigint_from_literal(const char* spelling,

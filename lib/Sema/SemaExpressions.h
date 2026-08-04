@@ -65,6 +65,8 @@ public:
       -> llvm::LogicalResult;
   auto sema(IntegerWidenExpr *node) -> llvm::LogicalResult;
   auto sema(FloatLiteralExpr *node) -> llvm::LogicalResult;
+  auto sema(FloatLiteralExpr *node, const Type *type)
+      -> llvm::LogicalResult;
   auto sema(BoolLiteralExpr *node) -> llvm::LogicalResult;
   auto sema(StringLiteralExpr *node) -> llvm::LogicalResult;
   auto sema(InterpolatedStringExpr *node) -> llvm::LogicalResult;

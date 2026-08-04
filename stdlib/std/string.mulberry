@@ -11,7 +11,9 @@ struct String {
 extern fn mulberry_string_from_bool(value: Bool): String;
 extern fn mulberry_string_from_u8(value: UInt8): String;
 extern fn mulberry_string_from_u64(value: UInt64): String;
+extern fn mulberry_string_from_i64(value: Int64): String;
 extern fn mulberry_string_from_f32(value: Float32): String;
+extern fn mulberry_string_from_f64(value: Float64): String;
 extern fn mulberry_bigint_to_string(value: Integer): String;
 extern fn mulberry_string_object_identity(typeName: String,
                                           object: Ptr<UInt8>): String;
@@ -28,8 +30,16 @@ fn fromUInt64(value: UInt64): String {
   return mulberry_string_from_u64(value);
 }
 
+fn fromInt64(value: Int64): String {
+  return mulberry_string_from_i64(value);
+}
+
 fn fromFloat32(value: Float32): String {
   return mulberry_string_from_f32(value);
+}
+
+fn fromFloat64(value: Float64): String {
+  return mulberry_string_from_f64(value);
 }
 
 fn fromInteger(value: Integer): String {
@@ -64,9 +74,21 @@ impl Show for UInt64 {
   }
 }
 
+impl Show for Int64 {
+  fn toString(self: Int64): String {
+    return fromInt64(self);
+  }
+}
+
 impl Show for Float32 {
   fn toString(self: Float32): String {
     return fromFloat32(self);
+  }
+}
+
+impl Show for Float64 {
+  fn toString(self: Float64): String {
+    return fromFloat64(self);
   }
 }
 
