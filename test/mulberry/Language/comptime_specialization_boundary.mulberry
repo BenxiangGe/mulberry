@@ -1,0 +1,49 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn firstArgument(value: UInt64): UInt64 {
+  return value + 1;
+}
+
+fn secondArgument(value: UInt64): UInt64 {
+  return value + 10;
+}
+
+fn choose<T>(comptime label: String, left: T, right: T): T {
+  if label == "left" {
+    return left;
+  }
+  return right;
+}
+
+fn run(value: UInt64): UInt64 {
+  return choose("left", firstArgument(value), secondArgument(value));
+}
+
+fn echo<T>(comptime label: String, value: T): T {
+  return value;
+}
+
+fn main(): UInt64 {
+  const first = echo("same", 20);
+  const second = echo("same", 21);
+  const third = echo("other", 1);
+  const result = run(20);
+  io.println(first);
+  io.println(second);
+  io.println(third);
+  io.println(result);
+  return first + second + third + result;
+}
+
+# MLIR-LABEL: func.func @run
+# MLIR: call @firstArgument
+# MLIR: call @secondArgument
+# MLIR-COUNT-2: call @echo__UInt64__str_73616d65
+# MLIR-COUNT-1: call @echo__UInt64__str_6f74686572
+# MLIR-COUNT-1: func.func @echo__UInt64__str_73616d65
+# MLIR-COUNT-1: func.func @echo__UInt64__str_6f74686572
+# JIT: 20
+# JIT-NEXT: 21
+# JIT-NEXT: 1
+# JIT-NEXT: 21

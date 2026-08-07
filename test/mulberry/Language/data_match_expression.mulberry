@@ -4,6 +4,8 @@
 # RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
+import string;
+
 data Maybe<T> = None | Some(T);
 
 data Label = Count(UInt64) | Text(String);
@@ -45,7 +47,7 @@ fn unwrapOr<T>(value: Maybe<T>, fallback: T): T {
 
 fn render(value: Label): String {
   return match value {
-    Count(count) => "count={$count}",
+    Count(count) => string.format("count={}", count),
     Text(text) => text,
   };
 }

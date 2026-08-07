@@ -1,0 +1,12 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import string;
+
+extern fn runtimePattern(): String;
+
+fn main(): UInt64 {
+  const text = string.format(runtimePattern(), 1);
+  return 0;
+}
+
+# CHECK: error: expected a comptime value

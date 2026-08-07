@@ -35,7 +35,6 @@ public:
     Expr_FloatLiteral,
     Expr_BoolLiteral,
     Expr_StringLiteral,
-    Expr_InterpolatedString,
     Expr_ObjectIdentity,
     Expr_CharLiteral,
     Expr_ArrayLiteral,
@@ -47,6 +46,7 @@ public:
     Expr_Block,
     Expr_ComptimeBlock,
     Expr_TypeInfo,
+    Expr_CompileError,
     Expr_TypeLayout,
     Expr_HeapAlloc,
   };
@@ -63,9 +63,14 @@ public:
 
   auto type() const -> const Type * { return _type; }
 
+  auto isPackExpansion() const -> bool { return _isPackExpansion; }
+
+  auto setPackExpansion() -> void { _isPackExpansion = true; }
+
 private:
   const ExpressionKind _kind;
   const Type *_type = nullptr;
+  bool _isPackExpansion = false;
 };
 
 // _____________________________________________________________________________
@@ -83,6 +88,8 @@ public:
   auto statements() const -> const VectorUniquePtr<Stat> & {
     return _statements;
   }
+
+  auto statements() -> VectorUniquePtr<Stat> & { return _statements; }
 
 private:
   VectorUniquePtr<Stat> _statements;
@@ -110,6 +117,8 @@ public:
   auto statements() const -> const VectorUniquePtr<Stat> & {
     return _statements;
   }
+
+  auto statements() -> VectorUniquePtr<Stat> & { return _statements; }
 
   auto result() const -> const std::unique_ptr<Expr> & { return _result; }
 

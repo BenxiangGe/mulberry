@@ -1,0 +1,18 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=CALL
+
+fn echo(comptime text: String): String {
+  return text;
+}
+
+fn main(): UInt64 {
+  io.println(echo("hello"));
+  return 0;
+}
+
+# AST: Prototype {{.*}}name=echo
+# AST: ParameterDecl comptime {{.*}}id=text{{.*}}type=String
+# MLIR-LABEL: func.func @echo__str_68656c6c6f()
+# MLIR: return
+# CALL: call @echo__str_68656c6c6f()

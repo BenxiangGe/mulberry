@@ -1,0 +1,41 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn addOne<T>(value: T): T {
+  return value + 1;
+}
+
+fn make<T>(): T {
+  return 42;
+}
+
+fn identity<T>(value: T): T {
+  return value;
+}
+
+fn staticGeneric<Args...>(args: Args...): UInt64 {
+  const fromArgument = addOne(41);
+  const fromExpected: UInt64 = make();
+  return fromArgument + fromExpected + args[0];
+}
+
+fn residualGeneric<Args...>(args: Args...): UInt64 {
+  return identity(args[0]);
+}
+
+fn main(): UInt64 {
+  const result = staticGeneric(20);
+  const residual = residualGeneric(7);
+  io.println(result);
+  io.println(residual);
+  return result;
+}
+
+# MLIR-LABEL: func.func @staticGeneric__pack_UInt64
+# MLIR-NOT: call @addOne__UInt64
+# MLIR-NOT: call @make__UInt64
+# MLIR-LABEL: func.func @residualGeneric__pack_UInt64
+# MLIR: call @identity__UInt64
+# JIT: 104
+# JIT: 7

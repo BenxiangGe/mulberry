@@ -10,9 +10,11 @@
 
 #include "mulberry/AST/Expr.h"
 #include "mulberry/AST/Node.h"
+#include "mulberry/Basic/Types.h"
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -29,6 +31,7 @@ struct ComptimeParam {
   enum class Kind {
     Type,
     UInt64,
+    TypePack,
   };
 
   explicit ComptimeParam(std::string_view name, Kind kind = Kind::Type,
@@ -36,6 +39,8 @@ struct ComptimeParam {
       : name(name), kind(kind), traitName(traitName) {}
 
   auto hasTraitConstraint() const -> bool { return !traitName.empty(); }
+
+  auto isTypePack() const -> bool { return kind == Kind::TypePack; }
 
   std::string name;
   Kind kind = Kind::Type;
@@ -281,10 +286,12 @@ class ParameterDecl final : public Node {
 public:
   ParameterDecl(llvm::SMLoc location, std::unique_ptr<VariableExpr> variable,
                 std::unique_ptr<TypeNode> typeNode,
-                bool canMutateObject = false)
+                bool canMutateObject = false, bool isComptime = false,
+                bool isPack = false)
       : Node{location}, _variable(std::move(variable)),
         _typeNode(std::move(typeNode)),
-        _canMutateObject(canMutateObject) {}
+        _canMutateObject(canMutateObject), _isComptime(isComptime),
+        _isPack(isPack) {}
 
   auto variable() const -> const std::unique_ptr<VariableExpr> & {
     return _variable;
@@ -298,11 +305,26 @@ public:
 
   auto canMutateObject() const -> bool { return _canMutateObject; }
 
+  auto isComptime() const -> bool { return _isComptime; }
+
+  auto isPack() const -> bool { return _isPack; }
+
+  auto comptimeValue() const -> const std::optional<ComptimeValue> & {
+    return _comptimeValue;
+  }
+
+  auto setComptimeValue(ComptimeValue value) -> void {
+    _comptimeValue = std::move(value);
+  }
+
 private:
   std::unique_ptr<VariableExpr> _variable;
   std::unique_ptr<TypeNode> _typeNode;
   const Type *_type = nullptr;
   bool _canMutateObject = false;
+  bool _isComptime = false;
+  bool _isPack = false;
+  std::optional<ComptimeValue> _comptimeValue;
 };
 
 class StructTypeNode final : public TypeNode {

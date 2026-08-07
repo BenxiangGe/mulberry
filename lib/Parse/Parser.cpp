@@ -35,115 +35,6 @@ auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
   return expr;
 }
 
-class InterpolationAccessParser {
-public:
-  InterpolationAccessParser(llvm::StringRef source,
-                            llvm::SourceMgr &sourceManager)
-      : _lexer(source, Lexer::Mode::StringInterpolation),
-        _token(_lexer.lexToken()),
-        _sourceManager(sourceManager) {}
-
-  auto parse(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
-    if (llvm::failed(parseAccess(expr)))
-      return failure();
-    if (!_token.is(Token::eof))
-      return emitError(diag::invalid_string_interpolation_access);
-    return success();
-  }
-
-private:
-  Lexer _lexer;
-  Token _token;
-  llvm::SourceMgr &_sourceManager;
-
-  auto emitError(const llvm::Twine &message) -> llvm::LogicalResult {
-    _sourceManager.PrintMessage(_token.getLoc(),
-                                llvm::SourceMgr::DiagKind::DK_Error,
-                                message);
-    return failure();
-  }
-
-  auto consume(Token::Kind kind) -> void {
-    assert(_token.is(kind) && "consumed an unexpected interpolation token");
-    _token = _lexer.lexToken();
-  }
-
-  auto parseAccess(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
-    if (!_token.is(Token::identifier))
-      return emitError(diag::expected_string_interpolation_access);
-
-    auto location = _token.getLoc();
-    auto name = _token.getSpelling().str();
-    consume(Token::identifier);
-    expr = make_unique<VariableExpr>(location, name);
-
-    while (_token.is(Token::dot) || _token.is(Token::l_square)) {
-      if (_token.is(Token::dot)) {
-        if (llvm::failed(parseMember(expr)))
-          return failure();
-      } else if (llvm::failed(parseIndex(expr))) {
-        return failure();
-      }
-    }
-    return success();
-  }
-
-  auto parseMember(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
-    auto location = _token.getLoc();
-    consume(Token::dot);
-    if (!_token.is(Token::identifier))
-      return emitError(diag::expected_id);
-
-    auto fieldName = _token.getSpelling().str();
-    consume(Token::identifier);
-    expr = make_unique<MemberExpr>(location, std::move(expr), fieldName);
-    return success();
-  }
-
-  auto parseIndex(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
-    auto location = expr->location();
-    consume(Token::l_square);
-    if (_token.is(Token::r_square))
-      return emitError(diag::expected_string_interpolation_access);
-
-    std::vector<std::unique_ptr<Expr>> indices;
-    while (true) {
-      std::unique_ptr<Expr> index;
-      if (llvm::failed(parseIndexValue(index)))
-        return failure();
-      indices.push_back(std::move(index));
-
-      if (!_token.is(Token::comma))
-        break;
-      consume(Token::comma);
-      if (_token.is(Token::r_square))
-        break;
-    }
-
-    if (!_token.is(Token::r_square))
-      return emitError(diag::invalid_string_interpolation_access);
-    consume(Token::r_square);
-    expr = make_unique<IndexExpr>(location, std::move(expr),
-                                  std::move(indices));
-    return success();
-  }
-
-  auto parseIndexValue(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult {
-    if (!_token.is(Token::integer_literal))
-      return parseAccess(expr);
-
-    auto location = _token.getLoc();
-    if (!_token.hasValidIntegerLiteralSpelling())
-      return emitError(diag::invalid_integer_literal);
-    auto value = _token.getUInt64IntegerLiteralValue();
-    if (!value)
-      return emitError(diag::integer_literal_overflows);
-    auto spelling = _token.getSpelling().str();
-    consume(Token::integer_literal);
-    expr = make_unique<IntegerLiteralExpr>(location, std::move(spelling));
-    return success();
-  }
-};
 } // namespace
 
 auto Parser::parseModule(unique_ptr<Module> &module) -> llvm::LogicalResult {
@@ -400,7 +291,8 @@ auto Parser::parseGenericClose() -> llvm::LogicalResult {
 }
 
 auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
-                                 bool allowTraitConstraint)
+                                 bool allowTraitConstraint,
+                                 bool allowTypePack)
     -> llvm::LogicalResult {
   consume(Token::less);
   if (tokenIs(Token::greater))
@@ -411,23 +303,31 @@ auto Parser::parseComptimeParams(std::vector<ComptimeParam> &parameters,
     if (llvm::failed(parseToken(Token::identifier, diag::expected_id)))
       return failure();
     auto parameterKind = ComptimeParam::Kind::Type;
+    auto isTypePack = consumeIf(Token::ellipsis);
+    if (isTypePack && !allowTypePack)
+      return emitError(diag::pack_parameter_only_function);
     std::string traitName;
     if (consumeIf(Token::colon)) {
       std::string annotation;
       if (llvm::failed(parseQualifiedName(annotation, diag::expected_type)))
         return failure();
-      if (annotation == "UInt64")
+      if (annotation == "UInt64" && !isTypePack)
         parameterKind = ComptimeParam::Kind::UInt64;
       else if (allowTraitConstraint)
         traitName = std::move(annotation);
       else
         return emitError(diag::expected_type);
     }
+    if (isTypePack)
+      parameterKind = ComptimeParam::Kind::TypePack;
     parameters.push_back(
         ComptimeParam(parameterName.str(), parameterKind, traitName));
 
     if (tokenIs(Token::greater))
       break;
+
+    if (isTypePack)
+      return emitError(diag::pack_parameter_must_be_last);
 
     if (llvm::failed(parseToken(Token::comma, diag::expected_comma_or_r_paren)))
       return failure();
@@ -589,7 +489,8 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
 
   if (tokenIs(Token::less) &&
       llvm::failed(parseComptimeParams(comptimeParameters,
-                          /*allowTraitConstraint=*/true)))
+                                       /*allowTraitConstraint=*/true,
+                                       /*allowTypePack=*/true)))
     return failure();
   if (llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
@@ -597,9 +498,11 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
   // Parse List
   VectorUniquePtr<ParameterDecl> parameters;
   unique_ptr<TypeNode> typeNode;
-  if (llvm::failed(parseList(Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
-                diag::expected_r_paren, parameters,
+  if (llvm::failed(parseList(Token::comma, Token::r_paren,
+                diag::expected_comma_or_r_paren, diag::expected_r_paren,
+                parameters,
                 [this](unique_ptr<ParameterDecl> &elem) -> llvm::LogicalResult {
+                  auto isComptime = consumeIf(Token::kw_comptime);
                   bool canMutateObject = false;
                   if (tokenIs(Token::kw_const))
                     return emitError(diag::unexpected_const_parameter_modifier);
@@ -613,14 +516,26 @@ auto Parser::parsePrototype(unique_ptr<Prototype> &proto, bool qualifyName)
                       llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
                       llvm::failed(parseType(typeNode)))
                     return failure();
+                  auto isPack = consumeIf(Token::ellipsis);
+                  if (isPack && isComptime)
+                    return emitError(diag::comptime_pack_parameter);
                   elem = make_unique<ParameterDecl>(
                       param->location(), std::move(param), std::move(typeNode),
-                      canMutateObject);
+                      canMutateObject, isComptime, isPack);
                   return success();
                 })) ||
       llvm::failed(parseToken(Token::colon, diag::expected_colon)) ||
       llvm::failed(parseType(typeNode)))
     return failure();
+
+  bool hasValuePack = false;
+  for (size_t index = 0; index < parameters.size(); ++index) {
+    if (!parameters[index]->isPack())
+      continue;
+    if (hasValuePack || index + 1 != parameters.size())
+      return emitError(diag::pack_parameter_must_be_last);
+    hasValuePack = true;
+  }
 
   // Make Proto
   proto = make_unique<Prototype>(location, std::move(name),
@@ -681,21 +596,41 @@ auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
     return failure();
 
   VectorUniquePtr<Stat> statements;
-  while (tokenIs(Token::kw_const)) {
+  unique_ptr<Expr> result;
+  while (true) {
+    if (tokenIs(Token::r_brace))
+      return emitError(diag::expected_expr);
+
+    if (tokenIs(Token::kw_var) || tokenIs(Token::kw_const) ||
+        tokenIs(Token::kw_if) || tokenIs(Token::kw_match) ||
+        tokenIs(Token::kw_while) || tokenIs(Token::kw_for) ||
+        tokenIs(Token::kw_break) || tokenIs(Token::kw_continue)) {
+      unique_ptr<Stat> statement;
+      if (llvm::failed(parseStatement(statement)))
+        return failure();
+      statements.push_back(std::move(statement));
+      continue;
+    }
+
     unique_ptr<Stat> statement;
-    if (llvm::failed(parseStatement(statement)))
+    if (llvm::failed(parseStatementWithoutSemi(statement)))
       return failure();
-    statements.push_back(std::move(statement));
+    if (statement->getKind() != Stat::Stat_Expression) {
+      if (llvm::failed(parseToken(Token::semi, diag::expected_semi)))
+        return failure();
+      statements.push_back(std::move(statement));
+      continue;
+    }
+
+    auto *expressionStatement = static_cast<ExprStat *>(statement.get());
+    if (consumeIf(Token::semi)) {
+      statements.push_back(std::move(statement));
+      continue;
+    }
+    result = std::move(expressionStatement->expression());
+    break;
   }
 
-  if (tokenIs(Token::r_brace))
-    return emitError(diag::expected_expr);
-
-  unique_ptr<Expr> result;
-  if (llvm::failed(parseExpression(result)))
-    return failure();
-  if (tokenIs(Token::semi))
-    return emitError(diag::comptime_value_requires_no_semi);
   if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
@@ -1061,6 +996,20 @@ auto Parser::parseExpressions(VectorUniquePtr<Expr> &expressions,
                    });
 }
 
+auto Parser::parseCallExpressions(VectorUniquePtr<Expr> &expressions)
+    -> llvm::LogicalResult {
+  return parseList(
+      Token::comma, Token::r_paren, diag::expected_comma_or_r_paren,
+      diag::expected_r_paren, expressions,
+      [this](unique_ptr<Expr> &elem) -> llvm::LogicalResult {
+        if (llvm::failed(parseExpression(elem)))
+          return failure();
+        if (consumeIf(Token::ellipsis))
+          elem->setPackExpansion();
+        return success();
+      });
+}
+
 auto Parser::parsePrimaryExpression(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   switch (tokenKind()) {
   case Token::integer_literal:
@@ -1410,39 +1359,12 @@ auto Parser::parseNegativeNumber(unique_ptr<Expr> &expr) -> llvm::LogicalResult 
 
 auto Parser::parseString(unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   auto loc = tokenLoc();
-  auto spelling = token().getSpelling();
-  auto segments = token().getStringLiteralSegments();
-  if (!segments)
+  auto value = token().getStringLiteralValue();
+  if (!value)
     return emitError(diag::string_literal_invalid);
 
-  if (segments->size() == 1 &&
-      segments->front().kind == StringLiteralSegment::Kind::Text) {
-    auto value = std::move(segments->front().value);
-    consume(Token::string_literal);
-    expr = make_unique<StringLiteralExpr>(loc, std::move(value));
-    return success();
-  }
-
-  VectorUniquePtr<Expr> expressions;
-  for (auto &segment : *segments) {
-    auto segmentLocation = llvm::SMLoc::getFromPointer(
-        spelling.data() + segment.sourceOffset);
-    if (segment.kind == StringLiteralSegment::Kind::Text) {
-      expressions.push_back(make_unique<StringLiteralExpr>(
-          segmentLocation, std::move(segment.value)));
-      continue;
-    }
-
-    unique_ptr<Expr> access;
-    auto source = spelling.substr(segment.sourceOffset, segment.sourceLength);
-    InterpolationAccessParser parser(source, _sourceManager);
-    if (llvm::failed(parser.parse(access)))
-      return failure();
-    expressions.push_back(std::move(access));
-  }
-
   consume(Token::string_literal);
-  expr = make_unique<InterpolatedStringExpr>(loc, std::move(expressions));
+  expr = make_unique<StringLiteralExpr>(loc, std::move(*value));
   return success();
 }
 
@@ -1529,7 +1451,23 @@ auto Parser::parseIntrinsicExpr(llvm::SMLoc location,
     return parseTypeInfoExpr(location, expr);
   if (name == builtins::typeOf)
     return parseFunctionCall(location, name, expr);
+  if (name == builtins::compileError)
+    return parseCompileErrorExpr(location, expr);
   return emitError(diag::unknown_intrinsic);
+}
+
+auto Parser::parseCompileErrorExpr(llvm::SMLoc location,
+                                   unique_ptr<Expr> &expr)
+    -> llvm::LogicalResult {
+  consume(Token::l_paren);
+
+  unique_ptr<Expr> message;
+  if (llvm::failed(parseExpression(message)) ||
+      llvm::failed(parseToken(Token::r_paren, diag::expected_r_paren)))
+    return failure();
+
+  expr = make_unique<CompileErrorExpr>(location, std::move(message));
+  return success();
 }
 
 auto Parser::parseObjectIdentityExpr(llvm::SMLoc location,
@@ -1572,8 +1510,7 @@ auto Parser::parseFunctionCall(llvm::SMLoc location, std::string_view name,
                                unique_ptr<Expr> &expr) -> llvm::LogicalResult {
   consume(Token::l_paren);
   auto expressions = VectorUniquePtr<Expr>();
-  if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_paren,
-                       diag::expected_comma_or_r_paren, diag::expected_r_paren)))
+  if (llvm::failed(parseCallExpressions(expressions)))
     return failure();
   expr = make_unique<CallExpr>(location, name, std::move(expressions));
   return success();
@@ -1684,9 +1621,7 @@ auto Parser::parseMemberAccess(std::unique_ptr<Expr> &expr)
   if (tokenIs(Token::l_paren)) {
     consume(Token::l_paren);
     auto expressions = VectorUniquePtr<Expr>();
-    if (llvm::failed(parseExpressions(expressions, Token::comma, Token::r_paren,
-                         diag::expected_comma_or_r_paren,
-                         diag::expected_r_paren)))
+    if (llvm::failed(parseCallExpressions(expressions)))
       return failure();
     expr = std::make_unique<CallExpr>(
         location, std::move(expr), fieldName, std::move(expressions));

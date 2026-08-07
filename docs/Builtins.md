@@ -45,7 +45,7 @@
 - `bigint.toUInt8(Integer): Result<UInt8, bigint.ArithmeticError>`
 - `bigint.toString(Integer): String`
 - `bigint.toHex(Integer): String`
-- `string.formatValue<T: Show>(T): String`
+- `string.format<Args...: Show>(comptime pattern: String, args: Args...): String`
 - `boolToUInt64(Bool): UInt64`
 - `core.toUInt64(UInt8): UInt64`
 - `core.toUInt8(UInt64): UInt8`
@@ -56,9 +56,12 @@
 `arith.extui`、`arith.trunci` 和 `arith.uitofp`（Float32/Float64 各一个）。它们不经过
 stdlib wrapper 或 runtime C bridge。
 
-`string.formatValue<T: Show>()` 是普通 constrained stdlib generic，函数体只调用
-`value.toString()`。`Show` 是 special language trait：String、builtin scalar 和 source
-object 都满足它，Unit 不参与 formatting；`T: Show` 保留为显式 capability contract。
+`string.format<Args...: Show>()` 是普通 constrained stdlib generic。它要求 comptime
+String pattern，支持顺序 `{}` slot 和 `{{` / `}}` literal brace；interpreter 在
+specialization 时执行 pattern parser，只将 concrete `Show.toString()` call 与 String concat
+留给 runtime。它不是 compiler builtin，compiler 不知道 formatter function name 或 brace
+grammar。`Show` 是 special language trait：String、builtin scalar 和 source object 都满足它，
+Unit 不参与 formatting。完整 surface 和限制见 [String formatting](StringFormatting.md)。
 `Show.toString()` 是纯 capability contract；String 和 builtin scalar 用 concrete `impl Show`
 提供 value formatter，source object 由 conditional generic impl 的 explicit method body 调用
 object identity formatter，user object 的 inherent `toString()` 优先。Trait default body 机制
@@ -107,6 +110,15 @@ return；当前不提供通用 `Try` trait 或 error conversion。object payload
 expression 的 mutability：直接 call 的 Result 可以通过 `?` 产生 mutable object，而
 readonly Result variable 解包后仍为 readonly。
 
+## Comptime Intrinsics
+
+- `#compileError(String)`：只在已执行的 comptime path 中接受 static String，终止当前
+  specialization 并产生 compiler diagnostic。
+
+`#compileError()` 不是 formatter-specific API；generic stdlib code 在无法满足 static
+contract 时都可以使用它。当前 comptime interpreter 的 executable statement、residualization
+和明确 non-goals 见 [Comptime interpreter](ComptimeInterpreter.md)。
+
 ## Comptime Reflection
 
 - `#typeInfo(T)`：取得 source type 的 comptime Type。
@@ -114,10 +126,10 @@ readonly Result variable 解包后仍为 readonly。
 - `const info = #typeInfo(T)`：根据 initializer 自动建立 comptime local binding。
 
 reflection query 只在 Sema 求值，不是 runtime function，也不产生 MLIR call。完整
-query 列表和边界见 [编译期反射](Reflection.md)。普通 `if` 的 condition 如果能在
-Sema 得到 comptime Bool，就只分析并生成选中的 block；否则仍是 runtime `if`。
-返回 comptime Type 的 reflection expression 也可以直接用于 local、function
-signature 和 generic alias 的 type position。
+query 列表和边界见 [编译期反射](Reflection.md)。comptime interpreter 可以执行 static
+local、ordinary static `if` / `while`、source helper 和 parameter pack，同时将依赖 runtime
+value 的 ordinary expression residualize。返回 comptime Type 的 reflection expression 也可以
+直接用于 local、function signature 和 generic alias 的 type position。
 
 ## Operators
 - `UInt64 + UInt64 : UInt64`

@@ -69,6 +69,45 @@ auto isFloatingPointType(const Type *type) -> bool {
   return isFloat32Type(type) || isFloat64Type(type);
 }
 
+// Static values are part of a concrete function symbol, so encode both their
+// kind and complete value representation. This keeps distinct staged values
+// from sharing a specialization when more comptime parameter kinds are added.
+auto appendComptimeValueKey(std::string &result,
+                            const ComptimeValue &value) -> void {
+  static constexpr char hex[] = "0123456789abcdef";
+
+  auto appendHex = [&](std::string_view bytes) {
+    for (auto character : bytes) {
+      auto byte = static_cast<unsigned char>(character);
+      result += hex[byte >> 4];
+      result += hex[byte & 0xf];
+    }
+  };
+
+  switch (value.kind()) {
+  case ComptimeValue::Kind::Type:
+    result += "__type_";
+    appendHex(formatType(value.type()));
+    return;
+  case ComptimeValue::Kind::Bool:
+    result += "__bool_";
+    result += value.boolValue() ? "1" : "0";
+    return;
+  case ComptimeValue::Kind::UInt8:
+    result += "__u8_";
+    result += std::to_string(value.uint8Value());
+    return;
+  case ComptimeValue::Kind::UInt64:
+    result += "__u64_";
+    result += std::to_string(value.uint64Value());
+    return;
+  case ComptimeValue::Kind::String:
+    result += "__str_";
+    appendHex(value.stringValue());
+    return;
+  }
+}
+
 auto getStdlibListElementType(const Type *type) -> const Type * {
   auto *structType = getStructType(type);
   if (!structType)
@@ -171,14 +210,14 @@ auto ExpressionSema::sema(Expr *node) -> llvm::LogicalResult {
     return sema(cast<BoolLiteralExpr>(node));
   case Expr::Expr_StringLiteral:
     return sema(cast<StringLiteralExpr>(node));
-  case Expr::Expr_InterpolatedString:
-    return sema(cast<InterpolatedStringExpr>(node));
   case Expr::Expr_ObjectIdentity:
     return sema(cast<ObjectIdentityExpr>(node));
   case Expr::Expr_CharLiteral:
     return sema(cast<CharLiteralExpr>(node));
   case Expr::Expr_TypeInfo:
     return _sema.emitError(node, diag::expected_comptime_value);
+  case Expr::Expr_CompileError:
+    return sema(cast<CompileErrorExpr>(node));
   case Expr::Expr_ComptimeBlock:
     return sema(cast<ComptimeBlockExpr>(node));
   case Expr::Expr_TypeLayout:
@@ -365,14 +404,31 @@ auto ExpressionSema::genericFunctionName(
     std::string_view name,
     const std::vector<InferredComptimeArgument> &arguments) const
     -> std::string {
+  return genericFunctionName(name, arguments, {});
+}
+
+auto ExpressionSema::genericFunctionName(
+    std::string_view name,
+    const std::vector<InferredComptimeArgument> &arguments,
+    const std::vector<ComptimeValue> &comptimeArguments) const
+    -> std::string {
   std::string result = mangleTypeName(std::string(name));
   for (auto &argument : arguments) {
     result += "__";
     if (argument.kind == ComptimeParam::Kind::Type)
       result += mangleTypeName(formatType(argument.type));
+    else if (argument.kind == ComptimeParam::Kind::TypePack) {
+      result += "pack";
+      for (auto *type : argument.types) {
+        result += "_";
+        result += mangleTypeName(formatType(type));
+      }
+    }
     else
       result += std::to_string(*argument.uint64Value);
   }
+  for (auto &argument : comptimeArguments)
+    appendComptimeValueKey(result, argument);
   return result;
 }
 
@@ -425,6 +481,7 @@ auto ExpressionSema::instantiateGenericFunction(
       genericFunction, concreteName,
       std::vector<TypeSubstitution>{TypeSubstitution{
           genericParameters.front().name, argumentTypeNode.get(), std::nullopt}});
+  concreteFunction->setSpecializationOrigin(name, diagnosticNode->location());
   _sema._instantiatedFunctionPackages[concreteName] =
       genericFunctionPackageName(name);
 
@@ -439,14 +496,17 @@ auto ExpressionSema::instantiateGenericFunction(
     return failure();
 
   _sema._instantiatedFunctionSymbols.insert({concreteName, signature});
+  _sema.registerFunctionDecl(concreteName, concreteFunction.get());
   _sema._instantiatedFunctions.push_back(std::move(concreteFunction));
   return success();
 }
 
 auto ExpressionSema::semaGenericCall(CallExpr *node,
-                               const GenericFunctionSymbol *symbol,
-                               const Type *expectedType)
+                                     const GenericFunctionSymbol *symbol,
+                                     const Type *expectedType)
     -> llvm::LogicalResult {
+  if (llvm::failed(expandPackArguments(node)))
+    return failure();
   auto *genericFunction = symbol->decl;
   auto *genericProto = genericFunction->proto().get();
   auto name = genericProto->id()->name();
@@ -455,14 +515,34 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
                             genericFunctionPackageName(name));
   auto &expressions = node->expressions();
   auto &parameters = genericProto->parameters();
-  if (expressions.size() != parameters.size()) {
+  auto valuePackIndex = parameters.size();
+  for (size_t index = 0; index < parameters.size(); ++index) {
+    if (parameters[index]->isPack()) {
+      valuePackIndex = index;
+      break;
+    }
+  }
+
+  auto fixedParameterCount = valuePackIndex == parameters.size()
+                                 ? parameters.size()
+                                 : valuePackIndex;
+  if (expressions.size() < fixedParameterCount ||
+      (valuePackIndex == parameters.size() &&
+       expressions.size() != parameters.size())) {
     auto diagnostic =
-        formatNameSizeDiagnostic(diag::func_param, name, parameters.size());
+        formatNameSizeDiagnostic(diag::func_param, name, fixedParameterCount);
     return _sema.emitError(node, diagnostic);
   }
 
+  auto parameterForArgument = [&](size_t index) -> const ParameterDecl * {
+    if (valuePackIndex != parameters.size() && index >= valuePackIndex)
+      return parameters[valuePackIndex].get();
+    return parameters[index].get();
+  };
+
   auto &comptimeParameters = genericProto->comptimeParameters();
   auto inferredArguments = makeInferredComptimeArguments(comptimeParameters);
+  std::vector<ComptimeValue> comptimeArguments;
   std::vector<const Type *> arrayLeafConstraints(comptimeParameters.size());
   auto returnHasComputedType =
       hasComputedType(genericProto->returnTypeNode());
@@ -501,6 +581,11 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
       return sema(literal, arrayType);
     }
 
+    if (parameterIndex &&
+        comptimeParameters[*parameterIndex].kind ==
+            ComptimeParam::Kind::TypePack)
+      return sema(argument.get());
+
     auto knownArguments = true;
     for (auto &inferredArgument : inferredArguments)
       knownArguments = knownArguments && inferredArgument.isResolved();
@@ -521,7 +606,31 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
   std::vector<size_t> deferredLambdas;
   std::vector<size_t> deferredParameters;
   for (size_t i = 0; i < expressions.size(); ++i) {
-    auto *parameterTypeNode = parameters[i]->typeNode();
+    auto *parameter = parameterForArgument(i);
+    auto *parameterTypeNode = parameter->typeNode();
+    if (parameter->isComptime()) {
+      auto *parameterType = _sema.resolveType(parameterTypeNode);
+      auto *stringType = _sema.lookupType("String");
+      if (!parameterType || !stringType ||
+          !sameType(parameterType, stringType))
+        return _sema.emitError(expressions[i].get(), diag::mismatch_type);
+      if (llvm::failed(semaExpected(expressions[i], parameterType)))
+        return failure();
+
+      auto evaluation = ComptimeSema(_sema).evaluateComptime(
+          expressions[i].get());
+      if (evaluation.kind == ComptimeEvaluation::Kind::Error)
+        return failure();
+      if (evaluation.kind != ComptimeEvaluation::Kind::Static ||
+          !evaluation.value ||
+          evaluation.value->kind() != ComptimeValue::Kind::String)
+        return _sema.emitError(expressions[i].get(),
+                               diag::expected_comptime_value);
+      comptimeArguments.push_back(*evaluation.value);
+      LLVM_DEBUG(llvm::dbgs() << "bind comptime String parameter " << i
+                              << " of `" << name << "`\n");
+      continue;
+    }
     if (dyn_cast<LambdaExpr>(expressions[i].get())) {
       deferredLambdas.push_back(i);
       LLVM_DEBUG(llvm::dbgs()
@@ -552,7 +661,7 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
 
   for (auto index : deferredLambdas) {
     auto *functionPattern =
-        dyn_cast<FunctionTypeNode>(parameters[index]->typeNode());
+        dyn_cast<FunctionTypeNode>(parameterForArgument(index)->typeNode());
     if (!functionPattern)
       return _sema.emitError(expressions[index].get(), diag::mismatch_type);
 
@@ -586,6 +695,24 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
       return _sema.emitError(lambda, diag::mismatch_type);
   }
 
+  if (valuePackIndex != parameters.size()) {
+    auto *packType = dyn_cast<NamedTypeNode>(
+        parameters[valuePackIndex]->typeNode());
+    auto packIndex = packType
+                         ? comptimeParameterIndex(comptimeParameters,
+                                                   packType->name())
+                         : std::nullopt;
+    if (!packIndex ||
+        comptimeParameters[*packIndex].kind != ComptimeParam::Kind::TypePack)
+      return _sema.emitError(parameters[valuePackIndex].get(),
+                             diag::mismatch_type);
+    inferredArguments[*packIndex].packResolved = true;
+    LLVM_DEBUG(llvm::dbgs() << "resolve type pack `" << packType->name()
+                            << "` with "
+                            << inferredArguments[*packIndex].types.size()
+                            << " elements\n");
+  }
+
   for (auto &argument : inferredArguments)
     if (!argument.isResolved())
       return _sema.emitError(node, diag::mismatch_type);
@@ -598,7 +725,7 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
       comptimeSubstitutions(comptimeParameters, inferredArguments);
   for (auto index : deferredParameters) {
     auto *parameterType = resolveSubstitutedType(
-        parameters[index]->typeNode(), substitutions);
+        parameterForArgument(index)->typeNode(), substitutions);
     if (!parameterType)
       return failure();
 
@@ -611,11 +738,22 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
     }
   }
 
-  auto concreteName = genericFunctionName(name, inferredArguments);
+  VectorUniquePtr<Expr> runtimeExpressions;
+  for (size_t i = 0; i < expressions.size(); ++i)
+    if (!parameterForArgument(i)->isComptime())
+      runtimeExpressions.push_back(std::move(expressions[i]));
+  expressions = std::move(runtimeExpressions);
+
+  auto concreteName =
+      genericFunctionName(name, inferredArguments, comptimeArguments);
+  LLVM_DEBUG(llvm::dbgs() << "specialize generic `" << name << "` as `"
+                          << concreteName << "`\n");
   auto cached = _sema._instantiatedFunctionSymbols.find(concreteName);
   if (cached == _sema._instantiatedFunctionSymbols.end()) {
     auto concreteFunction = instantiateFunctionDecl(
-        genericFunction, concreteName, substitutions);
+        genericFunction, concreteName, substitutions, comptimeArguments,
+        &inferredArguments);
+    concreteFunction->setSpecializationOrigin(name, node->location());
     _sema._instantiatedFunctionPackages[concreteName] =
         genericFunctionPackageName(name);
 
@@ -630,6 +768,7 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
     cached = _sema._instantiatedFunctionSymbols
                  .insert({concreteName, signature})
                  .first;
+    _sema.registerFunctionDecl(concreteName, concreteFunction.get());
     _sema._instantiatedFunctions.push_back(std::move(concreteFunction));
   }
 
@@ -662,9 +801,16 @@ auto ExpressionSema::sema(ComptimeBlockExpr *node) -> llvm::LogicalResult {
   auto evaluation = ComptimeSema(_sema).evaluateComptime(node);
   if (evaluation.kind == ComptimeEvaluation::Kind::Error)
     return failure();
-  if (evaluation.kind != ComptimeEvaluation::Kind::Value)
+  if (evaluation.kind != ComptimeEvaluation::Kind::Static)
     return _sema.emitError(node, diag::expected_comptime_value);
   return success();
+}
+
+auto ExpressionSema::sema(CompileErrorExpr *node) -> llvm::LogicalResult {
+  auto evaluation = ComptimeSema(_sema).evaluateComptime(node);
+  if (evaluation.kind == ComptimeEvaluation::Kind::Error)
+    return failure();
+  return _sema.emitError(node, diag::expected_comptime_value);
 }
 
 auto ExpressionSema::sema(LambdaExpr *node) -> llvm::LogicalResult {
@@ -858,7 +1004,52 @@ auto ExpressionSema::semaLambda(
   return success();
 }
 
+auto ExpressionSema::expandPackArguments(CallExpr *node)
+    -> llvm::LogicalResult {
+  auto &expressions = node->expressions();
+  auto hasExpansion = false;
+  for (auto &expression : expressions)
+    hasExpansion = hasExpansion || expression->isPackExpansion();
+  if (!hasExpansion)
+    return success();
+
+  if (!_sema._activeComptimeFrame)
+    return _sema.emitError(node, diag::comptime_pack_expansion);
+
+  VectorUniquePtr<Expr> expandedExpressions;
+  for (auto &expression : expressions) {
+    if (!expression->isPackExpansion()) {
+      expandedExpressions.push_back(std::move(expression));
+      continue;
+    }
+
+    auto *variable = dyn_cast<VariableExpr>(expression.get());
+    auto *binding = variable
+                        ? _sema._activeComptimeFrame->lookup(variable->name())
+                        : nullptr;
+    if (!binding || binding->kind != ComptimeBinding::Kind::Pack)
+      return _sema.emitError(expression.get(), diag::comptime_pack_expansion);
+
+    for (auto &element : binding->elements) {
+      if (element.kind != ComptimeBinding::Kind::Residual ||
+          !element.residual)
+        return _sema.emitError(expression.get(), diag::comptime_pack_escape);
+      auto expanded = substituteExpr(element.residual.get(), {});
+      expanded->setType(element.type);
+      expandedExpressions.push_back(std::move(expanded));
+    }
+    LLVM_DEBUG(llvm::dbgs() << "expand value pack `" << variable->name()
+                            << "` into " << binding->elements.size()
+                            << " call arguments\n");
+  }
+
+  expressions = std::move(expandedExpressions);
+  return success();
+}
+
 auto ExpressionSema::sema(CallExpr *node) -> llvm::LogicalResult {
+  if (llvm::failed(expandPackArguments(node)))
+    return failure();
   if (node->hasReceiver())
     return semaMethodCall(node);
 
@@ -1058,6 +1249,12 @@ auto ExpressionSema::sema(StructLiteralExpr *node) -> llvm::LogicalResult {
 }
 
 auto ExpressionSema::sema(VariableExpr *node) -> llvm::LogicalResult {
+  if (_sema._activeComptimeFrame) {
+    if (auto *binding = _sema._activeComptimeFrame->lookup(node->name());
+        binding && binding->kind == ComptimeBinding::Kind::Pack)
+      return _sema.emitError(node, diag::comptime_pack_escape);
+  }
+
   auto *symbol = _sema.lookupVariable(node->name());
   if (symbol && _sema._noncapturingLambdaDepth > 0 &&
       !_sema._symbols.lookupCurrentVariable(node->name()))
@@ -1214,23 +1411,6 @@ auto ExpressionSema::sema(StringLiteralExpr *node) -> llvm::LogicalResult {
   return success();
 }
 
-auto ExpressionSema::sema(InterpolatedStringExpr *node) -> llvm::LogicalResult {
-  auto *stringType = _sema.lookupType("String");
-  if (!stringType)
-    return _sema.emitError(node, diag::undefined_type);
-
-  for (auto &segment : node->segments()) {
-    if (llvm::failed(semaFormatValueCall(segment, stringType)))
-      return failure();
-  }
-
-  if (node->segments().size() > 1 &&
-      llvm::failed(checkStringConcatFunction(node, stringType)))
-    return failure();
-  node->setType(stringType);
-  return success();
-}
-
 auto ExpressionSema::sema(ObjectIdentityExpr *node) -> llvm::LogicalResult {
   if (llvm::failed(_sema.checkInternalFeature(node->location())))
     return failure();
@@ -1380,8 +1560,8 @@ auto ExpressionSema::sema(BinaryExpr *node, const Type *expectedType)
         sameType(lhs->type(), stringType)) {
       if (llvm::failed(sema(rhs.get())))
         return failure();
-      if (llvm::failed(semaFormatValueCall(rhs, stringType)))
-        return failure();
+      if (!sameType(rhs->type(), stringType))
+        return _sema.emitError(rhs.get(), diag::mismatch_type);
       if (llvm::failed(checkStringConcatFunction(node, stringType)))
         return failure();
       node->setType(stringType);
@@ -1514,28 +1694,6 @@ auto ExpressionSema::checkStringConcatFunction(Expr *node,
   auto diagnostic =
       formatNameDiagnostic(diag::undefined_func, "std.string.concat");
   return _sema.emitError(node, diagnostic);
-}
-
-auto ExpressionSema::semaFormatValueCall(std::unique_ptr<Expr> &expression,
-                                   const Type *stringType)
-    -> llvm::LogicalResult {
-  if (llvm::failed(sema(expression.get())))
-    return failure();
-  if (isUnitType(expression->type()))
-    return _sema.emitError(expression.get(), diag::mismatch_type);
-
-  auto location = expression->location();
-  VectorUniquePtr<Expr> arguments;
-  arguments.push_back(std::move(expression));
-  auto call = std::make_unique<CallExpr>(
-      location, "std.string.formatValue", std::move(arguments));
-  auto *callExpr = call.get();
-  expression = std::move(call);
-  if (llvm::failed(sema(callExpr, stringType)))
-    return failure();
-  if (!sameType(callExpr->type(), stringType))
-    return _sema.emitError(callExpr, diag::mismatch_type);
-  return success();
 }
 
 auto ExpressionSema::checkAssignable(const Expr *expr) -> llvm::LogicalResult {

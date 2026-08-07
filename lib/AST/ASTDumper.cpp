@@ -66,6 +66,7 @@ private:
   // Expressions
   auto dump(const Expr *node) -> void;
   auto dump(const UnitExpr *node) -> void;
+  auto dump(const BlockExpr *node) -> void;
   auto dump(const BlockExpr *node, std::string_view string) -> void;
   auto dump(const ComptimeBlockExpr *node) -> void;
   auto dump(const LambdaExpr *node) -> void;
@@ -83,10 +84,10 @@ private:
   auto dump(const FloatLiteralExpr *node) -> void;
   auto dump(const BoolLiteralExpr *node) -> void;
   auto dump(const StringLiteralExpr *node) -> void;
-  auto dump(const InterpolatedStringExpr *node) -> void;
   auto dump(const ObjectIdentityExpr *node) -> void;
   auto dump(const CharLiteralExpr *node) -> void;
   auto dump(const TypeInfoExpr *node) -> void;
+  auto dump(const CompileErrorExpr *node) -> void;
   auto dump(const TypeLayoutExpr *node) -> void;
   auto dump(const HeapAllocExpr *node) -> void;
   auto dump(const ArrayLiteralExpr *node) -> void;
@@ -202,6 +203,8 @@ private:
     for (auto &parameter : parameters) {
       result += separator;
       result += parameter.name;
+      if (parameter.kind == ComptimeParam::Kind::TypePack)
+        result += "...";
       if (parameter.kind == ComptimeParam::Kind::UInt64)
         result += ": UInt64";
       else if (parameter.hasTraitConstraint()) {
@@ -219,6 +222,8 @@ private:
       return formatSourceType(value.type());
     case ComptimeValue::Kind::Bool:
       return value.boolValue() ? "true" : "false";
+    case ComptimeValue::Kind::UInt8:
+      return std::to_string(value.uint8Value());
     case ComptimeValue::Kind::UInt64:
       return std::to_string(value.uint64Value());
     case ComptimeValue::Kind::String:
@@ -321,6 +326,10 @@ auto Dumper::dump(const ParameterDecl *node) -> void {
   auto typeNode = node->typeNode();
   INDENT();
   errs() << "ParameterDecl ";
+  if (node->isComptime())
+    errs() << "comptime ";
+  if (node->isPack())
+    errs() << "pack ";
   if (!node->canMutateObject())
     errs() << "readonly ";
   errs() << "(id=" << id->name() << " " << loc(id)
@@ -440,9 +449,10 @@ auto Dumper::dump(const Expr *node) -> void {
       .Case<UnitExpr, CallExpr, DataConstructorExpr, StructLiteralExpr,
             MatchExpr, TryExpr, IntegerLiteralExpr, FloatLiteralExpr,
             IntegerWidenExpr,
-            BoolLiteralExpr, StringLiteralExpr, InterpolatedStringExpr,
-            ObjectIdentityExpr, CharLiteralExpr, TypeInfoExpr, TypeLayoutExpr,
-            ComptimeBlockExpr, LambdaExpr, HeapAllocExpr, ArrayLiteralExpr,
+            BoolLiteralExpr, StringLiteralExpr,
+            ObjectIdentityExpr, CharLiteralExpr, TypeInfoExpr, CompileErrorExpr,
+            TypeLayoutExpr, ComptimeBlockExpr, LambdaExpr, HeapAllocExpr,
+            ArrayLiteralExpr, BlockExpr,
             IndexExpr,
             VariableExpr, MemberExpr, AssignExpr, BinaryExpr>(
           [&](auto *node) { this->dump(node); })
@@ -454,6 +464,10 @@ auto Dumper::dump(const UnitExpr *node) -> void {
   INDENT();
   errs() << "UnitExpr " << loc(node)
          << " type=" << formatType(node->type()) << "\n";
+}
+
+auto Dumper::dump(const BlockExpr *node) -> void {
+  dump(node, "BlockExpr " + loc(node));
 }
 
 auto Dumper::dump(const BlockExpr *node, std::string_view string) -> void {
@@ -552,6 +566,8 @@ auto Dumper::dump(const VariableExpr *node) -> void {
          << " name=" << node->name();
   if (node->isFunctionValue())
     errs() << " functionValue";
+  if (node->isPackExpansion())
+    errs() << " packExpansion";
   if (node->comptimeValue())
     errs() << " comptimeValue="
            << formatComptimeValue(*node->comptimeValue());
@@ -611,15 +627,6 @@ auto Dumper::dump(const StringLiteralExpr *node) -> void {
          << " value=\"" << node->value() << "\"\n";
 }
 
-auto Dumper::dump(const InterpolatedStringExpr *node) -> void {
-  INDENT();
-  errs() << "InterpolatedStringExpr " << loc(node)
-         << " type=" << formatType(node->type())
-         << " segments=" << node->segments().size() << "\n";
-  for (auto &segment : node->segments())
-    dump(segment.get());
-}
-
 auto Dumper::dump(const ObjectIdentityExpr *node) -> void {
   INDENT();
   errs() << "ObjectIdentityExpr " << loc(node)
@@ -639,6 +646,12 @@ auto Dumper::dump(const TypeInfoExpr *node) -> void {
   INDENT();
   errs() << "TypeInfoExpr " << loc(node)
          << " target=" << formatTypeNode(node->typeNode()) << "\n";
+}
+
+auto Dumper::dump(const CompileErrorExpr *node) -> void {
+  INDENT();
+  errs() << "CompileErrorExpr " << loc(node) << "\n";
+  dump(node->message().get());
 }
 
 auto Dumper::dump(const TypeLayoutExpr *node) -> void {

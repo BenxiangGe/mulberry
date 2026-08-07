@@ -4,13 +4,15 @@
 # RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
+import string;
+
 data TestError = Failed(UInt64);
 
 data Choice = Use(Result<UInt64, TestError>) | Default;
 
 fn makeNumber(value: UInt64, shouldFail: Bool):
     Result<UInt64, TestError> {
-  io.println("source={$value}");
+  io.println(string.format("source={}", value));
   if shouldFail {
     return Err(Failed(value));
   }
@@ -18,7 +20,7 @@ fn makeNumber(value: UInt64, shouldFail: Bool):
 }
 
 fn traced(value: UInt64): UInt64 {
-  io.println("trace={$value}");
+  io.println(string.format("trace={}", value));
   return value;
 }
 
@@ -75,10 +77,10 @@ fn repeatAfterTry(result: Result<UInt64, TestError>):
 
 fn printNumber(result: Result<UInt64, TestError>): UInt64 {
   match result {
-    Ok(value) => io.println("ok={$value}");
+    Ok(value) => io.println(string.format("ok={}", value));
     Err(error) => {
       match error {
-        Failed(code) => io.println("err={$code}");
+        Failed(code) => io.println(string.format("err={}", code));
       }
     }
   }
@@ -87,10 +89,10 @@ fn printNumber(result: Result<UInt64, TestError>): UInt64 {
 
 fn printText(result: Result<String, TestError>): UInt64 {
   match result {
-    Ok(value) => io.println("text={$value}");
+    Ok(value) => io.println(string.format("text={}", value));
     Err(error) => {
       match error {
-        Failed(code) => io.println("text-error={$code}");
+        Failed(code) => io.println(string.format("text-error={}", code));
       }
     }
   }
@@ -114,7 +116,7 @@ fn printFinish(result: Result<(), TestError>): UInt64 {
     Ok(unit) => io.println("finished");
     Err(error) => {
       match error {
-        Failed(code) => io.println("finish-error={$code}");
+        Failed(code) => io.println(string.format("finish-error={}", code));
       }
     }
   }
@@ -134,7 +136,7 @@ fn forwardUnitError(shouldFail: Bool): Result<UInt64, ()> {
 
 fn printUnitError(result: Result<UInt64, ()>): UInt64 {
   match result {
-    Ok(value) => io.println("unit-error-ok={$value}");
+    Ok(value) => io.println(string.format("unit-error-ok={}", value));
     Err(unit) => io.println("unit-error");
   }
   return 0;

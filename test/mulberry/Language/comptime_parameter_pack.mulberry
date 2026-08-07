@@ -1,0 +1,20 @@
+# RUN: mulberry-driver -dump=parse %s 2>&1 | FileCheck %s
+
+fn collect<Args...: Show>(comptime pattern: String, args: Args...): String {
+  return pattern;
+}
+
+fn relay<Args...: Show>(args: Args...): String {
+  return collect("{}", args...);
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# CHECK: Prototype {{.*}}name=collect parameter=Args...: Show
+# CHECK: ParameterDecl comptime {{.*}}id=pattern{{.*}}type=String
+# CHECK: ParameterDecl pack {{.*}}id=args{{.*}}type=Args
+# CHECK: Prototype {{.*}}name=relay parameter=Args...: Show
+# CHECK: CallExpr {{.*}}callee=collect
+# CHECK: VariableExpr {{.*}}name=args packExpansion

@@ -1,0 +1,7 @@
+# RUN: not mulberry-driver -dump=parse %s 2>&1 | FileCheck %s
+
+fn badOrder<Args...: Show, T>(value: T): String {
+  return "bad";
+}
+
+# CHECK: error: a type or value pack parameter must be the only final pack

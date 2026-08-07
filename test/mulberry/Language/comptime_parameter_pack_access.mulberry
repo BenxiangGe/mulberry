@@ -1,0 +1,26 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn count<Args...>(args: Args...): UInt64 {
+  const count = args.length;
+  return count;
+}
+
+fn relay<Args...>(args: Args...): UInt64 {
+  return count(args...);
+}
+
+fn main(): UInt64 {
+  const result = relay(7, true, 9);
+  const empty = relay();
+  io.println(result);
+  io.println(empty);
+  return result;
+}
+
+# MLIR-DAG: func.func @count__pack_UInt64_Bool_UInt64
+# MLIR-DAG: func.func @relay__pack_UInt64_Bool_UInt64
+# MLIR-DAG: func.call @count__pack_UInt64_Bool_UInt64
+# JIT: 3
+# JIT: 0

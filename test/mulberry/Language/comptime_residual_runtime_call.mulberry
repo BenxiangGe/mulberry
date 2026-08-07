@@ -1,0 +1,38 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn increment(value: UInt64): UInt64 {
+  return value + 1;
+}
+
+fn select<Args...>(comptime label: String, args: Args...): UInt64 {
+  if label == "increment" {
+    return increment(args[0]);
+  }
+  return args[0];
+}
+
+fn run(value: UInt64): UInt64 {
+  return select("increment", value);
+}
+
+fn main(): UInt64 {
+  const result = run(41);
+  io.println(result);
+  return result;
+}
+
+# AST-LABEL: Prototype {{.*}}name=select__pack_UInt64__str_696e6372656d656e74
+# AST: ParameterDecl readonly {{.*}}id=args__0
+# AST-NOT: ParameterDecl comptime
+# AST-NOT: ParameterDecl pack
+# AST-NOT: IfStat
+# AST: CallExpr {{.*}}callee=increment
+# MLIR-LABEL: func.func @run(%{{.*}}: i64) -> i64
+# MLIR: call @select__pack_UInt64__str_696e6372656d656e74
+# MLIR-LABEL: func.func @select__pack_UInt64__str_696e6372656d656e74(%{{.*}}: i64) -> i64
+# MLIR-NOT: scf.while
+# MLIR: call @increment
+# JIT: 42

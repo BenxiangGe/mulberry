@@ -16,15 +16,10 @@ namespace mulberry {
 
 class Lexer {
 public:
-  enum class Mode {
-    Source,
-    StringInterpolation,
-  };
-
   explicit Lexer(const llvm::SourceMgr &sourceMgr);
   Lexer(const llvm::SourceMgr &sourceMgr, unsigned bufferID);
-  Lexer(llvm::StringRef buffer, Mode mode)
-      : _curBuffer(buffer), _curPtr(buffer.begin()), _mode(mode) {}
+  explicit Lexer(llvm::StringRef buffer)
+      : _curBuffer(buffer), _curPtr(buffer.begin()) {}
 
   auto lexToken() -> Token;
 
@@ -62,7 +57,6 @@ private:
 
   llvm::StringRef _curBuffer;
   const char *_curPtr;
-  Mode _mode = Mode::Source;
 
   Lexer(const Lexer &) = delete;
   auto operator=(const Lexer &) -> void = delete;

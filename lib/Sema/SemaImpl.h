@@ -25,6 +25,9 @@
 
 namespace mulberry {
 
+class ComptimeFrame;
+struct ComptimeExecutionState;
+
 class SemaImpl {
   friend class ComptimeSema;
   friend class DeclarationSema;
@@ -66,6 +69,7 @@ private:
     Symbols symbols;
     std::map<std::string, const StructType *> genericStructTypes;
     std::map<std::string, DataType *> dataTypes;
+    std::map<std::string, const FunctionDecl *> functionDecls;
     std::map<std::string, const FunctionSymbol *> instantiatedFunctionSymbols;
     std::map<std::string, std::string> functionPackages;
     std::map<std::string, std::string> genericFunctionPackages;
@@ -89,6 +93,7 @@ private:
   bool _persistent = false;
   TypeContext _typeContext;
   Symbols _symbols;
+  std::map<std::string, const FunctionDecl *> _functionDecls;
   std::map<std::string, const StructType *> _genericStructTypes;
   std::map<std::string, DataType *> _dataTypes;
   std::map<std::string, const FunctionSymbol *> _instantiatedFunctionSymbols;
@@ -102,6 +107,8 @@ private:
       emptyImportAliases();
   std::string _currentPackageName;
   const Type *_currentFunctionReturnType = nullptr;
+  ComptimeFrame *_activeComptimeFrame = nullptr;
+  ComptimeExecutionState *_activeComptimeExecutionState = nullptr;
   int _whileDepth = 0;
   int _noncapturingLambdaDepth = 0;
   uint64_t _lambdaCounter = 0;
@@ -147,6 +154,8 @@ private:
 
   auto emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> llvm::LogicalResult ;
 
+  auto emitNote(llvm::SMLoc loc, const llvm::Twine &msg) -> void ;
+
   auto isInternalSourceLocation(llvm::SMLoc location) const -> bool ;
 
   auto checkInternalFeature(llvm::SMLoc location) -> llvm::LogicalResult ;
@@ -157,6 +166,11 @@ private:
   auto addBuiltins() -> void ;
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * ;
+
+  auto lookupFunctionDecl(std::string_view name) -> const FunctionDecl * ;
+
+  auto registerFunctionDecl(std::string_view name,
+                            const FunctionDecl *decl) -> void ;
 
   auto lookupGenericFunction(std::string_view name)
       -> const GenericFunctionSymbol * ;
@@ -223,6 +237,36 @@ private:
 
   private:
     Symbols &_symbols;
+  };
+
+  class ComptimeFrameScope {
+  public:
+    ComptimeFrameScope(SemaImpl &sema, ComptimeFrame *frame)
+        : _sema(sema), _oldFrame(sema._activeComptimeFrame) {
+      _sema._activeComptimeFrame = frame;
+    }
+
+    ~ComptimeFrameScope() { _sema._activeComptimeFrame = _oldFrame; }
+
+  private:
+    SemaImpl &_sema;
+    ComptimeFrame *_oldFrame = nullptr;
+  };
+
+  class ComptimeExecutionScope {
+  public:
+    ComptimeExecutionScope(SemaImpl &sema, ComptimeExecutionState *state)
+        : _sema(sema), _oldState(sema._activeComptimeExecutionState) {
+      _sema._activeComptimeExecutionState = state;
+    }
+
+    ~ComptimeExecutionScope() {
+      _sema._activeComptimeExecutionState = _oldState;
+    }
+
+  private:
+    SemaImpl &_sema;
+    ComptimeExecutionState *_oldState = nullptr;
   };
 
   class PackageScope {

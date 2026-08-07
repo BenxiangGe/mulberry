@@ -1,0 +1,19 @@
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn echo<T>(comptime label: String, value: T): T {
+  return value;
+}
+
+fn main(): UInt64 {
+  const value = echo("answer", 42);
+  io.println(value);
+  return value;
+}
+
+# AST: Prototype {{.*}}name=echo
+# AST: ParameterDecl comptime {{.*}}id=label{{.*}}type=String
+# MLIR-DAG: func.func @echo__UInt64__str_616e73776572(%{{.*}}: i64) -> i64
+# MLIR-DAG: func.call @echo__UInt64__str_616e73776572(%{{.*}}) : (i64) -> i64
+# JIT: 42

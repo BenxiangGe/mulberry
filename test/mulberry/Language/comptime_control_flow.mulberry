@@ -1,0 +1,58 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s
+
+trait ComptimeFlow {
+  fn value(self): UInt64;
+}
+
+impl<T> ComptimeFlow for T where comptime {
+  var i = 0;
+  var sum = 0;
+  while i < 6 {
+    i = i + 1;
+    if i == 1 {
+      const nested = 99;
+    }
+    if i == 2 {
+      continue;
+    }
+    if i == 5 {
+      break;
+    }
+    sum = sum + i;
+  }
+  if false {
+    const unreachable = missing;
+  }
+  sum == 8
+} {
+  fn value(self: T): UInt64 {
+    return 8;
+  }
+}
+
+trait ComptimeReturn {
+  fn returned(self): Bool;
+}
+
+impl<T> ComptimeReturn for T where comptime {
+  if true {
+    return true;
+  }
+  false
+} {
+  fn returned(self: T): Bool {
+    return true;
+  }
+}
+
+import io;
+
+fn main(): UInt64 {
+  io.println(1.value());
+  io.println(1.returned());
+  return 0;
+}
+
+# CHECK: 8
+# CHECK-NEXT: true

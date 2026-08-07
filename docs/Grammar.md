@@ -25,13 +25,6 @@ float-literal             -> decimal-digit+ `.` decimal-digit+
 string-literal            -> `"` string-segment* `"`
 string-segment            -> string-character
 string-segment            -> `\\n` | `\\t` | `\\"` | `\\\\` | `\\{` | `\\}`
-string-segment            -> string-interpolation
-string-interpolation      -> `{$` interpolation-access `}`
-interpolation-access      -> identifier interpolation-suffix*
-interpolation-suffix      -> `.` identifier
-interpolation-suffix      -> `[` interpolation-index-list `]`
-interpolation-index-list  -> interpolation-index (`,` interpolation-index)* `,`?
-interpolation-index       -> integer-literal | interpolation-access
 char-literal              -> `'` ... `'`
 ```
 
@@ -40,9 +33,10 @@ char-literal              -> `'` ... `'`
 后续每个 group 必须恰好为 4 位，例如 `0x1_2345`、`0x1234_5678` 和
 `0x1234_5678_0123`。
 
-只有未转义的 `{$` 开始插值。插值是受限 access grammar，不接受 binary expression、
-function call 或 method call。普通 `{` / `}` 是文本；`\{`、`\}` 和 `\\` 分别表示
-literal `{`、`}` 和 `\`。
+String literal 没有 interpolation grammar。`{`、`}` 和 `$` 都是普通字符；`\{`、`\}`
+和 `\\` 分别表示 literal `{`、`}` 和 `\`。需要把 value 写入 String 时，使用
+`string.format("name={}, age={}", name, age)`；完整 contract 见
+[String formatting](StringFormatting.md)。
 
 ## Module
 
@@ -86,7 +80,7 @@ function-prototype        -> `fn` function-name function-comptime-parameter-clau
 function-name             -> identifier
 function-signature        -> `(` parameter-list? `)` `:` type
 parameter-list            -> parameter (`,` parameter)* `,`?
-parameter                 -> `mut`? identifier `:` type
+parameter                 -> `comptime`? `mut`? identifier `:` type `...`?
 
 struct-declaration        -> `struct` identifier `{` struct-member-list? `}`
 struct-member-list        -> struct-member (`,` struct-member)* `,`?
@@ -100,8 +94,10 @@ trait-method-declaration  -> `fn` identifier `(` trait-receiver
                               (`,` parameter)* `,`? `)` `:` type
                               (`;` | block)
 trait-receiver            -> `mut`? `self`
-impl-declaration          -> `impl` qualified-name `for` type
-                              `{` method-declaration* `}`
+impl-declaration          -> `impl` comptime-parameter-clause? qualified-name `for` type
+                              conditional-impl-guard? `{` method-declaration* `}`
+conditional-impl-guard    -> `where` comptime-block
+comptime-block            -> `comptime` `{` statement* expression `}`
 
 data-declaration          -> `data` identifier comptime-parameter-clause?
                               `=` data-constructor-list `;`
@@ -115,6 +111,10 @@ comptime-type-alias-declaration
 comptime-alias-body       -> type
 comptime-alias-body       -> `struct` `{` struct-member-list? `}`
 ```
+
+`comptime` block 的 final expression 不写分号；它是 block value。前面的声明、赋值和
+control-flow statement 仍按普通 statement 规则以分号或 block 结束。`where comptime`
+guard 必须把这个 block value 求值为 comptime `Bool`。
 
 `data` 只在 declaration 起始位置作为 contextual keyword；字段、参数和局部变量仍可
 使用 `data` 作为名字。data constructor 名必须以大写字母开头，Parser 据此把
@@ -178,6 +178,7 @@ comptime-parameter-clause -> `<` comptime-parameter-list `>`
 comptime-parameter-list   -> comptime-parameter (`,` comptime-parameter)*
 comptime-parameter        -> identifier
 comptime-parameter        -> identifier `:` `UInt64`
+comptime-parameter        -> identifier `...` (`:` qualified-name)?
 function-comptime-parameter-clause
                           -> `<` function-comptime-parameter-list `>`
 function-comptime-parameter-list
@@ -203,7 +204,11 @@ comptime Buffer<T, N: UInt64> = Array<T, N>;
 
 函数的类型参数还可以带一个 Trait constraint，例如 `fn show<T: Show>(value: T)`。
 第一版只支持单一 constraint；type alias 和 data declaration 的 comptime 参数仍只接受
-普通类型参数或 `N: UInt64`。Trait method 的 `self` 类型由 `impl Trait for Type` 中的
+普通类型参数或 `N: UInt64`。function 的 type pack 可以写成 `Args...: Show`，并以末尾
+value pack `args: Args...` 接收 heterogeneous runtime arguments；`comptime pattern: String`
+要求实参在 specialization 时是 static value。一个 function 最多有一个 type pack 和一个
+末尾 value pack，pack 不进入 runtime ABI 或 MLIR。完整 staged execution 和 pack 规则见
+[Comptime interpreter](ComptimeInterpreter.md)。Trait method 的 `self` 类型由 `impl Trait for Type` 中的
 `Type` 隐式确定，不提供 `Self` source type。Trait 在 generic specialization 后静态解析
 成普通 direct call，不产生 trait object、vtable 或 runtime metadata。
 
@@ -213,7 +218,7 @@ Trait method 可以提供 default body。具体 `impl` 或 conditional generic `
 body；guard 命中后，outer type parameter 被替换为 concrete target type，再生成普通 witness。
 `Show` 是 special language trait：String、builtin scalar 和 source object 都满足
 `Show`；Unit 没有可观察值，不参与 formatting。generic API 仍显式写出 `T: Show`，
-例如 `fn formatValue<T: Show>(value: T): String`。
+例如 `fn formatOne<T: Show>(value: T): String { return string.format("{}", value); }`。
 完整的 Trait 语义、default witness 和当前边界见 [Trait](Traits.md)。
 
 ## Comptime Reflection

@@ -39,7 +39,8 @@ auto TraitSema::resolveConstraints(
   for (auto &parameter : parameters) {
     if (!parameter.hasTraitConstraint())
       continue;
-    if (parameter.kind != ComptimeParam::Kind::Type)
+    if (parameter.kind != ComptimeParam::Kind::Type &&
+        parameter.kind != ComptimeParam::Kind::TypePack)
       return _sema.emitError(node, diag::mismatch_type);
 
     parameter.trait = lookupTrait(parameter.traitName);
@@ -143,6 +144,7 @@ auto TraitSema::instantiateDefaultMethod(
 
   LLVM_DEBUG(llvm::dbgs() << "instantiate default trait method `"
                           << functionName << "`\n");
+  _sema.registerFunctionDecl(functionName, function.get());
   _sema._instantiatedFunctions.push_back(std::move(function));
   return success();
 }
@@ -181,6 +183,7 @@ auto TraitSema::instantiateGenericMethod(
 
   LLVM_DEBUG(llvm::dbgs() << "instantiate conditional trait method `"
                           << functionName << "`\n");
+  _sema.registerFunctionDecl(functionName, function.get());
   _sema._instantiatedFunctions.push_back(std::move(function));
   return success();
 }
@@ -337,7 +340,7 @@ auto TraitSema::genericImplementationMatches(const ImplDecl *impl,
   auto result = ComptimeSema(_sema).evaluateComptime(condition.get());
   if (result.kind == ComptimeEvaluation::Kind::Error)
     return failure();
-  if (result.kind != ComptimeEvaluation::Kind::Value)
+  if (result.kind != ComptimeEvaluation::Kind::Static)
     return _sema.emitError(condition.get(), diag::expected_comptime_value);
   if (result.value->kind() != ComptimeValue::Kind::Bool)
     return _sema.emitError(condition.get(), diag::expected_bool);
@@ -490,6 +493,21 @@ auto TraitSema::checkConstraints(
     auto &parameter = parameters[index];
     if (!parameter.trait)
       continue;
+    if (parameter.kind == ComptimeParam::Kind::TypePack) {
+      for (auto *type : arguments[index].types) {
+        bool conforms = false;
+        if (llvm::failed(
+                typeConforms(node, type, parameter.trait, conforms)))
+          return failure();
+        if (conforms)
+          continue;
+
+        auto diagnostic = formatTypeTraitDiagnostic(
+            diag::trait_constraint, type, parameter.trait->name());
+        return _sema.emitError(node, diagnostic);
+      }
+      continue;
+    }
     auto *type = arguments[index].type;
     bool conforms = false;
     if (type && llvm::failed(

@@ -71,7 +71,7 @@ TEST(LexerTest, firstTest) {
 TEST(LexerTest, comptimeIntrinsicAndComments) {
   auto input = "#typeInfo // source comment\n# RUN: lit metadata\n"
                "# CHECK: lit metadata\n// another comment\n";
-  Lexer lexer(input, Lexer::Mode::Source);
+  Lexer lexer(input);
 
   auto hash = lexer.lexToken();
   ASSERT_TRUE(hash.is(Token::hash));
@@ -83,7 +83,7 @@ TEST(LexerTest, comptimeIntrinsicAndComments) {
 
 TEST(LexerTest, boundedSource) {
   std::string input = "items[index].name";
-  Lexer lexer(input, Lexer::Mode::StringInterpolation);
+  Lexer lexer(input);
 
   ASSERT_TRUE(lexer.lexToken().is(Token::identifier));
   ASSERT_TRUE(lexer.lexToken().is(Token::l_square));
@@ -94,7 +94,7 @@ TEST(LexerTest, boundedSource) {
   ASSERT_TRUE(lexer.lexToken().is(Token::eof));
 }
 
-TEST(LexerTest, stringLiteralSegments) {
+TEST(LexerTest, stringLiteralValue) {
   auto input = R"("left \{ {$value} \} \\ right" "\{$value}")";
   auto inputBuffer = llvm::MemoryBuffer::getMemBuffer(input, "main.mulberry");
 
@@ -102,25 +102,14 @@ TEST(LexerTest, stringLiteralSegments) {
   sourceManager.AddNewSourceBuffer(std::move(inputBuffer), llvm::SMLoc());
   Lexer lexer(sourceManager);
 
-  auto interpolated = lexer.lexToken();
-  auto segments = interpolated.getStringLiteralSegments();
-  ASSERT_TRUE(segments.has_value());
-  ASSERT_EQ(segments->size(), 3u);
-  EXPECT_EQ((*segments)[0].kind, StringLiteralSegment::Kind::Text);
-  EXPECT_EQ((*segments)[0].value, "left { ");
-  EXPECT_EQ((*segments)[1].kind,
-            StringLiteralSegment::Kind::Interpolation);
-  EXPECT_EQ(interpolated.getSpelling().substr((*segments)[1].sourceOffset,
-                                               (*segments)[1].sourceLength),
-            "value");
-  EXPECT_EQ((*segments)[2].kind, StringLiteralSegment::Kind::Text);
-  EXPECT_EQ((*segments)[2].value, " } \\ right");
+  auto first = lexer.lexToken();
+  auto value = first.getStringLiteralValue();
+  ASSERT_TRUE(value.has_value());
+  EXPECT_EQ(*value, "left { {$value} } \\ right");
 
-  auto escaped = lexer.lexToken().getStringLiteralSegments();
+  auto escaped = lexer.lexToken().getStringLiteralValue();
   ASSERT_TRUE(escaped.has_value());
-  ASSERT_EQ(escaped->size(), 1u);
-  EXPECT_EQ(escaped->front().kind, StringLiteralSegment::Kind::Text);
-  EXPECT_EQ(escaped->front().value, "{$value}");
+  EXPECT_EQ(*escaped, "{$value}");
 }
 
 } // end namespace

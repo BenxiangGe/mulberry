@@ -5,7 +5,19 @@ import internal.ptr;
 
 struct String {
   length: UInt64,
-  data: Ptr<UInt8>
+  data: Ptr<UInt8>,
+
+  pub fn slice(self: String, begin: UInt64, end: UInt64): String {
+    const length = end - begin;
+    var data = heap.alloc<UInt8>(length + 1);
+    var index = 0;
+    while index < length {
+      data[index] = self.data[begin + index];
+      index = index + 1;
+    }
+    data[length] = core.toUInt8(0);
+    return String { length, data };
+  }
 }
 
 extern fn mulberry_string_from_bool(value: Bool): String;
@@ -110,7 +122,7 @@ impl<T> Show for T where comptime { #typeInfo(T).isObject() } {
         if index != 0 {
           result = result + ", ";
         }
-        result = result + formatValue(self[index]);
+        result = result + format("{}", self[index]);
         index = index + 1;
       }
       if length > displayLimit {
@@ -126,8 +138,53 @@ fn objectToString<T>(value: T): String {
   return __objectIdentity(value);
 }
 
-fn formatValue<T: Show>(value: T): String {
-  return value.toString();
+fn format<Args...: Show>(comptime pattern: String, args: Args...): String {
+  var cursor = 0;
+  var argumentIndex = 0;
+  var result: String = "";
+
+  while cursor < pattern.length {
+    const current = pattern[cursor];
+    if current == '{' {
+      if cursor + 1 >= pattern.length {
+        #compileError("unmatched '{' in format string");
+      }
+
+      const next = pattern[cursor + 1];
+      if next == '{' {
+        result = result + "{";
+        cursor = cursor + 2;
+      } else {
+        if next != '}' {
+          #compileError("expected '}' after '{' in format string");
+        }
+        if argumentIndex >= args.length {
+          #compileError("not enough arguments for format string");
+        }
+
+        result = result + args[argumentIndex].toString();
+        argumentIndex = argumentIndex + 1;
+        cursor = cursor + 2;
+      }
+    } else {
+      if current == '}' {
+        if cursor + 1 < pattern.length and pattern[cursor + 1] == '}' {
+          result = result + "}";
+          cursor = cursor + 2;
+        } else {
+          #compileError("unmatched '}' in format string");
+        }
+      } else {
+        result = result + pattern.slice(cursor, cursor + 1);
+        cursor = cursor + 1;
+      }
+    }
+  }
+
+  if argumentIndex != args.length {
+    #compileError("too many arguments for format string");
+  }
+  return result;
 }
 
 fn concat(left: String, right: String): String {

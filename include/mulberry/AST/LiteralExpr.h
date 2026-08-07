@@ -103,27 +103,6 @@ private:
   std::string _value;
 };
 
-class InterpolatedStringExpr final : public Expr {
-public:
-  InterpolatedStringExpr(llvm::SMLoc location,
-                         VectorUniquePtr<Expr> segments)
-      : Expr{Expr_InterpolatedString, location},
-        _segments(std::move(segments)) {}
-
-  static auto classof(const Expr *node) -> bool {
-    return node->getKind() == Expr_InterpolatedString;
-  }
-
-  // Text remains a StringLiteralExpr; embedded values keep their normal
-  // VariableExpr/MemberExpr/IndexExpr shape.
-  auto segments() const -> const VectorUniquePtr<Expr> & { return _segments; }
-
-  auto segments() -> VectorUniquePtr<Expr> & { return _segments; }
-
-private:
-  VectorUniquePtr<Expr> _segments;
-};
-
 // Sema inserts this node only for the default object stringification path.
 // The source object remains a reference; MLIRGen adapts it to the hidden
 // runtime pointer ABI without exposing Ptr<T> in Mulberry source.

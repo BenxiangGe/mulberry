@@ -1,0 +1,52 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import string;
+
+struct Person {
+  id: UInt64
+}
+
+impl Show for Person {
+  fn toString(self: Person): String {
+    return "Person";
+  }
+}
+
+fn formatOne<T: Show>(value: T): String {
+  const pattern = "value={}";
+  return string.format(pattern, value);
+}
+
+fn main(): UInt64 {
+  const truth = true;
+  const byte = core.toUInt8(7);
+  const count = 42;
+  const signed: Int64 = -8;
+  const float32 = 1.5;
+  const float64: Float64 = core.toFloat64(2) + 0.25;
+  const integer: Integer = 18446744073709551616;
+  const values = [1, 2, 3];
+  var numbers = list.from([4, 5]);
+  var matrix = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
+  const person = Person { 7 };
+
+  io.println(string.format(
+      "scalars: bool={}, byte={}, uint={}, int={}, f32={}, f64={}, integer={}",
+      truth, byte, count, signed, float32, float64, integer));
+  io.println(string.format(
+      "array={}, list={}, tensor={}, person={}, text={}, count={}",
+      values, numbers, matrix, person, "Ada", count));
+  io.println(formatOne(person));
+  io.println(formatOne(values));
+  io.println(formatOne(numbers));
+  io.println(formatOne(matrix));
+  return 0;
+}
+
+# JIT: scalars: bool=true, byte=7, uint=42, int=-8, f32=1.5, f64=2.25, integer=18446744073709551616
+# JIT-NEXT: array=[1, 2, 3], list=List[4, 5], tensor=Tensor(shape: [2, 2], values: [1, 2, 3, 4]), person=Person, text=Ada, count=42
+# JIT-NEXT: value=Person
+# JIT-NEXT: value=[1, 2, 3]
+# JIT-NEXT: value=List[4, 5]
+# JIT-NEXT: value=Tensor(shape: [2, 2], values: [1, 2, 3, 4])

@@ -1,0 +1,24 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+trait StepBudget {
+  fn valid(self): Bool;
+}
+
+impl<T> StepBudget for T where comptime {
+  var i = 0;
+  while i < 250000 {
+    i = i + 1;
+  }
+  true
+} {
+  fn valid(self: T): Bool {
+    return true;
+  }
+}
+
+fn main(): UInt64 {
+  io.println(1.valid());
+  return 0;
+}
+
+# CHECK: error: comptime evaluation exceeded the step limit

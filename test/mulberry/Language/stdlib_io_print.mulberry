@@ -2,11 +2,13 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
+import string;
+
 struct Label {
   value: UInt64,
 
   pub fn toString(self: Label): String {
-    return "Label({$self.value})";
+    return string.format("Label({})", self.value);
   }
 }
 

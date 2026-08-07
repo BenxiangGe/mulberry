@@ -67,7 +67,9 @@ auto substituteExpr(const Expr *node,
     -> std::unique_ptr<Expr>;
 auto instantiateFunctionDecl(
     const FunctionDecl *node, std::string_view concreteName,
-    const std::vector<TypeSubstitution> &substitutions)
+    const std::vector<TypeSubstitution> &substitutions,
+    const std::vector<ComptimeValue> &comptimeArguments = {},
+    const std::vector<InferredComptimeArgument> *inferredArguments = nullptr)
     -> std::unique_ptr<FunctionDecl>;
 auto traitMethodSignatureMatches(const TraitMethodDecl *method,
                                  const FunctionSymbol *signature,

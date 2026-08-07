@@ -6,9 +6,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "SemaDeclarations.h"
+#include "SemaComptime.h"
 #include "SemaImpl.h"
 #include "SemaSupport.h"
 #include "SemaTraits.h"
+#include "llvm/Support/Debug.h"
+
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "Sema"
 
 namespace mulberry {
 using llvm::dyn_cast;
@@ -45,6 +50,25 @@ auto DeclarationSema::semaFunctionParameters(
       return failure();
     par->setType(parameterType);
     auto canMutateObject = par->canMutateObject();
+    if (par->isComptime()) {
+      auto *stringType = _sema.lookupType("String");
+      if (!stringType || !sameType(parameterType, stringType))
+        return _sema.emitError(par->typeNode(), diag::mismatch_type);
+      if (!par->comptimeValue())
+        return _sema.emitError(par->variable().get(),
+                               diag::expected_comptime_value);
+      auto valueType = ComptimeSema(_sema).comptimeRuntimeType(
+          *par->comptimeValue());
+      if (!valueType || !sameType(valueType, parameterType))
+        return _sema.emitError(par->variable().get(), diag::mismatch_type);
+      if (llvm::failed(_sema.declareVariable(
+              par->variable()->name(), parameterType,
+              /*isConstBinding=*/true,
+              /*canMutateObject=*/false, par->comptimeValue(),
+              /*isComptimeOnly=*/true)))
+        return _sema.emitError(par->variable().get(), diag::redefinition_var);
+      continue;
+    }
     if (llvm::failed(_sema.declareVariable(
             par->variable()->name(), parameterType, !canMutateObject,
             canMutateObject)))
@@ -55,15 +79,65 @@ auto DeclarationSema::semaFunctionParameters(
   return success();
 }
 
+auto DeclarationSema::checkFunctionPacks(Prototype *node)
+    -> llvm::LogicalResult {
+  const ComptimeParam *typePack = nullptr;
+  for (auto &parameter : node->comptimeParameters()) {
+    if (!parameter.isTypePack())
+      continue;
+    typePack = &parameter;
+    break;
+  }
+
+  const ParameterDecl *valuePack = nullptr;
+  for (auto &parameter : node->parameters()) {
+    if (!parameter->isPack())
+      continue;
+    valuePack = parameter.get();
+    break;
+  }
+
+  if (typePack && !valuePack)
+    return _sema.emitError(node, diag::type_pack_requires_value_pack);
+  if (!valuePack)
+    return success();
+
+  auto *packType = dyn_cast<NamedTypeNode>(valuePack->typeNode());
+  if (!typePack || !packType || packType->name() != typePack->name)
+    return _sema.emitError(valuePack, diag::value_pack_requires_type_pack);
+  return success();
+}
+
 auto DeclarationSema::bindFunctionParameters(
     Prototype *node, const FunctionSymbol *signature)
     -> llvm::LogicalResult {
   auto &parameters = node->parameters();
+  size_t runtimeParameterIndex = 0;
   for (size_t i = 0; i < parameters.size(); ++i) {
     auto &parameter = parameters[i];
-    auto *parameterType = signature->type->parameterTypes()[i];
+    if (parameter->isComptime()) {
+      auto *parameterType =
+          _sema.checkType(parameter->typeNode(), SemaImpl::UnitPolicy::Reject);
+      if (!parameterType)
+        return failure();
+      parameter->setType(parameterType);
+      if (!parameter->comptimeValue())
+        return _sema.emitError(parameter->variable().get(),
+                               diag::expected_comptime_value);
+      if (llvm::failed(_sema.declareVariable(
+              parameter->variable()->name(), parameterType,
+              /*isConstBinding=*/true,
+              /*canMutateObject=*/false, parameter->comptimeValue(),
+              /*isComptimeOnly=*/true)))
+        return _sema.emitError(parameter->variable().get(),
+                               diag::redefinition_var);
+      continue;
+    }
+    auto *parameterType =
+        signature->type->parameterTypes()[runtimeParameterIndex];
     auto canMutateObject =
-        signature->type->parameterCanMutateObject()[i];
+        signature->type->parameterCanMutateObject()[runtimeParameterIndex];
+    ++runtimeParameterIndex;
     parameter->setType(parameterType);
     if (llvm::failed(_sema.declareVariable(
             parameter->variable()->name(), parameterType, !canMutateObject,
@@ -105,6 +179,8 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
                              : functionPackageName(node->proto()->id()->name());
   SemaImpl::PackageScope packageScope(_sema._currentPackageName,
                                       functionPackage);
+  if (llvm::failed(checkFunctionPacks(node->proto().get())))
+    return failure();
   if (node->isExtern()) {
     if (node->proto()->isGeneric())
       return _sema.emitError(node->proto()->id().get(), diag::mismatch_type);
@@ -129,22 +205,103 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
     return success();
   }
 
-  SemaImpl::FunctionScope functionScope(_sema);
-  auto *signature = _sema.lookupFunction(node->proto()->id()->name());
-  if (signature) {
-    if (llvm::failed(bindFunctionParameters(node->proto().get(), signature)))
-      return failure();
-  } else {
-    if (llvm::failed(sema(node->proto().get())))
-      return failure();
+  auto isConcreteSpecialization = node->proto()->hasConcretePack();
+  for (auto &parameter : node->proto()->parameters())
+    isConcreteSpecialization =
+        isConcreteSpecialization ||
+        (parameter->isComptime() && parameter->comptimeValue().has_value());
+
+  const FunctionSymbol *signature = nullptr;
+
+  std::unique_ptr<ComptimeFrame> concretePackFrame;
+  if (node->proto()->hasConcretePack()) {
+    concretePackFrame = std::make_unique<ComptimeFrame>();
+    std::vector<ComptimeBinding> elements;
+    for (auto &elementName : node->proto()->concretePackElements()) {
+      const ParameterDecl *parameter = nullptr;
+      for (auto &candidate : node->proto()->parameters()) {
+        if (candidate->variable()->name() == elementName) {
+          parameter = candidate.get();
+          break;
+        }
+      }
+      if (!parameter || !parameter->type())
+        return failure();
+
+      auto residual = std::make_unique<VariableExpr>(node->location(),
+                                                      elementName);
+      residual->setType(parameter->type());
+      elements.push_back(ComptimeBinding::residualValue(
+          std::move(residual), parameter->type(),
+          /*isConst=*/!parameter->canMutateObject()));
+    }
+    concretePackFrame->bind(
+        node->proto()->concretePackName(),
+        ComptimeBinding::pack(std::move(elements)));
+    LLVM_DEBUG(llvm::dbgs()
+               << "bind concrete pack `"
+               << node->proto()->concretePackName() << "` with "
+               << node->proto()->concretePackElements().size()
+               << " elements in `" << node->proto()->id()->name() << "`\n");
+  }
+
+  {
+    SemaImpl::FunctionScope functionScope(_sema);
     signature = _sema.lookupFunction(node->proto()->id()->name());
-    if (!signature)
+    if (signature) {
+      if (llvm::failed(bindFunctionParameters(node->proto().get(), signature)))
+        return failure();
+    } else {
+      if (llvm::failed(sema(node->proto().get())))
+        return failure();
+      signature = _sema.lookupFunction(node->proto()->id()->name());
+      if (!signature)
+        return failure();
+    }
+    if (!node->isExtern())
+      _sema.registerFunctionDecl(node->proto()->id()->name(), node);
+    SemaImpl::FunctionReturnTypeScope returnTypeScope(
+        _sema._currentFunctionReturnType, signature->type->returnType());
+
+    auto hasComptimeValue = false;
+    for (auto &parameter : node->proto()->parameters())
+      hasComptimeValue = hasComptimeValue ||
+                         (parameter->isComptime() &&
+                          parameter->comptimeValue().has_value());
+    if (!concretePackFrame && !hasComptimeValue) {
+      if (llvm::failed(_sema.sema(node->body().get())))
+        return failure();
+    } else if (concretePackFrame) {
+      SemaImpl::ComptimeFrameScope frameScope(_sema,
+                                              concretePackFrame.get());
+      if (llvm::failed(ComptimeSema(_sema).executeStagedFunctionBody(
+              node->body().get(), node)))
+        return failure();
+    } else if (llvm::failed(
+                   ComptimeSema(_sema).executeStagedFunctionBody(
+                       node->body().get(), node))) {
+      return failure();
+    }
+  }
+
+  if (isConcreteSpecialization) {
+    node->proto()->makeOrdinary();
+    LLVM_DEBUG(llvm::dbgs()
+               << "residualize concrete function `"
+               << node->proto()->id()->name()
+               << "` as an ordinary FunctionDecl\n");
+    // The staged scope still contains comptime parameters. Re-enter with a
+    // fresh ordinary scope so residual Sema cannot resolve a removed binding.
+    SemaImpl::FunctionScope ordinaryFunctionScope(_sema);
+    signature = _sema.lookupFunction(node->proto()->id()->name());
+    if (!signature ||
+        llvm::failed(bindFunctionParameters(node->proto().get(), signature)))
+      return failure();
+    SemaImpl::FunctionReturnTypeScope ordinaryReturnTypeScope(
+        _sema._currentFunctionReturnType, signature->type->returnType());
+    if (llvm::failed(_sema.sema(node->body().get())))
       return failure();
   }
-  SemaImpl::FunctionReturnTypeScope returnTypeScope(
-      _sema._currentFunctionReturnType, signature->type->returnType());
-  if (llvm::failed(_sema.sema(node->body().get())))
-    return failure();
 
   auto hasReturn = containsReturnStat(node->body().get());
   if (!isUnitType(signature->type->returnType()) && !hasReturn)

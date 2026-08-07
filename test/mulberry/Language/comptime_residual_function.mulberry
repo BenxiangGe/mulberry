@@ -1,0 +1,36 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn choose<Args...>(comptime label: String, args: Args...): UInt64 {
+  var index = 0;
+  var result = 0;
+  while index < args.length {
+    if args.length > 0 {
+      result = result + args[index];
+    }
+    index = index + 1;
+  }
+  return result;
+}
+
+fn main(): UInt64 {
+  const result = choose("sum", 10, 20);
+  io.println(result);
+  return result;
+}
+
+# AST-LABEL: Prototype {{.*}}name=choose__pack_UInt64_UInt64__str_73756d
+# AST: ParameterDecl readonly {{.*}}id=args__0
+# AST: ParameterDecl readonly {{.*}}id=args__1
+# AST-NOT: ParameterDecl comptime
+# AST-NOT: ParameterDecl pack
+# AST-NOT: IfStat
+# AST-NOT: WhileStat
+# AST: ReturnStat
+# MLIR-LABEL: func.func @choose__pack_UInt64_UInt64__str_73756d(%{{.*}}: i64, %{{.*}}: i64) -> i64
+# MLIR-NOT: scf.while
+# MLIR: return
+# MLIR-LABEL: func.func @std_io_println__UInt64
+# JIT: 30

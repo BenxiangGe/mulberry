@@ -1,0 +1,10 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import string;
+
+fn main(): UInt64 {
+  const text = string.format("{}");
+  return 0;
+}
+
+# CHECK: error: not enough arguments for format string

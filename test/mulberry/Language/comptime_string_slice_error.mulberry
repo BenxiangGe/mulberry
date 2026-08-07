@@ -1,0 +1,12 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | /home/gbx/git/cherry/llvm-project/build/Release/bin/FileCheck %s
+
+fn cut(comptime text: String): String {
+  return text.slice(4, 2);
+}
+
+fn main(): UInt64 {
+  const value = cut("hello");
+  return value.length;
+}
+
+# CHECK: error: comptime String slice range is invalid

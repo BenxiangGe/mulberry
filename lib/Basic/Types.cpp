@@ -20,6 +20,9 @@ ComptimeValue::ComptimeValue(const Type *type)
 ComptimeValue::ComptimeValue(bool boolValue)
     : _kind(Kind::Bool), _boolValue(boolValue) {}
 
+ComptimeValue::ComptimeValue(uint8_t uint8Value)
+    : _kind(Kind::UInt8), _uint8Value(uint8Value) {}
+
 ComptimeValue::ComptimeValue(uint64_t uint64Value)
     : _kind(Kind::UInt64), _uint64Value(uint64Value) {}
 
@@ -36,6 +39,10 @@ auto ComptimeValue::type() const -> const Type * {
 
 auto ComptimeValue::boolValue() const -> bool {
   return _boolValue;
+}
+
+auto ComptimeValue::uint8Value() const -> uint8_t {
+  return _uint8Value;
 }
 
 auto ComptimeValue::uint64Value() const -> uint64_t {

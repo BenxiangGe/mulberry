@@ -1,0 +1,12 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import string;
+
+fn main(): UInt64 {
+  const text = string.format("{", 1);
+  return 0;
+}
+
+# CHECK: string_format_unmatched_left_brace_error.mulberry:6:16: error: unmatched '{' in format string
+# CHECK-SAME: comptime call stack: std.string.format
+# CHECK: stdlib/std/string.mulberry:150:9: note: comptime failure was triggered here

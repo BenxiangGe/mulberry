@@ -152,9 +152,13 @@ public:
     return _thenBlock;
   }
 
+  auto thenBlock() -> std::unique_ptr<BlockExpr> & { return _thenBlock; }
+
   auto elseBlock() const -> const std::unique_ptr<BlockExpr> & {
     return _elseBlock;
   }
+
+  auto elseBlock() -> std::unique_ptr<BlockExpr> & { return _elseBlock; }
 
   auto hasElseBlock() const -> bool { return static_cast<bool>(_elseBlock); }
 
@@ -267,9 +271,27 @@ public:
     return _bodyBlock;
   }
 
+  auto setComptimeUnrolledBodies(VectorUniquePtr<BlockExpr> bodies) -> void {
+    _comptimeUnrolledBodies = std::move(bodies);
+    _isComptimeUnrolled = true;
+  }
+
+  auto isComptimeUnrolled() const -> bool { return _isComptimeUnrolled; }
+
+  auto comptimeUnrolledBodies() const
+      -> const VectorUniquePtr<BlockExpr> & {
+    return _comptimeUnrolledBodies;
+  }
+
+  auto comptimeUnrolledBodies() -> VectorUniquePtr<BlockExpr> & {
+    return _comptimeUnrolledBodies;
+  }
+
 private:
   std::unique_ptr<Expr> _condition;
   std::unique_ptr<BlockExpr> _bodyBlock;
+  VectorUniquePtr<BlockExpr> _comptimeUnrolledBodies;
+  bool _isComptimeUnrolled = false;
 };
 
 // _____________________________________________________________________________

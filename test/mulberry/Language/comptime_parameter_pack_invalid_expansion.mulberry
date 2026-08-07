@@ -1,0 +1,11 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn take(value: UInt64): UInt64 {
+  return value;
+}
+
+fn main(): UInt64 {
+  return take(1...);
+}
+
+# CHECK: error: only a value pack can be expanded

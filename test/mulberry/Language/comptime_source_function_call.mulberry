@@ -1,0 +1,39 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+trait Bump {
+  fn bump(self): UInt64;
+}
+
+impl Bump for UInt64 {
+  fn bump(self: UInt64): UInt64 {
+    return self + 1;
+  }
+}
+
+fn add(left: UInt64, right: UInt64): UInt64 {
+  return left + right;
+}
+
+fn increment(value: UInt64): UInt64 {
+  return add(value, 1);
+}
+
+fn staticCalls<Args...>(args: Args...): UInt64 {
+  const ordinary = increment(10);
+  const traitValue = 10.bump();
+  return ordinary + traitValue + args[0];
+}
+
+fn main(): UInt64 {
+  const result = staticCalls(20);
+  io.println(result);
+  return result;
+}
+
+# MLIR-LABEL: func.func @staticCalls__pack_UInt64
+# MLIR-NOT: func.call @increment
+# MLIR-NOT: func.call @Bump__UInt64.bump
+# MLIR: return
+# JIT: 42

@@ -3,12 +3,14 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
 
+import string;
+
 struct Point {
   x: UInt64,
   y: UInt64,
 
   pub fn toString(self: Point): String {
-    return "Point({$self.x}, {$self.y})";
+    return string.format("Point({}, {})", self.x, self.y);
   }
 }
 
@@ -20,7 +22,7 @@ comptime Box<T> = struct {
   value: T,
 
   pub fn toString(self: Box<T>): String {
-    return "Box({$self.value})";
+    return string.format("Box({})", self.value);
   }
 };
 
@@ -28,8 +30,8 @@ comptime PlainBox<T> = struct {
   value: T
 };
 
-fn decorate<T>(value: T): String {
-  return "<{$value}>";
+fn decorate<T: Show>(value: T): String {
+  return string.format("<{}>", value);
 }
 
 fn main(): UInt64 {
@@ -44,80 +46,32 @@ fn main(): UInt64 {
   const box: Box<UInt64> = Box<UInt64> { 12 };
   const plainBox: PlainBox<UInt64> = PlainBox<UInt64> { 13 };
 
-  io.writeText("scalars {$truth} {$byte} {$count} {$loss}");
+  io.writeText(string.format("scalars {} {} {} {}", truth, byte, count,
+                             loss));
   io.writeText("\n");
-  io.writeText("custom {$point}");
+  io.writeText(string.format("custom {}", point));
   io.writeText("\n");
-  io.writeText("count=" + count + ", point=" + point);
+  io.writeText(string.format("count={}, point={}", count, point));
   io.writeText("\n");
-  io.writeText("plain " + plain);
+  io.writeText(string.format("plain {}", plain));
   io.writeText("\n");
-  io.writeText("alias {$alias}");
+  io.writeText(string.format("alias {}", alias));
   io.writeText("\n");
-  io.writeText("array {$values}");
+  io.writeText(string.format("array {}", values));
   io.writeText("\n");
   io.writeText("generic " + decorate(count) + " " + decorate(point));
   io.writeText("\n");
-  io.writeText("boxes {$box} {$plainBox}");
+  io.writeText(string.format("boxes {} {}", box, plainBox));
   io.writeText("\n");
   return 0;
 }
 
 # AST-DAG: TraitDecl {{.*}}name=std.string.Show
-# AST-DAG: TraitMethodDecl {{.*}}name=toString receiver=readonly return=String
-# AST-DAG: Prototype {{.*}}name=std.string.formatValue parameter=T: Show
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Bool
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__UInt8
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__UInt64
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Float32
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Point
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Plain
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Array_UInt64__2_
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__Box__UInt64
-# AST-DAG: CallExpr {{.*}}callee=std_string_formatValue__PlainBox__UInt64
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__UInt64.toString
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Bool.toString
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__UInt8.toString
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Float32.toString
-# AST-DAG: CallExpr {{.*}}callee=Point.toString
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Plain.toString
-# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__Plain
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__Array_UInt64__2_.toString
-# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__Array_UInt64__2_
-# AST-DAG: CallExpr {{.*}}callee=Box_toString__UInt64
-# AST-DAG: CallExpr {{.*}}callee=std.string.Show__PlainBox__UInt64.toString
-# AST-DAG: CallExpr {{.*}}callee=std_string_objectToString__PlainBox__UInt64
+# AST: Prototype {{.*}}name=decorate parameter=T: Show
+# AST-NOT: formatValue
 
-# MLIR-DAG: call @std_string_formatValue__Bool
-# MLIR-DAG: call @std_string_formatValue__UInt8
-# MLIR-DAG: call @std_string_formatValue__UInt64
-# MLIR-DAG: call @std_string_formatValue__Float32
-# MLIR-DAG: call @std_string_formatValue__Point
-# MLIR-DAG: func.func @std.string.Show__UInt64.toString
-# MLIR-DAG: call @std.string.fromUInt64
-# MLIR-DAG: func.func @std.string.Show__Bool.toString
-# MLIR-DAG: call @std.string.fromBool
-# MLIR-DAG: func.func @std.string.Show__UInt8.toString
-# MLIR-DAG: call @std.string.fromUInt8
-# MLIR-DAG: func.func @std.string.Show__Float32.toString
-# MLIR-DAG: call @std.string.fromFloat32
-# MLIR-DAG: func.func @std_string_formatValue__Point
-# MLIR-DAG: call @Point.toString
-# MLIR-DAG: func.func @std_string_formatValue__Plain
-# MLIR-DAG: call @std.string.Show__Plain.toString
-# MLIR-DAG: func.func @std.string.Show__Plain.toString
-# MLIR-DAG: call @std_string_objectToString__Plain
-# MLIR-DAG: func.func @std_string_objectToString__Plain
-# MLIR-DAG: call @mulberry_string_object_identity
-# MLIR-DAG: func.func @std_string_formatValue__Array_UInt64__2_
-# MLIR-DAG: call @std.string.Show__Array_UInt64__2_.toString
-# MLIR-DAG: func.func @std.string.Show__Array_UInt64__2_.toString
-# MLIR-DAG: call @std_string_objectToString__Array_UInt64__2_
-# MLIR-DAG: func.func @std_string_formatValue__Box__UInt64
-# MLIR-DAG: call @Box_toString__UInt64
-# MLIR-DAG: func.func @std_string_formatValue__PlainBox__UInt64
-# MLIR-DAG: call @std.string.Show__PlainBox__UInt64.toString
-# MLIR-DAG: func.func @std.string.Show__PlainBox__UInt64.toString
+# MLIR: func.func @main
+# MLIR-NOT: formatValue
 
 # JIT: scalars true 7 18446744073709551615 3.5
 # JIT-NEXT: custom Point(4, 9)

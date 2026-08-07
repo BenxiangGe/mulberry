@@ -11,7 +11,9 @@ file mkdir [file join $home .mulberry]
 spawn env HOME=$home TERM=xterm-256color $imb
 expect -re {imb > }
 send -- "var x = 123\r"
-expect -re {imb > }
+# Isocline redraws `imb >` for every typed character. A fresh prompt starts on
+# a new line only after the submission has compiled and executed.
+expect -re {(?s)\r\n.*imb > }
 send -- ":quit\r"
 expect eof
 

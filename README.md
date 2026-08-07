@@ -15,7 +15,7 @@ Mulberry 目前已经具备一条可工作的 frontend 到 MLIR / LLVM pipeline�
 
 - Frontend：Lexer、Parser、AST、Sema、Driver。
 - 类型系统：结构化 semantic type system，不再使用早期 string-based type system。
-- 基础类型：`Unit`、`Bool`、`UInt8`、`UInt64`、`Float32`、`Char`。
+- 基础类型：`()`, `Bool`、`UInt8`、`UInt64`、`Int64`、`Integer`、`Float32`、`Float64`、`Char`。
 - Source object：`String`、`File`、user `struct`、`Array<T, N>`、`List<T>`、
   `Tensor<T>`、generic `data` 和 `Result<T, E>`。
 - 对象模型：scalar 按 value 传递；非 scalar object 按 reference 传递，由 GC
@@ -24,8 +24,9 @@ Mulberry 目前已经具备一条可工作的 frontend 到 MLIR / LLVM pipeline�
   `mut value: T` 或 `mut self: T`。`const` 只用于 local binding。
 - 指针模型：`Ptr<T>` 不再是普通用户 surface，只保留在 stdlib/compiler/runtime
   内部，用于对象布局、FFI/runtime handle 和 lowering。
-- 泛型/编译期能力：支持当前 stdlib 需要的 `comptime` 类型别名和泛型函数实例化，
-  例如 `List<T>`、`Tensor<T>`、`Array<T, N>`。
+- 泛型/编译期能力：comptime interpreter + partial evaluation 支持 type/value
+  specialization、`comptime` value parameter、heterogeneous parameter pack、static control
+  flow 和 source helper；runtime-dependent ordinary expression 保留为 residual code。
 - Trait：支持 `trait`、concrete `impl Trait for Type`、default method 和函数约束
   `<T: Trait>`。当前真实协议是 `Show`；specialization 后静态选择普通函数，不生成
   trait object 或 vtable。完整语义见 [Trait](docs/Traits.md)。
@@ -98,8 +99,9 @@ object、Tensor view/pack 等 lowering bridge。这是内部 IR，不是用户 s
 - `result`：普通 ADT `Result<T, E>`、`Ok(T)`、`Err(E)` 和 postfix `?` 错误传播。
 - `io`：generic `print()` / `println()`、`File`，以及统一返回 `Result` 的
   open/read/readExact/write/seek/tell/close。
-- `string`：source-level `String` object、`Show` Trait、scalar formatter 和 object identity
-  fallback。
+- `string`：source-level `String` object、`Show` Trait、`string.format(comptime pattern, args...)`
+  和 object identity fallback。format parser 完全由 stdlib source 执行；String literal 不解析
+  interpolation，compiler 没有 formatter-specific path。
 - `list`：`List<T>`、`withCapacity()`、`from()`、`push()`、`size()`、`shufflePair()`。
 - `tensor`：`Tensor<T>`、`zeros()`、`from()`、`sliceFirst()`、`slicesFirst()`。
 - `json`：cursor-style JSON parser，用于 safetensors metadata。
@@ -110,6 +112,17 @@ object、Tensor view/pack 等 lowering bridge。这是内部 IR，不是用户 s
 `stdlib/prelude.mulberry` 默认 import 常用 stdlib package 和类型，所以普通用户程序可以
 直接写 `List<T>`、`Tensor<T>`、`String`、`File`、`io.println(...)`、`tensor.zeros(...)` 等。
 `Result<T, E>`、`Ok`、`Err` 和 `Show` 也由 prelude 默认导入。
+
+String formatting 使用显式 stdlib API：
+
+```mulberry
+const message = string.format("name={}, age={}", name, age);
+io.println(message);
+```
+
+pattern 必须是 comptime String；第一版支持 `{}` 和 `{{` / `}}`。完整规则见
+[String formatting](docs/StringFormatting.md)，interpreter 的阶段边界见
+[Comptime interpreter](docs/ComptimeInterpreter.md)。
 
 ## 神经网络 Package
 
@@ -265,8 +278,9 @@ training 示例通过 `nn.TensorDataset` 把 batch tensor 切成 input/label pai
 - 这是学习用编译器，不是生产编译器。
 - stdlib、namespace、import、package registry 仍然是够用优先的早期实现。
 - `Ptr<T>` 仍存在于 stdlib/compiler 内部；普通用户 surface 已经隐藏它，但 FFI 设计还没完成。
-- comptime reflection 目前只覆盖 formatting、generic computed type 和
-  `tensor.from(...)` 所需的 semantic type query，不是完整的 comptime interpreter。
+- comptime interpreter 是为 reflection、`tensor.from(...)` 和 format string 的真实需求实现的
+  staged execution subsystem，不是 general compile-time VM：没有 comptime I/O、FFI、clock、
+  random、thread、macro 或 runtime `TypeInfo` object。
 - `mulberry.nn` 的 CNN 路径当前固定 Float32、NCHW input、OIHW weight 和显式
   backprop；通用 broadcasting、batch matmul、GPU backend 和自动求导还没实现。
 - 当前 safetensors / JSON 支持只覆盖项目需要的子集，不是完整通用库。

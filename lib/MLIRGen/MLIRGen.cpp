@@ -254,7 +254,6 @@ private:
   auto gen(const FloatLiteralExpr *node) -> mlir::Value;
   auto gen(const BoolLiteralExpr *node) -> mlir::Value;
   auto gen(const StringLiteralExpr *node) -> mlir::Value;
-  auto gen(const InterpolatedStringExpr *node) -> mlir::Value;
   auto gen(const ObjectIdentityExpr *node) -> mlir::Value;
   auto genStringLiteral(const StringLiteralExpr *node,
                         mulberry_core::RecordType storageType)
@@ -764,6 +763,8 @@ auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
     -> func::FuncOp {
   llvm::SmallVector<mlir::Type, 3> argTypes;
   for (auto &param : node->parameters()) {
+    if (param->isComptime())
+      continue;
     auto *paramType = param->type();
     argTypes.push_back(getParameterMLIRType(paramType, isExtern));
   }
@@ -815,11 +816,12 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> func::FuncOp {
     // Parameters shadow session bindings with the same source name.
     enterVariableScope();
   }
-  for (const auto &varValue : llvm::zip(node->proto()->parameters(),
-                                        entryBlock.getArguments())) {
-    auto &var = std::get<0>(varValue);
+  size_t argumentIndex = 0;
+  for (auto &var : node->proto()->parameters()) {
+    if (var->isComptime())
+      continue;
     auto varName = var->variable()->name();
-    auto value = std::get<1>(varValue);
+    auto value = entryBlock.getArgument(argumentIndex++);
     auto *paramType = var->type();
     if (isObjectReferenceParameter(paramType, node->isExtern())) {
       auto referenceSlot = createAlloca(value.getType(), loc(node));
@@ -922,9 +924,6 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
   case Expr::Expr_StringLiteral:
     result = gen(cast<StringLiteralExpr>(node));
     break;
-  case Expr::Expr_InterpolatedString:
-    result = gen(cast<InterpolatedStringExpr>(node));
-    break;
   case Expr::Expr_ObjectIdentity:
     result = gen(cast<ObjectIdentityExpr>(node));
     break;
@@ -933,6 +932,8 @@ auto MLIRGenImpl::gen(const Expr *node) -> mlir::Value {
     break;
   case Expr::Expr_TypeInfo:
     llvm_unreachable("typeInfo expression reached MLIRGen");
+  case Expr::Expr_CompileError:
+    llvm_unreachable("compileError expression reached MLIRGen");
   case Expr::Expr_ComptimeBlock:
     llvm_unreachable("comptime block reached MLIRGen");
   case Expr::Expr_TypeLayout:
@@ -1222,6 +1223,14 @@ auto MLIRGenImpl::bindMatchPattern(
 }
 
 auto MLIRGenImpl::gen(const WhileStat *node) -> void {
+  if (node->isComptimeUnrolled()) {
+    DBG("generate {0} comptime-unrolled while iterations",
+        node->comptimeUnrolledBodies().size());
+    for (auto &body : node->comptimeUnrolledBodies())
+      gen(body.get());
+    return;
+  }
+
   auto bodyBlock = node->bodyBlock().get();
   auto location = loc(node);
   auto flagType = _builder.getI1Type();
@@ -1485,6 +1494,11 @@ auto MLIRGenImpl::gen(const VariableExpr *node) -> mlir::Value {
     case ComptimeValue::Kind::Bool:
       return arith::ConstantIntOp::create(
           _builder, loc(node), value.boolValue(), 1);
+    case ComptimeValue::Kind::UInt8: {
+      auto intType = llvm::cast<mlir::IntegerType>(getSourceMLIRType(node));
+      return arith::ConstantIntOp::create(
+          _builder, loc(node), value.uint8Value(), intType.getWidth());
+    }
     case ComptimeValue::Kind::UInt64: {
       auto intType = llvm::cast<mlir::IntegerType>(getSourceMLIRType(node));
       return arith::ConstantIntOp::create(
@@ -1597,24 +1611,6 @@ auto MLIRGenImpl::gen(const StringLiteralExpr *node) -> mlir::Value {
   auto storageType = llvm::cast<mulberry_core::RecordType>(
       getLayoutMLIRType(node));
   return genStringLiteral(node, storageType);
-}
-
-auto MLIRGenImpl::gen(const InterpolatedStringExpr *node) -> mlir::Value {
-  auto &segments = node->segments();
-  if (segments.empty())
-    llvm_unreachable("interpolated String has no segments");
-
-  auto result = gen(segments.front().get());
-  if (segments.size() == 1)
-    return result;
-
-  for (size_t index = 1; index < segments.size(); ++index) {
-    auto next = gen(segments[index].get());
-    auto call = genDeclaredLoweredCall(
-        "std.string.concat", mlir::ValueRange{result, next}, loc(node));
-    result = call.getResult(0);
-  }
-  return result;
 }
 
 auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
@@ -2207,11 +2203,6 @@ void MLIRGenImpl::markTensorReferencesEscaped(const Expr *expr) {
   if (auto *binary = llvm::dyn_cast<BinaryExpr>(expr)) {
     markTensorReferencesEscaped(binary->lhs().get());
     markTensorReferencesEscaped(binary->rhs().get());
-    return;
-  }
-  if (auto *interpolated = llvm::dyn_cast<InterpolatedStringExpr>(expr)) {
-    for (auto &segment : interpolated->segments())
-      markTensorReferencesEscaped(segment.get());
     return;
   }
   if (auto *identity = llvm::dyn_cast<ObjectIdentityExpr>(expr)) {

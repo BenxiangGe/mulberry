@@ -1,0 +1,25 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn inspect(comptime text: String): UInt64 {
+  const length = text.length;
+  const first = text[0];
+  const middle = text.slice(1, 4);
+  const suffix = middle + "!";
+  if length == 5 and first == 'h' and suffix == "ell!" {
+    return length + suffix.length;
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  const answer = inspect("hello");
+  io.println(answer);
+  return answer;
+}
+
+# MLIR-LABEL: func.func @inspect__str_68656c6c6f()
+# MLIR-NOT: func.call @std.string.String.slice
+# MLIR: return
+# JIT: 9

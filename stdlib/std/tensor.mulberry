@@ -3,6 +3,7 @@ package std.tensor;
 import list;
 import list.List;
 import internal.ptr;
+import string;
 import string.String;
 
 extern fn mulberry_zero_memory(data: Ptr<UInt8>, byteSize: UInt64): ();
@@ -37,7 +38,7 @@ comptime Tensor<T> = struct {
       if dimension != 0 {
         result = result + ", ";
       }
-      result = result + std.string.formatValue(self.sizes[dimension]);
+      result = result + string.format("{}", self.sizes[dimension]);
       dimension = dimension + 1;
     }
     result = result + "], values: [";
@@ -47,7 +48,7 @@ comptime Tensor<T> = struct {
       if index != 0 {
         result = result + ", ";
       }
-      result = result + std.string.formatValue(self.data[index]);
+      result = result + string.format("{}", self.data[index]);
       index = index + 1;
     }
     if self.numel > displayLimit {

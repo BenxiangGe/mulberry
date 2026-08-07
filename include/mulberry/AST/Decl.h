@@ -11,6 +11,7 @@
 #include "mulberry/AST/Name.h"
 #include "mulberry/AST/Node.h"
 #include "mulberry/AST/Type.h"
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -92,14 +93,54 @@ public:
     _comptimeParameters = std::move(parameters);
   }
 
-  auto isGeneric() const -> bool { return !_comptimeParameters.empty(); }
+  auto hasComptimeValueParameters() const -> bool {
+    for (auto &parameter : _parameters)
+      if (parameter->isComptime() && !parameter->comptimeValue())
+        return true;
+    return false;
+  }
+
+  auto isGeneric() const -> bool {
+    return !_comptimeParameters.empty() || hasComptimeValueParameters();
+  }
 
   auto setIsMethod(bool isMethod) -> void { _isMethod = isMethod; }
 
   auto isMethod() const -> bool { return _isMethod; }
 
+  auto setConcretePack(std::string name,
+                       std::vector<std::string> elementNames) -> void {
+    _concretePackName = std::move(name);
+    _concretePackElements = std::move(elementNames);
+  }
+
+  auto hasConcretePack() const -> bool { return !_concretePackName.empty(); }
+
+  auto concretePackName() const -> std::string_view {
+    return _concretePackName;
+  }
+
+  auto concretePackElements() const -> const std::vector<std::string> & {
+    return _concretePackElements;
+  }
+
   auto parameters() const -> const VectorUniquePtr<ParameterDecl> & {
     return _parameters;
+  }
+
+  auto parameters() -> VectorUniquePtr<ParameterDecl> & { return _parameters; }
+
+  // A concrete specialization no longer needs staged parameters or pack
+  // metadata once its body has been residualized.
+  auto makeOrdinary() -> void {
+    VectorUniquePtr<ParameterDecl> ordinaryParameters;
+    for (auto &parameter : _parameters)
+      if (!parameter->isComptime())
+        ordinaryParameters.push_back(std::move(parameter));
+    _parameters = std::move(ordinaryParameters);
+    _comptimeParameters.clear();
+    _concretePackName.clear();
+    _concretePackElements.clear();
   }
 
   auto returnTypeNode() const -> const TypeNode * {
@@ -115,8 +156,17 @@ private:
   VectorUniquePtr<ParameterDecl> _parameters;
   std::unique_ptr<TypeNode> _returnTypeNode;
   std::vector<ComptimeParam> _comptimeParameters;
+  std::string _concretePackName;
+  std::vector<std::string> _concretePackElements;
   const Type *_type = nullptr;
   bool _isMethod = false;
+};
+
+struct SpecializationOrigin {
+  // Staged bodies run after their generic call was analyzed, so preserve the
+  // source call for user-facing comptime diagnostics.
+  std::string genericName;
+  llvm::SMLoc callLocation;
 };
 
 class FunctionDecl final : public Decl {
@@ -136,10 +186,22 @@ public:
 
   auto isExtern() const -> bool { return _isExtern; }
 
+  auto setSpecializationOrigin(std::string_view genericName,
+                               llvm::SMLoc callLocation) -> void {
+    _specializationOrigin =
+        SpecializationOrigin{std::string(genericName), callLocation};
+  }
+
+  auto specializationOrigin() const
+      -> const std::optional<SpecializationOrigin> & {
+    return _specializationOrigin;
+  }
+
 private:
   std::unique_ptr<Prototype> _proto;
   std::unique_ptr<BlockExpr> _body;
   bool _isExtern = false;
+  std::optional<SpecializationOrigin> _specializationOrigin;
 };
 
 // _____________________________________________________________________________

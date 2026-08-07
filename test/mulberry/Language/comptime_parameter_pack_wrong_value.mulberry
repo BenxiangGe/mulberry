@@ -1,0 +1,11 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn bad<Args...: Show>(values: UInt64...): String {
+  return "bad";
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# CHECK: error: a value pack must refer to a type pack parameter

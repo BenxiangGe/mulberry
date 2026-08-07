@@ -45,7 +45,7 @@ const char *completionCandidates[] = {
     "println",     "writeText",    "open",        "close",
     "read",        "readExact",    "write",       "withCapacity",
     "push",        "pop",          "map",         "filter",
-    "reduce",      "forEach",      "toString",    "formatValue",
+    "reduce",      "forEach",      "toString",    "format",
     "from",        "zeros",        "zerosDynamic", "reshape",
     "numel",       "size",         "identity",    "boolToUInt64",
     "toUInt8",     "toFloat32",    "sizeof",      "typeInfo",

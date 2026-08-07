@@ -1,0 +1,11 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | /home/gbx/git/cherry/llvm-project/build/Release/bin/FileCheck %s
+
+fn read(comptime text: String): UInt64 {
+  return text[5];
+}
+
+fn main(): UInt64 {
+  return read("hello");
+}
+
+# CHECK: error: comptime String index is out of range

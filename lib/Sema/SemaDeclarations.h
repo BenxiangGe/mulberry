@@ -31,6 +31,7 @@ public:
 
 private:
   auto functionPackageName(std::string_view name) const -> std::string;
+  auto checkFunctionPacks(Prototype *node) -> llvm::LogicalResult;
   auto semaFunctionParameters(
       Prototype *node, std::vector<const Type *> &parameterTypes,
       std::vector<bool> &parameterCanMutateObject) -> llvm::LogicalResult;

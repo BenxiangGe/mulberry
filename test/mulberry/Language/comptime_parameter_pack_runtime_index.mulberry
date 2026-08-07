@@ -1,0 +1,12 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn bad<Args...>(index: UInt64, args: Args...): UInt64 {
+  const value = args[index];
+  return 0;
+}
+
+fn main(): UInt64 {
+  return bad(1, 1, true);
+}
+
+# CHECK: error: pack index must be a comptime UInt64

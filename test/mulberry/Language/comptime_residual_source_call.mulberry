@@ -1,0 +1,17 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+
+fn increment(value: UInt64): UInt64 {
+  return value + 1;
+}
+
+fn residualSourceCall<Args...>(args: Args...): UInt64 {
+  return increment(args[0]);
+}
+
+fn main(): UInt64 {
+  return residualSourceCall(20);
+}
+
+# CHECK-LABEL: func.func @residualSourceCall__pack_UInt64
+# CHECK: call @increment

@@ -10,6 +10,7 @@ import json.Parser;
 import result.Result;
 import result.Ok;
 import result.Err;
+import string;
 import string.String;
 import tensor;
 import tensor.Tensor;
@@ -24,8 +25,10 @@ fn printError(error: SafetensorsError): () {
   match error {
     IoFailure(fileError) => io.printError(fileError);
     JsonFailure(jsonError) => json.printError(jsonError);
-    TensorNotFound(name) => io.println("tensor {$name} was not found");
-    InvalidTensor(name) => io.println("tensor {$name} has invalid metadata");
+    TensorNotFound(name) =>
+        io.println(string.format("tensor {} was not found", name));
+    InvalidTensor(name) =>
+        io.println(string.format("tensor {} has invalid metadata", name));
   }
 }
 

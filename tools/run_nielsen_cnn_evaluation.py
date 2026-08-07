@@ -23,21 +23,21 @@ EVALUATE_SOURCE = """\
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
-  const checkpoint = safetensors.open("data/checkpoint.safetensors");
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
+  const checkpoint = safetensors.open("data/checkpoint.safetensors")?;
   const parameters = nn.CnnParameters {
-    safetensors.read(checkpoint, "conv1_weight"),
-    safetensors.read(checkpoint, "conv1_bias"),
-    safetensors.read(checkpoint, "classifier_weight"),
-    safetensors.read(checkpoint, "classifier_bias")
+    safetensors.read(checkpoint, "conv1_weight")?,
+    safetensors.read(checkpoint, "conv1_bias")?,
+    safetensors.read(checkpoint, "classifier_weight")?,
+    safetensors.read(checkpoint, "classifier_bias")?
   };
-  safetensors.close(checkpoint);
+  safetensors.close(checkpoint)?;
 
-  const fixture = safetensors.open("data/test.safetensors");
+  const fixture = safetensors.open("data/test.safetensors")?;
   var test = nn.datasetFromBatches(
-      safetensors.read(fixture, "test_input"),
-      safetensors.read(fixture, "test_label"));
-  safetensors.close(fixture);
+      safetensors.read(fixture, "test_input")?,
+      safetensors.read(fixture, "test_label")?);
+  safetensors.close(fixture)?;
 
   const evaluation = nn.cnnEvaluateDataset(parameters, test);
   const loss = nn.cnnMeanCrossEntropy(parameters, test);
@@ -45,7 +45,17 @@ fn main(): UInt64 {
   io.println(evaluation.correct);
   io.println(evaluation.accuracyBasisPoints);
   io.println(loss);
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }
 """
 

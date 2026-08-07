@@ -1,0 +1,7 @@
+# RUN: mkdir -p %t
+# RUN: printf 'fn choose<T>(comptime label: String, value: T): T { if label == "bad" { #compileError("bad specialization"); } return value; }\nchoose("bad", 1)\n' > %t/bad.mulberry
+# RUN: printf 'fn choose<T>(comptime label: String, value: T): T { return value; }\n' > %t/good.mulberry
+# RUN: printf ':load %t/bad.mulberry\n:load %t/good.mulberry\nchoose("bad", 2)\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1 | FileCheck %s
+
+# CHECK: error: bad specialization
+# CHECK: {{^}}2{{$}}

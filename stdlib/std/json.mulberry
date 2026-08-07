@@ -8,6 +8,7 @@ import io;
 import result.Result;
 import result.Ok;
 import result.Err;
+import string;
 import string.String;
 import tensor.Tensor;
 
@@ -23,19 +24,22 @@ data JsonError =
 fn printError(error: JsonError): () {
   match error {
     UnexpectedEnd(position) =>
-        io.println("unexpected end of JSON at byte {$position}");
+        io.println(string.format("unexpected end of JSON at byte {}", position));
     ExpectedChar(value, position) =>
-        io.println("expected character {$value} at byte {$position}");
+        io.println(string.format("expected character {} at byte {}", value,
+                                 position));
     ExpectedDigit(position) =>
-        io.println("expected digit at byte {$position}");
+        io.println(string.format("expected digit at byte {}", position));
     UnterminatedString(position) =>
-        io.println("unterminated string at byte {$position}");
+        io.println(string.format("unterminated string at byte {}", position));
     UnsupportedEscape(position) =>
-        io.println("unsupported string escape at byte {$position}");
+        io.println(string.format("unsupported string escape at byte {}",
+                                 position));
     ExpectedValue(position) =>
-        io.println("expected JSON value at byte {$position}");
+        io.println(string.format("expected JSON value at byte {}", position));
     ExpectedSeparator(end, position) =>
-        io.println("expected comma or character {$end} at byte {$position}");
+        io.println(string.format("expected comma or character {} at byte {}",
+                                 end, position));
   }
 }
 

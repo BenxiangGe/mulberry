@@ -1,0 +1,21 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s
+
+trait NestedReflection {
+  fn valid(self): Bool;
+}
+
+impl<T> NestedReflection for T where comptime {
+  #typeInfo(Array<UInt64, 2>).arrayElementType().isUInt64()
+} {
+  fn valid(self: T): Bool {
+    return true;
+  }
+}
+
+fn main(): UInt64 {
+  io.println(1.valid());
+  return 0;
+}
+
+# CHECK: true

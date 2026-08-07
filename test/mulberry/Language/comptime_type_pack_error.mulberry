@@ -1,0 +1,21 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+trait Marker {
+  fn marker(self): Bool;
+}
+
+impl Marker for UInt64 {
+  fn marker(self: UInt64): Bool {
+    return true;
+  }
+}
+
+fn count<Args...: Marker>(args: Args...): UInt64 {
+  return 2;
+}
+
+fn main(): UInt64 {
+  return count(7, 3.5);
+}
+
+# CHECK: type `Float32` does not satisfy trait `Marker`

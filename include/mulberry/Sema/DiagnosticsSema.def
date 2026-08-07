@@ -16,6 +16,30 @@ ERROR(internal_only, "internal feature is not available to user code")
 ERROR(expected_comptime_value, "expected a comptime value")
 ERROR(expected_comptime_type, "expected a comptime Type")
 ERROR(comptime_type_runtime, "comptime Type cannot be used as a runtime value")
+ERROR(comptime_step_limit, "comptime evaluation exceeded the step limit")
+ERROR(comptime_call_depth_limit,
+      "comptime evaluation exceeded the call depth limit")
+ERROR(type_pack_requires_value_pack,
+      "a type pack requires a corresponding value pack parameter")
+ERROR(value_pack_requires_type_pack,
+      "a value pack must refer to a type pack parameter")
+ERROR(comptime_pack_index, "pack index must be a comptime UInt64")
+ERROR(comptime_pack_index_out_of_range, "comptime pack index is out of range")
+ERROR(comptime_pack_escape,
+      "a value pack cannot be used as a runtime value")
+ERROR(comptime_pack_member,
+      "value pack only supports `.length` and indexing")
+ERROR(comptime_pack_expansion,
+      "only a value pack can be expanded")
+ERROR(comptime_string_member,
+      "comptime String only supports `.length` as a member")
+ERROR(comptime_string_index, "String index must be a comptime UInt64")
+ERROR(comptime_string_index_out_of_range,
+      "comptime String index is out of range")
+ERROR(comptime_string_slice_range,
+      "comptime String slice range is invalid")
+ERROR(comptime_compile_error_message,
+      "compileError requires a comptime String")
 ERROR(extern_function_value,
       "extern function cannot be used as a function value")
 ERROR(lambda_expected_function_type,

@@ -31,6 +31,24 @@ private:
   std::unique_ptr<TypeNode> _typeNode;
 };
 
+// compileError is consumed by the comptime evaluator and must never reach
+// runtime code generation.
+class CompileErrorExpr final : public Expr {
+public:
+  CompileErrorExpr(llvm::SMLoc location, std::unique_ptr<Expr> message)
+      : Expr{Expr_CompileError, location}, _message(std::move(message)) {}
+
+  static auto classof(const Expr *node) -> bool {
+    return node->getKind() == Expr_CompileError;
+  }
+
+  auto message() const -> const std::unique_ptr<Expr> & { return _message; }
+  auto message() -> std::unique_ptr<Expr> & { return _message; }
+
+private:
+  std::unique_ptr<Expr> _message;
+};
+
 } // end namespace mulberry
 
 #endif // MULBERRY_COMPTIME_EXPR_H

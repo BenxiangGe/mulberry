@@ -44,6 +44,8 @@ auto ExpressionSema::comptimeSubstitutions(
           parameter.name, argument.typeNode.get(), std::nullopt});
       continue;
     }
+    if (parameter.kind == ComptimeParam::Kind::TypePack)
+      continue;
     substitutions.push_back(TypeSubstitution{
         parameter.name, nullptr, *argument.uint64Value});
   }
@@ -126,6 +128,16 @@ auto ExpressionSema::bindComptimeTypeArgument(
   return sameType(argument.type, type);
 }
 
+auto ExpressionSema::bindComptimeTypePackArgument(
+    const Type *type, InferredComptimeArgument &argument) -> bool {
+  if (argument.kind != ComptimeParam::Kind::TypePack)
+    return false;
+  argument.types.push_back(type);
+  LLVM_DEBUG(llvm::dbgs() << "bind type pack element " << formatType(type)
+                          << "\n");
+  return true;
+}
+
 auto ExpressionSema::bindComptimeUInt64Argument(
     uint64_t value, InferredComptimeArgument &argument) -> bool {
   if (argument.kind != ComptimeParam::Kind::UInt64)
@@ -172,9 +184,12 @@ auto ExpressionSema::matchComptimeArgument(
 
   if (auto *namedType = dyn_cast<NamedTypeNode>(pattern.typeNode())) {
     if (auto index = comptimeParameterIndex(parameters, namedType->name())) {
-      if (actual.kind() == ComptimeValue::Kind::Type)
+      if (actual.kind() == ComptimeValue::Kind::Type) {
+        if (parameters[*index].kind == ComptimeParam::Kind::TypePack)
+          return bindComptimeTypePackArgument(actual.type(), arguments[*index]);
         return bindComptimeTypeArgument(actual.type(), arguments[*index],
                                         namedType->location());
+      }
       return bindComptimeUInt64Argument(actual.uint64Value(),
                                         arguments[*index]);
     }
@@ -209,9 +224,12 @@ auto ExpressionSema::matchGenericType(
     return isUnitType(actualType);
 
   if (auto *namedType = dyn_cast<NamedTypeNode>(pattern)) {
-    if (auto index = comptimeParameterIndex(parameters, namedType->name()))
+    if (auto index = comptimeParameterIndex(parameters, namedType->name())) {
+      if (parameters[*index].kind == ComptimeParam::Kind::TypePack)
+        return bindComptimeTypePackArgument(actualType, arguments[*index]);
       return bindComptimeTypeArgument(actualType, arguments[*index],
                                       namedType->location());
+    }
 
     auto *patternType = _sema.resolveType(namedType);
     return sameType(patternType, actualType);

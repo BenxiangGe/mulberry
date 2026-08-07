@@ -117,7 +117,8 @@ private:
   auto parseGenericTypeArgs(std::vector<ComptimeArg> &arguments)
       -> llvm::LogicalResult;
   auto parseComptimeParams(std::vector<ComptimeParam> &parameters,
-                           bool allowTraitConstraint = false)
+                           bool allowTraitConstraint = false,
+                           bool allowTypePack = false)
       -> llvm::LogicalResult;
   auto parsePtrType(std::unique_ptr<TypeNode> &typeNode,
                     llvm::SMLoc location) -> llvm::LogicalResult;
@@ -173,6 +174,9 @@ private:
                         Token::Kind end, const char *const separator_error,
                         const char *const end_error) -> llvm::LogicalResult;
 
+  auto parseCallExpressions(VectorUniquePtr<Expr> &elem)
+      -> llvm::LogicalResult;
+
   auto parsePrimaryExpression(std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
 
   auto parseVariableExpr(std::unique_ptr<VariableExpr> &identifier)
@@ -199,6 +203,10 @@ private:
 
   auto parseTypeInfoExpr(llvm::SMLoc location,
                          std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;
+
+  auto parseCompileErrorExpr(llvm::SMLoc location,
+                             std::unique_ptr<Expr> &expr)
+      -> llvm::LogicalResult;
 
   auto parseIntrinsicExpr(llvm::SMLoc location,
                           std::unique_ptr<Expr> &expr) -> llvm::LogicalResult;

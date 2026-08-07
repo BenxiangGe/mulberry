@@ -37,6 +37,11 @@ auto SemaImpl::emitError(llvm::SMLoc loc, const llvm::Twine &msg) -> llvm::Logic
     return failure();
   }
 
+auto SemaImpl::emitNote(llvm::SMLoc loc, const llvm::Twine &msg) -> void {
+  if (loc.isValid())
+    _sourceManager.PrintMessage(loc, llvm::SourceMgr::DiagKind::DK_Note, msg);
+}
+
 auto SemaImpl::isInternalSourceLocation(llvm::SMLoc location) const -> bool {
     if (!location.isValid())
       return false;
@@ -177,8 +182,30 @@ auto SemaImpl::lookupFunction(std::string_view name) -> const FunctionSymbol * {
     if (auto *signature = _symbols.lookupFunction(importedName))
       return signature;
 
-    return _symbols.lookupFunction(qualifyCurrentPackageName(name));
-  }
+  return _symbols.lookupFunction(qualifyCurrentPackageName(name));
+}
+
+auto SemaImpl::lookupFunctionDecl(std::string_view name)
+    -> const FunctionDecl * {
+  auto lookup = [&](std::string_view candidate) -> const FunctionDecl * {
+    auto function = _functionDecls.find(std::string(candidate));
+    return function == _functionDecls.end() ? nullptr : function->second;
+  };
+
+  if (auto *decl = lookup(name))
+    return decl;
+
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *decl = lookup(importedName))
+    return decl;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
+
+auto SemaImpl::registerFunctionDecl(std::string_view name,
+                                    const FunctionDecl *decl) -> void {
+  _functionDecls[std::string(name)] = decl;
+}
 
 auto SemaImpl::lookupGenericFunction(std::string_view name)
       -> const GenericFunctionSymbol * {
@@ -368,6 +395,7 @@ auto SemaImpl::saveState() const -> State {
   state.symbols = _symbols;
   state.genericStructTypes = _genericStructTypes;
   state.dataTypes = _dataTypes;
+  state.functionDecls = _functionDecls;
   state.instantiatedFunctionSymbols = _instantiatedFunctionSymbols;
   state.functionPackages = _functionPackages;
   state.genericFunctionPackages = _genericFunctionPackages;
@@ -386,6 +414,7 @@ auto SemaImpl::restoreState(State state) -> void {
   _symbols = std::move(state.symbols);
   _genericStructTypes = std::move(state.genericStructTypes);
   _dataTypes = std::move(state.dataTypes);
+  _functionDecls = std::move(state.functionDecls);
   _functionPackages = std::move(state.functionPackages);
   _genericFunctionPackages = std::move(state.genericFunctionPackages);
   _instantiatedFunctionPackages = std::move(state.instantiatedFunctionPackages);

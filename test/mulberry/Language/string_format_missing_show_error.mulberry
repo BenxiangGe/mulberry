@@ -1,0 +1,14 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import string;
+
+fn answer(): UInt64 {
+  return 42;
+}
+
+fn main(): UInt64 {
+  const text = string.format("{}", answer);
+  return 0;
+}
+
+# CHECK: error: type `fn(): UInt64` does not satisfy trait `std.string.Show`

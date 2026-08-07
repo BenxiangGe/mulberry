@@ -5,6 +5,7 @@ import internal.ptr;
 import result.Result;
 import result.Ok;
 import result.Err;
+import string;
 import string.String;
 import tensor.Tensor;
 
@@ -38,13 +39,13 @@ fn writeText(value: String): () {
   writeString(value);
 }
 
-fn print<T>(value: T): () {
-  writeText("{$value}");
+fn print<T: Show>(value: T): () {
+  writeText(string.format("{}", value));
   mulberry_repl_print_end();
 }
 
-fn println<T>(value: T): () {
-  writeText("{$value}");
+fn println<T: Show>(value: T): () {
+  writeText(string.format("{}", value));
   writeText("\n");
 }
 
@@ -59,14 +60,18 @@ fn open(path: String, mode: String): Result<File, FileError> {
 fn printError(error: FileError): () {
   match error {
     OpenFailed(path, mode) =>
-        println("cannot open {$path} with mode {$mode}");
+        println(string.format("cannot open {} with mode {}", path, mode));
     ReadFailed(expected, actual) =>
-        println("read failed after {$actual} of {$expected} bytes");
+        println(string.format("read failed after {} of {} bytes", actual,
+                              expected));
     UnexpectedEnd(expected, actual) =>
-        println("unexpected end of file after {$actual} of {$expected} bytes");
+        println(string.format("unexpected end of file after {} of {} bytes",
+                              actual, expected));
     WriteFailed(expected, actual) =>
-        println("write failed after {$actual} of {$expected} bytes");
-    SeekFailed(offset) => println("cannot seek to byte {$offset}");
+        println(string.format("write failed after {} of {} bytes", actual,
+                              expected));
+    SeekFailed(offset) =>
+        println(string.format("cannot seek to byte {}", offset));
     TellFailed() => println("cannot get file position");
     CloseFailed() => println("cannot close file");
   }

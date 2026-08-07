@@ -1,0 +1,23 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn fail<T>(value: T): UInt64 {
+  #compileError("selected compile-time failure");
+  return value;
+}
+
+fn wrapper(comptime label: String): UInt64 {
+  if false {
+    #compileError("this branch must not be evaluated");
+  }
+  return fail(42);
+}
+
+fn main(): UInt64 {
+  return wrapper("test");
+}
+
+# CHECK: comptime_compile_error.mulberry:16:10: error: selected compile-time failure
+# CHECK-SAME: comptime call stack:
+# CHECK-SAME: wrapper -> fail
+# CHECK: comptime_compile_error.mulberry:4:3: note: comptime failure was triggered here
+# CHECK: comptime_compile_error.mulberry:12:10: note: while evaluating comptime call `fail`

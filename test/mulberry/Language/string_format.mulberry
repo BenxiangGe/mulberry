@@ -1,0 +1,49 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import string;
+
+struct Person {
+  id: UInt64
+}
+
+impl Show for Person {
+  fn toString(self: Person): String {
+    return "Person";
+  }
+}
+
+fn main(): UInt64 {
+  const name = "Ada";
+  const age = 42;
+  const enabled = true;
+  const person = Person { 7 };
+  const message = string.format(
+      "name={}, age={}, enabled={}, person={}, braces={{}}", name, age,
+      enabled, person);
+  const literal = string.format("{{}}");
+  io.println(message);
+  io.println(literal);
+  return age;
+}
+
+# JIT: name=Ada, age=42, enabled=true, person=Person, braces={}
+# JIT-NEXT: {}
+
+# AST-LABEL: Prototype {{.*}}name=std_string_format__pack_std_string_String_UInt64_Bool_Person__str_
+# AST: CallExpr {{.*}}callee=std.string.Show__std_string_String.toString
+# AST: CallExpr {{.*}}callee=std.string.Show__UInt64.toString
+# AST: CallExpr {{.*}}callee=std.string.Show__Bool.toString
+# AST: CallExpr {{.*}}callee=std.string.Show__Person.toString
+# AST-NOT: std_string_formatValue
+# AST-LABEL: Prototype {{.*}}name=std_string_format__pack__str_7b7b7d7d
+
+# MLIR-LABEL: func.func @std_string_format__pack_std_string_String_UInt64_Bool_Person__str_
+# MLIR: call @std.string.Show__std_string_String.toString
+# MLIR: call @std.string.Show__UInt64.toString
+# MLIR: call @std.string.Show__Bool.toString
+# MLIR: call @std.string.Show__Person.toString
+# MLIR-NOT: call @std_string_formatValue
+# MLIR-LABEL: func.func @std_string_format__pack__str_7b7b7d7d

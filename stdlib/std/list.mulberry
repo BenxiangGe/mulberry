@@ -2,6 +2,7 @@ package std.list;
 
 import internal.ptr;
 import random;
+import string;
 import string.String;
 
 comptime List<T> = struct {
@@ -21,7 +22,7 @@ comptime List<T> = struct {
       if index != 0 {
         result = result + ", ";
       }
-      result = result + std.string.formatValue(self.data[index]);
+      result = result + string.format("{}", self.data[index]);
       index = index + 1;
     }
     if self.length > displayLimit {

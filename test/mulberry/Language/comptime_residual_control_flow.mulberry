@@ -1,0 +1,54 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn sum<Args...>(args: Args...): UInt64 {
+  var index = 0;
+  var result = 0;
+  while index < args.length {
+    if index == 99 {
+      const unreachable = missing;
+    }
+    if index == 1 {
+      index = index + 1;
+      continue;
+    }
+    result = result + args[index];
+    if index == 2 {
+      break;
+    }
+    index = index + 1;
+  }
+  return result;
+}
+
+fn firstAfterOne<Args...>(args: Args...): UInt64 {
+  var index = 0;
+  while index < args.length {
+    if index == 1 {
+      return args[index];
+    }
+    index = index + 1;
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  const result = sum(10, 20, 30, 40);
+  const empty = sum();
+  const first = firstAfterOne(10, 20, 30);
+  io.println(result);
+  io.println(empty);
+  io.println(first);
+  return result + empty + first;
+}
+
+# MLIR-LABEL: func.func @sum__pack_UInt64_UInt64_UInt64_UInt64
+# MLIR-NOT: scf.while
+# MLIR: return
+# MLIR-LABEL: func.func @firstAfterOne__pack_UInt64_UInt64_UInt64
+# MLIR-NOT: scf.while
+# MLIR: return
+# JIT: 40
+# JIT-NEXT: 0
+# JIT-NEXT: 20

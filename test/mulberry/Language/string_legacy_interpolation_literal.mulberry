@@ -1,0 +1,9 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn main(): UInt64 {
+  io.println("legacy {$value}");
+  return 0;
+}
+
+# JIT: legacy {$value}

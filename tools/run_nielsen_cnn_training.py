@@ -23,22 +23,22 @@ TRAIN_SOURCE = """\
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/nielsen-cnn-relu.safetensors");
+      safetensors.open("data/nielsen-cnn-relu.safetensors")?;
   var parameters = nn.CnnParameters {
-    safetensors.read(file, "conv1_weight"),
-    safetensors.read(file, "conv1_bias"),
-    safetensors.read(file, "classifier_weight"),
-    safetensors.read(file, "classifier_bias")
+    safetensors.read(file, "conv1_weight")?,
+    safetensors.read(file, "conv1_bias")?,
+    safetensors.read(file, "classifier_weight")?,
+    safetensors.read(file, "classifier_bias")?
   };
   var train = nn.datasetFromBatches(
-      safetensors.read(file, "train_input"),
-      safetensors.read(file, "train_label"));
+      safetensors.read(file, "train_input")?,
+      safetensors.read(file, "train_label")?);
   var test = nn.datasetFromBatches(
-      safetensors.read(file, "test_input"),
-      safetensors.read(file, "test_label"));
-  safetensors.close(file);
+      safetensors.read(file, "test_input")?,
+      safetensors.read(file, "test_label")?);
+  safetensors.close(file)?;
 
   const batchSize = @BATCH_SIZE@;
   const epochs = @EPOCHS@;
@@ -76,7 +76,7 @@ fn main(): UInt64 {
     parameters.convWeight, parameters.convBias,
     parameters.classifierWeight, parameters.classifierBias, metrics
   ]);
-  safetensors.write("checkpoint.safetensors", names, values);
+  safetensors.write("checkpoint.safetensors", names, values)?;
 
   io.println(train.size());
   io.println(test.size());
@@ -90,7 +90,17 @@ fn main(): UInt64 {
   io.println(beforeTest.accuracyBasisPoints);
   io.println(afterTest.correct);
   io.println(afterTest.accuracyBasisPoints);
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }
 """
 

@@ -25,6 +25,10 @@ auto substituteComptimeBlockExpr(
     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<ComptimeBlockExpr>;
 
+auto substituteStat(const Stat *node,
+                    const std::vector<TypeSubstitution> &substitutions)
+    -> std::unique_ptr<Stat>;
+
 auto cloneDataPattern(const DataPattern *pattern)
     -> std::unique_ptr<DataPattern> {
   VectorUniquePtr<VariableExpr> bindings;
@@ -319,7 +323,8 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
           parameter->variable()->location(), parameter->variable()->name());
       parameters.push_back(std::make_unique<ParameterDecl>(
           parameter->location(), std::move(variable),
-          cloneTypeNode(parameter->typeNode()), parameter->canMutateObject()));
+          cloneTypeNode(parameter->typeNode()), parameter->canMutateObject(),
+          parameter->isComptime(), parameter->isPack()));
     }
     auto prototype = std::make_unique<Prototype>(
         method->proto()->location(), std::move(functionName),
@@ -493,7 +498,8 @@ auto substituteTypeNode(const TypeNode *node,
       parameters.push_back(std::make_unique<ParameterDecl>(
           parameter->location(), std::move(variable),
           substituteTypeNode(parameter->typeNode(), substitution),
-          parameter->canMutateObject()));
+          parameter->canMutateObject(), parameter->isComptime(),
+          parameter->isPack()));
     }
     auto prototype = std::make_unique<Prototype>(
         method->proto()->location(), std::move(functionName),
@@ -570,97 +576,86 @@ auto substituteBlockExpr(const BlockExpr *node,
                          const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<BlockExpr> {
   VectorUniquePtr<Stat> statements;
-  for (auto &statement : node->statements()) {
-    if (auto *variable = dyn_cast<VariableStat>(statement.get())) {
-      auto clonedVariable = std::make_unique<VariableExpr>(
-          variable->variable()->location(), variable->variable()->name());
-      auto clonedInit = variable->init()
-                            ? substituteExpr(variable->init().get(),
-                                             substitutions)
-                            : nullptr;
-      statements.push_back(std::make_unique<VariableStat>(
-          variable->location(), std::move(clonedVariable),
-          variable->hasExplicitType()
-              ? substituteTypeNode(variable->typeNode(), substitutions)
-              : nullptr,
-          std::move(clonedInit), variable->isConstBinding(),
-          variable->canMutateObject()));
-      continue;
-    }
-
-    if (auto *ifStat = dyn_cast<IfStat>(statement.get())) {
-      auto elseBlock = ifStat->hasElseBlock()
-                           ? substituteBlockExpr(ifStat->elseBlock().get(),
-                                                 substitutions)
-                           : nullptr;
-      statements.push_back(std::make_unique<IfStat>(
-          ifStat->location(),
-          substituteExpr(ifStat->conditionExpr().get(), substitutions),
-          substituteBlockExpr(ifStat->thenBlock().get(), substitutions),
-          std::move(elseBlock)));
-      continue;
-    }
-
-    if (auto *matchStat = dyn_cast<MatchStat>(statement.get())) {
-      VectorUniquePtr<MatchArm> arms;
-      for (auto &arm : matchStat->arms()) {
-        arms.push_back(std::make_unique<MatchArm>(
-            arm->location(), cloneDataPattern(arm->pattern().get()),
-            substituteBlockExpr(arm->bodyBlock().get(), substitutions)));
-      }
-      statements.push_back(std::make_unique<MatchStat>(
-          matchStat->location(),
-          substituteExpr(matchStat->value().get(), substitutions),
-          std::move(arms)));
-      continue;
-    }
-
-    if (auto *whileStat = dyn_cast<WhileStat>(statement.get())) {
-      statements.push_back(std::make_unique<WhileStat>(
-          whileStat->location(),
-          substituteExpr(whileStat->conditionExpr().get(), substitutions),
-          substituteBlockExpr(whileStat->bodyBlock().get(), substitutions)));
-      continue;
-    }
-
-    if (auto *forStat = dyn_cast<ForStat>(statement.get())) {
-      statements.push_back(std::make_unique<ForStat>(
-          forStat->location(), forStat->variableName(),
-          substituteExpr(forStat->startExpr().get(), substitutions),
-          substituteExpr(forStat->endExpr().get(), substitutions),
-          substituteBlockExpr(forStat->bodyBlock().get(), substitutions)));
-      continue;
-    }
-
-    if (auto *breakStat = dyn_cast<BreakStat>(statement.get())) {
-      statements.push_back(std::make_unique<BreakStat>(
-          breakStat->location()));
-      continue;
-    }
-
-    if (auto *continueStat = dyn_cast<ContinueStat>(statement.get())) {
-      statements.push_back(std::make_unique<ContinueStat>(
-          continueStat->location()));
-      continue;
-    }
-
-    if (auto *returnStat = dyn_cast<ReturnStat>(statement.get())) {
-      auto expression = returnStat->hasExpression()
-                            ? substituteExpr(returnStat->expression().get(),
-                                             substitutions)
-                            : nullptr;
-      statements.push_back(std::make_unique<ReturnStat>(
-          returnStat->location(), std::move(expression)));
-      continue;
-    }
-
-    auto *exprStat = cast<ExprStat>(statement.get());
-    statements.push_back(std::make_unique<ExprStat>(
-        exprStat->location(),
-        substituteExpr(exprStat->expression().get(), substitutions)));
-  }
+  for (auto &statement : node->statements())
+    statements.push_back(substituteStat(statement.get(), substitutions));
 
   return std::make_unique<BlockExpr>(node->location(), std::move(statements));
+}
+
+auto substituteStat(const Stat *node,
+                    const std::vector<TypeSubstitution> &substitutions)
+    -> std::unique_ptr<Stat> {
+  if (auto *variable = dyn_cast<VariableStat>(node)) {
+    auto clonedVariable = std::make_unique<VariableExpr>(
+        variable->variable()->location(), variable->variable()->name());
+    auto clonedInit = variable->init()
+                          ? substituteExpr(variable->init().get(), substitutions)
+                          : nullptr;
+    return std::make_unique<VariableStat>(
+        variable->location(), std::move(clonedVariable),
+        variable->hasExplicitType()
+            ? substituteTypeNode(variable->typeNode(), substitutions)
+            : nullptr,
+        std::move(clonedInit), variable->isConstBinding(),
+        variable->canMutateObject());
+  }
+
+  if (auto *ifStat = dyn_cast<IfStat>(node)) {
+    auto elseBlock = ifStat->hasElseBlock()
+                         ? substituteBlockExpr(ifStat->elseBlock().get(),
+                                               substitutions)
+                         : nullptr;
+    return std::make_unique<IfStat>(
+        ifStat->location(),
+        substituteExpr(ifStat->conditionExpr().get(), substitutions),
+        substituteBlockExpr(ifStat->thenBlock().get(), substitutions),
+        std::move(elseBlock));
+  }
+
+  if (auto *matchStat = dyn_cast<MatchStat>(node)) {
+    VectorUniquePtr<MatchArm> arms;
+    for (auto &arm : matchStat->arms())
+      arms.push_back(std::make_unique<MatchArm>(
+          arm->location(), cloneDataPattern(arm->pattern().get()),
+          substituteBlockExpr(arm->bodyBlock().get(), substitutions)));
+    return std::make_unique<MatchStat>(
+        matchStat->location(),
+        substituteExpr(matchStat->value().get(), substitutions),
+        std::move(arms));
+  }
+
+  if (auto *whileStat = dyn_cast<WhileStat>(node))
+    return std::make_unique<WhileStat>(
+        whileStat->location(),
+        substituteExpr(whileStat->conditionExpr().get(), substitutions),
+        substituteBlockExpr(whileStat->bodyBlock().get(), substitutions));
+
+  if (auto *forStat = dyn_cast<ForStat>(node))
+    return std::make_unique<ForStat>(
+        forStat->location(), forStat->variableName(),
+        substituteExpr(forStat->startExpr().get(), substitutions),
+        substituteExpr(forStat->endExpr().get(), substitutions),
+        substituteBlockExpr(forStat->bodyBlock().get(), substitutions));
+
+  if (auto *breakStat = dyn_cast<BreakStat>(node))
+    return std::make_unique<BreakStat>(breakStat->location());
+
+  if (auto *continueStat = dyn_cast<ContinueStat>(node))
+    return std::make_unique<ContinueStat>(continueStat->location());
+
+  if (auto *returnStat = dyn_cast<ReturnStat>(node)) {
+    auto expression = returnStat->hasExpression()
+                          ? substituteExpr(returnStat->expression().get(),
+                                           substitutions)
+                          : nullptr;
+    return std::make_unique<ReturnStat>(returnStat->location(),
+                                        std::move(expression));
+  }
+
+  auto *exprStat = cast<ExprStat>(node);
+  return std::make_unique<ExprStat>(
+      exprStat->location(),
+      substituteExpr(exprStat->expression().get(), substitutions));
 }
 
 auto substituteComptimeBlockExpr(
@@ -668,19 +663,8 @@ auto substituteComptimeBlockExpr(
     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<ComptimeBlockExpr> {
   VectorUniquePtr<Stat> statements;
-  for (auto &statement : node->statements()) {
-    auto *variable = cast<VariableStat>(statement.get());
-    auto clonedVariable = std::make_unique<VariableExpr>(
-        variable->variable()->location(), variable->variable()->name());
-    auto clonedInit = substituteExpr(variable->init().get(), substitutions);
-    statements.push_back(std::make_unique<VariableStat>(
-        variable->location(), std::move(clonedVariable),
-        variable->hasExplicitType()
-            ? substituteTypeNode(variable->typeNode(), substitutions)
-            : nullptr,
-        std::move(clonedInit), variable->isConstBinding(),
-        variable->canMutateObject()));
-  }
+  for (auto &statement : node->statements())
+    statements.push_back(substituteStat(statement.get(), substitutions));
 
   return std::make_unique<ComptimeBlockExpr>(
       node->location(), std::move(statements),
@@ -743,14 +727,6 @@ auto substituteExpr(const Expr *node,
     auto *expr = cast<StringLiteralExpr>(node);
     return std::make_unique<StringLiteralExpr>(
         expr->location(), std::string(expr->value()));
-  }
-  case Expr::Expr_InterpolatedString: {
-    auto *expr = cast<InterpolatedStringExpr>(node);
-    VectorUniquePtr<Expr> segments;
-    for (auto &segment : expr->segments())
-      segments.push_back(substituteExpr(segment.get(), substitutions));
-    return std::make_unique<InterpolatedStringExpr>(
-        expr->location(), std::move(segments));
   }
   case Expr::Expr_ObjectIdentity: {
     auto *expr = cast<ObjectIdentityExpr>(node);
@@ -824,6 +800,11 @@ auto substituteExpr(const Expr *node,
     return std::make_unique<TypeInfoExpr>(
         expr->location(), substituteTypeNode(expr->typeNode(), substitutions));
   }
+  case Expr::Expr_CompileError: {
+    auto *expr = cast<CompileErrorExpr>(node);
+    return std::make_unique<CompileErrorExpr>(
+        expr->location(), substituteExpr(expr->message().get(), substitutions));
+  }
   case Expr::Expr_TypeLayout: {
     auto *expr = cast<TypeLayoutExpr>(node);
     return std::make_unique<TypeLayoutExpr>(
@@ -842,8 +823,12 @@ auto substituteExpr(const Expr *node,
   case Expr::Expr_Call: {
     auto *expr = cast<CallExpr>(node);
     VectorUniquePtr<Expr> expressions;
-    for (auto &argument : expr->expressions())
-      expressions.push_back(substituteExpr(argument.get(), substitutions));
+    for (auto &argument : expr->expressions()) {
+      auto substituted = substituteExpr(argument.get(), substitutions);
+      if (argument->isPackExpansion())
+        substituted->setPackExpansion();
+      expressions.push_back(std::move(substituted));
+    }
     if (expr->hasReceiver()) {
       return std::make_unique<CallExpr>(
           expr->location(),
@@ -877,16 +862,62 @@ auto substituteExpr(const Expr *node,
 
 auto instantiateFunctionDecl(const FunctionDecl *node,
                              std::string_view concreteName,
-                             const std::vector<TypeSubstitution> &substitutions)
+                             const std::vector<TypeSubstitution> &substitutions,
+                             const std::vector<ComptimeValue> &comptimeArguments,
+                             const std::vector<InferredComptimeArgument> *
+                                 inferredArguments)
     -> std::unique_ptr<FunctionDecl> {
   VectorUniquePtr<ParameterDecl> parameters;
+  size_t comptimeArgumentIndex = 0;
+  std::string concretePackName;
+  std::vector<std::string> concretePackElements;
   for (auto &parameter : node->proto()->parameters()) {
+    if (parameter->isPack()) {
+      concretePackName = std::string(parameter->variable()->name());
+      auto *packType = dyn_cast<NamedTypeNode>(parameter->typeNode());
+      const InferredComptimeArgument *packArgument = nullptr;
+      if (packType && inferredArguments) {
+        for (size_t index = 0;
+             index < node->proto()->comptimeParameters().size(); ++index) {
+          auto &comptimeParameter = node->proto()->comptimeParameters()[index];
+          if (comptimeParameter.kind != ComptimeParam::Kind::TypePack ||
+              comptimeParameter.name != packType->name())
+            continue;
+          if (index < inferredArguments->size())
+            packArgument = &(*inferredArguments)[index];
+          break;
+        }
+      }
+
+      assert(packArgument && packArgument->packResolved);
+      for (size_t index = 0; index < packArgument->types.size(); ++index) {
+        auto parameterName = std::string(parameter->variable()->name());
+        parameterName += "__";
+        parameterName += std::to_string(index);
+        auto variable = std::make_unique<VariableExpr>(
+            parameter->variable()->location(), parameterName);
+        auto concreteParameter = std::make_unique<ParameterDecl>(
+            parameter->location(), std::move(variable),
+            typeToTypeNode(packArgument->types[index], parameter->location()),
+            parameter->canMutateObject());
+        parameters.push_back(std::move(concreteParameter));
+        concretePackElements.push_back(parameterName);
+      }
+      continue;
+    }
+
     auto variable = std::make_unique<VariableExpr>(
         parameter->variable()->location(), parameter->variable()->name());
-    parameters.push_back(std::make_unique<ParameterDecl>(
+    auto concreteParameter = std::make_unique<ParameterDecl>(
         parameter->location(), std::move(variable),
         substituteTypeNode(parameter->typeNode(), substitutions),
-        parameter->canMutateObject()));
+        parameter->canMutateObject(), parameter->isComptime());
+    if (parameter->isComptime()) {
+      assert(comptimeArgumentIndex < comptimeArguments.size());
+      concreteParameter->setComptimeValue(
+          comptimeArguments[comptimeArgumentIndex++]);
+    }
+    parameters.push_back(std::move(concreteParameter));
   }
 
   auto functionName =
@@ -897,6 +928,9 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
       std::move(parameters),
       substituteTypeNode(node->proto()->returnTypeNode(), substitutions));
   prototype->setIsMethod(node->proto()->isMethod());
+  if (!concretePackName.empty())
+    prototype->setConcretePack(std::move(concretePackName),
+                               std::move(concretePackElements));
   return std::make_unique<FunctionDecl>(
       node->location(), std::move(prototype),
       substituteBlockExpr(node->body().get(), substitutions));

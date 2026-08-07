@@ -47,18 +47,21 @@ public:
   enum class Kind {
     Type,
     Bool,
+    UInt8,
     UInt64,
     String,
   };
 
   explicit ComptimeValue(const Type *type);
   explicit ComptimeValue(bool boolValue);
+  explicit ComptimeValue(uint8_t uint8Value);
   explicit ComptimeValue(uint64_t uint64Value);
   explicit ComptimeValue(std::string_view stringValue);
 
   auto kind() const -> Kind;
   auto type() const -> const Type *;
   auto boolValue() const -> bool;
+  auto uint8Value() const -> uint8_t;
   auto uint64Value() const -> uint64_t;
   auto stringValue() const -> std::string_view;
 
@@ -66,6 +69,7 @@ private:
   Kind _kind;
   const Type *_type = nullptr;
   bool _boolValue = false;
+  uint8_t _uint8Value = 0;
   uint64_t _uint64Value = 0;
   std::string _stringValue;
 };

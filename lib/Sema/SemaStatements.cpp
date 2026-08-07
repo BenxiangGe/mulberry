@@ -88,7 +88,7 @@ auto StatementSema::sema(IfStat *node) -> llvm::LogicalResult {
   if (condition.kind == ComptimeEvaluation::Kind::Error)
     return failure();
 
-  if (condition.kind == ComptimeEvaluation::Kind::Value) {
+  if (condition.kind == ComptimeEvaluation::Kind::Static) {
     if (condition.value->kind() != ComptimeValue::Kind::Bool)
       return _sema.emitError(node->conditionExpr().get(), diag::expected_bool);
 
@@ -248,13 +248,19 @@ auto StatementSema::sema(VariableStat *node) -> llvm::LogicalResult {
     auto evaluation = ComptimeSema(_sema).evaluateComptime(initExpr.get());
     if (evaluation.kind == ComptimeEvaluation::Kind::Error)
       return failure();
-    if (evaluation.kind == ComptimeEvaluation::Kind::Value)
+    if (evaluation.kind == ComptimeEvaluation::Kind::Residual) {
+      initExpr = evaluation.takeResidual();
+      initializerWasTyped = false;
+      LLVM_DEBUG(llvm::dbgs()
+                 << "replace const initializer with residual expression\n");
+    }
+    if (evaluation.kind == ComptimeEvaluation::Kind::Static)
       comptimeValue = evaluation.value;
 
     // Ordinary consts keep their runtime binding and only cache the value.
     // Reflection-derived initializers cannot enter MLIR, so their declaration
     // is comptime-only.
-    if (evaluation.kind == ComptimeEvaluation::Kind::Value &&
+    if (evaluation.kind == ComptimeEvaluation::Kind::Static &&
         evaluation.isComptimeOnly) {
       auto *valueType = ComptimeSema(_sema).comptimeRuntimeType(
           *evaluation.value);

@@ -23,21 +23,31 @@ EVALUATE_SOURCE_TEMPLATE = """\
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/nielsen-cnn-relu.safetensors");
+      safetensors.open("data/nielsen-cnn-relu.safetensors")?;
   const parameters = nn.CnnParameters {
-    safetensors.read(file, "conv1_weight"),
-    safetensors.read(file, "conv1_bias"),
-    safetensors.read(file, "classifier_weight"),
-    safetensors.read(file, "classifier_bias")
+    safetensors.read(file, "conv1_weight")?,
+    safetensors.read(file, "conv1_bias")?,
+    safetensors.read(file, "classifier_weight")?,
+    safetensors.read(file, "classifier_bias")?
   };
   var test = nn.datasetFromBatches(
-      safetensors.read(file, "test_input"),
-      safetensors.read(file, "test_label"));
-  safetensors.close(file);
+      safetensors.read(file, "test_input")?,
+      safetensors.read(file, "test_label")?);
+  safetensors.close(file)?;
 @EVALUATION@
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }
 """
 
@@ -67,29 +77,39 @@ TRAIN_SOURCE = """\
 import mulberry.nn;
 import safetensors;
 
-fn main(): UInt64 {
+fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const file =
-      safetensors.open("data/nielsen-cnn-relu.safetensors");
+      safetensors.open("data/nielsen-cnn-relu.safetensors")?;
   var parameters = nn.CnnParameters {
-    safetensors.read(file, "conv1_weight"),
-    safetensors.read(file, "conv1_bias"),
-    safetensors.read(file, "classifier_weight"),
-    safetensors.read(file, "classifier_bias")
+    safetensors.read(file, "conv1_weight")?,
+    safetensors.read(file, "conv1_bias")?,
+    safetensors.read(file, "classifier_weight")?,
+    safetensors.read(file, "classifier_bias")?
   };
   var train = nn.datasetFromBatches(
-      safetensors.read(file, "train_input"),
-      safetensors.read(file, "train_label"));
+      safetensors.read(file, "train_input")?,
+      safetensors.read(file, "train_label")?);
   var test = nn.datasetFromBatches(
-      safetensors.read(file, "test_input"),
-      safetensors.read(file, "test_label"));
-  safetensors.close(file);
+      safetensors.read(file, "test_input")?,
+      safetensors.read(file, "test_label")?);
+  safetensors.close(file)?;
 
   for epoch in 0 .. @EPOCHS@ {
     parameters = nn.cnnTrainEpoch(
         parameters, train, @BATCH_SIZE@, 0.01, 0.01, 12345 + epoch);
   }
   io.println(nn.cnnPredict(parameters, test.input(0)));
-  return 0;
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      safetensors.printError(error);
+      yield 1;
+    }
+  };
 }
 """
 

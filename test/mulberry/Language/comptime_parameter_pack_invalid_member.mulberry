@@ -1,0 +1,12 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn bad<Args...>(args: Args...): UInt64 {
+  const value = args.capacity;
+  return 0;
+}
+
+fn main(): UInt64 {
+  return bad(1, true);
+}
+
+# CHECK: error: value pack only supports `.length` and indexing

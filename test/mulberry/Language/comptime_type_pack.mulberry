@@ -1,0 +1,33 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+trait Marker {
+  fn marker(self): Bool;
+}
+
+impl Marker for UInt64 {
+  fn marker(self: UInt64): Bool {
+    return true;
+  }
+}
+
+impl Marker for Bool {
+  fn marker(self: Bool): Bool {
+    return true;
+  }
+}
+
+fn count<Args...: Marker>(args: Args...): UInt64 {
+  return 2;
+}
+
+fn main(): UInt64 {
+  const result = count(7, true);
+  io.println(result);
+  return result;
+}
+
+# MLIR-DAG: func.func @count__pack_UInt64_Bool
+# MLIR-DAG: func.call @count__pack_UInt64_Bool
+# JIT: 2

@@ -114,6 +114,8 @@ public:
     return _receiver;
   }
 
+  auto receiver() -> std::unique_ptr<Expr> & { return _receiver; }
+
   auto setReceiver(std::unique_ptr<Expr> receiver,
                    std::string_view methodName) -> void {
     _receiver = std::move(receiver);

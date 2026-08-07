@@ -1,0 +1,21 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+fn echo<T>(comptime label: String, value: T): T {
+  return value;
+}
+
+fn main(): UInt64 {
+  const first = echo("first", 41);
+  const second = echo("second", 1);
+  io.println(first);
+  io.println(second);
+  return first + second;
+}
+
+# MLIR-DAG: func.func @echo__UInt64__str_6669727374(%{{.*}}: i64) -> i64
+# MLIR-DAG: func.func @echo__UInt64__str_7365636f6e64(%{{.*}}: i64) -> i64
+# MLIR-DAG: func.call @echo__UInt64__str_6669727374
+# MLIR-DAG: func.call @echo__UInt64__str_7365636f6e64
+# JIT: 41
+# JIT: 1

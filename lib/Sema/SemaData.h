@@ -15,6 +15,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace mulberry {
 
@@ -37,11 +38,15 @@ struct InferredComptimeArgument {
   ComptimeParam::Kind kind = ComptimeParam::Kind::Type;
   const Type *type = nullptr;
   std::unique_ptr<TypeNode> typeNode;
+  std::vector<const Type *> types;
   std::optional<uint64_t> uint64Value;
+  bool packResolved = false;
 
   auto isResolved() const -> bool {
     if (kind == ComptimeParam::Kind::Type)
       return type != nullptr;
+    if (kind == ComptimeParam::Kind::TypePack)
+      return packResolved;
     return uint64Value.has_value();
   }
 };

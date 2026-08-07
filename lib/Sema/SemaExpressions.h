@@ -36,6 +36,7 @@ public:
       -> llvm::LogicalResult;
   auto sema(UnitExpr *node) -> llvm::LogicalResult;
   auto sema(ComptimeBlockExpr *node) -> llvm::LogicalResult;
+  auto sema(CompileErrorExpr *node) -> llvm::LogicalResult;
   auto sema(LambdaExpr *node) -> llvm::LogicalResult;
   auto sema(MatchExpr *node, const Type *expectedType = nullptr)
       -> llvm::LogicalResult;
@@ -69,7 +70,6 @@ public:
       -> llvm::LogicalResult;
   auto sema(BoolLiteralExpr *node) -> llvm::LogicalResult;
   auto sema(StringLiteralExpr *node) -> llvm::LogicalResult;
-  auto sema(InterpolatedStringExpr *node) -> llvm::LogicalResult;
   auto sema(ObjectIdentityExpr *node) -> llvm::LogicalResult;
   auto sema(CharLiteralExpr *node) -> llvm::LogicalResult;
   auto sema(TypeLayoutExpr *node) -> llvm::LogicalResult;
@@ -80,8 +80,6 @@ public:
       -> llvm::LogicalResult;
   auto checkStringConcatFunction(Expr *node, const Type *stringType)
       -> llvm::LogicalResult;
-  auto semaFormatValueCall(std::unique_ptr<Expr> &expression,
-                           const Type *stringType) -> llvm::LogicalResult;
   auto checkAssignable(const Expr *expr) -> llvm::LogicalResult;
   auto canMutateObjectReference(const Expr *expr) -> bool;
   auto checkConstObjectUseAsMutable(const Expr *expr)
@@ -105,12 +103,18 @@ public:
   auto sema(IndexExpr *expr) -> llvm::LogicalResult;
 
 private:
+  auto expandPackArguments(CallExpr *node) -> llvm::LogicalResult;
   auto resolveFunctionName(std::string_view name) -> std::string;
   auto genericFunctionName(std::string_view name,
                            const Type *argumentType) const -> std::string;
   auto genericFunctionName(
       std::string_view name,
       const std::vector<InferredComptimeArgument> &arguments) const
+      -> std::string;
+  auto genericFunctionName(
+      std::string_view name,
+      const std::vector<InferredComptimeArgument> &arguments,
+      const std::vector<ComptimeValue> &comptimeArguments) const
       -> std::string;
   auto genericFunctionPackageName(std::string_view name) const -> std::string;
   auto sameCallArgumentType(const Type *parameterType, const Type *actualType,
@@ -131,6 +135,8 @@ private:
   auto bindComptimeTypeArgument(const Type *type,
                                 InferredComptimeArgument &argument,
                                 llvm::SMLoc location) -> bool;
+  auto bindComptimeTypePackArgument(const Type *type,
+                                    InferredComptimeArgument &argument) -> bool;
   auto bindComptimeUInt64Argument(uint64_t value,
                                   InferredComptimeArgument &argument) -> bool;
   auto computedArrayLeafParameterIndex(

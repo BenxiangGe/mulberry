@@ -1,0 +1,10 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import string;
+
+fn main(): UInt64 {
+  const text = string.format("{value}", 1);
+  return 0;
+}
+
+# CHECK: error: expected '}' after '{' in format string

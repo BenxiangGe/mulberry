@@ -123,7 +123,7 @@ auto SemaImpl::resolveType(const ComputedTypeNode *typeNode) -> const Type * {
         typeNode->expression().get());
     if (result.kind == ComptimeEvaluation::Kind::Error)
       return nullptr;
-    if (result.kind != ComptimeEvaluation::Kind::Value ||
+    if (result.kind != ComptimeEvaluation::Kind::Static ||
         result.value->kind() != ComptimeValue::Kind::Type) {
       (void)emitError(typeNode, diag::expected_comptime_type);
       return nullptr;
