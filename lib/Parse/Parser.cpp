@@ -592,10 +592,18 @@ auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
   auto location = tokenLoc();
   if (llvm::failed(parseToken(Token::kw_comptime, diag::expected_comptime)))
     return failure();
-  if (llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
-    return failure();
 
   VectorUniquePtr<Stat> statements;
+  if (!consumeIf(Token::l_brace)) {
+    // In the unbraced form, the following `{` belongs to the enclosing impl.
+    unique_ptr<Expr> result;
+    if (llvm::failed(parseBlockCondition(result)))
+      return failure();
+    block = make_unique<ComptimeBlockExpr>(location, std::move(statements),
+                                           std::move(result));
+    return success();
+  }
+
   unique_ptr<Expr> result;
   while (true) {
     if (tokenIs(Token::r_brace))

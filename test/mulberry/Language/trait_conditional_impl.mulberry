@@ -11,7 +11,7 @@ trait ObjectLabel {
   }
 }
 
-impl<T> ObjectLabel for T where comptime { #typeInfo(T).isObject() } {
+impl<T> ObjectLabel for T where comptime #typeInfo(T).isObject() {
   fn label(self: T): String {
     return "object";
   }

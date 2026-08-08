@@ -96,8 +96,9 @@ trait-method-declaration  -> `fn` identifier `(` trait-receiver
 trait-receiver            -> `mut`? `self`
 impl-declaration          -> `impl` comptime-parameter-clause? qualified-name `for` type
                               conditional-impl-guard? `{` method-declaration* `}`
-conditional-impl-guard    -> `where` comptime-block
-comptime-block            -> `comptime` `{` statement* expression `}`
+conditional-impl-guard    -> `where` comptime-guard
+comptime-guard            -> `comptime` expression
+comptime-guard            -> `comptime` `{` statement* expression `}`
 
 data-declaration          -> `data` identifier comptime-parameter-clause?
                               `=` data-constructor-list `;`
@@ -113,8 +114,9 @@ comptime-alias-body       -> `struct` `{` struct-member-list? `}`
 ```
 
 `comptime` block 的 final expression 不写分号；它是 block value。前面的声明、赋值和
-control-flow statement 仍按普通 statement 规则以分号或 block 结束。`where comptime`
-guard 必须把这个 block value 求值为 comptime `Bool`。
+control-flow statement 仍按普通 statement 规则以分号或 block 结束。只有一个 expression
+的 guard 可以省略大括号，例如 `where comptime #typeInfo(T).isObject()`；多行 guard
+继续使用 block 形式。两种形式都必须求值为 comptime `Bool`。
 
 `data` 只在 declaration 起始位置作为 contextual keyword；字段、参数和局部变量仍可
 使用 `data` 作为名字。data constructor 名必须以大写字母开头，Parser 据此把

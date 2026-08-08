@@ -110,7 +110,7 @@ impl Show for Integer {
   }
 }
 
-impl<T> Show for T where comptime { #typeInfo(T).isObject() } {
+impl<T> Show for T where comptime #typeInfo(T).isObject() {
   fn toString(self: T): String {
     const info = #typeInfo(T);
     if info.isArray() {
