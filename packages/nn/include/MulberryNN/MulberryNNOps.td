@@ -29,7 +29,7 @@ def MatmulOp : MulberryNN_Op<"matmul"> {
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def MataddOp : MulberryNN_Op<"matadd"> {
@@ -45,7 +45,7 @@ def MataddOp : MulberryNN_Op<"matadd"> {
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def MatsubOp : MulberryNN_Op<"matsub"> {
@@ -61,7 +61,7 @@ def MatsubOp : MulberryNN_Op<"matsub"> {
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def HadamardOp : MulberryNN_Op<"hadamard"> {
@@ -77,7 +77,7 @@ def HadamardOp : MulberryNN_Op<"hadamard"> {
   let assemblyFormat = "`ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def MatscaleOp : MulberryNN_Op<"matscale"> {
@@ -94,7 +94,7 @@ def MatscaleOp : MulberryNN_Op<"matscale"> {
                        "type($scale) `)` `outs` `(` $out `:` type($out) `)` "
                        "attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TransposeOp : MulberryNN_Op<"transpose"> {
@@ -109,7 +109,7 @@ def TransposeOp : MulberryNN_Op<"transpose"> {
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def ExpOp : MulberryNN_Op<"exp"> {
@@ -124,7 +124,7 @@ def ExpOp : MulberryNN_Op<"exp"> {
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def SigmoidOp : MulberryNN_Op<"sigmoid"> {
@@ -139,7 +139,7 @@ def SigmoidOp : MulberryNN_Op<"sigmoid"> {
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def SigmoidPrimeOp : MulberryNN_Op<"sigmoid_prime"> {
@@ -155,7 +155,7 @@ def SigmoidPrimeOp : MulberryNN_Op<"sigmoid_prime"> {
   let assemblyFormat = "`ins` `(` $input `:` type($input) `)` "
                        "`outs` `(` $out `:` type($out) `)` attr-dict";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def ReluOp : MulberryNN_Op<"relu"> {
@@ -333,7 +333,7 @@ def ArgmaxOp : MulberryNN_Op<"argmax"> {
 
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 #endif // MULBERRY_NN_OPS

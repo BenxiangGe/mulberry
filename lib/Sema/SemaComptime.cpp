@@ -630,6 +630,8 @@ auto ComptimeSema::executeComptimeBlock(BlockExpr *node)
   SemaImpl::VariableScope symbolScope(_sema._symbols);
   ComptimeFrame frame(_frame);
   SemaImpl::ComptimeFrameScope frameScope(_sema, &frame);
+  // Use a child evaluator so block-local bindings stay in this frame while
+  // loop depth, execution limits, and staged-body state remain shared.
   ComptimeSema blockSema(_sema, &frame, _loopDepth, _executionState,
                          _isStagedFunctionBody);
   return blockSema.executeComptimeStatements(node->statements());
@@ -927,13 +929,17 @@ auto ComptimeSema::evaluateComptimeBlock(ComptimeBlockExpr *node,
   SemaImpl::VariableScope symbolScope(_sema._symbols);
   ComptimeFrame frame(_frame);
   SemaImpl::ComptimeFrameScope frameScope(_sema, &frame);
+  // `this` still refers to the enclosing frame; the child evaluator makes
+  // declarations and lookups use the block frame without resetting execution.
   ComptimeSema blockSema(_sema, &frame, _loopDepth, _executionState,
                          _isStagedFunctionBody);
 
   auto control = blockSema.executeComptimeStatements(node->statements());
-  if (control.kind == ComptimeControlResult::Kind::Error)
+  switch (control.kind) {
+  case ComptimeControlResult::Kind::Error:
     return {ComptimeEvaluation::Kind::Error, std::nullopt};
-  if (control.kind == ComptimeControlResult::Kind::Return) {
+
+  case ComptimeControlResult::Kind::Return: {
     if (!control.value)
       return {ComptimeEvaluation::Kind::Error, std::nullopt};
     auto result = std::move(*control.value);
@@ -941,8 +947,14 @@ auto ComptimeSema::evaluateComptimeBlock(ComptimeBlockExpr *node,
       setComptimeResultType(node, *result.value);
     return result;
   }
-  if (control.kind != ComptimeControlResult::Kind::Normal)
+
+  case ComptimeControlResult::Kind::Break:
+  case ComptimeControlResult::Kind::Continue:
     return {ComptimeEvaluation::Kind::Error, std::nullopt};
+
+  case ComptimeControlResult::Kind::Normal:
+    break;
+  }
 
   auto result = blockSema.evaluateComptime(node->result().get(), expectedType);
   if (result.kind == ComptimeEvaluation::Kind::Static)

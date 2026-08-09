@@ -159,6 +159,8 @@ static auto allocateConv2D(PatternRewriter &rewriter, Location loc, Value input,
                            bool transferOwnership) -> Value {
   auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
   auto weightType = llvm::dyn_cast<MemRefType>(weight.getType());
+  // These rank checks are allocation applicability checks: dynamic output
+  // dimensions below are derived from the NCHW/OIHW layout.
   if (!inputType || !weightType || inputType.getRank() != 4 ||
       weightType.getRank() != 4 || resultType.getRank() != 4)
     return nullptr;
@@ -193,6 +195,7 @@ static auto allocateMaxPool2D(PatternRewriter &rewriter, Location loc,
                               MemRefType resultType,
                               bool transferOwnership) -> Value {
   auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
+  // Dynamic output dimensions need the rank-4 NCHW indexing below.
   if (!inputType || inputType.getRank() != 4 || resultType.getRank() != 4)
     return nullptr;
 
@@ -511,10 +514,8 @@ static auto rewriteSoftmaxCrossEntropyCall(func::CallOp call,
       !call.getResult(0).getType().isF32())
     return failure();
 
-  auto logitsType = llvm::dyn_cast<MemRefType>(call.getOperand(0).getType());
-  auto expectedType = llvm::dyn_cast<MemRefType>(call.getOperand(1).getType());
-  if (!logitsType || logitsType.getRank() != 2 || !expectedType ||
-      expectedType.getRank() != 2)
+  if (!llvm::isa<MemRefType>(call.getOperand(0).getType()) ||
+      !llvm::isa<MemRefType>(call.getOperand(1).getType()))
     return failure();
 
   auto result = SoftmaxCrossEntropyOp::create(
@@ -549,14 +550,12 @@ static auto rewriteConv2DCall(func::CallOp call, PatternRewriter &rewriter)
       call.getNumResults() != 1)
     return failure();
 
-  auto inputType = llvm::dyn_cast<MemRefType>(call.getOperand(0).getType());
-  auto weightType = llvm::dyn_cast<MemRefType>(call.getOperand(1).getType());
-  auto biasType = llvm::dyn_cast<MemRefType>(call.getOperand(2).getType());
-  auto resultType = llvm::dyn_cast<MemRefType>(call.getResult(0).getType());
-  if (!inputType || inputType.getRank() != 4 || !weightType ||
-      weightType.getRank() != 4 || !biasType || biasType.getRank() != 1 ||
-      !resultType || resultType.getRank() != 4)
+  if (!llvm::isa<MemRefType>(call.getOperand(0).getType()) ||
+      !llvm::isa<MemRefType>(call.getOperand(1).getType()) ||
+      !llvm::isa<MemRefType>(call.getOperand(2).getType()) ||
+      !llvm::isa<MemRefType>(call.getResult(0).getType()))
     return failure();
+  auto resultType = llvm::cast<MemRefType>(call.getResult(0).getType());
 
   auto loc = call.getLoc();
   auto out = allocateConv2D(rewriter, loc, call.getOperand(0),
@@ -605,13 +604,13 @@ static auto rewriteMaxPool2DCall(func::CallOp call, PatternRewriter &rewriter)
       call.getNumOperands() != 3 || call.getNumResults() != 1)
     return failure();
 
-  auto inputType = llvm::dyn_cast<MemRefType>(call.getOperand(0).getType());
-  auto resultType = llvm::dyn_cast<MemRefType>(call.getResult(0).getType());
   auto height = getPositiveI64Constant(call.getOperand(1));
   auto width = getPositiveI64Constant(call.getOperand(2));
-  if (!inputType || inputType.getRank() != 4 || !resultType ||
-      resultType.getRank() != 4 || failed(height) || failed(width))
+  if (!llvm::isa<MemRefType>(call.getOperand(0).getType()) ||
+      !llvm::isa<MemRefType>(call.getResult(0).getType()) ||
+      failed(height) || failed(width))
     return failure();
+  auto resultType = llvm::cast<MemRefType>(call.getResult(0).getType());
 
   auto loc = call.getLoc();
   auto out = allocateMaxPool2D(rewriter, loc, call.getOperand(0), *height,
@@ -699,23 +698,9 @@ static auto rewriteConv2DBackwardIntoCall(func::CallOp call,
       call.getNumOperands() != 6 || call.getNumResults() != 0)
     return failure();
 
-  auto inputType = llvm::dyn_cast<MemRefType>(call.getOperand(0).getType());
-  auto weightType = llvm::dyn_cast<MemRefType>(call.getOperand(1).getType());
-  auto outputGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(2).getType());
-  auto inputGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(3).getType());
-  auto weightGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(4).getType());
-  auto biasGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(5).getType());
-  if (!inputType || inputType.getRank() != 4 || !weightType ||
-      weightType.getRank() != 4 || !outputGradientType ||
-      outputGradientType.getRank() != 4 || !inputGradientType ||
-      inputGradientType.getRank() != 4 || !weightGradientType ||
-      weightGradientType.getRank() != 4 || !biasGradientType ||
-      biasGradientType.getRank() != 1)
-    return failure();
+  for (Value operand : call.getOperands())
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      return failure();
 
   auto padding = rewriter.getDenseI64ArrayAttr({0, 0, 0, 0});
   auto strides = rewriter.getDenseI64ArrayAttr({1, 1});
@@ -760,16 +745,12 @@ static auto rewriteMaxPool2DBackwardIntoCall(func::CallOp call,
       call.getNumOperands() != 5 || call.getNumResults() != 0)
     return failure();
 
-  auto inputType = llvm::dyn_cast<MemRefType>(call.getOperand(0).getType());
-  auto outputGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(1).getType());
   auto height = getPositiveI64Constant(call.getOperand(2));
   auto width = getPositiveI64Constant(call.getOperand(3));
-  auto inputGradientType =
-      llvm::dyn_cast<MemRefType>(call.getOperand(4).getType());
-  if (!inputType || inputType.getRank() != 4 || !outputGradientType ||
-      outputGradientType.getRank() != 4 || failed(height) || failed(width) ||
-      !inputGradientType || inputGradientType.getRank() != 4)
+  if (!llvm::isa<MemRefType>(call.getOperand(0).getType()) ||
+      !llvm::isa<MemRefType>(call.getOperand(1).getType()) ||
+      !llvm::isa<MemRefType>(call.getOperand(4).getType()) ||
+      failed(height) || failed(width))
     return failure();
 
   auto kernel = rewriter.getDenseI64ArrayAttr({*height, *width});

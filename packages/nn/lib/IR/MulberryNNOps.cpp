@@ -189,6 +189,81 @@ static auto verifyElementwiseOp(Operation* op, Type inputType, Type outType,
 
 } // namespace
 
+auto MatmulOp::verify() -> LogicalResult {
+  auto lhs = getTensorInfo(getOperation(), getLhs().getType(), "lhs");
+  auto rhs = getTensorInfo(getOperation(), getRhs().getType(), "rhs");
+  auto out = getTensorInfo(getOperation(), getOut().getType(), "output");
+  if (failed(lhs) || failed(rhs) || failed(out))
+    return failure();
+
+  std::vector<TensorInfo> tensors{*lhs, *rhs, *out};
+  if (failed(verifySameRepresentation(getOperation(), tensors)) ||
+      failed(verifyRank(getOperation(), *lhs, 2, "lhs")) ||
+      failed(verifyRank(getOperation(), *rhs, 2, "rhs")) ||
+      failed(verifyRank(getOperation(), *out, 2, "output")) ||
+      failed(verifyCompatibleDim(getOperation(), lhs->shape[1], rhs->shape[0],
+                                 "lhs and rhs contraction dimensions")) ||
+      failed(verifyCompatibleDim(getOperation(), lhs->shape[0], out->shape[0],
+                                 "lhs and output row dimensions")) ||
+      failed(verifyCompatibleDim(getOperation(), rhs->shape[1], out->shape[1],
+                                 "rhs and output column dimensions")))
+    return failure();
+  return success();
+}
+
+auto MataddOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getLhs().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto MatsubOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getLhs().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto HadamardOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getLhs().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto MatscaleOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getInput().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto TransposeOp::verify() -> LogicalResult {
+  auto input = getTensorInfo(getOperation(), getInput().getType(), "input");
+  auto out = getTensorInfo(getOperation(), getOut().getType(), "output");
+  if (failed(input) || failed(out))
+    return failure();
+
+  std::vector<TensorInfo> tensors{*input, *out};
+  if (failed(verifySameRepresentation(getOperation(), tensors)) ||
+      failed(verifyRank(getOperation(), *input, 2, "input")) ||
+      failed(verifyRank(getOperation(), *out, 2, "output")) ||
+      failed(verifyCompatibleDim(getOperation(), input->shape[0], out->shape[1],
+                                 "input rows and output columns")) ||
+      failed(verifyCompatibleDim(getOperation(), input->shape[1], out->shape[0],
+                                 "input columns and output rows")))
+    return failure();
+  return success();
+}
+
+auto ExpOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getInput().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto SigmoidOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getInput().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
+auto SigmoidPrimeOp::verify() -> LogicalResult {
+  return verifyElementwiseOp(getOperation(), getInput().getType(),
+                             getOut().getType(), std::nullopt);
+}
+
 auto ReluOp::verify() -> LogicalResult {
   return verifyElementwiseOp(getOperation(), getInput().getType(),
                              getOut().getType(), std::nullopt);
@@ -347,5 +422,16 @@ auto MaxPool2DBackwardOp::verify() -> LogicalResult {
       failed(verifyMaxPool2DShape(getOperation(), *input, *outputGradient,
                                   getKernel(), getPadding(), getStrides())))
     return failure();
+  return success();
+}
+
+auto ArgmaxOp::verify() -> LogicalResult {
+  auto input = getTensorInfo(getOperation(), getInput().getType(), "input");
+  if (failed(input))
+    return failure();
+  // Keep this constraint aligned with ArgmaxConversion, which handles only
+  // rank-1 and rank-2 reductions.
+  if (input->shape.size() != 1 && input->shape.size() != 2)
+    return getOperation()->emitOpError("input must have rank 1 or 2");
   return success();
 }

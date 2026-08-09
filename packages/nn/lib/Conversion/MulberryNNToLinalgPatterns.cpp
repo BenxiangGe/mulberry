@@ -18,6 +18,10 @@
 namespace mlir::mulberry_nn {
 namespace {
 
+// The NN verifiers own semantic rank, element, representation, and shape
+// contracts. These patterns only consume the memref form produced by the type
+// converter and keep checks that are specific to constructing lower-level IR.
+
 static auto createFloatZero(ConversionPatternRewriter& rewriter, Location loc,
                             FloatType type) -> Value {
   return arith::ConstantFloatOp::create(
@@ -122,9 +126,7 @@ static auto createPaddedNchwInput(ConversionPatternRewriter& rewriter,
   if (!hasNonZeroPadding(padding))
     return PaddedMemRef{input, {}};
 
-  auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
-  if (!inputType || inputType.getRank() != 4 || padding.size() != 4)
-    return failure();
+  auto inputType = llvm::cast<MemRefType>(input.getType());
 
   std::vector<int64_t> paddedShape(inputType.getShape().begin(),
                                    inputType.getShape().end());
@@ -394,13 +396,8 @@ public:
   auto matchAndRewrite(mulberry_nn::ReluOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto outType = llvm::dyn_cast<MemRefType>(adaptor.getOut().getType());
-    auto elementType = outType
-                           ? llvm::dyn_cast<FloatType>(outType.getElementType())
-                           : FloatType{};
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "relu needs a floating-point memref output");
+    auto outType = llvm::cast<MemRefType>(adaptor.getOut().getType());
+    auto elementType = llvm::cast<FloatType>(outType.getElementType());
 
     auto zero = createFloatZero(rewriter, op.getLoc(), elementType);
     linalg::MapOp::create(
@@ -424,13 +421,8 @@ public:
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
     auto gradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getInputGradient().getType());
-    auto elementType =
-        gradientType ? llvm::dyn_cast<FloatType>(gradientType.getElementType())
-                     : FloatType{};
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "relu_backward needs a floating-point memref destination");
+        llvm::cast<MemRefType>(adaptor.getInputGradient().getType());
+    auto elementType = llvm::cast<FloatType>(gradientType.getElementType());
 
     auto zero = createFloatZero(rewriter, op.getLoc(), elementType);
     linalg::MapOp::create(
@@ -456,17 +448,8 @@ public:
   auto matchAndRewrite(mulberry_nn::SoftmaxOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto inputType = llvm::dyn_cast<MemRefType>(adaptor.getInput().getType());
-    auto outType = llvm::dyn_cast<MemRefType>(adaptor.getOut().getType());
-    if (!inputType || !outType || inputType.getRank() != 2 ||
-        outType.getRank() != 2)
-      return rewriter.notifyMatchFailure(
-          op, "softmax needs rank-2 memref input and output");
-
-    auto elementType = llvm::dyn_cast<FloatType>(inputType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "softmax needs floating-point elements");
+    auto inputType = llvm::cast<MemRefType>(adaptor.getInput().getType());
+    auto elementType = llvm::cast<FloatType>(inputType.getElementType());
 
     auto loc = op.getLoc();
     // Stable softmax: reduce each row's maximum, exponentiate x - max, reduce
@@ -547,19 +530,8 @@ public:
                        OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto logitsType =
-        llvm::dyn_cast<MemRefType>(adaptor.getLogits().getType());
-    auto expectedType =
-        llvm::dyn_cast<MemRefType>(adaptor.getExpected().getType());
-    if (!logitsType || logitsType.getRank() != 2 || !expectedType ||
-        expectedType.getRank() != 2)
-      return rewriter.notifyMatchFailure(
-          op, "softmax cross-entropy needs rank-2 memref operands");
-
-    auto elementType = llvm::dyn_cast<FloatType>(logitsType.getElementType());
-    if (!elementType || expectedType.getElementType() != elementType)
-      return rewriter.notifyMatchFailure(
-          op, "softmax cross-entropy needs matching floating-point elements");
+    auto logitsType = llvm::cast<MemRefType>(adaptor.getLogits().getType());
+    auto elementType = llvm::cast<FloatType>(logitsType.getElementType());
 
     auto loc = op.getLoc();
     auto zeroIndex = arith::ConstantIndexOp::create(rewriter, loc, 0);
@@ -658,18 +630,8 @@ public:
   auto matchAndRewrite(mulberry_nn::Conv2DOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto inputType = llvm::dyn_cast<MemRefType>(adaptor.getInput().getType());
-    auto weightType = llvm::dyn_cast<MemRefType>(adaptor.getWeight().getType());
-    auto biasType = llvm::dyn_cast<MemRefType>(adaptor.getBias().getType());
-    auto outType = llvm::dyn_cast<MemRefType>(adaptor.getOut().getType());
-    if (!inputType || !weightType || !biasType || !outType)
-      return rewriter.notifyMatchFailure(
-          op, "conv2d needs memref input, weight, bias and output");
-
-    auto elementType = llvm::dyn_cast<FloatType>(outType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "conv2d needs floating-point elements");
+    auto outType = llvm::cast<MemRefType>(adaptor.getOut().getType());
+    auto elementType = llvm::cast<FloatType>(outType.getElementType());
 
     auto loc = op.getLoc();
     PaddedMemRef paddedInput{adaptor.getInput(), {}};
@@ -719,31 +681,10 @@ public:
   auto matchAndRewrite(mulberry_nn::Conv2DBackwardOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto inputType = llvm::dyn_cast<MemRefType>(adaptor.getInput().getType());
-    auto weightType = llvm::dyn_cast<MemRefType>(adaptor.getWeight().getType());
-    auto outputGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getOutputGradient().getType());
     auto inputGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getInputGradient().getType());
-    auto weightGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getWeightGradient().getType());
-    auto biasGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getBiasGradient().getType());
-    if (!inputType || inputType.getRank() != 4 || !weightType ||
-        weightType.getRank() != 4 || !outputGradientType ||
-        outputGradientType.getRank() != 4 || !inputGradientType ||
-        inputGradientType.getRank() != 4 || !weightGradientType ||
-        weightGradientType.getRank() != 4 || !biasGradientType ||
-        biasGradientType.getRank() != 1)
-      return rewriter.notifyMatchFailure(
-          op, "conv2d_backward needs rank-4 memrefs and a rank-1 bias "
-              "gradient");
-
+        llvm::cast<MemRefType>(adaptor.getInputGradient().getType());
     auto elementType =
-        llvm::dyn_cast<FloatType>(inputGradientType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "conv2d_backward needs floating-point elements");
+        llvm::cast<FloatType>(inputGradientType.getElementType());
 
     auto loc = op.getLoc();
     auto zero = createFloatZero(rewriter, loc, elementType);
@@ -864,16 +805,8 @@ public:
   auto matchAndRewrite(mulberry_nn::MaxPool2DOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto inputType = llvm::dyn_cast<MemRefType>(adaptor.getInput().getType());
-    auto outType = llvm::dyn_cast<MemRefType>(adaptor.getOut().getType());
-    if (!inputType || !outType)
-      return rewriter.notifyMatchFailure(
-          op, "max_pool2d needs memref input and output");
-
-    auto elementType = llvm::dyn_cast<FloatType>(outType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "max_pool2d needs floating-point elements");
+    auto outType = llvm::cast<MemRefType>(adaptor.getOut().getType());
+    auto elementType = llvm::cast<FloatType>(outType.getElementType());
 
     auto loc = op.getLoc();
     auto negativeInfinity = createNegativeInfinity(rewriter, loc, elementType);
@@ -914,22 +847,10 @@ public:
   auto matchAndRewrite(mulberry_nn::MaxPool2DBackwardOp op, OpAdaptor adaptor,
                        ConversionPatternRewriter& rewriter) const
       -> LogicalResult final {
-    auto inputType = llvm::dyn_cast<MemRefType>(adaptor.getInput().getType());
-    auto outputGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getOutputGradient().getType());
     auto inputGradientType =
-        llvm::dyn_cast<MemRefType>(adaptor.getInputGradient().getType());
-    if (!inputType || inputType.getRank() != 4 || !outputGradientType ||
-        outputGradientType.getRank() != 4 || !inputGradientType ||
-        inputGradientType.getRank() != 4)
-      return rewriter.notifyMatchFailure(
-          op, "max_pool2d_backward needs rank-4 memrefs");
-
+        llvm::cast<MemRefType>(adaptor.getInputGradient().getType());
     auto elementType =
-        llvm::dyn_cast<FloatType>(inputGradientType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "max_pool2d_backward needs floating-point elements");
+        llvm::cast<FloatType>(inputGradientType.getElementType());
 
     auto loc = op.getLoc();
     auto zero = createFloatZero(rewriter, loc, elementType);
@@ -1062,20 +983,9 @@ public:
       -> LogicalResult final {
     auto loc = op.getLoc();
     auto input = adaptor.getInput();
-    auto inputType = llvm::dyn_cast<MemRefType>(input.getType());
-    if (!inputType)
-      return rewriter.notifyMatchFailure(
-          op, "argmax currently needs a ranked memref input");
-
+    auto inputType = llvm::cast<MemRefType>(input.getType());
     auto rank = inputType.getRank();
-    if (rank != 1 && rank != 2)
-      return rewriter.notifyMatchFailure(
-          op, "argmax currently supports rank-1 or rank-2 inputs");
-
-    auto elementType = llvm::dyn_cast<FloatType>(inputType.getElementType());
-    if (!elementType)
-      return rewriter.notifyMatchFailure(
-          op, "argmax currently needs a float input element type");
+    auto elementType = llvm::cast<FloatType>(inputType.getElementType());
 
     auto makeIndex = [&](int64_t value) -> Value {
       return arith::ConstantIndexOp::create(rewriter, loc, value);
