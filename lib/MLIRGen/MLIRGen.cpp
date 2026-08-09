@@ -176,14 +176,6 @@ auto startsWith(std::string_view value, std::string_view prefix) -> bool {
          value.substr(0, prefix.size()) == prefix;
 }
 
-auto isObjectReferenceParameter(const Type *type, bool isExtern) -> bool {
-  return !isExtern && isObjectReferenceType(type);
-}
-
-auto isObjectReferenceReturn(const Type *type, bool isExtern) -> bool {
-  return !isExtern && isObjectReferenceType(type);
-}
-
 class MLIRGenImpl {
 public:
   MLIRGenImpl(const llvm::SourceMgr &sourceManager, mlir::MLIRContext &context)
@@ -221,6 +213,10 @@ private:
   auto gen(const FunctionDecl *node) -> func::FuncOp;
   auto gen(const StructDecl *node) -> void;
   auto genReplFunction(const Module &node) -> void;
+  auto getLayoutFunctionMLIRType(const Prototype *node) const
+      -> mlir::FunctionType;
+  auto getLayoutFunctionMLIRType(const FunctionType *type) const
+      -> mlir::FunctionType;
 
   // Expressions
   auto gen(const Expr *node) -> mlir::Value;
@@ -467,13 +463,8 @@ private:
   auto genObjectReference(const Expr *expr) -> mlir::Value;
   auto genValueForStorage(const Expr *expr, const Type *type,
                           mlir::Location location) -> mlir::Value;
-  auto genCallArgumentValue(const Expr *expr, mlir::Type parameterType,
-                            bool isExtern) -> mlir::Value;
-  auto loadObjectHeaderForExternArgument(const Expr *expr,
-                                         mlir::Type parameterType)
+  auto genCallArgumentValue(const Expr *expr, mlir::Type parameterType)
       -> mlir::Value;
-  auto boxExternObjectResult(mlir::Value value, const Type *type,
-                             mlir::Location location) -> mlir::Value;
   auto loadObjectReferenceFromStorage(mlir::Value storagePtr,
                                       const Type *type,
                                       mlir::Location location) -> mlir::Value;
@@ -481,9 +472,6 @@ private:
                                   mlir::Location location) -> mlir::Value;
   auto castToType(mlir::Value value, mlir::Type type, mlir::Location location)
       -> mlir::Value;
-  auto getParameterMLIRType(const Type *type, bool isExtern) const
-      -> mlir::Type;
-  auto getReturnMLIRType(const Type *type, bool isExtern) const -> mlir::Type;
   auto getLayoutMLIRType(const Type *type) const -> mlir::Type;
   auto getLayoutMLIRType(const Expr *expr) const -> mlir::Type;
   auto getSourceMLIRType(const Type *type) const -> mlir::Type;
@@ -676,13 +664,11 @@ auto MLIRGenImpl::declareReplFunctions(const Module &node) -> void {
 
     llvm::SmallVector<mlir::Type, 3> argumentTypes;
     for (auto *parameterType : binding.type->parameterTypes())
-      argumentTypes.push_back(
-          getParameterMLIRType(parameterType, binding.isExtern));
+      argumentTypes.push_back(getSourceMLIRType(parameterType));
 
     llvm::SmallVector<mlir::Type, 1> resultTypes;
     if (!isUnitType(binding.type->returnType()))
-      resultTypes.push_back(
-          getReturnMLIRType(binding.type->returnType(), binding.isExtern));
+      resultTypes.push_back(getSourceMLIRType(binding.type->returnType()));
 
     auto functionType = _builder.getFunctionType(argumentTypes, resultTypes);
     mlir::OperationState state(_builder.getUnknownLoc(),
@@ -694,6 +680,10 @@ auto MLIRGenImpl::declareReplFunctions(const Module &node) -> void {
     // JITDylib link order.
     mlir::SymbolTable::setSymbolVisibility(
         function, mlir::SymbolTable::Visibility::Private);
+    if (binding.isExtern)
+      function->setAttr(mulberry_core::kExternLayoutTypeAttr,
+                        mlir::TypeAttr::get(
+                            getLayoutFunctionMLIRType(binding.type)));
     module.push_back(function);
     setFunction(binding.name, function, binding.isExtern);
     DBG("declare persistent REPL function `{0}`", binding.name);
@@ -766,18 +756,22 @@ auto MLIRGenImpl::gen(const Prototype *node, bool isExtern)
     if (param->isComptime())
       continue;
     auto *paramType = param->type();
-    argTypes.push_back(getParameterMLIRType(paramType, isExtern));
+    argTypes.push_back(getSourceMLIRType(paramType));
   }
 
   auto funcName = node->id()->name();
   auto *returnType = node->type();
   llvm::SmallVector<mlir::Type, 1> resultTypes;
   if (!mulberry::isUnitType(returnType))
-    resultTypes.push_back(getReturnMLIRType(returnType, isExtern));
+    resultTypes.push_back(getSourceMLIRType(returnType));
   auto funcType = _builder.getFunctionType(argTypes, resultTypes);
   mlir::OperationState state(loc(node), func::FuncOp::getOperationName());
   func::FuncOp::build(_builder, state, funcName, funcType);
   auto func = llvm::cast<func::FuncOp>(mlir::Operation::create(state));
+
+  if (isExtern)
+    func->setAttr(mulberry_core::kExternLayoutTypeAttr,
+                  mlir::TypeAttr::get(getLayoutFunctionMLIRType(node)));
 
   setFunction(funcName, func, isExtern);
 
@@ -823,7 +817,7 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> func::FuncOp {
     auto varName = var->variable()->name();
     auto value = entryBlock.getArgument(argumentIndex++);
     auto *paramType = var->type();
-    if (isObjectReferenceParameter(paramType, node->isExtern())) {
+    if (isObjectReferenceType(paramType)) {
       auto referenceSlot = createAlloca(value.getType(), loc(node));
       createStore(value, referenceSlot, loc(node));
       setVariableObjectReference(varName, referenceSlot);
@@ -855,7 +849,7 @@ auto MLIRGenImpl::gen(const FunctionDecl *node) -> func::FuncOp {
     mlir::Value returnSlot = nullptr;
     mlir::Type returnMLIRType = nullptr;
     if (!mulberry::isUnitType(returnType)) {
-      returnMLIRType = getReturnMLIRType(returnType, node->isExtern());
+      returnMLIRType = getSourceMLIRType(returnType);
       returnSlot = createAlloca(returnMLIRType, loc(node));
     }
 
@@ -1291,8 +1285,7 @@ auto MLIRGenImpl::gen(const ReturnStat *node) -> void {
     if (mulberry::isUnitType(control.sourceReturnType)) {
       gen(expression);
     } else {
-      auto value = isObjectReferenceReturn(control.sourceReturnType,
-                                           /*isExtern=*/false)
+      auto value = isObjectReferenceType(control.sourceReturnType)
                        ? genObjectReference(expression)
                        : gen(expression);
       value = castToType(value, control.returnType, loc(node));
@@ -1354,7 +1347,7 @@ auto MLIRGenImpl::genIndirectCall(const CallExpr *node) -> mlir::Value {
   for (const auto &indexedArgument : llvm::enumerate(node->expressions())) {
     auto value = genCallArgumentValue(
         indexedArgument.value().get(),
-        calleeType.getInput(indexedArgument.index()), /*isExtern=*/false);
+        calleeType.getInput(indexedArgument.index()));
     operands.push_back(value);
   }
 
@@ -1366,7 +1359,6 @@ auto MLIRGenImpl::genIndirectCall(const CallExpr *node) -> mlir::Value {
 }
 
 // Compiler-generated calls already carry their source ABI representation.
-// Object value-ABI adaptation belongs exclusively to source extern calls.
 auto MLIRGenImpl::genDeclaredLoweredCall(std::string_view name,
                                         mlir::ValueRange args,
                                         mlir::Location location)
@@ -1378,7 +1370,7 @@ auto MLIRGenImpl::genDeclaredLoweredCall(std::string_view name,
   }
   auto& callee = calleeOpIter->second;
   if (callee.isExtern)
-    llvm_unreachable("lowered call cannot target an extern value ABI");
+    llvm_unreachable("lowered call cannot target an extern declaration");
   auto calleeType = callee.operation.getFunctionType();
 
   llvm::SmallVector<mlir::Value, 4> operands;
@@ -1416,15 +1408,12 @@ auto MLIRGenImpl::genDeclaredCall(std::string_view name,
     // fresh argument expression can be disposed immediately afterward.
     if (disposableTensorArguments && callee.isExtern &&
         isFreshTensorExpression(argument)) {
-      auto objectType = getLayoutMLIRType(argument);
-      if (parameterType != objectType)
-        llvm_unreachable("extern Tensor parameter does not use value ABI");
       auto objectReference = genObjectReference(argument);
       createTensorAssertAlive(objectReference, loc(argument));
-      value = createLoad(objectReference, parameterType, loc(argument));
+      value = castToType(objectReference, parameterType, loc(argument));
       disposableTensorArguments->push_back(objectReference);
     } else {
-      value = genCallArgumentValue(argument, parameterType, callee.isExtern);
+      value = genCallArgumentValue(argument, parameterType);
     }
     DBG("genDeclaredCall. value: {0}", value);
     operands.push_back(value);
@@ -1458,14 +1447,8 @@ auto MLIRGenImpl::genNormalCall(const CallExpr *node) -> mlir::Value {
   if (!isObjectReferenceType(node->type()))
     return result;
 
-  auto calleeOpIter = findFunction(node->name());
-  if (calleeOpIter == _functionsByName.end())
-    llvm_unreachable("object call has no declared callee");
-  if (calleeOpIter->second.isExtern)
-    return boxExternObjectResult(result, node->type(), loc(node));
-
   if (result.getType() != getSourceMLIRType(node->type()))
-    llvm_unreachable("non-extern object call did not return a reference");
+    llvm_unreachable("object call did not return a source reference");
   return result;
 }
 
@@ -1633,7 +1616,7 @@ auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
   StringLiteralExpr typeName(node->location(), std::string(node->typeName()));
   typeName.setType(node->type());
   auto typeNameValue =
-      genCallArgumentValue(&typeName, calleeType.getInput(0), true);
+      genCallArgumentValue(&typeName, calleeType.getInput(0));
 
   auto objectReference = genObjectReference(node->value().get());
   auto objectPointer = castToType(objectReference, calleeType.getInput(1),
@@ -1646,7 +1629,7 @@ auto MLIRGenImpl::gen(const ObjectIdentityExpr *node) -> mlir::Value {
   auto call = func::CallOp::create(
       _builder, loc(node), functionName, calleeType.getResults(),
       mlir::ValueRange{typeNameValue, objectPointer});
-  return boxExternObjectResult(call.getResult(0), node->type(), loc(node));
+  return call.getResult(0);
 }
 
 auto MLIRGenImpl::genStringLiteral(
@@ -2475,14 +2458,33 @@ auto MLIRGenImpl::getStorageMLIRType(const Type *type) const -> mlir::Type {
   return _typeConverter.convertStorage(type);
 }
 
-auto MLIRGenImpl::getParameterMLIRType(const Type *type,
-                                       bool isExtern) const -> mlir::Type {
-  return isExtern ? getLayoutMLIRType(type) : getSourceMLIRType(type);
+auto MLIRGenImpl::getLayoutFunctionMLIRType(const Prototype *node) const
+    -> mlir::FunctionType {
+  llvm::SmallVector<mlir::Type, 3> parameterTypes;
+  for (auto &parameter : node->parameters()) {
+    if (parameter->isComptime())
+      continue;
+    parameterTypes.push_back(getLayoutMLIRType(parameter->type()));
+  }
+
+  llvm::SmallVector<mlir::Type, 1> resultTypes;
+  if (!isUnitType(node->type()))
+    resultTypes.push_back(getLayoutMLIRType(node->type()));
+  return mlir::FunctionType::get(_builder.getContext(), parameterTypes,
+                                 resultTypes);
 }
 
-auto MLIRGenImpl::getReturnMLIRType(const Type *type,
-                                    bool isExtern) const -> mlir::Type {
-  return isExtern ? getLayoutMLIRType(type) : getSourceMLIRType(type);
+auto MLIRGenImpl::getLayoutFunctionMLIRType(const FunctionType *type) const
+    -> mlir::FunctionType {
+  llvm::SmallVector<mlir::Type, 3> parameterTypes;
+  for (auto *parameterType : type->parameterTypes())
+    parameterTypes.push_back(getLayoutMLIRType(parameterType));
+
+  llvm::SmallVector<mlir::Type, 1> resultTypes;
+  if (!isUnitType(type->returnType()))
+    resultTypes.push_back(getLayoutMLIRType(type->returnType()));
+  return mlir::FunctionType::get(_builder.getContext(), parameterTypes,
+                                 resultTypes);
 }
 
 auto MLIRGenImpl::castToType(mlir::Value value, mlir::Type type,
@@ -2660,55 +2662,20 @@ auto MLIRGenImpl::genObjectReference(const Expr *expr) -> mlir::Value {
   return gen(expr);
 }
 
-auto MLIRGenImpl::loadObjectHeaderForExternArgument(
-    const Expr *expr, mlir::Type parameterType) -> mlir::Value {
-  auto objectType = getLayoutMLIRType(expr);
-  if (parameterType != objectType)
-    llvm_unreachable("extern object parameter does not use value ABI");
-
-  auto objectReference = genObjectReference(expr);
-  if (isTensorObjectType(expr->type()))
-    createTensorAssertAlive(objectReference, loc(expr));
-  DBG("load extern object argument header: {0} -> {1}",
-      objectReference.getType(), parameterType);
-  return createLoad(objectReference, parameterType, loc(expr));
-}
-
-auto MLIRGenImpl::boxExternObjectResult(mlir::Value value, const Type *type,
-                                        mlir::Location location)
-    -> mlir::Value {
-  auto objectType = getLayoutMLIRType(type);
-  if (value.getType() != objectType)
-    llvm_unreachable("extern object result does not use value ABI");
-
-  auto objectReference = createHeapObject(objectType, location);
-  DBG("box extern object result: {0} -> {1}", value.getType(),
-      objectReference.getType());
-  createStore(value, objectReference, location);
-  return objectReference;
-}
-
 auto MLIRGenImpl::genCallArgumentValue(const Expr *expr,
-                                       mlir::Type parameterType,
-                                       bool isExtern) -> mlir::Value {
+                                       mlir::Type parameterType) -> mlir::Value {
   if (isObjectReferenceType(expr->type())) {
-    if (isExtern)
-      return loadObjectHeaderForExternArgument(expr, parameterType);
     return castToType(genObjectReference(expr), parameterType, loc(expr));
   }
 
   auto exprType = getLayoutMLIRType(expr);
-  if (!isExtern) {
-    auto ptrType =
-        llvm::dyn_cast<mulberry_core::PtrType>(parameterType);
-    if (!ptrType)
-      return castToType(gen(expr), parameterType, loc(expr));
+  auto ptrType = llvm::dyn_cast<mulberry_core::PtrType>(parameterType);
+  if (!ptrType)
+    return castToType(gen(expr), parameterType, loc(expr));
 
-    auto pointeeType = ptrType.getPointeeType();
-    if (exprType == pointeeType) {
-      return genAddressableValue(expr, pointeeType);
-    }
-  }
+  auto pointeeType = ptrType.getPointeeType();
+  if (exprType == pointeeType)
+    return genAddressableValue(expr, pointeeType);
 
   return castToType(gen(expr), parameterType, loc(expr));
 }

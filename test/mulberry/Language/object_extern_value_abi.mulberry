@@ -1,4 +1,5 @@
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
 
 package std.objectabi;
 
@@ -25,8 +26,10 @@ fn main(): UInt64 {
   return 0;
 }
 
-# MLIR-LABEL: func.func private @inspectBox(!mulberry_core.record<std.objectabi.Box
-# MLIR-LABEL: func.func private @makeBox(i64) -> !mulberry_core.record<std.objectabi.Box
+# MLIR-LABEL: func.func private @inspectBox(!mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
+# MLIR-SAME: attributes {mulberry_core.extern_layout_type = (!mulberry_core.record<std.objectabi.Box
+# MLIR-LABEL: func.func private @makeBox(i64) -> !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
+# MLIR-SAME: attributes {mulberry_core.extern_layout_type = (i64) -> !mulberry_core.record<std.objectabi.Box
 
 # MLIR-LABEL: func.func @std.objectabi.identity(
 # MLIR-SAME: %arg0: !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
@@ -34,11 +37,20 @@ fn main(): UInt64 {
 
 # MLIR-LABEL: func.func @std.objectabi.inspect(
 # MLIR: %[[IDENTITY:.*]] = func.call @std.objectabi.identity
-# MLIR: %[[HEADER:.*]] = mulberry_core.load %[[IDENTITY]]
-# MLIR: func.call @inspectBox(%[[HEADER]])
+# MLIR: func.call @inspectBox(%[[IDENTITY]])
 
 # MLIR-LABEL: func.func @std.objectabi.make(
 # MLIR: %[[VALUE:.*]] = func.call @makeBox
-# MLIR: %[[OBJECT:.*]] = mulberry_core.heap.alloc !mulberry_core.record<std.objectabi.Box
-# MLIR: mulberry_core.store %[[VALUE]], %[[OBJECT]]
+# MLIR: mulberry_core.store %[[VALUE]], %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
 # MLIR: return %{{.*}} : !mulberry_core.ptr<!mulberry_core.record<std.objectabi.Box
+
+# LOWERED-LABEL: func.func private @inspectBox(!llvm.struct<(i64)>) -> i64
+# LOWERED-LABEL: func.func private @makeBox(i64) -> !llvm.struct<(i64)>
+# LOWERED-LABEL: func.func @std.objectabi.inspect(
+# LOWERED: %[[LOWERED_IDENTITY:.*]] = func.call @std.objectabi.identity
+# LOWERED: %[[LOWERED_HEADER:.*]] = llvm.load %[[LOWERED_IDENTITY]] : !llvm.ptr -> !llvm.struct<(i64)>
+# LOWERED: func.call @inspectBox(%[[LOWERED_HEADER]])
+# LOWERED-LABEL: func.func @std.objectabi.make(
+# LOWERED: %[[LOWERED_VALUE:.*]] = func.call @makeBox
+# LOWERED: llvm.call @mulberry_boehm_malloc
+# LOWERED: llvm.store %[[LOWERED_VALUE]],

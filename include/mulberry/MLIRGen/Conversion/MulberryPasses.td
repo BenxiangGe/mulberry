@@ -31,6 +31,17 @@ def LowerResultTry : Pass<"lower-result-try", "::mlir::ModuleOp"> {
                            "mulberry_core::MulberryDialect"];
 }
 
+def LowerExternABI : Pass<"lower-extern-abi", "::mlir::ModuleOp"> {
+  let summary = "Lower extern source ABI calls to runtime layout ABI";
+  let description = [{
+    Extern declarations keep source object references in high-level Mulberry
+    IR. This pass changes the declaration to its recorded runtime layout type
+    and inserts object loads and heap boxing around direct calls.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+                           "mulberry_core::MulberryDialect"];
+}
+
 def LowerMulberry : Pass<"lower-mulberry"> {
   let summary = "Lower high-level Mulberry IR to the current storage-level MLIR";
   let description = [{

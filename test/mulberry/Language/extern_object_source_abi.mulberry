@@ -1,0 +1,41 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+extern fn inspectString(value: String): String;
+extern fn inspectFile(value: File): File;
+extern fn inspectTensor(value: Tensor<Float32>): Tensor<Float32>;
+
+fn stringRoundTrip(value: String): String {
+  return inspectString(value);
+}
+
+fn fileRoundTrip(value: File): File {
+  return inspectFile(value);
+}
+
+fn tensorRoundTrip(value: Tensor<Float32>): Tensor<Float32> {
+  return inspectTensor(value);
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# MLIR-LABEL: func.func private @inspectString(!mulberry_core.ptr<!mulberry_core.record<std.string.String
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std.string.String
+# MLIR-SAME: attributes {mulberry_core.extern_layout_type = (!mulberry_core.record<std.string.String
+# MLIR-LABEL: func.func private @inspectFile(!mulberry_core.ptr<!mulberry_core.record<std.io.File
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std.io.File
+# MLIR-SAME: attributes {mulberry_core.extern_layout_type = (!mulberry_core.record<std.io.File
+# MLIR-LABEL: func.func private @inspectTensor(!mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: -> !mulberry_core.ptr<!mulberry_core.record<std_tensor_Tensor__Float32
+# MLIR-SAME: attributes {mulberry_core.extern_layout_type = (!mulberry_core.record<std_tensor_Tensor__Float32
+
+# LOWERED-LABEL: func.func private @inspectString(!llvm.struct<
+# LOWERED-SAME: -> !llvm.struct<
+# LOWERED-LABEL: func.func private @inspectFile(!llvm.struct<
+# LOWERED-SAME: -> !llvm.struct<
+# LOWERED-LABEL: func.func private @inspectTensor(!llvm.struct<
+# LOWERED-SAME: -> !llvm.struct<
+# LOWERED: llvm.call @mulberry_boehm_malloc

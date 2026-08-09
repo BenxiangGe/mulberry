@@ -21,6 +21,8 @@ namespace mlir::mulberry_core {
 
 inline constexpr llvm::StringLiteral kTransferTensorResultOwnershipAttr =
     "mulberry_core.transfer_tensor_result_ownership";
+inline constexpr llvm::StringLiteral kExternLayoutTypeAttr =
+    "mulberry_core.extern_layout_type";
 
 } // namespace mlir::mulberry_core
 

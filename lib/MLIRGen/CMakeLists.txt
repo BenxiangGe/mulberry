@@ -11,6 +11,7 @@ add_mlir_dialect_library(mulberryMLIRGen
         # Conversion
         ${LIB_HEADERS}/Conversion/MulberryPasses.h
         Conversion/ConvertMulberryToLLVM.cpp
+        Conversion/LowerExternABI.cpp
         Conversion/LowerResultTry.cpp
         Conversion/LowerMulberry.cpp
         Conversion/LowerMulberrySupport.cpp

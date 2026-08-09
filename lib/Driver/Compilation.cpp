@@ -957,6 +957,9 @@ auto Compilation::compileModule(
   if (lowering >= Lowering::Mulberry && llvm::failed(loadUsedBundledPackages()))
     return failure();
 
+  if (lowering >= Lowering::Mulberry)
+    pm.addPass(mulberry_core::createLowerExternABI());
+
   if (lowering >= Lowering::Mulberry &&
       llvm::failed(addBundledPackagePreCorePipelines(pm)))
     return failure();
