@@ -1,0 +1,16 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import io;
+import io.File;
+import string.String;
+import tensor.Tensor;
+
+struct NotRaw {
+  text: String
+}
+
+fn writeObject(file: File, values: Tensor<NotRaw>): Result<UInt64, io.FileError> {
+  return io.write(file, values);
+}
+
+# CHECK: error: type `NotRaw` does not satisfy trait `std.io.RawBytes`

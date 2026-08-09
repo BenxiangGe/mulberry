@@ -1,0 +1,36 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+
+struct Loud {
+  value: UInt64
+}
+
+impl Show for Loud {
+  fn toString(self: Loud): String {
+    io.println("called");
+    return string.fromUInt64(self.value);
+  }
+}
+
+fn main(): UInt64 {
+  io.println(Loud { 7 });
+  io.println(string.format("{}:{}", Loud { 1 }, Loud { 2 }));
+  return 0;
+}
+
+# JIT: called
+# JIT-NEXT: 7
+# JIT-NEXT: called
+# JIT-NEXT: called
+# JIT-NEXT: 1:2
+
+# AST-LABEL: Prototype {{.*}}name=std_io_println__Loud
+# AST-COUNT-1: CallExpr {{.*}}callee=std.string.Show__Loud.toString
+# AST-LABEL: Prototype {{.*}}name=std_string_format__pack_Loud_Loud__str_7b7d3a7b7d
+# AST-COUNT-2: CallExpr {{.*}}callee=std.string.Show__Loud.toString
+
+# MLIR-LABEL: func.func @std_io_println__Loud
+# MLIR-COUNT-1: call @std.string.Show__Loud.toString
+# MLIR-LABEL: func.func @std_string_format__pack_Loud_Loud__str_7b7d3a7b7d
+# MLIR-COUNT-2: func.call @std.string.Show__Loud.toString

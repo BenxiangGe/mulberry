@@ -28,15 +28,16 @@ fn run(): Result<UInt64, safetensors.SafetensorsError> {
   const updated =
       nn.cnnMiniBatchStep(parameters, train, 0, sampleCount, 0.001, 1.0);
 
-  var names = list.from([
-    "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias"
-  ]);
-  var values = list.from([
-    updated.convWeight, updated.convBias,
-    updated.classifierWeight, updated.classifierBias
+  var entries = list.from([
+    safetensors.NamedTensor { "conv1_weight", updated.convWeight },
+    safetensors.NamedTensor { "conv1_bias", updated.convBias },
+    safetensors.NamedTensor {
+      "classifier_weight", updated.classifierWeight
+    },
+    safetensors.NamedTensor { "classifier_bias", updated.classifierBias }
   ]);
   safetensors.write("/tmp/mulberry_nn_cnn_checkpoint.safetensors",
-                    names, values)?;
+                    entries)?;
 
   const checkpoint =
       safetensors.open("/tmp/mulberry_nn_cnn_checkpoint.safetensors")?;

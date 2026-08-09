@@ -6,7 +6,7 @@ import core;
 import io;
 import io.File;
 import json;
-import json.Parser;
+import json.Cursor;
 import result.Result;
 import result.Ok;
 import result.Err;
@@ -19,16 +19,28 @@ data SafetensorsError =
     IoFailure(io.FileError)
   | JsonFailure(json.JsonError)
   | TensorNotFound(String)
-  | InvalidTensor(String);
+  | InvalidTensor(String)
+  | InvalidFile(String)
+  | EmptyTensorName()
+  | DuplicateTensorName(String)
+  | ReservedTensorName(String);
 
-fn printError(error: SafetensorsError): () {
-  match error {
-    IoFailure(fileError) => io.printError(fileError);
-    JsonFailure(jsonError) => json.printError(jsonError);
-    TensorNotFound(name) =>
-        io.println(string.format("tensor {} was not found", name));
-    InvalidTensor(name) =>
-        io.println(string.format("tensor {} has invalid metadata", name));
+impl Show for SafetensorsError {
+  fn toString(self: SafetensorsError): String {
+    return match self {
+      IoFailure(fileError) => fileError.toString(),
+      JsonFailure(jsonError) => jsonError.toString(),
+      TensorNotFound(name) => string.format("tensor {} was not found", name),
+      InvalidTensor(name) =>
+          string.format("tensor {} has invalid metadata", name),
+      InvalidFile(reason) =>
+          string.format("invalid safetensors file: {}", reason),
+      EmptyTensorName() => "tensor name must not be empty",
+      DuplicateTensorName(name) =>
+          string.format("duplicate tensor name {}", name),
+      ReservedTensorName(name) =>
+          string.format("reserved tensor name {}", name),
+    };
   }
 }
 
@@ -48,6 +60,38 @@ fn mapJsonError<T>(result: Result<T, json.JsonError>):
   }
 }
 
+fn maxUInt64(): UInt64 {
+  return 18446744073709551615;
+}
+
+fn addChecked(left: UInt64, right: UInt64): Result<UInt64, SafetensorsError> {
+  if left > maxUInt64() - right {
+    return Err(InvalidFile("UInt64 addition overflow"));
+  }
+  return Ok(left + right);
+}
+
+fn mulChecked(left: UInt64, right: UInt64): Result<UInt64, SafetensorsError> {
+  if right != 0 and left > maxUInt64() / right {
+    return Err(InvalidFile("UInt64 multiplication overflow"));
+  }
+  return Ok(left * right);
+}
+
+fn stringsEqual(left: String, right: String): Bool {
+  if left.length != right.length {
+    return false;
+  }
+  var index = 0;
+  while index < left.length {
+    if left.data[index] != right.data[index] {
+      return false;
+    }
+    index = index + 1;
+  }
+  return true;
+}
+
 struct TensorInfo {
   headerLength: UInt64,
   begin: UInt64,
@@ -65,7 +109,13 @@ struct TensorMetadata {
 struct TensorFile {
   file: File,
   headerLength: UInt64,
-  headerBytes: Tensor<UInt8>
+  headerBytes: Tensor<UInt8>,
+  fileSize: UInt64
+}
+
+struct NamedTensor {
+  name: String,
+  value: Tensor<Float32>
 }
 
 struct ByteBuffer {
@@ -81,14 +131,6 @@ struct ByteBuffer {
       self.bytes.push(value.data[index]);
       index = index + 1;
     }
-  }
-
-  pub fn pushQuotedString(mut self: ByteBuffer, value: String): () {
-    // This writer only supports trusted ASCII tensor names. General JSON
-    // escaping can be added when user-provided names become part of the API.
-    self.pushChar('"');
-    self.pushString(value);
-    self.pushChar('"');
   }
 
   pub fn pushUInt64(mut self: ByteBuffer, value: UInt64): () {
@@ -125,9 +167,10 @@ struct ByteBuffer {
 
   pub fn pushTensorHeader(mut self: ByteBuffer, name: String,
                           value: Tensor<Float32>,
-                          offset: UInt64): UInt64 {
-    const nextOffset = offset + value.numel * sizeof(Float32);
-    self.pushQuotedString(name);
+                          offset: UInt64): Result<UInt64, SafetensorsError> {
+    const byteSize = mulChecked(value.numel, #sizeof(Float32))?;
+    const nextOffset = addChecked(offset, byteSize)?;
+    json.appendQuotedString(self.bytes, name);
     self.pushString(
         ":{\"dtype\":\"F32\",\"shape\":[");
     self.pushShape(value.sizes);
@@ -136,11 +179,34 @@ struct ByteBuffer {
     self.pushChar(',');
     self.pushUInt64(nextOffset);
     self.pushString("]}");
-    return nextOffset;
+    return Ok(nextOffset);
   }
 }
 
-fn parseTensorField(mut parser: Parser, mut metadata: TensorMetadata,
+fn validateEntries(entries: List<NamedTensor>): Result<(), SafetensorsError> {
+  var index = 0;
+  while index < entries.size() {
+    const name = entries[index].name;
+    if name.length == 0 {
+      return Err(EmptyTensorName());
+    }
+    if stringsEqual(name, "__metadata__") {
+      return Err(ReservedTensorName(name));
+    }
+
+    var previous = 0;
+    while previous < index {
+      if stringsEqual(name, entries[previous].name) {
+        return Err(DuplicateTensorName(name));
+      }
+      previous = previous + 1;
+    }
+    index = index + 1;
+  }
+  return Ok(());
+}
+
+fn parseTensorField(mut parser: Cursor, mut metadata: TensorMetadata,
                     name: String): Result<(), SafetensorsError> {
   const keyStart = parser.position;
   if mapJsonError(parser.stringEquals("dtype"))? {
@@ -183,7 +249,7 @@ fn parseTensorField(mut parser: Parser, mut metadata: TensorMetadata,
   return Ok(());
 }
 
-fn parseTensorObject(mut parser: Parser, headerLength: UInt64,
+fn parseTensorObject(mut parser: Cursor, headerLength: UInt64,
                      name: String): Result<TensorInfo, SafetensorsError> {
   var metadata = TensorMetadata {
     TensorInfo { headerLength, 0, 0, list.withCapacity(0) },
@@ -219,7 +285,7 @@ fn parseTensorObject(mut parser: Parser, headerLength: UInt64,
   return Err(InvalidTensor(name));
 }
 
-fn prepareTensorEntry(mut parser: Parser, name: String):
+fn prepareTensorEntry(mut parser: Cursor, name: String):
     Result<Bool, SafetensorsError> {
   const keyStart = parser.position;
   if mapJsonError(parser.stringEquals(name))? {
@@ -234,7 +300,7 @@ fn prepareTensorEntry(mut parser: Parser, name: String):
   return Ok(false);
 }
 
-fn findTensorInHeader(mut parser: Parser, name: String,
+fn findTensorInHeader(mut parser: Cursor, name: String,
                       headerLength: UInt64):
     Result<TensorInfo, SafetensorsError> {
   mapJsonError(parser.expectChar('{'))?;
@@ -279,11 +345,21 @@ fn readHeaderLength(file: File): Result<UInt64, SafetensorsError> {
 }
 
 fn loadTensorFile(file: File): Result<TensorFile, SafetensorsError> {
+  const fileSize = mapIoError(io.fileSize(file))?;
+  if fileSize < 8 {
+    return Err(InvalidFile("file is shorter than the header length field"));
+  }
   const headerLength = readHeaderLength(file)?;
+  if headerLength > 100000000 {
+    return Err(InvalidFile("header exceeds 100000000 bytes"));
+  }
+  if headerLength > fileSize - 8 {
+    return Err(InvalidFile("header extends past end of file"));
+  }
   var headerBytes: Tensor<UInt8> = tensor.zeros([headerLength]);
   mapIoError(io.seek(file, 8))?;
   mapIoError(io.readExact(file, headerBytes))?;
-  return Ok(TensorFile { file, headerLength, headerBytes });
+  return Ok(TensorFile { file, headerLength, headerBytes, fileSize });
 }
 
 fn open(path: String): Result<TensorFile, SafetensorsError> {
@@ -291,7 +367,7 @@ fn open(path: String): Result<TensorFile, SafetensorsError> {
   match loadTensorFile(file) {
     Ok(tensorFile) => return Ok(tensorFile);
     Err(error) => {
-      mapIoError(io.close(file))?;
+      io.close(file);
       return Err(error);
     }
   }
@@ -303,25 +379,32 @@ fn close(tensorFile: TensorFile): Result<(), SafetensorsError> {
 
 fn find(tensorFile: TensorFile, name: String):
     Result<TensorInfo, SafetensorsError> {
-  var parser =
-      Parser { tensorFile.headerBytes, 0, tensorFile.headerLength };
+  var parser = Cursor { tensorFile.headerBytes, 0 };
   return findTensorInHeader(parser, name, tensorFile.headerLength);
 }
 
 fn read(tensorFile: TensorFile, name: String):
     Result<Tensor<Float32>, SafetensorsError> {
   const info = find(tensorFile, name)?;
-  var numel = 1;
+  var numel: UInt64 = 1;
   for index in 0 .. info.shape.size() {
-    numel = numel * info.shape[index];
+    match mulChecked(numel, info.shape[index]) {
+      Ok(value) => numel = value;
+      Err(error) => return Err(error);
+    }
   }
-  const expectedBytes = numel * sizeof(Float32);
-  if expectedBytes != info.end - info.begin {
+  const expectedBytes = mulChecked(numel, #sizeof(Float32))?;
+  if info.end < info.begin or expectedBytes != info.end - info.begin {
     return Err(InvalidTensor(name));
   }
+  const dataStart = addChecked(8, info.headerLength)?;
+  const fileOffset = addChecked(dataStart, info.begin)?;
+  const dataEnd = addChecked(dataStart, info.end)?;
+  if dataEnd > tensorFile.fileSize {
+    return Err(InvalidFile("tensor data extends past end of file"));
+  }
   var value: Tensor<Float32> = tensor.zerosDynamic(info.shape);
-  mapIoError(io.seek(tensorFile.file,
-                     8 + info.headerLength + info.begin))?;
+  mapIoError(io.seek(tensorFile.file, fileOffset))?;
   mapIoError(io.readExact(tensorFile.file, value))?;
   return Ok(value);
 }
@@ -346,50 +429,62 @@ fn writeUInt64LE(file: File, value: UInt64):
 
 fn writeHeader(file: File, header: ByteBuffer):
     Result<UInt64, SafetensorsError> {
+  if header.bytes.size() > 100000000 {
+    return Err(InvalidFile("header exceeds 100000000 bytes"));
+  }
   const lengthBytes = writeUInt64LE(file, header.bytes.size())?;
   const headerBytes = mapIoError(io.writeBytes(file, header.bytes))?;
-  return Ok(lengthBytes + headerBytes);
+  return addChecked(lengthBytes, headerBytes);
 }
 
 fn writeContents(file: File, header: ByteBuffer,
-                 values: List<Tensor<Float32>>):
+                 entries: List<NamedTensor>):
     Result<UInt64, SafetensorsError> {
   var byteCount = writeHeader(file, header)?;
-  for index in 0 .. values.size() {
-    match mapIoError(io.write(file, values[index])) {
-      Ok(written) => byteCount = byteCount + written;
+  for index in 0 .. entries.size() {
+    match mapIoError(io.write(file, entries[index].value)) {
+      Ok(written) => {
+        match addChecked(byteCount, written) {
+          Ok(value) => byteCount = value;
+          Err(error) => return Err(error);
+        }
+      }
       Err(error) => return Err(error);
     }
   }
   return Ok(byteCount);
 }
 
-fn write(path: String, names: List<String>,
-         values: List<Tensor<Float32>>):
+fn write(path: String, entries: List<NamedTensor>):
     Result<UInt64, SafetensorsError> {
+  validateEntries(entries)?;
   var header = makeByteBuffer();
   header.pushChar('{');
 
-  var offset = 0;
+  var offset: UInt64 = 0;
   var index = 0;
-  while index < values.size() {
+  while index < entries.size() {
     if index > 0 {
       header.pushChar(',');
     }
-    offset = header.pushTensorHeader(names[index], values[index], offset);
+    match header.pushTensorHeader(entries[index].name, entries[index].value,
+                                  offset) {
+      Ok(value) => offset = value;
+      Err(error) => return Err(error);
+    }
     index = index + 1;
   }
 
   header.pushChar('}');
 
   const file = mapIoError(io.open(path, "wb"))?;
-  match writeContents(file, header, values) {
+  match writeContents(file, header, entries) {
     Ok(byteCount) => {
       mapIoError(io.close(file))?;
       return Ok(byteCount);
     }
     Err(error) => {
-      mapIoError(io.close(file))?;
+      io.close(file);
       return Err(error);
     }
   }

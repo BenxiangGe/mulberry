@@ -5,6 +5,7 @@ fn run(): Result<UInt64, io.FileError> {
   const output = io.open("/tmp/mulberry_file_api_jit.bin", "wb")?;
   io.write(output, outputBytes)?;
   const outputPosition = io.tell(output)?;
+  const outputSize = io.fileSize(output)?;
   io.close(output)?;
 
   var inputTensor: Tensor<UInt8> = tensor.zeros([4]);
@@ -14,6 +15,7 @@ fn run(): Result<UInt64, io.FileError> {
   io.close(input)?;
 
   io.println(outputPosition);
+  io.println(outputSize);
   io.println(count);
   io.println(boolToUInt64(inputTensor[0] == outputBytes[0]));
   io.println(boolToUInt64(inputTensor[1] == outputBytes[1]));
@@ -30,6 +32,7 @@ fn main(): UInt64 {
 }
 
 # JIT: 4
+# JIT-NEXT: 4
 # JIT-NEXT: 4
 # JIT-NEXT: 1
 # JIT-NEXT: 1

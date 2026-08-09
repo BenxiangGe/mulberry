@@ -47,16 +47,17 @@ fn run(): Result<UInt64, safetensors.SafetensorsError> {
     beforeTrainLoss, afterTrainLoss, beforeTestLoss, afterTestLoss
   ]);
 
-  var names = list.from([
-    "conv1_weight", "conv1_bias", "classifier_weight", "classifier_bias",
-    "metrics"
-  ]);
-  var values = list.from([
-    parameters.convWeight, parameters.convBias,
-    parameters.classifierWeight, parameters.classifierBias, metrics
+  var entries = list.from([
+    safetensors.NamedTensor { "conv1_weight", parameters.convWeight },
+    safetensors.NamedTensor { "conv1_bias", parameters.convBias },
+    safetensors.NamedTensor {
+      "classifier_weight", parameters.classifierWeight
+    },
+    safetensors.NamedTensor { "classifier_bias", parameters.classifierBias },
+    safetensors.NamedTensor { "metrics", metrics }
   ]);
   safetensors.write("/tmp/mulberry_nielsen_cnn_trained.safetensors",
-                    names, values)?;
+                    entries)?;
 
   io.println(train.size());
   io.println(test.size());
@@ -77,7 +78,7 @@ fn main(): UInt64 {
   return match run() {
     Ok(status) => status,
     Err(error) => {
-      safetensors.printError(error);
+      io.println(error);
       yield 1;
     }
   };

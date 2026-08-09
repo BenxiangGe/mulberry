@@ -72,10 +72,14 @@ fn run(): Result<UInt64, safetensors.SafetensorsError> {
   var x = safetensors.read(inferenceFile, "x")?;
   safetensors.close(inferenceFile)?;
 
-  var checkpointNames = list.from(["w1", "b1", "w2", "b2"]);
-  var checkpointTensors = list.from([w1, b1, w2, b2]);
+  var checkpointEntries = list.from([
+    safetensors.NamedTensor { "w1", w1 },
+    safetensors.NamedTensor { "b1", b1 },
+    safetensors.NamedTensor { "w2", w2 },
+    safetensors.NamedTensor { "b2", b2 }
+  ]);
   safetensors.write("/tmp/mulberry_mnist_minibatch_trained.safetensors",
-                    checkpointNames, checkpointTensors)?;
+                    checkpointEntries)?;
 
   const checkpointFile =
       safetensors.open("/tmp/mulberry_mnist_minibatch_trained.safetensors")?;
@@ -108,7 +112,7 @@ fn main(): UInt64 {
   return match run() {
     Ok(status) => status,
     Err(error) => {
-      safetensors.printError(error);
+      io.println(error);
       yield 1;
     }
   };

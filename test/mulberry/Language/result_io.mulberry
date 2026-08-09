@@ -16,7 +16,7 @@ fn consume(result: Result<File, io.FileError>):
       return Ok(1);
     }
     Err(error) => {
-      io.printError(error);
+      io.println(error);
       return Ok(0);
     }
   }
@@ -27,7 +27,7 @@ fn consumeRead(result: Result<UInt64, io.FileError>):
   match result {
     Ok(count) => return Ok(count);
     Err(error) => {
-      io.printError(error);
+      io.println(error);
       return Ok(0);
     }
   }
@@ -56,7 +56,7 @@ fn main(): UInt64 {
   return match run() {
     Ok(status) => status,
     Err(error) => {
-      io.printError(error);
+      io.println(error);
       yield 1;
     }
   };

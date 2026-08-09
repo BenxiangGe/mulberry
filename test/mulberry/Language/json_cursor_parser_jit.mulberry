@@ -2,6 +2,8 @@
 # RUN: mulberry-driver %s 2>&1 | FileCheck %s
 
 import json;
+import list;
+import list.List;
 import tensor;
 import tensor.Tensor;
 import io;
@@ -11,7 +13,7 @@ fn parseValid(): Result<UInt64, json.JsonError> {
       '{', '"', 'a', '"', ':', '[', '1', '2', ',', '3', '4', ']', ',',
       '"', 'b', '"', ':', '{', '"', 'c', '"', ':', '5', '}', '}'
   ]);
-  var parser = json.Parser { text, 0, 25 };
+  var parser = json.Cursor { text, 0 };
   parser.expectChar('{')?;
   io.println(boolToUInt64(parser.stringEquals("a")?));
   parser.expectChar(':')?;
@@ -29,37 +31,117 @@ fn parseValid(): Result<UInt64, json.JsonError> {
 
 fn parseMalformedArray(): Result<UInt64, json.JsonError> {
   var text: Tensor<UInt8> = tensor.from(['[', '1', ',', ']']);
-  var parser = json.Parser { text, 0, 4 };
+  var parser = json.Cursor { text, 0 };
   parser.parseIntegerArray()?;
   return Ok(0);
 }
 
 fn parseUnterminatedString(): Result<UInt64, json.JsonError> {
   var text: Tensor<UInt8> = tensor.from(['"', 'a']);
-  var parser = json.Parser { text, 0, 2 };
+  var parser = json.Cursor { text, 0 };
   parser.skipString()?;
   return Ok(0);
+}
+
+fn parseOverflow(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from([
+      '1', '8', '4', '4', '6', '7', '4', '4', '0', '7', '3', '7', '0',
+      '9', '5', '5', '1', '6', '1', '6'
+  ]);
+  var cursor = json.Cursor { text, 0 };
+  cursor.parseInteger()?;
+  return Ok(0);
+}
+
+fn parseMismatchedBrackets(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from(['[', '1', '}']);
+  var cursor = json.Cursor { text, 0 };
+  cursor.skipValue()?;
+  return Ok(0);
+}
+
+fn parseInvalidScalar(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from(['t', 'r', 'u', 'e', 'x']);
+  var cursor = json.Cursor { text, 0 };
+  cursor.skipValue()?;
+  return Ok(0);
+}
+
+fn parseEscapedString(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from([
+      '"', 'a', '\\', 'n', 'b', '\\', '"', 'c', '\\', '\\', 'd', '"'
+  ]);
+  var cursor = json.Cursor { text, 0 };
+  io.println(boolToUInt64(cursor.stringEquals("a\nb\"c\\d")?));
+  return Ok(0);
+}
+
+fn parseUnsupportedEscape(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from([
+      '"', '\\', 'u', '0', '0', '4', '1', '"'
+  ]);
+  var cursor = json.Cursor { text, 0 };
+  cursor.skipString()?;
+  return Ok(0);
+}
+
+fn parseUnescapedControlCharacter(): Result<UInt64, json.JsonError> {
+  var text: Tensor<UInt8> = tensor.from(['"', '\n', '"']);
+  var cursor = json.Cursor { text, 0 };
+  cursor.skipString()?;
+  return Ok(0);
+}
+
+fn writeEscapedString(): () {
+  var bytes: List<UInt8> = list.withCapacity(0);
+  json.appendQuotedString(bytes, "a\n\"\\");
+  io.println(bytes);
 }
 
 fn main(): UInt64 {
   match parseValid() {
     Ok(status) => io.println(status);
-    Err(error) => json.printError(error);
+    Err(error) => io.println(error);
   }
   match parseMalformedArray() {
     Ok(status) => io.println(status);
-    Err(error) => json.printError(error);
+    Err(error) => io.println(error);
   }
   match parseUnterminatedString() {
     Ok(status) => io.println(status);
-    Err(error) => json.printError(error);
+    Err(error) => io.println(error);
   }
+  match parseOverflow() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  match parseMismatchedBrackets() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  match parseInvalidScalar() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  match parseEscapedString() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  match parseUnsupportedEscape() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  match parseUnescapedControlCharacter() {
+    Ok(status) => io.println(status);
+    Err(error) => io.println(error);
+  }
+  writeEscapedString();
   return 0;
 }
 
-# MLIR-LABEL: func.func @std.json.Parser.peekChar
+# MLIR-LABEL: func.func @std.json.Cursor.peekChar
 # MLIR: mulberry_core.data.construct "std.result.Err"
-# MLIR-LABEL: func.func @std.json.Parser.isDigit
+# MLIR-LABEL: func.func @std.json.Cursor.isDigit
 
 # CHECK: 1
 # CHECK-NEXT: 2
@@ -70,3 +152,11 @@ fn main(): UInt64 {
 # CHECK-NEXT: 0
 # CHECK-NEXT: expected digit at byte 3
 # CHECK-NEXT: unterminated string at byte 0
+# CHECK-NEXT: integer overflows UInt64 at byte 19
+# CHECK-NEXT: expected character 93 at byte 2
+# CHECK-NEXT: invalid JSON scalar at byte 4
+# CHECK-NEXT: 1
+# CHECK-NEXT: 0
+# CHECK-NEXT: unsupported string escape at byte 1
+# CHECK-NEXT: unescaped control character at byte 1
+# CHECK-NEXT: List[34, 97, 92, 110, 92, 34, 92, 92, 34]

@@ -1,0 +1,37 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+import tensor;
+import tensor.Tensor;
+
+fn run(): Result<UInt64, io.FileError> {
+  var source: Tensor<Float32> = tensor.from([1.5, 2.5]);
+
+  const output = io.open("/tmp/mulberry_raw_bytes_io_jit.bin", "wb")?;
+  const written = io.write(output, source)?;
+  io.close(output)?;
+
+  var restored: Tensor<Float32> = tensor.zeros([2]);
+  const input = io.open("/tmp/mulberry_raw_bytes_io_jit.bin", "rb")?;
+  const read = io.readExact(input, restored)?;
+  io.close(input)?;
+
+  io.println(written == read);
+  io.println(restored[0] > 1.0);
+  io.println(restored[1] > 2.0);
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      io.println(error);
+      yield 1;
+    }
+  };
+}
+
+# JIT: true
+# JIT-NEXT: true
+# JIT-NEXT: true

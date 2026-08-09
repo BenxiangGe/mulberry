@@ -241,7 +241,6 @@ auto isIntegerType(const Type *type) -> bool;
 auto isBoolType(const Type *type) -> bool;
 auto isFloat32Type(const Type *type) -> bool;
 auto isFloat64Type(const Type *type) -> bool;
-auto isFileType(const Type *type) -> bool;
 auto isFixedWidthIntegerType(const Type *type) -> bool;
 auto isNumericType(const Type *type) -> bool;
 auto isEquatableType(const Type *type) -> bool;

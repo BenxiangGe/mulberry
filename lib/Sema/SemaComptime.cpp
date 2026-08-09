@@ -284,7 +284,6 @@ auto ComptimeSema::executeComptimeAssignment(AssignExpr *node)
   }
   if (evaluation.kind == ComptimeEvaluation::Kind::Residual) {
     node->rhs() = evaluation.takeResidual();
-    evaluation.residual = substituteExpr(node->rhs().get(), {});
     LLVM_DEBUG(llvm::dbgs()
                << "replace comptime assignment rhs with residual expression\n");
   }
@@ -302,8 +301,18 @@ auto ComptimeSema::executeComptimeAssignment(AssignExpr *node)
     return ComptimeControlResult::error();
   }
 
-  auto binding = bindingFromEvaluation(std::move(evaluation), node->lhs()->type(),
-                                       /*isConst=*/false);
+  std::optional<ComptimeBinding> binding;
+  if (evaluation.kind == ComptimeEvaluation::Kind::Residual) {
+    // The RHS already belongs to the runtime assignment. Keep only a reference
+    // in the comptime frame; cloning the RHS here would evaluate it again every
+    // time the local is read during residualization.
+    binding = ComptimeBinding::residualValue(
+        std::make_unique<VariableExpr>(variable->location(), variable->name()),
+        node->lhs()->type(), /*isConst=*/false);
+  } else {
+    binding = bindingFromEvaluation(std::move(evaluation),
+                                    node->lhs()->type(), /*isConst=*/false);
+  }
   if (!binding || !_frame->assign(variable->name(), std::move(*binding)))
     return ComptimeControlResult::error();
 
@@ -342,7 +351,6 @@ auto ComptimeSema::executeComptimeStatement(Stat *node)
     }
     if (evaluation.kind == ComptimeEvaluation::Kind::Residual) {
       variable->init() = evaluation.takeResidual();
-      evaluation.residual = substituteExpr(variable->init().get(), {});
       LLVM_DEBUG(llvm::dbgs()
                  << "replace comptime initializer with residual expression\n");
     }
@@ -350,8 +358,18 @@ auto ComptimeSema::executeComptimeStatement(Stat *node)
     if (llvm::failed(_sema.sema(variable)))
       return ComptimeControlResult::error();
 
-    auto binding = bindingFromEvaluation(
-        std::move(evaluation), variable->type(), variable->isConstBinding());
+    std::optional<ComptimeBinding> binding;
+    if (evaluation.kind == ComptimeEvaluation::Kind::Residual) {
+      // The declaration owns the runtime initializer. The frame must model
+      // the declared local, not replay that initializer on every lookup.
+      binding = ComptimeBinding::residualValue(
+          std::make_unique<VariableExpr>(variable->variable()->location(),
+                                         variable->variable()->name()),
+          variable->type(), variable->isConstBinding());
+    } else {
+      binding = bindingFromEvaluation(
+          std::move(evaluation), variable->type(), variable->isConstBinding());
+    }
     if (!binding || !_frame ||
         !_frame->bind(variable->variable()->name(), std::move(*binding)))
       return ComptimeControlResult::error();

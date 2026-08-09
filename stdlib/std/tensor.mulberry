@@ -147,7 +147,7 @@ fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   const count = numel(shape);
   var storage: TensorStorage<T> = std.tensor.__allocate(count);
   var data = storage.data;
-  mulberry_zero_memory(ptr.asUInt8(data), count * sizeof(T));
+  mulberry_zero_memory(ptr.asUInt8(data), count * #sizeof(T));
   return Tensor<T> {
     storage, data, shape.size(), count, shape, rowMajorStrides(shape)
   };

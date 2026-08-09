@@ -7,5 +7,5 @@ fn asUInt8<T>(value: Ptr<T>): Ptr<UInt8> {
 }
 
 fn offset<T>(value: Ptr<T>, count: UInt64): Ptr<T> {
-  return mulberry_ptr_offset(asUInt8(value), count * sizeof(T));
+  return mulberry_ptr_offset(asUInt8(value), count * #sizeof(T));
 }

@@ -575,19 +575,6 @@ auto isFloat64Type(const Type *type) -> bool {
   return isBuiltinType(type, BuiltinTypeKind::Float64);
 }
 
-auto isFileType(const Type *type) -> bool {
-  auto *structType = getStructType(type);
-  if (!structType || structType->name() != "std.io.File")
-    return false;
-
-  auto &fields = structType->fields();
-  if (fields.size() != 1 || fields[0].name() != "handle")
-    return false;
-
-  auto *handleType = getPtrType(fields[0].type());
-  return handleType && isUInt8Type(handleType->pointeeType());
-}
-
 auto isNumericType(const Type *type) -> bool {
   return isUInt8Type(type) || isUInt64Type(type) || isInt64Type(type) ||
          isIntegerType(type) || isFloat32Type(type) || isFloat64Type(type);

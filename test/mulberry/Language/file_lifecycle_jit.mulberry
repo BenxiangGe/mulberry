@@ -1,0 +1,61 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+import list;
+import list.List;
+import tensor;
+import tensor.Tensor;
+
+fn printClose(result: Result<(), io.FileError>): () {
+  match result {
+    Ok(unit) => io.println("closed");
+    Err(error) => io.println(error);
+  }
+}
+
+fn printCount(result: Result<UInt64, io.FileError>): () {
+  match result {
+    Ok(value) => io.println(value);
+    Err(error) => io.println(error);
+  }
+}
+
+fn run(): Result<UInt64, io.FileError> {
+  var bytes: Tensor<UInt8> = tensor.from([1, 2]);
+  var byteList: List<UInt8> = list.withCapacity(2);
+  byteList.push(3);
+  byteList.push(4);
+  const file = io.open("/tmp/mulberry_file_lifecycle_jit.bin", "wb")?;
+  const alias = file;
+
+  printClose(io.close(alias));
+  printClose(io.close(file));
+  printCount(io.seek(file, 0));
+  printCount(io.tell(file));
+  printCount(io.fileSize(file));
+  printCount(io.read(file, bytes));
+  printCount(io.readExact(file, bytes));
+  printCount(io.write(file, bytes));
+  printCount(io.writeBytes(file, byteList));
+  return Ok(0);
+}
+
+fn main(): UInt64 {
+  return match run() {
+    Ok(status) => status,
+    Err(error) => {
+      io.println(error);
+      yield 1;
+    }
+  };
+}
+
+# JIT: closed
+# JIT-NEXT: file is already closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed
+# JIT-NEXT: file is closed

@@ -5,15 +5,18 @@ import safetensors;
 fn run(): Result<UInt64, safetensors.SafetensorsError> {
   var a = tensor.from([[1.0, 2.0], [3.0, 4.0]]);
   var b = tensor.from([[5.0], [6.0]]);
-  var names = list.from(["a", "b"]);
-  var values = list.from([a, b]);
+  const escapedName = "a\"b\\c\n";
+  var entries = list.from([
+    safetensors.NamedTensor { escapedName, a },
+    safetensors.NamedTensor { "b", b }
+  ]);
 
   safetensors.write("/tmp/mulberry_safetensors_write_checkpoint_jit.safetensors",
-                    names, values)?;
+                    entries)?;
 
   const file =
       safetensors.open("/tmp/mulberry_safetensors_write_checkpoint_jit.safetensors")?;
-  var readA = safetensors.read(file, "a")?;
+  var readA = safetensors.read(file, escapedName)?;
   var readB = safetensors.read(file, "b")?;
   safetensors.close(file)?;
 

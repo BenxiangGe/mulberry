@@ -1,0 +1,19 @@
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s
+
+import bigint;
+import io;
+import json;
+import safetensors;
+
+fn main(): UInt64 {
+  io.println(io.OpenFailed("weights.bin", "rb"));
+  io.println(json.ExpectedDigit(3));
+  io.println(safetensors.JsonFailure(json.ExpectedValue(7)));
+  io.println(bigint.DivisionByZero());
+  return 0;
+}
+
+# CHECK: cannot open weights.bin with mode rb
+# CHECK-NEXT: expected digit at byte 3
+# CHECK-NEXT: expected JSON value at byte 7
+# CHECK-NEXT: division by zero

@@ -20,14 +20,53 @@ data FileError =
   | WriteFailed(UInt64, UInt64)
   | SeekFailed(UInt64)
   | TellFailed
-  | CloseFailed;
+  | SizeFailed
+  | CloseFailed
+  | AlreadyClosed
+  | UseAfterClose;
+
+// RawBytes uses the current process's native layout, endianness, and ABI.
+// Portable file formats must use an explicit encoding instead.
+trait RawBytes {}
+
+impl RawBytes for Bool {}
+impl RawBytes for UInt8 {}
+impl RawBytes for UInt64 {}
+impl RawBytes for Int64 {}
+impl RawBytes for Float32 {}
+impl RawBytes for Float64 {}
+
+impl Show for FileError {
+  fn toString(self: FileError): String {
+    return match self {
+      OpenFailed(path, mode) =>
+          string.format("cannot open {} with mode {}", path, mode),
+      ReadFailed(expected, actual) =>
+          string.format("read failed after {} of {} bytes", actual, expected),
+      UnexpectedEnd(expected, actual) =>
+          string.format("unexpected end of file after {} of {} bytes", actual,
+                        expected),
+      WriteFailed(expected, actual) =>
+          string.format("write failed after {} of {} bytes", actual, expected),
+      SeekFailed(offset) => string.format("cannot seek to byte {}", offset),
+      TellFailed() => "cannot get file position",
+      SizeFailed() => "cannot get file size",
+      CloseFailed() => "cannot close file",
+      AlreadyClosed() => "file is already closed",
+      UseAfterClose() => "file is closed",
+    };
+  }
+}
 
 extern fn mulberry_file_open(path: String, mode: String): Ptr<UInt8>;
 extern fn mulberry_file_is_valid(handle: Ptr<UInt8>): Bool;
+extern fn mulberry_file_is_closed(handle: Ptr<UInt8>): Bool;
 extern fn mulberry_file_close(handle: Ptr<UInt8>): Bool;
 extern fn mulberry_file_seek(file: Ptr<UInt8>, offset: UInt64): Bool;
 extern fn mulberry_file_tell(file: Ptr<UInt8>): UInt64;
 extern fn mulberry_file_tell_is_valid(position: UInt64): Bool;
+extern fn mulberry_file_size(file: Ptr<UInt8>): UInt64;
+extern fn mulberry_file_size_is_valid(size: UInt64): Bool;
 extern fn mulberry_file_has_error(file: Ptr<UInt8>): Bool;
 extern fn mulberry_file_read(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
 extern fn mulberry_file_write(file: Ptr<UInt8>, data: Ptr<UInt8>, byteSize: UInt64): UInt64;
@@ -40,12 +79,12 @@ fn writeText(value: String): () {
 }
 
 fn print<T: Show>(value: T): () {
-  writeText(string.format("{}", value));
+  writeText(value.toString());
   mulberry_repl_print_end();
 }
 
 fn println<T: Show>(value: T): () {
-  writeText(string.format("{}", value));
+  writeText(value.toString());
   writeText("\n");
 }
 
@@ -57,27 +96,24 @@ fn open(path: String, mode: String): Result<File, FileError> {
   return Err(OpenFailed(path, mode));
 }
 
-fn printError(error: FileError): () {
-  match error {
-    OpenFailed(path, mode) =>
-        println(string.format("cannot open {} with mode {}", path, mode));
-    ReadFailed(expected, actual) =>
-        println(string.format("read failed after {} of {} bytes", actual,
-                              expected));
-    UnexpectedEnd(expected, actual) =>
-        println(string.format("unexpected end of file after {} of {} bytes",
-                              actual, expected));
-    WriteFailed(expected, actual) =>
-        println(string.format("write failed after {} of {} bytes", actual,
-                              expected));
-    SeekFailed(offset) =>
-        println(string.format("cannot seek to byte {}", offset));
-    TellFailed() => println("cannot get file position");
-    CloseFailed() => println("cannot close file");
+fn ensureOpen(file: File): Result<(), FileError> {
+  if mulberry_file_is_valid(file.handle) {
+    if mulberry_file_is_closed(file.handle) {
+      return Err(UseAfterClose());
+    }
+    return Ok(());
   }
+  return Err(UseAfterClose());
 }
 
 fn close(file: File): Result<(), FileError> {
+  if mulberry_file_is_valid(file.handle) {
+    if mulberry_file_is_closed(file.handle) {
+      return Err(AlreadyClosed());
+    }
+  } else {
+    return Err(AlreadyClosed());
+  }
   if mulberry_file_close(file.handle) {
     return Ok(());
   }
@@ -85,6 +121,7 @@ fn close(file: File): Result<(), FileError> {
 }
 
 fn seek(file: File, offset: UInt64): Result<UInt64, FileError> {
+  ensureOpen(file)?;
   if mulberry_file_seek(file.handle, offset) {
     return Ok(offset);
   }
@@ -92,6 +129,7 @@ fn seek(file: File, offset: UInt64): Result<UInt64, FileError> {
 }
 
 fn tell(file: File): Result<UInt64, FileError> {
+  ensureOpen(file)?;
   const position = mulberry_file_tell(file.handle);
   if mulberry_file_tell_is_valid(position) {
     return Ok(position);
@@ -99,8 +137,19 @@ fn tell(file: File): Result<UInt64, FileError> {
   return Err(TellFailed());
 }
 
-fn read<T>(file: File, mut buffer: Tensor<T>): Result<UInt64, FileError> {
-  const expected = buffer.numel * sizeof(T);
+fn fileSize(file: File): Result<UInt64, FileError> {
+  ensureOpen(file)?;
+  const size = mulberry_file_size(file.handle);
+  if mulberry_file_size_is_valid(size) {
+    return Ok(size);
+  }
+  return Err(SizeFailed());
+}
+
+fn read<T: RawBytes>(file: File, mut buffer: Tensor<T>):
+    Result<UInt64, FileError> {
+  ensureOpen(file)?;
+  const expected = buffer.numel * #sizeof(T);
   const actual =
       mulberry_file_read(file.handle, ptr.asUInt8(buffer.data), expected);
   if mulberry_file_has_error(file.handle) {
@@ -109,9 +158,9 @@ fn read<T>(file: File, mut buffer: Tensor<T>): Result<UInt64, FileError> {
   return Ok(actual);
 }
 
-fn readExact<T>(file: File, mut buffer: Tensor<T>):
+fn readExact<T: RawBytes>(file: File, mut buffer: Tensor<T>):
     Result<UInt64, FileError> {
-  const expected = buffer.numel * sizeof(T);
+  const expected = buffer.numel * #sizeof(T);
   const actual = read(file, buffer)?;
   if actual != expected {
     return Err(UnexpectedEnd(expected, actual));
@@ -119,8 +168,10 @@ fn readExact<T>(file: File, mut buffer: Tensor<T>):
   return Ok(actual);
 }
 
-fn write<T>(file: File, buffer: Tensor<T>): Result<UInt64, FileError> {
-  const expected = buffer.numel * sizeof(T);
+fn write<T: RawBytes>(file: File, buffer: Tensor<T>):
+    Result<UInt64, FileError> {
+  ensureOpen(file)?;
+  const expected = buffer.numel * #sizeof(T);
   const actual =
       mulberry_file_write(file.handle, ptr.asUInt8(buffer.data), expected);
   if actual != expected or mulberry_file_has_error(file.handle) {
@@ -130,6 +181,7 @@ fn write<T>(file: File, buffer: Tensor<T>): Result<UInt64, FileError> {
 }
 
 fn writeBytes(file: File, bytes: List<UInt8>): Result<UInt64, FileError> {
+  ensureOpen(file)?;
   const expected = bytes.length;
   const actual =
       mulberry_file_write(file.handle, ptr.asUInt8(bytes.data), expected);

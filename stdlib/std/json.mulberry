@@ -4,7 +4,6 @@ import list;
 import list.List;
 import core;
 import core.Char;
-import io;
 import result.Result;
 import result.Ok;
 import result.Err;
@@ -16,30 +15,39 @@ data JsonError =
     UnexpectedEnd(UInt64)
   | ExpectedChar(Char, UInt64)
   | ExpectedDigit(UInt64)
+  | IntegerOverflow(UInt64)
   | UnterminatedString(UInt64)
   | UnsupportedEscape(UInt64)
+  | UnescapedControlCharacter(UInt64)
+  | InvalidScalar(UInt64)
   | ExpectedValue(UInt64)
   | ExpectedSeparator(Char, UInt64);
 
-fn printError(error: JsonError): () {
-  match error {
-    UnexpectedEnd(position) =>
-        io.println(string.format("unexpected end of JSON at byte {}", position));
-    ExpectedChar(value, position) =>
-        io.println(string.format("expected character {} at byte {}", value,
-                                 position));
-    ExpectedDigit(position) =>
-        io.println(string.format("expected digit at byte {}", position));
-    UnterminatedString(position) =>
-        io.println(string.format("unterminated string at byte {}", position));
-    UnsupportedEscape(position) =>
-        io.println(string.format("unsupported string escape at byte {}",
-                                 position));
-    ExpectedValue(position) =>
-        io.println(string.format("expected JSON value at byte {}", position));
-    ExpectedSeparator(end, position) =>
-        io.println(string.format("expected comma or character {} at byte {}",
-                                 end, position));
+impl Show for JsonError {
+  fn toString(self: JsonError): String {
+    return match self {
+      UnexpectedEnd(position) =>
+          string.format("unexpected end of JSON at byte {}", position),
+      ExpectedChar(value, position) =>
+          string.format("expected character {} at byte {}", value, position),
+      ExpectedDigit(position) =>
+          string.format("expected digit at byte {}", position),
+      IntegerOverflow(position) =>
+          string.format("integer overflows UInt64 at byte {}", position),
+      UnterminatedString(position) =>
+          string.format("unterminated string at byte {}", position),
+      UnsupportedEscape(position) =>
+          string.format("unsupported string escape at byte {}", position),
+      UnescapedControlCharacter(position) =>
+          string.format("unescaped control character at byte {}", position),
+      InvalidScalar(position) =>
+          string.format("invalid JSON scalar at byte {}", position),
+      ExpectedValue(position) =>
+          string.format("expected JSON value at byte {}", position),
+      ExpectedSeparator(end, position) =>
+          string.format("expected comma or character {} at byte {}", end,
+                        position),
+    };
   }
 }
 
@@ -51,38 +59,40 @@ fn isDigitChar(char: Char): Bool {
   return char >= '0' and char <= '9';
 }
 
-// Cursor-style parser for the ASCII JSON subset used by safetensors metadata.
-// Escaped strings are rejected explicitly until a real decoding requirement
-// justifies adding them.
-struct Parser {
+fn isValueTerminator(char: Char): Bool {
+  return isSpace(char) or char == ',' or char == '}' or char == ']';
+}
+
+// Cursor only owns source text and its current position. Length is derived
+// from the Tensor so the two values cannot diverge.
+struct Cursor {
   text: Tensor<UInt8>,
   position: UInt64,
-  length: UInt64,
 
-  fn currentChar(self: Parser): Char {
+  fn currentChar(self: Cursor): Char {
     return self.text[self.position];
   }
 
-  pub fn atEnd(self: Parser): Bool {
-    return self.position >= self.length;
+  pub fn atEnd(self: Cursor): Bool {
+    return self.position >= self.text.numel;
   }
 
-  pub fn peekChar(self: Parser): Result<Char, JsonError> {
+  pub fn peekChar(self: Cursor): Result<Char, JsonError> {
     if self.atEnd() {
       return Err(UnexpectedEnd(self.position));
     }
     return Ok(self.currentChar());
   }
 
-  pub fn isDigit(self: Parser): Bool {
+  pub fn isDigit(self: Cursor): Bool {
     if self.atEnd() {
       return false;
     }
     return isDigitChar(self.currentChar());
   }
 
-  pub fn skipSpaces(mut self: Parser): () {
-    while self.position < self.length {
+  pub fn skipSpaces(mut self: Cursor): () {
+    while self.position < self.text.numel {
       if isSpace(self.currentChar()) {
         self.position = self.position + 1;
       } else {
@@ -91,16 +101,16 @@ struct Parser {
     }
   }
 
-  pub fn consumeIfChar(mut self: Parser, value: Char): Bool {
+  pub fn consumeIfChar(mut self: Cursor, value: Char): Bool {
     self.skipSpaces();
-    if self.position < self.length and self.currentChar() == value {
+    if self.position < self.text.numel and self.currentChar() == value {
       self.position = self.position + 1;
       return true;
     }
     return false;
   }
 
-  pub fn expectChar(mut self: Parser, value: Char): Result<(), JsonError> {
+  pub fn expectChar(mut self: Cursor, value: Char): Result<(), JsonError> {
     self.skipSpaces();
     if self.peekChar()? != value {
       return Err(ExpectedChar(value, self.position));
@@ -109,7 +119,7 @@ struct Parser {
     return Ok(());
   }
 
-  pub fn consumeSeparatorOrEnd(mut self: Parser, end: Char):
+  pub fn consumeSeparatorOrEnd(mut self: Cursor, end: Char):
       Result<Bool, JsonError> {
     self.skipSpaces();
     const current = self.peekChar()?;
@@ -121,69 +131,175 @@ struct Parser {
       self.position = self.position + 1;
       return Ok(false);
     }
+    if end == ']' and current == '}' or
+        end == '}' and current == ']' {
+      return Err(ExpectedChar(end, self.position));
+    }
     return Err(ExpectedSeparator(end, self.position));
   }
 
-  pub fn skipString(mut self: Parser): Result<(), JsonError> {
-    const start = self.position;
-    self.expectChar('"')?;
-    while self.position < self.length {
-      if self.currentChar() == '\\' {
-        return Err(UnsupportedEscape(self.position));
+  // Strings are stored as bytes. Support JSON's short escapes and the
+  // \u00XX control-byte form emitted by appendQuotedString; reject other
+  // Unicode escapes instead of decoding UTF-16 incorrectly.
+  pub fn consumeEscapedChar(mut self: Cursor, stringStart: UInt64):
+      Result<Char, JsonError> {
+    const escapePosition = self.position;
+    self.position = self.position + 1;
+    if self.atEnd() {
+      return Err(UnterminatedString(stringStart));
+    }
+
+    const escaped = self.currentChar();
+    self.position = self.position + 1;
+    if escaped == '"' or escaped == '\\' or escaped == '/' {
+      return Ok(escaped);
+    }
+    if escaped == 'b' {
+      return Ok(core.toUInt8(8));
+    }
+    if escaped == 'f' {
+      return Ok(core.toUInt8(12));
+    }
+    if escaped == 'n' {
+      return Ok('\n');
+    }
+    if escaped == 'r' {
+      return Ok('\r');
+    }
+    if escaped == 't' {
+      return Ok('\t');
+    }
+    if escaped != 'u' {
+      return Err(UnsupportedEscape(escapePosition));
+    }
+
+    var value = 0;
+    var index = 0;
+    while index < 4 {
+      if self.atEnd() {
+        return Err(UnterminatedString(stringStart));
       }
-      if self.currentChar() == '"' {
-        self.position = self.position + 1;
-        return Ok(());
+      const digit = self.currentChar();
+      if digit >= '0' and digit <= '9' {
+        value = value * 16 + core.toUInt64(digit) - core.toUInt64('0');
+      } else {
+        if digit >= 'a' and digit <= 'f' {
+          value = value * 16 + core.toUInt64(digit) -
+              core.toUInt64('a') + 10;
+        } else {
+          if digit >= 'A' and digit <= 'F' {
+            value = value * 16 + core.toUInt64(digit) -
+                core.toUInt64('A') + 10;
+          } else {
+            return Err(UnsupportedEscape(escapePosition));
+          }
+        }
       }
       self.position = self.position + 1;
+      index = index + 1;
+    }
+    if value > 31 {
+      return Err(UnsupportedEscape(escapePosition));
+    }
+    return Ok(core.toUInt8(value));
+  }
+
+  pub fn skipString(mut self: Cursor): Result<(), JsonError> {
+    const start = self.position;
+    self.expectChar('"')?;
+    while self.position < self.text.numel {
+      const current = self.currentChar();
+      if current == '\\' {
+        match self.consumeEscapedChar(start) {
+          Ok(value) => value;
+          Err(error) => return Err(error);
+        }
+      } else {
+        if current == '"' {
+          self.position = self.position + 1;
+          return Ok(());
+        }
+        if core.toUInt64(current) < 32 {
+          return Err(UnescapedControlCharacter(self.position));
+        }
+        self.position = self.position + 1;
+      }
     }
     return Err(UnterminatedString(start));
   }
 
-  pub fn stringEquals(mut self: Parser, value: String):
+  pub fn stringEquals(mut self: Cursor, value: String):
       Result<Bool, JsonError> {
     const start = self.position;
     self.expectChar('"')?;
     var index = 0;
     var matches = true;
-    while self.position < self.length {
-      if self.currentChar() == '\\' {
-        return Err(UnsupportedEscape(self.position));
-      }
-      if self.currentChar() == '"' {
+    while self.position < self.text.numel {
+      const current = self.currentChar();
+      if current == '"' {
         self.position = self.position + 1;
         return Ok(matches and index == value.length);
+      }
+      var decoded = current;
+      if current == '\\' {
+        match self.consumeEscapedChar(start) {
+          Ok(value) => decoded = value;
+          Err(error) => return Err(error);
+        }
+      } else {
+        if core.toUInt64(current) < 32 {
+          return Err(UnescapedControlCharacter(self.position));
+        }
+        self.position = self.position + 1;
       }
       if index >= value.length {
         matches = false;
       } else {
-        if self.currentChar() != value.data[index] {
+        if decoded != value.data[index] {
           matches = false;
         }
       }
       index = index + 1;
-      self.position = self.position + 1;
     }
     return Err(UnterminatedString(start));
   }
 
-  pub fn parseInteger(mut self: Parser): Result<UInt64, JsonError> {
+  pub fn expectValueTerminator(self: Cursor): Result<(), JsonError> {
+    if self.atEnd() or isValueTerminator(self.currentChar()) {
+      return Ok(());
+    }
+    return Err(InvalidScalar(self.position));
+  }
+
+  pub fn parseInteger(mut self: Cursor): Result<UInt64, JsonError> {
     self.skipSpaces();
     if self.isDigit() == false {
       return Err(ExpectedDigit(self.position));
     }
 
+    const firstDigit = self.currentChar();
     var value = 0;
+    var digitCount = 0;
+    const maxUInt64: UInt64 = 18446744073709551615;
     while self.isDigit() {
+      if firstDigit == '0' and digitCount > 0 {
+        return Err(InvalidScalar(self.position));
+      }
       const digit =
           core.toUInt64(self.currentChar()) - core.toUInt64('0');
+      if value > maxUInt64 / 10 or value == maxUInt64 / 10 and
+          digit > maxUInt64 % 10 {
+        return Err(IntegerOverflow(self.position));
+      }
       value = value * 10 + digit;
       self.position = self.position + 1;
+      digitCount = digitCount + 1;
     }
+    self.expectValueTerminator()?;
     return Ok(value);
   }
 
-  pub fn parseIntegerArray(mut self: Parser):
+  pub fn parseIntegerArray(mut self: Cursor):
       Result<List<UInt64>, JsonError> {
     var values: List<UInt64> = list.withCapacity(0);
     self.expectChar('[')?;
@@ -211,57 +327,142 @@ struct Parser {
     return Ok(values);
   }
 
-  pub fn skipBracketValue(mut self: Parser): Result<(), JsonError> {
+  pub fn consumeLiteral(mut self: Cursor, value: String): Result<(), JsonError> {
+    var index = 0;
+    while index < value.length {
+      if self.atEnd() or self.currentChar() != value.data[index] {
+        return Err(InvalidScalar(self.position));
+      }
+      self.position = self.position + 1;
+      index = index + 1;
+    }
+    return Ok(());
+  }
+
+  pub fn skipScalarValue(mut self: Cursor): Result<(), JsonError> {
     self.skipSpaces();
     const current = self.peekChar()?;
-    if current != '[' and current != '{' {
-      return Err(ExpectedValue(self.position));
+    if current == 't' {
+      self.consumeLiteral("true")?;
+      return self.expectValueTerminator();
+    }
+    if current == 'f' {
+      self.consumeLiteral("false")?;
+      return self.expectValueTerminator();
+    }
+    if current == 'n' {
+      self.consumeLiteral("null")?;
+      return self.expectValueTerminator();
     }
 
-    var depth = 0;
-    while self.position < self.length {
-      if self.currentChar() == '"' {
+    if current == '-' {
+      self.position = self.position + 1;
+      if self.atEnd() {
+        return Err(InvalidScalar(self.position));
+      }
+    }
+    if self.atEnd() or self.isDigit() == false {
+      return Err(InvalidScalar(self.position));
+    }
+
+    if self.currentChar() == '0' {
+      self.position = self.position + 1;
+      if self.isDigit() {
+        return Err(InvalidScalar(self.position));
+      }
+    } else {
+      while self.isDigit() {
+        self.position = self.position + 1;
+      }
+    }
+    if self.atEnd() == false and self.currentChar() == '.' {
+      self.position = self.position + 1;
+      if self.isDigit() == false {
+        return Err(InvalidScalar(self.position));
+      }
+      while self.isDigit() {
+        self.position = self.position + 1;
+      }
+    }
+    if self.atEnd() == false {
+      if self.currentChar() == 'e' or self.currentChar() == 'E' {
+        self.position = self.position + 1;
+        if self.atEnd() == false {
+          if self.currentChar() == '+' or self.currentChar() == '-' {
+            self.position = self.position + 1;
+          }
+        }
+        if self.isDigit() == false {
+          return Err(InvalidScalar(self.position));
+        }
+        while self.isDigit() {
+          self.position = self.position + 1;
+        }
+      }
+    }
+    return self.expectValueTerminator();
+  }
+
+  pub fn skipBracketValue(mut self: Cursor): Result<(), JsonError> {
+    self.skipSpaces();
+    const current = self.peekChar()?;
+    var expectedEnds: List<Char> = list.withCapacity(0);
+    if current == '[' {
+      expectedEnds.push(']');
+    } else {
+      if current == '{' {
+        expectedEnds.push('}');
+      } else {
+        return Err(ExpectedValue(self.position));
+      }
+    }
+    self.position = self.position + 1;
+
+    while expectedEnds.length > 0 {
+      self.skipSpaces();
+      if self.atEnd() {
+        return Err(UnexpectedEnd(self.position));
+      }
+      const value = self.currentChar();
+      if value == '"' {
         match self.skipString() {
           Ok(unit) => unit;
           Err(error) => return Err(error);
         }
         continue;
       }
-      if self.currentChar() == '[' or self.currentChar() == '{' {
-        depth = depth + 1;
+      if value == '[' {
+        expectedEnds.push(']');
         self.position = self.position + 1;
         continue;
       }
-      if self.currentChar() == ']' or self.currentChar() == '}' {
-        depth = depth - 1;
+      if value == '{' {
+        expectedEnds.push('}');
         self.position = self.position + 1;
-        if depth == 0 {
-          return Ok(());
+        continue;
+      }
+      if value == ']' or value == '}' {
+        const expected = expectedEnds[expectedEnds.size() - 1];
+        if value != expected {
+          return Err(ExpectedChar(expected, self.position));
         }
+        expectedEnds.length = expectedEnds.length - 1;
+        self.position = self.position + 1;
         continue;
       }
-      self.position = self.position + 1;
-    }
-    return Err(UnexpectedEnd(self.position));
-  }
-
-  pub fn skipScalarValue(mut self: Parser): Result<(), JsonError> {
-    self.skipSpaces();
-    const start = self.position;
-    while self.position < self.length {
-      if self.currentChar() == ',' or self.currentChar() == '}' or
-          self.currentChar() == ']' {
-        break;
+      if value == ',' or value == ':' {
+        self.position = self.position + 1;
+        continue;
       }
-      self.position = self.position + 1;
-    }
-    if self.position == start {
-      return Err(ExpectedValue(start));
+      match self.skipScalarValue() {
+        Ok(unit) => unit;
+        Err(error) => return Err(error);
+      }
     }
     return Ok(());
   }
 
-  pub fn skipValue(mut self: Parser): Result<(), JsonError> {
+  pub fn skipValue(mut self: Cursor): Result<(), JsonError> {
     self.skipSpaces();
     const current = self.peekChar()?;
     if current == '"' {
@@ -272,4 +473,79 @@ struct Parser {
     }
     return self.skipScalarValue();
   }
+}
+
+// This emits the exact string subset consumed by Cursor: short escapes and
+// \u00XX for the remaining ASCII control bytes.
+fn appendQuotedString(mut bytes: List<UInt8>, value: String): () {
+  bytes.push('"');
+  var index = 0;
+  while index < value.length {
+    const current = value.data[index];
+    if current == '"' {
+      bytes.push('\\');
+      bytes.push('"');
+      index = index + 1;
+      continue;
+    }
+    if current == '\\' {
+      bytes.push('\\');
+      bytes.push('\\');
+      index = index + 1;
+      continue;
+    }
+    if current == core.toUInt8(8) {
+      bytes.push('\\');
+      bytes.push('b');
+      index = index + 1;
+      continue;
+    }
+    if current == core.toUInt8(12) {
+      bytes.push('\\');
+      bytes.push('f');
+      index = index + 1;
+      continue;
+    }
+    if current == '\n' {
+      bytes.push('\\');
+      bytes.push('n');
+      index = index + 1;
+      continue;
+    }
+    if current == '\r' {
+      bytes.push('\\');
+      bytes.push('r');
+      index = index + 1;
+      continue;
+    }
+    if current == '\t' {
+      bytes.push('\\');
+      bytes.push('t');
+      index = index + 1;
+      continue;
+    }
+    if core.toUInt64(current) < 32 {
+      const byteValue = core.toUInt64(current);
+      bytes.push('\\');
+      bytes.push('u');
+      bytes.push('0');
+      bytes.push('0');
+      const high = byteValue / 16;
+      const low = byteValue % 16;
+      if high < 10 {
+        bytes.push(core.toUInt8(high + core.toUInt64('0')));
+      } else {
+        bytes.push(core.toUInt8(high - 10 + core.toUInt64('A')));
+      }
+      if low < 10 {
+        bytes.push(core.toUInt8(low + core.toUInt64('0')));
+      } else {
+        bytes.push(core.toUInt8(low - 10 + core.toUInt64('A')));
+      }
+    } else {
+      bytes.push(current);
+    }
+    index = index + 1;
+  }
+  bytes.push('"');
 }

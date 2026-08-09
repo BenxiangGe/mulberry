@@ -162,10 +162,7 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> llvm::LogicalResult {
 
   if (tokenIs(Token::l_paren)) {
     unique_ptr<Expr> expression;
-    if (name == builtins::sizeOf || name == builtins::alignOf) {
-      if (llvm::failed(parseTypeLayoutExpr(location, name, expression)))
-        return failure();
-    } else if (llvm::failed(parseFunctionCall(location, name, expression))) {
+    if (llvm::failed(parseFunctionCall(location, name, expression))) {
       return failure();
     }
 
@@ -1400,8 +1397,6 @@ auto Parser::parseIdentifierExpr(unique_ptr<Expr> &expr) -> llvm::LogicalResult 
     expr = createMemberAccessChain(location, name);
     return success();
   case Token::l_paren:
-    if (name == builtins::sizeOf || name == builtins::alignOf)
-      return parseTypeLayoutExpr(location, name, expr);
     if (name == builtins::objectIdentity)
       return parseObjectIdentityExpr(location, expr);
     if (isTypeLikeName(name))
@@ -1455,6 +1450,8 @@ auto Parser::parseIntrinsicExpr(llvm::SMLoc location,
 
   auto name = spelling().str();
   consume(Token::identifier);
+  if (name == builtins::sizeOf || name == builtins::alignOf)
+    return parseTypeLayoutExpr(location, name, expr);
   if (name == builtins::typeInfo)
     return parseTypeInfoExpr(location, expr);
   if (name == builtins::typeOf)

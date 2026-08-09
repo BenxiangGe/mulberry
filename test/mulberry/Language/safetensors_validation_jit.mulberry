@@ -1,0 +1,80 @@
+# RUN: %numpy_python %mulberry_src_root/tools/create_safetensors_fixtures.py && mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import list;
+import list.List;
+import string.String;
+import io;
+import safetensors;
+import tensor;
+import tensor.Tensor;
+
+fn checkOpen(path: String): () {
+  match safetensors.open(path) {
+    Ok(file) => safetensors.close(file);
+    Err(error) => io.println(error);
+  }
+}
+
+fn checkRead(path: String): () {
+  match safetensors.open(path) {
+    Ok(file) => {
+      match safetensors.read(file, "x") {
+        Ok(value) => io.println(value.numel());
+        Err(error) => io.println(error);
+      }
+      safetensors.close(file);
+    }
+    Err(error) => io.println(error);
+  }
+}
+
+fn checkWrite(path: String, entries: List<safetensors.NamedTensor>): () {
+  match safetensors.write(path, entries) {
+    Ok(size) => io.println(size);
+    Err(error) => io.println(error);
+  }
+}
+
+fn main(): UInt64 {
+  checkOpen("/tmp/mulberry_safetensors_validation_jit_short.safetensors");
+  checkOpen(
+      "/tmp/mulberry_safetensors_validation_jit_huge_header.safetensors");
+  checkOpen(
+      "/tmp/mulberry_safetensors_validation_jit_truncated_header.safetensors");
+  checkRead(
+      "/tmp/mulberry_safetensors_validation_jit_overflow_shape.safetensors");
+  checkRead(
+      "/tmp/mulberry_safetensors_validation_jit_numel_mismatch.safetensors");
+  checkRead(
+      "/tmp/mulberry_safetensors_validation_jit_data_out_of_bounds.safetensors");
+
+  var value = tensor.from([1.0]);
+  checkWrite("/tmp/mulberry_safetensors_empty_name.safetensors",
+             list.from([safetensors.NamedTensor { "", value }]));
+  checkWrite("/tmp/mulberry_safetensors_reserved_name.safetensors",
+             list.from([
+               safetensors.NamedTensor { "__metadata__", value }
+             ]));
+  checkWrite("/tmp/mulberry_safetensors_duplicate_name.safetensors",
+             list.from([
+               safetensors.NamedTensor { "x", value },
+               safetensors.NamedTensor { "x", value }
+             ]));
+
+  var overflowing: Tensor<Float32> = tensor.zeros([1]);
+  overflowing.numel = 18446744073709551615;
+  checkWrite("/tmp/mulberry_safetensors_overflow.safetensors",
+             list.from([safetensors.NamedTensor { "x", overflowing }]));
+  return 0;
+}
+
+# JIT: invalid safetensors file: file is shorter than the header length field
+# JIT-NEXT: invalid safetensors file: header exceeds 100000000 bytes
+# JIT-NEXT: invalid safetensors file: header extends past end of file
+# JIT-NEXT: invalid safetensors file: UInt64 multiplication overflow
+# JIT-NEXT: tensor x has invalid metadata
+# JIT-NEXT: invalid safetensors file: tensor data extends past end of file
+# JIT-NEXT: tensor name must not be empty
+# JIT-NEXT: reserved tensor name __metadata__
+# JIT-NEXT: duplicate tensor name x
+# JIT-NEXT: invalid safetensors file: UInt64 multiplication overflow

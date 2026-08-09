@@ -48,7 +48,7 @@ fn main(): UInt64 {
   return match run() {
     Ok(status) => status,
     Err(error) => {
-      io.printError(error);
+      io.println(error);
       yield 1;
     }
   };

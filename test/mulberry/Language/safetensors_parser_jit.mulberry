@@ -20,28 +20,29 @@ fn run(): Result<UInt64, safetensors.SafetensorsError> {
   io.println(x.end);
   match safetensors.find(file, "missing") {
     Ok(info) => io.println(info.begin);
-    Err(error) => safetensors.printError(error);
+    Err(error) => io.println(error);
   }
 
   var malformedHeader = tensor.from(['{', '"', 'x', '"', ':', '{']);
   const malformed =
-      safetensors.TensorFile { file.file, 6, malformedHeader };
+      safetensors.TensorFile { file.file, 6, malformedHeader, file.fileSize };
   match safetensors.find(malformed, "x") {
     Ok(info) => io.println(info.begin);
-    Err(error) => safetensors.printError(error);
+    Err(error) => io.println(error);
   }
 
   var invalidHeader =
       tensor.from(['{', '"', 'x', '"', ':', '{', '}', '}']);
-  const invalid = safetensors.TensorFile { file.file, 8, invalidHeader };
+  const invalid =
+      safetensors.TensorFile { file.file, 8, invalidHeader, file.fileSize };
   match safetensors.find(invalid, "x") {
     Ok(info) => io.println(info.begin);
-    Err(error) => safetensors.printError(error);
+    Err(error) => io.println(error);
   }
 
   match safetensors.open("/__mulberry_missing_directory__/file.safetensors") {
     Ok(opened) => safetensors.close(opened);
-    Err(error) => safetensors.printError(error);
+    Err(error) => io.println(error);
   }
   safetensors.close(file)?;
   return Ok(0);

@@ -37,7 +37,7 @@ fn main(): UInt64 {
   return match run() {
     Ok(status) => status,
     Err(error) => {
-      safetensors.printError(error);
+      io.println(error);
       yield 1;
     }
   };
