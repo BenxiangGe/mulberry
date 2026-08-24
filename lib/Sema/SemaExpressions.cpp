@@ -893,8 +893,20 @@ auto ExpressionSema::sema(TryExpr *node) -> llvm::LogicalResult {
   auto functionTypes = getResultTypeArguments(_sema._currentFunctionReturnType);
   if (!functionTypes)
     return _sema.emitError(node, diag::try_outside_result_function);
-  if (!sameType(operandTypes->errorType, functionTypes->errorType))
-    return _sema.emitError(node, diag::try_error_type_mismatch);
+
+  node->setErrorTypes(operandTypes->errorType, functionTypes->errorType);
+  if (!sameType(operandTypes->errorType, functionTypes->errorType)) {
+    std::string functionName;
+    if (llvm::failed(TraitSema(_sema).resolveFromConversion(
+            node, operandTypes->errorType, functionTypes->errorType,
+            functionName)))
+      return failure();
+    if (functionName.empty())
+      return _sema.emitError(
+          node, formatMissingFromDiagnostic(operandTypes->errorType,
+                                            functionTypes->errorType));
+    node->setErrorConverter(std::move(functionName));
+  }
 
   node->setType(operandTypes->valueType);
   node->setCanMutateObject(canMutateObjectReference(value));
@@ -1220,6 +1232,18 @@ auto ExpressionSema::semaDottedMethodCall(CallExpr *node, const Type *expectedTy
 
   auto receiverName = name.substr(0, dot);
   auto methodName = name.substr(dot + 1);
+  if (auto *targetType = _sema.lookupType(receiverName)) {
+    std::string functionName;
+    if (llvm::failed(TraitSema(_sema).resolveStaticMethod(
+            node, targetType, methodName, functionName)))
+      return failure();
+    if (!functionName.empty()) {
+      node->setName(functionName);
+      return sema(node, expectedType);
+    }
+    auto diagnostic = formatNameDiagnostic(diag::undefined_func, methodName);
+    return _sema.emitError(node, diagnostic);
+  }
   node->setReceiver(createMemberAccessChain(node->location(), receiverName),
                     methodName);
   return semaMethodCall(node, expectedType);

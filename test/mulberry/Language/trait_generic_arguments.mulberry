@@ -1,0 +1,29 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s
+
+struct Box {
+  value: UInt64
+}
+
+trait Convert<T> {
+  fn convert(self, value: T): T {
+    return value;
+  }
+}
+
+impl Convert<UInt64> for Box {}
+
+impl Convert<String> for Box {}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# AST: TraitDecl {{.*}}name=Convert
+# AST-NEXT: Parameters T
+# AST: ImplDecl {{.*}}trait=Convert<UInt64> target=Box
+# AST: ImplDecl {{.*}}trait=Convert<String> target=Box
+# MLIR-DAG: func.func @Convert__UInt64__Box.convert
+# MLIR-DAG: func.func @Convert__std_string_String__Box.convert

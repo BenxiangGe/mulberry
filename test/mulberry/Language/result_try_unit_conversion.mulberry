@@ -1,0 +1,44 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+
+data TestError = UnitFailure(UInt64);
+
+impl From<()> for TestError {
+  fn from(): Self {
+    return UnitFailure(77);
+  }
+}
+
+fn source(shouldFail: Bool): Result<UInt64, ()> {
+  if shouldFail {
+    return Err(());
+  }
+  return Ok(5);
+}
+
+fn forward(shouldFail: Bool): Result<UInt64, TestError> {
+  return Ok(source(shouldFail)? + 1);
+}
+
+fn printResult(result: Result<UInt64, TestError>): UInt64 {
+  match result {
+    Ok(value) => io.println(string.format("ok={}", value));
+    Err(error) => {
+      match error {
+        UnitFailure(code) => io.println(string.format("unit-error={}", code));
+      }
+    }
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  printResult(forward(false));
+  printResult(forward(true));
+  return 0;
+}
+
+# JIT: ok=6
+# JIT-NEXT: unit-error=77

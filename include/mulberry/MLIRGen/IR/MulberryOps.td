@@ -17,6 +17,11 @@ def Mulberry_AnyPtrType : Type<
     CPred<"::llvm::isa<::mlir::mulberry_core::PtrType>($_self)">,
     "Mulberry pointer type">;
 
+def Mulberry_ResultInputType : Type<
+    CPred<"::llvm::isa<::mlir::mulberry_core::PtrType, "
+         "::mlir::LLVM::LLVMPointerType>($_self)">,
+    "Mulberry or lowered Result pointer type">;
+
 def Mulberry_AnyTensorType : Type<
     CPred<"::llvm::isa<::mlir::mulberry_core::TensorType>($_self)">,
     "Mulberry internal tensor type">;
@@ -72,7 +77,7 @@ def Mulberry_DataUnpackOp : Mulberry_Op<"data.unpack"> {
   let hasVerifier = 1;
 }
 
-def Mulberry_ResultTryOp : Mulberry_Op<"result.try"> {
+def Mulberry_ResultTryOp : Mulberry_Op<"result.try", [MemoryEffects<[MemRead]>]> {
   let summary = "Propagate the error of a canonical Mulberry Result";
   let description = [{
     Produces the Ok payload and returns Err from the enclosing function. A
@@ -80,10 +85,15 @@ def Mulberry_ResultTryOp : Mulberry_Op<"result.try"> {
     the containing function, so the Err path is a real early return.
   }];
 
-  let arguments = (ins Mulberry_AnyPtrType:$input, TypeAttr:$errorType);
+  let arguments = (ins Mulberry_ResultInputType:$input,
+                       TypeAttr:$sourceErrorType,
+                       TypeAttr:$targetErrorType,
+                       OptionalAttr<FlatSymbolRefAttr>:$errorConverter);
   let results = (outs Variadic<AnyType>:$values);
 
-  let assemblyFormat = "$input `error` $errorType attr-dict `:` "
+  let assemblyFormat = "$input `source_error` $sourceErrorType "
+                       "`target_error` $targetErrorType "
+                       "(`converter` $errorConverter^)? attr-dict `:` "
                        "functional-type($input, $values)";
 
   let hasVerifier = 1;

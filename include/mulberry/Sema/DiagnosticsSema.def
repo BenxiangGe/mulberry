@@ -75,11 +75,15 @@ ERROR(try_outside_result_function,
       "`?` requires the current function to return `Result<T, E>`")
 ERROR(try_error_type_mismatch,
       "`?` error type must match the current function error type")
+ERROR(try_missing_error_conversion,
+      "`?` error type has no canonical From conversion to the current function error type")
 
 ERROR(undefined_field, "undefined field")
 ERROR(undefined_func, "cannot find function `%s`")
 ERROR(undefined_main, "undefined symbol `main` : () -> UInt64")
 ERROR(undefined_type, "undefined type")
+ERROR(self_type_outside_trait_impl,
+      "`Self` type is only valid in a trait or implementation")
 ERROR(undefined_var, "undefined variable")
 ERROR(undefined_data_constructor, "undefined data constructor")
 ERROR(undefined_trait, "cannot find trait `%s`")
@@ -93,6 +97,10 @@ ERROR(redefinition_trait_impl,
       "trait `%s` is already implemented for this type")
 ERROR(ambiguous_trait_impl,
       "type `%t` has multiple matching implementations of trait `%s`")
+ERROR(ambiguous_static_trait_method,
+      "multiple static trait methods named `%s` match this call")
+ERROR(invalid_from_trait,
+      "canonical From trait must be `trait From<T> { fn from(value: T): Self; }`")
 ERROR(trait_method_signature,
       "trait method `%s` has an incompatible signature")
 ERROR(missing_trait_method,

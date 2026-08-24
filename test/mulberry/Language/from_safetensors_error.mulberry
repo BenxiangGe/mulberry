@@ -1,0 +1,24 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+import json;
+import safetensors;
+
+fn main(): UInt64 {
+  var fileError = io.OpenFailed("weights.bin", "rb");
+  var safetensorsFileError = safetensors.SafetensorsError.from(fileError);
+  var jsonError = json.ExpectedDigit(7);
+  var safetensorsJsonError = safetensors.SafetensorsError.from(jsonError);
+  io.println(safetensorsFileError);
+  io.println(safetensorsJsonError);
+  return 0;
+}
+
+# MLIR-DAG: func.func @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# MLIR-DAG: func.func @std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# MLIR-DAG: call @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# MLIR-DAG: call @std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# JIT: cannot open weights.bin with mode rb
+# JIT: expected digit at byte 7

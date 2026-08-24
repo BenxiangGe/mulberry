@@ -1,0 +1,15 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+struct Target {}
+
+trait From<T> {
+  fn from(value: T): Self;
+}
+
+impl From<UInt64> for Target {
+  fn from(value: String): Self {
+    return Target {};
+  }
+}
+
+# CHECK: trait_static_method_signature_error.mulberry:10:6: error: trait method `from` has an incompatible signature

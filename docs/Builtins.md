@@ -103,12 +103,47 @@ parser 不构造 DOM，只实现 safetensors metadata 所需的 ASCII JSON subse
 可能跳过原计划的 close；现有 workflow 在成功路径显式 close。统一自动清理应由未来的
 `Disposable` object lifecycle 解决，不在每个 I/O 调用点复制手写 cleanup control flow。
 
-postfix `?` 是语言控制流，不是按名字查找的 builtin function。第一版只处理 canonical
-`Result<T, E>`，并要求当前函数返回 error type 相同的 `Result<U, E>`。高层
-`mulberry_core.result.try` 会在 lowering 中展开为 Ok continuation 和 Err direct
-return；当前不提供通用 `Try` trait 或 error conversion。object payload 继承 operand
-expression 的 mutability：直接 call 的 Result 可以通过 `?` 产生 mutable object，而
-readonly Result variable 解包后仍为 readonly。
+postfix `?` 是语言控制流，不是按名字查找的 builtin function。它只处理 canonical
+`Result<T, E>`。Sema 允许 enclosing function 的 error type 不同：当 operand 是
+`Result<Value, SourceError>`、函数返回 `Result<ReturnValue, TargetError>` 时，同类型 error
+直接传播；不同类型必须有 canonical `From<SourceError> for TargetError` concrete witness。
+Sema 把 source/target error type 与已解析的 converter symbol 记录在 `TryExpr`，缺少 conversion
+会报错；它不把 `TryExpr` 改写为 source-level `match`。`std.convert.From<T>` 同时支持显式
+`Target.from(error)` conversion。
+
+这一 Sema/AST contract 与 ER2.6 的 high-level IR contract 已完成。`mulberry_core.result.try`
+明确保存 `source_error`、`target_error` 与 optional converter symbol；无 converter 时两种 error
+storage type 必须相同，有 converter 时 verifier 检查它引用一个精确的
+`SourceError -> TargetError` function。MLIRGen 只使用 Sema 已选择的 symbol，不重新做 Trait
+lookup。
+
+ER2.7 已完成：lowered Err path 解包 source error，在存在 converter 时调用一次并构造
+`Err(TargetError)`；Ok path 不调用 converter，同类型 fast path 继续完整工作。跨 error type 的
+`?` 现在可以进入 lowered CFG。ER2.8 已完成 generic JIT 的 exact-once 验证，并覆盖现有的
+Unit/object payload、loop 和 match 矩阵。高层 `mulberry_core.result.try` 会在 lowering 中展开为 Ok continuation
+和 Err direct return；不提供通用 `Try` trait。object payload 继承 operand expression 的 mutability：
+直接 call 的 Result 可以通过 `?` 产生 mutable object，而 readonly Result variable 解包后仍为 readonly。
+
+ER2.9 已完成真实 safetensors workload 迁移：`mapIoError()` 和 `mapJsonError()` 已删除，普通
+I/O 与 JSON parser 调用直接使用 `?`；cleanup 分支继续保留 primary error precedence。
+
+Unit 可作为 Trait 的 type-level argument。因此 `impl From<()> for TargetError` 采用零参数
+`fn from(): Self`：Unit 不产生 runtime value，而 `?` 的 Err path 会直接调用这个 converter。
+
+ER2.12 已完成 structured-loop propagation：safetensors 的 `while`/`for` body 可以直接使用
+`?`。第一次 core lowering 只把 `ResultTryOp` 的 operand/result 类型转换到 storage 类型；
+ownership deallocation 在结构化 loop 仍存在时运行，随后 `lower-result-try` 才把实际的
+`ResultTryOp` 和相关 SCF ancestor 展开为 CFG。含 `ResultTryOp` 的模块当前跳过 ownership
+deallocation，避免函数级 early return 绕过 cleanup 导致 Tensor double free；Tensor storage
+继续依赖 GC/manual-deallocation fallback。该边界将在未来有显式 cleanup edge 后收紧。
+
+ER2.13 已完成 ownership 边界审计。不能简单把 fallback 缩小到 function：NN workload 的
+Tensor ownership 会跨函数传递，含 `?` 的函数与其它函数可能共享同一个 storage；恢复其它
+函数的自动 deallocation 已实际触发 double free。也不能给 `ResultTryOp` 伪造
+`RegionBranchOpInterface`，因为它没有 region，且该 interface 无法表达从 loop 深处跳到函数
+返回前必须执行的 lexical cleanup。当前模块级 fallback 是正确性边界，不是最终设计。
+后续应让 Err edge 显式携带 ownership，经过统一 cleanup dispatcher 后再返回；详见设计文档
+第 56.7 节。
 
 ## Comptime Intrinsics
 

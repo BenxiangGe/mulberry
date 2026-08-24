@@ -1,0 +1,7 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+fn invalid(value: Self): UInt64 {
+  return 0;
+}
+
+# CHECK: self_type_outside_error.mulberry:3:19: error: `Self` type is only valid in a trait or implementation

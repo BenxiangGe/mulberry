@@ -1,6 +1,8 @@
 import core;
 import core.Char;
 import core.boolToUInt64;
+import convert;
+import convert.From;
 import result;
 import result.Result;
 import result.Ok;

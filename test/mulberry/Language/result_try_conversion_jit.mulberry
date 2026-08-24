@@ -1,0 +1,34 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+import io;
+import safetensors;
+
+fn forward<T>(result: Result<T, io.FileError>):
+    Result<T, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn printResult(result: Result<UInt64, safetensors.SafetensorsError>): UInt64 {
+  match result {
+    Ok(value) => io.println(string.format("ok={}", value));
+    Err(error) => io.println(string.format("error={}", error));
+  }
+  return 0;
+}
+
+fn main(): UInt64 {
+  const ok: Result<UInt64, io.FileError> = Ok(7);
+  const err: Result<UInt64, io.FileError> =
+      Err(io.OpenFailed("weights.bin", "rb"));
+  printResult(forward(ok));
+  printResult(forward(err));
+  return 0;
+}
+
+# LOWERED-LABEL: func.func @forward__UInt64
+# LOWERED-COUNT-1: call @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+
+# JIT: ok=7
+# JIT-NEXT: error=cannot open weights.bin with mode rb

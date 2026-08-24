@@ -18,6 +18,29 @@
 namespace mulberry {
 using llvm::dyn_cast;
 
+namespace {
+
+constexpr std::string_view canonicalFromTraitName = "std.convert.From";
+
+auto isCanonicalFromTrait(const TraitDecl *trait) -> bool {
+  if (trait->parameters().size() != 1 || trait->methods().size() != 1)
+    return false;
+
+  auto &parameter = trait->parameters().front();
+  auto *method = trait->methods().front().get();
+  if (parameter.kind != ComptimeParam::Kind::Type ||
+      parameter.hasTraitConstraint() || method->name() != "from" ||
+      method->hasReceiver() || method->parameters().size() != 1 ||
+      !dyn_cast<SelfTypeNode>(method->returnTypeNode()))
+    return false;
+
+  auto *valueType =
+      dyn_cast<NamedTypeNode>(method->parameters().front()->typeNode());
+  return valueType && valueType->name() == parameter.name;
+}
+
+} // namespace
+
 auto TraitSema::lookupTrait(std::string_view name) -> const TraitDecl * {
   if (auto *trait = _sema._symbols.lookupTrait(name))
     return trait->decl;
@@ -65,6 +88,14 @@ auto TraitSema::sema(TraitDecl *node) -> llvm::LogicalResult {
     return _sema.emitError(node, diagnostic);
   }
 
+  NameSet parameterNames;
+  for (auto &parameter : node->parameters()) {
+    if (parameter.kind != ComptimeParam::Kind::Type ||
+        parameter.hasTraitConstraint() ||
+        !declareName(parameterNames, parameter.name))
+      return _sema.emitError(node, diag::mismatch_type);
+  }
+
   SemaImpl::PackageScope packageScope(_sema._currentPackageName,
                             packageNameOf(node->name()));
   NameSet methodNames;
@@ -77,28 +108,127 @@ auto TraitSema::sema(TraitDecl *node) -> llvm::LogicalResult {
 
     NameSet parameterNames;
     for (auto &parameter : method->parameters()) {
-      auto *type = _sema.checkType(parameter->typeNode(), SemaImpl::UnitPolicy::Reject);
-      if (!type)
-        return failure();
-      parameter->setType(type);
+      if (!containsSelfType(parameter->typeNode()) &&
+          !containsComptimeParameter(parameter->typeNode(),
+                                     node->parameters())) {
+        auto *type =
+            _sema.checkType(parameter->typeNode(), SemaImpl::UnitPolicy::Reject);
+        if (!type)
+          return failure();
+        parameter->setType(type);
+      }
       if (!declareName(parameterNames, parameter->variable()->name()))
         return _sema.emitError(parameter->variable().get(), diag::redefinition_var);
     }
 
-    auto *returnType = _sema.resolveType(method->returnTypeNode());
-    if (!returnType)
-      return failure();
-    method->setReturnType(returnType);
+    if (!containsSelfType(method->returnTypeNode()) &&
+        !containsComptimeParameter(method->returnTypeNode(),
+                                   node->parameters())) {
+      auto *returnType = _sema.resolveType(method->returnTypeNode());
+      if (!returnType)
+        return failure();
+      method->setReturnType(returnType);
+    }
+  }
+
+  if (node->name() == canonicalFromTraitName) {
+    if (!isCanonicalFromTrait(node))
+      return _sema.emitError(node, diag::invalid_from_trait);
+    _sema._fromTrait = node;
+    LLVM_DEBUG(llvm::dbgs() << "register canonical From trait `"
+                            << node->name() << "`\n");
   }
   return success();
 }
 
+auto TraitSema::resolveTraitArguments(
+    const ImplDecl *impl, const TraitDecl *trait,
+    std::vector<const Type *> &arguments) -> llvm::LogicalResult {
+  if (impl->traitArguments().size() != trait->parameters().size())
+    return _sema.emitError(impl, diag::mismatch_type);
+
+  for (auto &argument : impl->traitArguments()) {
+    if (argument.kind() != ComptimeArg::Kind::Type)
+      return _sema.emitError(impl, diag::mismatch_type);
+    // Trait arguments are type-level identities. Unit has no runtime storage,
+    // but `From<()>` still needs it as a source error type.
+    auto *type = _sema.checkType(argument.typeNode(), SemaImpl::UnitPolicy::Allow);
+    if (!type)
+      return failure();
+    arguments.push_back(type);
+  }
+  return success();
+}
+
+auto TraitSema::methodSignatureMatches(
+    const TraitDecl *trait, const TraitMethodDecl *method,
+    const FunctionSymbol *signature, const Type *targetType,
+    const std::vector<const Type *> &traitArguments) -> bool {
+  auto targetTypeNode = typeToTypeNode(targetType, method->location());
+  std::vector<std::unique_ptr<TypeNode>> argumentTypeNodes;
+  std::vector<TypeSubstitution> substitutions;
+  substitutions.push_back(
+      TypeSubstitution{"Self", targetTypeNode.get(), std::nullopt});
+  for (size_t index = 0; index < traitArguments.size(); ++index) {
+    argumentTypeNodes.push_back(
+        typeToTypeNode(traitArguments[index], method->location()));
+    substitutions.push_back(TypeSubstitution{trait->parameters()[index].name,
+                                             argumentTypeNodes.back().get(),
+                                             std::nullopt});
+  }
+  SemaImpl::PackageScope packageScope(_sema._currentPackageName,
+                                      packageNameOf(trait->name()));
+  auto resolveContractType = [&](const TypeNode *typeNode) {
+    auto concreteTypeNode = substituteTypeNode(typeNode, substitutions);
+    return _sema.resolveType(concreteTypeNode.get());
+  };
+
+  auto &parameterTypes = signature->type->parameterTypes();
+  auto &parameterMutability = signature->type->parameterCanMutateObject();
+  auto *returnType = resolveContractType(method->returnTypeNode());
+  auto parameterOffset = method->hasReceiver() ? 1 : 0;
+  size_t expectedParameterCount = parameterOffset;
+  for (auto &parameter : method->parameters()) {
+    auto *parameterType = resolveContractType(parameter->typeNode());
+    if (!parameterType || !isUnitType(parameterType))
+      ++expectedParameterCount;
+  }
+  auto valid = returnType &&
+               parameterTypes.size() == expectedParameterCount &&
+               sameType(signature->type->returnType(), returnType);
+  if (valid && method->hasReceiver())
+    valid = sameType(parameterTypes.front(), targetType) &&
+            parameterMutability.front() == method->receiverCanMutateObject();
+  size_t signatureParameterIndex = parameterOffset;
+  for (size_t index = 0; valid && index < method->parameters().size();
+       ++index) {
+    auto &parameter = method->parameters()[index];
+    auto *parameterType = resolveContractType(parameter->typeNode());
+    if (!parameterType) {
+      valid = false;
+      break;
+    }
+    if (isUnitType(parameterType))
+      continue;
+    valid = sameType(parameterTypes[signatureParameterIndex], parameterType) &&
+            parameterMutability[signatureParameterIndex] ==
+                parameter->canMutateObject();
+    ++signatureParameterIndex;
+  }
+  return valid;
+}
+
 auto TraitSema::methodFunctionName(const TraitDecl *trait,
                                        const Type *targetType,
+                                       const std::vector<const Type *> &traitArguments,
                                        std::string_view methodName) const
     -> std::string {
   std::string functionName(trait->name());
   functionName += "__";
+  for (auto *argument : traitArguments) {
+    functionName += mangleTypeName(formatType(argument));
+    functionName += "__";
+  }
   functionName += mangleTypeName(formatType(targetType));
   functionName += ".";
   functionName += methodName;
@@ -107,33 +237,51 @@ auto TraitSema::methodFunctionName(const TraitDecl *trait,
 
 auto TraitSema::instantiateDefaultMethod(
     const TraitDecl *trait, const TraitMethodDecl *method,
-    const Type *targetType, std::string &functionName) -> llvm::LogicalResult {
-  functionName = methodFunctionName(trait, targetType, method->name());
+    const Type *targetType, const std::vector<const Type *> &traitArguments,
+    std::string &functionName) -> llvm::LogicalResult {
+  functionName = methodFunctionName(trait, targetType, traitArguments,
+                                    method->name());
   if (_sema.lookupFunction(functionName))
     return success();
 
   VectorUniquePtr<ParameterDecl> parameters;
-  auto receiver = std::make_unique<VariableExpr>(method->location(), "self");
-  parameters.push_back(std::make_unique<ParameterDecl>(
-      method->location(), std::move(receiver),
-      typeToTypeNode(targetType, method->location()),
-      method->receiverCanMutateObject()));
+  auto targetTypeNode = typeToTypeNode(targetType, method->location());
+  std::vector<std::unique_ptr<TypeNode>> argumentTypeNodes;
+  std::vector<TypeSubstitution> substitutions;
+  substitutions.push_back(
+      TypeSubstitution{"Self", targetTypeNode.get(), std::nullopt});
+  for (size_t index = 0; index < traitArguments.size(); ++index) {
+    argumentTypeNodes.push_back(
+        typeToTypeNode(traitArguments[index], method->location()));
+    substitutions.push_back(TypeSubstitution{trait->parameters()[index].name,
+                                             argumentTypeNodes.back().get(),
+                                             std::nullopt});
+  }
+  if (method->hasReceiver()) {
+    auto receiver =
+        std::make_unique<VariableExpr>(method->location(), "self");
+    parameters.push_back(std::make_unique<ParameterDecl>(
+        method->location(), std::move(receiver),
+        typeToTypeNode(targetType, method->location()),
+        method->receiverCanMutateObject()));
+  }
   for (auto &parameter : method->parameters()) {
     auto variable = std::make_unique<VariableExpr>(
         parameter->variable()->location(), parameter->variable()->name());
     parameters.push_back(std::make_unique<ParameterDecl>(
         parameter->location(), std::move(variable),
-        cloneTypeNode(parameter->typeNode()), parameter->canMutateObject()));
+        substituteTypeNode(parameter->typeNode(), substitutions),
+        parameter->canMutateObject()));
   }
 
   auto name = std::make_unique<FunctionName>(method->location(), functionName);
   auto prototype = std::make_unique<Prototype>(
       method->location(), std::move(name), std::move(parameters),
-      cloneTypeNode(method->returnTypeNode()));
-  prototype->setIsMethod(true);
+      substituteTypeNode(method->returnTypeNode(), substitutions));
+  prototype->setIsMethod(method->hasReceiver());
   auto function = std::make_unique<FunctionDecl>(
       method->location(), std::move(prototype),
-      substituteBlockExpr(method->body().get(), {}));
+      substituteBlockExpr(method->body().get(), substitutions));
 
   // The body belongs to the trait's package, not to the concrete impl site.
   SemaImpl::VariableScope signatureScope(_sema._symbols);
@@ -152,18 +300,21 @@ auto TraitSema::instantiateDefaultMethod(
 auto TraitSema::instantiateGenericMethod(
     const ImplDecl *impl, const FunctionDecl *method,
     const TraitMethodDecl *contract, const Type *targetType,
+    const std::vector<const Type *> &traitArguments,
     std::string &functionName) -> llvm::LogicalResult {
-  functionName = methodFunctionName(impl->trait(), targetType,
+  functionName = methodFunctionName(impl->trait(), targetType, traitArguments,
                                          method->proto()->id()->name());
   if (_sema.lookupFunction(functionName))
     return success();
 
   auto argumentTypeNode = typeToTypeNode(targetType, method->location());
+  auto selfTypeNode = typeToTypeNode(targetType, method->location());
   auto function = instantiateFunctionDecl(
       method, functionName,
-      std::vector<TypeSubstitution>{TypeSubstitution{
-          impl->comptimeParameters().front().name, argumentTypeNode.get(),
-          std::nullopt}});
+      std::vector<TypeSubstitution>{
+          TypeSubstitution{impl->comptimeParameters().front().name,
+                           argumentTypeNode.get(), std::nullopt},
+          TypeSubstitution{"Self", selfTypeNode.get(), std::nullopt}});
   function->proto()->setIsMethod(true);
   _sema._instantiatedFunctionPackages[functionName] = impl->packageName();
 
@@ -175,7 +326,8 @@ auto TraitSema::instantiateGenericMethod(
   auto *signature = _sema.lookupFunction(functionName);
   if (!signature)
     return failure();
-  if (!traitMethodSignatureMatches(contract, signature, targetType)) {
+  if (!methodSignatureMatches(impl->trait(), contract, signature, targetType,
+                              traitArguments)) {
     auto diagnostic = formatNameDiagnostic(diag::trait_method_signature,
                                            method->proto()->id()->name());
     return _sema.emitError(method->proto()->id().get(), diagnostic);
@@ -198,11 +350,17 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
   }
 
   node->setTrait(trait);
+  std::vector<const Type *> traitArguments;
+  if (llvm::failed(resolveTraitArguments(node, trait, traitArguments)))
+    return failure();
+  node->setTraitArgumentTypes(traitArguments);
   std::map<std::string, const TraitMethodDecl *, std::less<>> contracts;
   for (auto &method : trait->methods())
     contracts.insert({std::string(method->name()), method.get()});
 
   if (node->isGeneric()) {
+    if (trait->isGeneric())
+      return _sema.emitError(node, diag::mismatch_type);
     auto &parameters = node->comptimeParameters();
     auto *targetType = dyn_cast<NamedTypeNode>(node->targetTypeNode());
     if (parameters.size() != 1 ||
@@ -247,7 +405,8 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
     return failure();
   node->setTargetType(targetType);
 
-  if (_sema._symbols.lookupTraitImplementation(trait, targetType)) {
+  if (_sema._symbols.lookupTraitImplementation(trait, traitArguments,
+                                               targetType)) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
                                            trait->name());
     return _sema.emitError(node, diagnostic);
@@ -266,9 +425,10 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
       return _sema.emitError(prototype->id().get(), diagnostic);
     }
 
-    auto fullName = methodFunctionName(trait, targetType, methodName);
+    auto fullName = methodFunctionName(trait, targetType, traitArguments,
+                                       methodName);
     prototype->id()->setName(fullName);
-    prototype->setIsMethod(true);
+    prototype->setIsMethod(contract->second->hasReceiver());
     _sema._functionPackages[fullName] = std::string(node->packageName());
 
     if (prototype->isGeneric()) {
@@ -276,6 +436,7 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
           formatNameDiagnostic(diag::trait_method_signature, methodName);
       return _sema.emitError(prototype->id().get(), diagnostic);
     }
+    SemaImpl::SelfTypeScope selfTypeScope(_sema, targetType);
     if (llvm::failed(_sema.sema(method.get())))
       return failure();
 
@@ -285,7 +446,8 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
           formatNameDiagnostic(diag::trait_method_signature, methodName);
       return _sema.emitError(prototype->id().get(), diagnostic);
     }
-    if (!traitMethodSignatureMatches(contract->second, signature, targetType)) {
+    if (!methodSignatureMatches(trait, contract->second, signature, targetType,
+                                traitArguments)) {
       auto diagnostic =
           formatNameDiagnostic(diag::trait_method_signature, methodName);
       return _sema.emitError(prototype->id().get(), diagnostic);
@@ -300,8 +462,9 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
 
     if (contract.second->hasDefaultBody()) {
       std::string functionName;
-      if (llvm::failed(instantiateDefaultMethod(trait, contract.second, targetType,
-                                        functionName)))
+      if (llvm::failed(instantiateDefaultMethod(trait, contract.second,
+                                                targetType, traitArguments,
+                                                functionName)))
         return failure();
       methodFunctionNames.insert({contract.first, std::move(functionName)});
       continue;
@@ -313,7 +476,8 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
   }
 
   if (llvm::failed(_sema._symbols.declareTraitImplementation(
-          trait, targetType, node, std::move(methodFunctionNames)))) {
+          trait, std::move(traitArguments), targetType, node,
+          std::move(methodFunctionNames)))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
                                            trait->name());
     return _sema.emitError(node, diagnostic);
@@ -321,6 +485,84 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
   LLVM_DEBUG(llvm::dbgs() << "register trait implementation `"
                           << trait->name() << "` for `"
                           << formatType(targetType) << "`\n");
+  return success();
+}
+
+auto TraitSema::resolveStaticMethod(CallExpr *node, const Type *targetType,
+                                    std::string_view methodName,
+                                    std::string &functionName)
+    -> llvm::LogicalResult {
+  for (auto &argument : node->expressions()) {
+    if (llvm::failed(_sema.sema(argument.get())))
+      return failure();
+  }
+
+  std::vector<std::string> matches;
+  for (auto *implementation :
+       _sema._symbols.lookupStaticTraitMethods(targetType, methodName)) {
+    auto method = implementation->methodFunctionNames.find(methodName);
+    auto *signature = _sema.lookupFunction(method->second);
+    if (!signature ||
+        signature->type->parameterTypes().size() != node->expressions().size())
+      continue;
+
+    bool argumentsMatch = true;
+    for (size_t index = 0; index < node->expressions().size(); ++index) {
+      if (!sameType(signature->type->parameterTypes()[index],
+                    node->expressions()[index]->type())) {
+        argumentsMatch = false;
+        break;
+      }
+    }
+    if (argumentsMatch)
+      matches.push_back(method->second);
+  }
+
+  if (matches.empty())
+    return success();
+  if (matches.size() != 1) {
+    auto diagnostic =
+        formatNameDiagnostic(diag::ambiguous_static_trait_method, methodName);
+    return _sema.emitError(node, diagnostic);
+  }
+
+  functionName = std::move(matches.front());
+  LLVM_DEBUG(llvm::dbgs() << "resolve static trait method `" << methodName
+                          << "` for `" << formatType(targetType) << "` to `"
+                          << functionName << "`\n");
+  return success();
+}
+
+auto TraitSema::resolveFromConversion(const Node *diagnosticNode,
+                                      const Type *sourceErrorType,
+                                      const Type *targetErrorType,
+                                      std::string &functionName)
+    -> llvm::LogicalResult {
+  if (!_sema._fromTrait)
+    return failure();
+
+  auto *implementation = _sema._symbols.lookupTraitImplementation(
+      _sema._fromTrait, {sourceErrorType}, targetErrorType);
+  if (!implementation)
+    return success();
+
+  auto method = implementation->methodFunctionNames.find("from");
+  if (method == implementation->methodFunctionNames.end())
+    return failure();
+  auto *signature = _sema.lookupFunction(method->second);
+  auto expectedParameterCount = isUnitType(sourceErrorType) ? 0u : 1u;
+  if (!signature ||
+      signature->type->parameterTypes().size() != expectedParameterCount ||
+      (expectedParameterCount &&
+       !sameType(signature->type->parameterTypes().front(), sourceErrorType)) ||
+      !sameType(signature->type->returnType(), targetErrorType))
+    return _sema.emitError(diagnosticNode, diag::try_error_type_mismatch);
+
+  functionName = method->second;
+  LLVM_DEBUG(llvm::dbgs() << "resolve From conversion from `"
+                          << formatType(sourceErrorType) << "` to `"
+                          << formatType(targetErrorType) << "` as `"
+                          << functionName << "`\n");
   return success();
 }
 
@@ -372,7 +614,7 @@ auto TraitSema::findMatchingGenericImplementations(
 auto TraitSema::materializeImplementation(
     const Node *diagnosticNode, const Type *type, const TraitDecl *trait,
     bool &matched) -> llvm::LogicalResult {
-  if (_sema._symbols.lookupTraitImplementation(trait, type)) {
+  if (_sema._symbols.lookupTraitImplementation(trait, {}, type)) {
     matched = true;
     return success();
   }
@@ -409,7 +651,8 @@ auto TraitSema::materializeImplementation(
     auto method = implementationMethods.find(contract.first);
     if (method != implementationMethods.end()) {
       if (llvm::failed(instantiateGenericMethod(implementation, method->second,
-                                        contract.second, type, functionName)))
+                                                contract.second, type, {},
+                                                functionName)))
         return failure();
     } else {
       if (!contract.second->hasDefaultBody()) {
@@ -418,14 +661,14 @@ auto TraitSema::materializeImplementation(
         return _sema.emitError(diagnosticNode, diagnostic);
       }
       if (llvm::failed(instantiateDefaultMethod(trait, contract.second, type,
-                                        functionName)))
+                                                {}, functionName)))
         return failure();
     }
     methodFunctionNames.insert({contract.first, std::move(functionName)});
   }
 
   if (llvm::failed(_sema._symbols.declareTraitImplementation(
-          trait, type, implementation, std::move(methodFunctionNames)))) {
+          trait, {}, type, implementation, std::move(methodFunctionNames)))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait_impl,
                                            trait->name());
     return _sema.emitError(diagnosticNode, diagnostic);
@@ -468,7 +711,7 @@ auto TraitSema::materializeMethod(const Node *diagnosticNode,
     if (!matched)
       continue;
 
-    auto *implementation = _sema._symbols.lookupTraitImplementation(trait, type);
+    auto *implementation = _sema._symbols.lookupTraitImplementation(trait, {}, type);
     auto method = implementation->methodFunctionNames.find(methodName);
     if (method == implementation->methodFunctionNames.end())
       continue;

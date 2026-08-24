@@ -79,6 +79,19 @@ auto formatTypeTraitDiagnostic(const char *diagnostic, const Type *type,
   return replacePlaceholder(message, "%s", traitName);
 }
 
+auto formatMissingFromDiagnostic(const Type *sourceType, const Type *targetType)
+    -> std::string {
+  auto sourceName = formatStringificationType(sourceType);
+  auto targetName = formatStringificationType(targetType);
+  return "`?` cannot convert error type `" + sourceName + "` to `" + targetName +
+         "`. Add a conversion like:\n"
+         "  impl From<" + sourceName + "> for " + targetName + " {\n"
+         "    fn from(value: " + sourceName + "): Self {\n"
+         "      return /* construct " + targetName + " from value */;\n"
+         "    }\n"
+         "  }";
+}
+
 auto declareName(NameSet &names, std::string_view name) -> bool {
   return names.insert(std::string(name)).second;
 }
@@ -259,6 +272,9 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   if (auto *unitType = dyn_cast<UnitTypeNode>(node))
     return std::make_unique<UnitTypeNode>(unitType->location());
 
+  if (auto *selfType = dyn_cast<SelfTypeNode>(node))
+    return std::make_unique<SelfTypeNode>(selfType->location());
+
   if (auto *namedType = dyn_cast<NamedTypeNode>(node))
     return std::make_unique<NamedTypeNode>(namedType->location(),
                                            namedType->name());
@@ -416,6 +432,13 @@ auto substituteTypeNode(const TypeNode *node,
   if (auto *unitType = dyn_cast<UnitTypeNode>(node))
     return std::make_unique<UnitTypeNode>(unitType->location());
 
+  if (auto *selfType = dyn_cast<SelfTypeNode>(node)) {
+    if (substitution.parameterName == "Self" &&
+        substitution.argumentTypeNode)
+      return cloneTypeNode(substitution.argumentTypeNode);
+    return cloneTypeNode(selfType);
+  }
+
   if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
     if (namedType->name() == substitution.parameterName &&
         substitution.argumentTypeNode)
@@ -524,6 +547,44 @@ auto substituteTypeNode(const TypeNode *node,
   for (auto &substitution : substitutions)
     result = substituteTypeNode(result.get(), substitution);
   return result;
+}
+
+auto containsSelfType(const TypeNode *node) -> bool {
+  if (dyn_cast<SelfTypeNode>(node))
+    return true;
+
+  if (llvm::isa<UnitTypeNode, NamedTypeNode>(node))
+    return false;
+
+  if (llvm::isa<ComputedTypeNode>(node))
+    return false;
+
+  if (auto *arrayType = dyn_cast<ArrayTypeNode>(node))
+    return containsSelfType(arrayType->elementTypeNode());
+
+  if (auto *ptrType = dyn_cast<PtrTypeNode>(node))
+    return containsSelfType(ptrType->pointeeTypeNode());
+
+  if (auto *functionType = dyn_cast<FunctionTypeNode>(node)) {
+    for (auto &parameterType : functionType->parameterTypes())
+      if (containsSelfType(parameterType.get()))
+        return true;
+    return containsSelfType(functionType->returnTypeNode());
+  }
+
+  if (auto *genericType = dyn_cast<GenericTypeNode>(node)) {
+    for (auto &argument : genericType->arguments())
+      if (argument.kind() == ComptimeArg::Kind::Type &&
+          containsSelfType(argument.typeNode()))
+        return true;
+    return false;
+  }
+
+  auto *structType = cast<StructTypeNode>(node);
+  for (auto &field : structType->fields())
+    if (containsSelfType(field->typeNode()))
+      return true;
+  return false;
 }
 
 auto containsComptimeParameter(const TypeNode *node,
@@ -934,25 +995,6 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
   return std::make_unique<FunctionDecl>(
       node->location(), std::move(prototype),
       substituteBlockExpr(node->body().get(), substitutions));
-}
-
-auto traitMethodSignatureMatches(const TraitMethodDecl *method,
-                                 const FunctionSymbol *signature,
-                                 const Type *targetType) -> bool {
-  auto &parameterTypes = signature->type->parameterTypes();
-  auto &parameterMutability = signature->type->parameterCanMutateObject();
-  auto valid =
-      parameterTypes.size() == method->parameters().size() + 1 &&
-      sameType(parameterTypes.front(), targetType) &&
-      parameterMutability.front() == method->receiverCanMutateObject() &&
-      sameType(signature->type->returnType(), method->returnType());
-  for (size_t index = 0; valid && index < method->parameters().size();
-       ++index) {
-    auto &parameter = method->parameters()[index];
-    valid = sameType(parameterTypes[index + 1], parameter->type()) &&
-            parameterMutability[index + 1] == parameter->canMutateObject();
-  }
-  return valid;
 }
 
 } // namespace mulberry

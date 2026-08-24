@@ -1,0 +1,43 @@
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s
+# RUN: mulberry-driver -dump=lowered-mlir %s 2>&1 | FileCheck %s --check-prefix=LOWERED
+
+import io;
+import json;
+import safetensors;
+
+fn forwardFile(result: Result<UInt64, io.FileError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn forwardJson(result: Result<UInt64, json.JsonError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn forwardSame(result: Result<UInt64, safetensors.SafetensorsError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# CHECK-LABEL: func.func @forwardFile
+# CHECK: mulberry_core.result.try {{.*}}source_error !mulberry_core.ptr<!mulberry_core.data<"std_io_FileError">> target_error !mulberry_core.ptr<!mulberry_core.data<"std_safetensors_SafetensorsError">> converter @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# CHECK-LABEL: func.func @forwardJson
+# CHECK: mulberry_core.result.try {{.*}}source_error !mulberry_core.ptr<!mulberry_core.data<"std_json_JsonError">> target_error !mulberry_core.ptr<!mulberry_core.data<"std_safetensors_SafetensorsError">> converter @std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# CHECK-LABEL: func.func @forwardSame
+# CHECK: mulberry_core.result.try {{.*}}source_error !mulberry_core.ptr<!mulberry_core.data<"std_safetensors_SafetensorsError">> target_error !mulberry_core.ptr<!mulberry_core.data<"std_safetensors_SafetensorsError">>
+# CHECK-NOT: converter
+
+# LOWERED-LABEL: func.func @forwardFile
+# LOWERED: cf.cond_br
+# LOWERED-COUNT-1: call @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# LOWERED-LABEL: func.func @forwardJson
+# LOWERED-COUNT-1: call @std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# LOWERED-LABEL: func.func @forwardSame
+# LOWERED-NOT: call @std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# LOWERED-NOT: call @std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# LOWERED: func.func @main

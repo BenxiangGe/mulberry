@@ -400,6 +400,7 @@ auto SemaImpl::saveState() const -> State {
   state.functionPackages = _functionPackages;
   state.genericFunctionPackages = _genericFunctionPackages;
   state.instantiatedFunctionPackages = _instantiatedFunctionPackages;
+  state.fromTrait = _fromTrait;
   state.instantiatedFunctions = _instantiatedFunctions.size();
   state.lambdaFunctions = _lambdaFunctions.size();
   state.currentPackageName = _currentPackageName;
@@ -418,6 +419,7 @@ auto SemaImpl::restoreState(State state) -> void {
   _functionPackages = std::move(state.functionPackages);
   _genericFunctionPackages = std::move(state.genericFunctionPackages);
   _instantiatedFunctionPackages = std::move(state.instantiatedFunctionPackages);
+  _fromTrait = state.fromTrait;
 
   // FunctionSymbol pointers point into Symbols. Rebind them after replacing
   // the symbol table so rollback cannot retain pointers into the old table.

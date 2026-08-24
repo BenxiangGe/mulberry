@@ -40,6 +40,39 @@ public:
   }
 };
 
+class ResultTryTypeConversion : public OpConversionPattern<ResultTryOp> {
+public:
+  using OpConversionPattern<ResultTryOp>::OpConversionPattern;
+
+  auto matchAndRewrite(ResultTryOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter& rewriter) const
+      -> LogicalResult final {
+    std::vector<Type> resultTypes;
+    for (auto result : op.getResults()) {
+      auto converted = getTypeConverter()->convertType(result.getType());
+      if (!converted)
+        return rewriter.notifyMatchFailure(
+            op, "result try value has no storage type");
+      resultTypes.push_back(converted);
+    }
+
+    auto sourceErrorType =
+        getTypeConverter()->convertType(op.getSourceErrorType());
+    auto targetErrorType =
+        getTypeConverter()->convertType(op.getTargetErrorType());
+    if (!sourceErrorType || !targetErrorType)
+      return rewriter.notifyMatchFailure(
+          op, "result try error type has no storage type");
+
+    auto convertedOp = ResultTryOp::create(
+        rewriter, op.getLoc(), resultTypes, adaptor.getInput(),
+        TypeAttr::get(sourceErrorType), TypeAttr::get(targetErrorType),
+        op.getErrorConverterAttr());
+    rewriter.replaceOp(op, convertedOp.getResults());
+    return success();
+  }
+};
+
 class CallIndirectTypeConversion
     : public OpConversionPattern<func::CallIndirectOp> {
 public:
@@ -442,6 +475,7 @@ void populateMulberryCoreLoweringPatterns(RewritePatternSet& patterns,
                CallIndirectTypeConversion,
                DataConstructOpLowering, DataTagOpLowering,
                DataUnpackOpLowering, FunctionConstantTypeConversion,
+               ResultTryTypeConversion,
                HeapAllocOpLowering, LoadOpLowering, PtrCastOpLowering,
                PtrIndexOpLowering, RecordGetFieldOpLowering, StoreOpLowering>(
       typeConverter, context);

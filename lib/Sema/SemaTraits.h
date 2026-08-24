@@ -16,6 +16,7 @@
 namespace mulberry {
 
 class SemaImpl;
+struct FunctionSymbol;
 
 class TraitSema {
 public:
@@ -34,20 +35,39 @@ public:
                          std::string_view methodName,
                          std::string &functionName)
       -> llvm::LogicalResult;
+  auto resolveStaticMethod(CallExpr *node, const Type *targetType,
+                           std::string_view methodName,
+                           std::string &functionName) -> llvm::LogicalResult;
+  auto resolveFromConversion(const Node *diagnosticNode,
+                             const Type *sourceErrorType,
+                             const Type *targetErrorType,
+                             std::string &functionName) -> llvm::LogicalResult;
 
 private:
   auto lookupTrait(std::string_view name) -> const TraitDecl *;
   auto methodFunctionName(const TraitDecl *trait, const Type *targetType,
+                          const std::vector<const Type *> &traitArguments,
                           std::string_view methodName) const -> std::string;
+  auto methodSignatureMatches(const TraitDecl *trait,
+                              const TraitMethodDecl *method,
+                              const FunctionSymbol *signature,
+                              const Type *targetType,
+                              const std::vector<const Type *> &traitArguments)
+      -> bool;
+  auto resolveTraitArguments(const ImplDecl *impl, const TraitDecl *trait,
+                             std::vector<const Type *> &arguments)
+      -> llvm::LogicalResult;
   auto instantiateDefaultMethod(const TraitDecl *trait,
                                 const TraitMethodDecl *method,
                                 const Type *targetType,
+                                const std::vector<const Type *> &traitArguments,
                                 std::string &functionName)
       -> llvm::LogicalResult;
   auto instantiateGenericMethod(const ImplDecl *impl,
                                 const FunctionDecl *method,
                                 const TraitMethodDecl *contract,
                                 const Type *targetType,
+                                const std::vector<const Type *> &traitArguments,
                                 std::string &functionName)
       -> llvm::LogicalResult;
   auto genericImplementationMatches(const ImplDecl *impl, const Type *type,

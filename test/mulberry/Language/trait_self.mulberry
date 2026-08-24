@@ -1,0 +1,60 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s
+
+trait Identity {
+  fn identity(self): Self {
+    return self;
+  }
+
+  fn same(self, other: Self): Bool {
+    return self == other;
+  }
+
+  fn isObject(self): Bool {
+    if #typeInfo(Self).isObject() {
+      return false;
+    }
+    return true;
+  }
+}
+
+impl Identity for UInt64 {}
+
+trait ExplicitIdentity {
+  fn copy(self): Self;
+}
+
+impl ExplicitIdentity for UInt64 {
+  fn copy(self: Self): Self {
+    return self;
+  }
+}
+
+trait GenericIdentity {
+  fn retain(self): Self;
+}
+
+impl<T> GenericIdentity for T where comptime #typeInfo(T).isUInt64() {
+  fn retain(self: Self): Self {
+    return self;
+  }
+}
+
+fn main(): UInt64 {
+  const value = 7.identity();
+  const copied = value.copy();
+  const retained = copied.retain();
+  if value.same(7) == false or value.isObject() {
+    return 1;
+  }
+  return retained.identity();
+}
+
+# AST: TraitMethodDecl {{.*}}name=identity receiver=readonly return=Self
+# AST: ParameterDecl readonly (id=other {{.*}}) (type=Self
+# AST: Prototype {{.*}}name=ExplicitIdentity__UInt64.copy {{.*}}type=Self
+# MLIR-DAG: func.func @Identity__UInt64.identity
+# MLIR-DAG: func.func @ExplicitIdentity__UInt64.copy
+# MLIR-DAG: func.func @GenericIdentity__UInt64.retain

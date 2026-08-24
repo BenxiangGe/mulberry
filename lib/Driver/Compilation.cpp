@@ -10,6 +10,7 @@
 #include "mulberry/AST/AST.h"
 #include "mulberry/BigInt/BigIntDialect.h"
 #include "mulberry/MLIRGen/Conversion/MulberryPasses.h"
+#include "mulberry/MLIRGen/IR/MulberryOps.h"
 #include "mulberry/MLIRGen/IR/MulberryDialect.h"
 #include "mulberry/MLIRGen/MLIRGen.h"
 #include "mulberry/Parse/Lexer.h"
@@ -965,17 +966,28 @@ auto Compilation::compileModule(
     return failure();
 
   if (lowering >= Lowering::Mulberry)
-    pm.addPass(mulberry_core::createLowerResultTry());
-
-  if (lowering >= Lowering::Mulberry)
     pm.addPass(mulberry_core::createLowerMulberry());
+
+  auto hasResultTry = false;
+  module->walk([&](mulberry_core::ResultTryOp) { hasResultTry = true; });
+  // ResultTry lowers to a function-level early return after this pipeline.
+  // Ownership-based deallocation cannot model that exit and would release
+  // Tensor buffers twice. Tensor storage has a GC/manual-deallocation fallback
+  // until ResultTry carries an explicit cleanup edge.
+  if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty() &&
+      !hasResultTry)
+    bufferization::buildBufferDeallocationPipeline(pm);
+
+  // Buffer deallocation only supports structured loop backedges. Lowering
+  // ResultTry first would turn a loop containing `?` into CFG and make that
+  // pass reject an otherwise valid program. Lower it after deallocation; the
+  // first core lowering already handles the ResultTry operands and results.
+  if (lowering >= Lowering::Mulberry)
+    pm.addPass(mulberry_core::createLowerResultTry());
 
   if (lowering >= Lowering::Mulberry &&
       llvm::failed(addBundledPackagePostCorePipelines(pm)))
     return failure();
-
-  if (lowering >= Lowering::Mulberry && !_usedBundledPackages.empty())
-    bufferization::buildBufferDeallocationPipeline(pm);
 
   if (lowering >= Lowering::Mulberry)
     pm.addPass(mulberry_core::createFinalizeMulberryTensorStorage());

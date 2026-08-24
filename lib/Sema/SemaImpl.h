@@ -74,6 +74,7 @@ private:
     std::map<std::string, std::string> functionPackages;
     std::map<std::string, std::string> genericFunctionPackages;
     std::map<std::string, std::string> instantiatedFunctionPackages;
+    const TraitDecl *fromTrait = nullptr;
     size_t instantiatedFunctions = 0;
     size_t lambdaFunctions = 0;
     std::string currentPackageName;
@@ -107,6 +108,8 @@ private:
       emptyImportAliases();
   std::string _currentPackageName;
   const Type *_currentFunctionReturnType = nullptr;
+  const Type *_activeSelfType = nullptr;
+  const TraitDecl *_fromTrait = nullptr;
   ComptimeFrame *_activeComptimeFrame = nullptr;
   ComptimeExecutionState *_activeComptimeExecutionState = nullptr;
   int _whileDepth = 0;
@@ -197,6 +200,8 @@ private:
 
   auto resolveType(const NamedTypeNode *typeNode) -> const Type * ;
 
+  auto resolveType(const SelfTypeNode *typeNode) -> const Type * ;
+
   auto resolveType(const UnitTypeNode *typeNode) -> const Type * ;
 
   auto declareVariable(std::string_view name, const Type *type,
@@ -237,6 +242,20 @@ private:
 
   private:
     Symbols &_symbols;
+  };
+
+  class SelfTypeScope {
+  public:
+    SelfTypeScope(SemaImpl &sema, const Type *type)
+        : _sema(sema), _oldType(sema._activeSelfType) {
+      _sema._activeSelfType = type;
+    }
+
+    ~SelfTypeScope() { _sema._activeSelfType = _oldType; }
+
+  private:
+    SemaImpl &_sema;
+    const Type *_oldType = nullptr;
   };
 
   class ComptimeFrameScope {

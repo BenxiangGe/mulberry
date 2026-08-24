@@ -1,0 +1,31 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+struct Target {
+  value: UInt64
+}
+
+trait First<T> {
+  fn make(value: T): Self;
+}
+
+trait Second<T> {
+  fn make(value: T): Self;
+}
+
+impl First<UInt64> for Target {
+  fn make(value: UInt64): Self {
+    return Target { value };
+  }
+}
+
+impl Second<UInt64> for Target {
+  fn make(value: UInt64): Self {
+    return Target { value };
+  }
+}
+
+fn main(): UInt64 {
+  return Target.make(42).value;
+}
+
+# CHECK: trait_static_method_ambiguity_error.mulberry:28:10: error: multiple static trait methods named `make` match this call

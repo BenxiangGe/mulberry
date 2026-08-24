@@ -9,6 +9,8 @@
 #define MULBERRY_TRY_EXPR_H
 
 #include "mulberry/AST/Expr.h"
+#include <string>
+#include <string_view>
 
 namespace mulberry {
 
@@ -29,9 +31,28 @@ public:
     _canMutateObject = canMutateObject;
   }
 
+  auto setErrorTypes(const Type *sourceErrorType,
+                     const Type *targetErrorType) -> void {
+    _sourceErrorType = sourceErrorType;
+    _targetErrorType = targetErrorType;
+  }
+
+  auto sourceErrorType() const -> const Type * { return _sourceErrorType; }
+
+  auto targetErrorType() const -> const Type * { return _targetErrorType; }
+
+  auto setErrorConverter(std::string functionName) -> void {
+    _errorConverter = std::move(functionName);
+  }
+
+  auto errorConverter() const -> std::string_view { return _errorConverter; }
+
 private:
   std::unique_ptr<Expr> _value;
   bool _canMutateObject = true;
+  const Type *_sourceErrorType = nullptr;
+  const Type *_targetErrorType = nullptr;
+  std::string _errorConverter;
 };
 
 } // end namespace mulberry

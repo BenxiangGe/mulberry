@@ -179,6 +179,11 @@ auto Parser::parseType(unique_ptr<TypeNode> &typeNode) -> llvm::LogicalResult {
   if (name == "Ptr")
     return parsePtrType(typeNode, location);
 
+  if (name == "Self") {
+    typeNode = make_unique<SelfTypeNode>(location);
+    return success();
+  }
+
   if (tokenIs(Token::less)) {
     std::vector<ComptimeArg> arguments;
     if (llvm::failed(parseGenericTypeArgs(arguments)))
@@ -669,7 +674,12 @@ auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   consume(Token::kw_trait);
 
   std::string name;
+  std::vector<ComptimeParam> parameters;
   if (llvm::failed(parseQualifiedName(name, diag::expected_id)) ||
+      (tokenIs(Token::less) &&
+       llvm::failed(parseComptimeParams(parameters,
+                                        /*allowTraitConstraint=*/false,
+                                        /*allowTypePack=*/false))) ||
       llvm::failed(parseToken(Token::l_brace, diag::expected_l_brace)))
     return failure();
   name = qualifyPackageName(name);
@@ -684,7 +694,8 @@ auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
-  decl = make_unique<TraitDecl>(location, name, std::move(methods));
+  decl = make_unique<TraitDecl>(location, name, std::move(parameters),
+                                std::move(methods));
   return success();
 }
 
@@ -699,16 +710,19 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
       llvm::failed(parseToken(Token::l_paren, diag::expected_l_paren)))
     return failure();
 
-  auto receiverCanMutateObject = consumeIf(Token::kw_mut);
-  if (!tokenIs(Token::identifier) || spelling() != "self")
-    return emitError(diag::expected_self);
-  consume(Token::identifier);
+  bool hasReceiver = false;
+  bool receiverCanMutateObject = false;
+  if (tokenIs(Token::kw_mut) ||
+      (tokenIs(Token::identifier) && spelling() == "self")) {
+    receiverCanMutateObject = consumeIf(Token::kw_mut);
+    if (!tokenIs(Token::identifier) || spelling() != "self")
+      return emitError(diag::expected_self);
+    consume(Token::identifier);
+    hasReceiver = true;
+  }
 
   VectorUniquePtr<ParameterDecl> parameters;
-  while (consumeIf(Token::comma)) {
-    if (tokenIs(Token::r_paren))
-      break;
-
+  auto parseParameter = [&]() -> llvm::LogicalResult {
     auto canMutateObject = consumeIf(Token::kw_mut);
     unique_ptr<VariableExpr> parameter;
     unique_ptr<TypeNode> typeNode;
@@ -719,6 +733,20 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
     parameters.push_back(make_unique<ParameterDecl>(
         parameter->location(), std::move(parameter), std::move(typeNode),
         canMutateObject));
+    return success();
+  };
+  if (hasReceiver && consumeIf(Token::comma)) {
+    if (!tokenIs(Token::r_paren) && llvm::failed(parseParameter()))
+      return failure();
+  } else if (!hasReceiver && !tokenIs(Token::r_paren) &&
+             llvm::failed(parseParameter())) {
+    return failure();
+  }
+  while (consumeIf(Token::comma)) {
+    if (tokenIs(Token::r_paren))
+      break;
+    if (llvm::failed(parseParameter()))
+      return failure();
   }
 
   unique_ptr<TypeNode> returnTypeNode;
@@ -735,7 +763,8 @@ auto Parser::parseTraitMethod(unique_ptr<TraitMethodDecl> &method)
   }
 
   method = make_unique<TraitMethodDecl>(
-      location, name, receiverCanMutateObject, std::move(parameters),
+      location, name, hasReceiver, receiverCanMutateObject,
+      std::move(parameters),
       std::move(returnTypeNode), std::move(body));
   return success();
 }
@@ -745,11 +774,13 @@ auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   consume(Token::kw_impl);
 
   std::string traitName;
+  std::vector<ComptimeArg> traitArguments;
   std::vector<ComptimeParam> comptimeParameters;
   unique_ptr<TypeNode> targetTypeNode;
   if (tokenIs(Token::less) && llvm::failed(parseComptimeParams(comptimeParameters)))
     return failure();
   if (llvm::failed(parseQualifiedName(traitName, diag::expected_id)) ||
+      (tokenIs(Token::less) && llvm::failed(parseGenericTypeArgs(traitArguments))) ||
       llvm::failed(parseToken(Token::kw_for, diag::expected_for)) ||
       llvm::failed(parseType(targetTypeNode)))
     return failure();
@@ -776,7 +807,8 @@ auto Parser::parseImplDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
     return failure();
 
   decl = make_unique<ImplDecl>(
-      location, traitName, std::move(comptimeParameters),
+      location, traitName, std::move(traitArguments),
+      std::move(comptimeParameters),
       std::move(targetTypeNode), std::move(whereCondition), std::move(methods),
       _packageName);
   return success();

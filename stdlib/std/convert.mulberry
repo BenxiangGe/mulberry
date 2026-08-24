@@ -1,0 +1,5 @@
+package std.convert;
+
+trait From<T> {
+  fn from(value: T): Self;
+}

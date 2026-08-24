@@ -1,0 +1,29 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s
+
+import io;
+import json;
+import safetensors;
+
+fn forwardFile(result: Result<UInt64, io.FileError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn forwardJson(result: Result<UInt64, json.JsonError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn forwardSame(result: Result<UInt64, safetensors.SafetensorsError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+fn main(): UInt64 {
+  return 0;
+}
+
+# CHECK: TryExpr {{.*}}type=UInt64 sourceError=std.io.FileError targetError=std.safetensors.SafetensorsError converter=std.convert.From__std_io_FileError__std_safetensors_SafetensorsError.from
+# CHECK: TryExpr {{.*}}type=UInt64 sourceError=std.json.JsonError targetError=std.safetensors.SafetensorsError converter=std.convert.From__std_json_JsonError__std_safetensors_SafetensorsError.from
+# CHECK: TryExpr {{.*}}type=UInt64 sourceError=std.safetensors.SafetensorsError targetError=std.safetensors.SafetensorsError

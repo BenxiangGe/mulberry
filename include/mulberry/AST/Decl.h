@@ -210,16 +210,19 @@ private:
 class TraitMethodDecl final : public Node {
 public:
   TraitMethodDecl(llvm::SMLoc location, std::string_view name,
-                  bool receiverCanMutateObject,
+                  bool hasReceiver, bool receiverCanMutateObject,
                   VectorUniquePtr<ParameterDecl> parameters,
                   std::unique_ptr<TypeNode> returnTypeNode,
                   std::unique_ptr<BlockExpr> body = nullptr)
       : Node(location), _name(name),
+        _hasReceiver(hasReceiver),
         _receiverCanMutateObject(receiverCanMutateObject),
         _parameters(std::move(parameters)),
         _returnTypeNode(std::move(returnTypeNode)), _body(std::move(body)) {}
 
   auto name() const -> std::string_view { return _name; }
+
+  auto hasReceiver() const -> bool { return _hasReceiver; }
 
   auto receiverCanMutateObject() const -> bool {
     return _receiverCanMutateObject;
@@ -243,6 +246,7 @@ public:
 
 private:
   std::string _name;
+  bool _hasReceiver = false;
   bool _receiverCanMutateObject = false;
   VectorUniquePtr<ParameterDecl> _parameters;
   std::unique_ptr<TypeNode> _returnTypeNode;
@@ -253,8 +257,10 @@ private:
 class TraitDecl final : public Decl {
 public:
   TraitDecl(llvm::SMLoc location, std::string_view name,
+            std::vector<ComptimeParam> parameters,
             VectorUniquePtr<TraitMethodDecl> methods)
       : Decl(Decl_Trait, location), _name(name),
+        _parameters(std::move(parameters)),
         _methods(std::move(methods)) {}
 
   static auto classof(const Decl *node) -> bool {
@@ -263,24 +269,33 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
+  auto parameters() const -> const std::vector<ComptimeParam> & {
+    return _parameters;
+  }
+
+  auto isGeneric() const -> bool { return !_parameters.empty(); }
+
   auto methods() const -> const VectorUniquePtr<TraitMethodDecl> & {
     return _methods;
   }
 
 private:
   std::string _name;
+  std::vector<ComptimeParam> _parameters;
   VectorUniquePtr<TraitMethodDecl> _methods;
 };
 
 class ImplDecl final : public Decl {
 public:
   ImplDecl(llvm::SMLoc location, std::string_view traitName,
+           std::vector<ComptimeArg> traitArguments,
            std::vector<ComptimeParam> comptimeParameters,
            std::unique_ptr<TypeNode> targetTypeNode,
            std::unique_ptr<Expr> whereCondition,
            VectorUniquePtr<FunctionDecl> methods,
            std::string_view packageName)
       : Decl(Decl_Impl, location), _traitName(traitName),
+        _traitArguments(std::move(traitArguments)),
         _comptimeParameters(std::move(comptimeParameters)),
         _targetTypeNode(std::move(targetTypeNode)),
         _whereCondition(std::move(whereCondition)),
@@ -291,6 +306,18 @@ public:
   }
 
   auto traitName() const -> std::string_view { return _traitName; }
+
+  auto traitArguments() const -> const std::vector<ComptimeArg> & {
+    return _traitArguments;
+  }
+
+  auto setTraitArgumentTypes(std::vector<const Type *> types) -> void {
+    _traitArgumentTypes = std::move(types);
+  }
+
+  auto traitArgumentTypes() const -> const std::vector<const Type *> & {
+    return _traitArgumentTypes;
+  }
 
   auto comptimeParameters() const -> const std::vector<ComptimeParam> & {
     return _comptimeParameters;
@@ -322,6 +349,8 @@ public:
 
 private:
   std::string _traitName;
+  std::vector<ComptimeArg> _traitArguments;
+  std::vector<const Type *> _traitArgumentTypes;
   std::vector<ComptimeParam> _comptimeParameters;
   std::unique_ptr<TypeNode> _targetTypeNode;
   std::unique_ptr<Expr> _whereCondition;

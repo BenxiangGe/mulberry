@@ -534,10 +534,12 @@ fn openForRead(path: String): Result<File, io.FileError> {
 }
 ```
 
-第一版只接受 canonical `std.result.Result<T, E>`。operand 为 `Ok(value)` 时，`?`
-expression 的类型和值是 `T`；operand 为 `Err(error)` 时，当前函数立即返回
-`Err(error)`。因此当前函数必须返回 `Result<U, E>`，并且两边的 `E` 必须是同一个
-semantic type。当前不做 `From` conversion、通用 `Try` trait 或 Monad abstraction。
+postfix `?` 只接受 canonical `std.result.Result<T, E>`。operand 为 `Ok(value)` 时，`?`
+expression 的类型和值是 `T`；operand 为 `Err(error)` 时，当前函数立即返回 error。当前函数
+返回 `Result<U, TargetError>` 时，若 operand 是 `Result<T, SourceError>`，两种 error type 相同
+则直接传播；不同则要求 canonical `From<SourceError> for TargetError`。Sema 绑定 concrete
+`from` witness，high-level `mulberry_core.result.try` 保存 source/target error type 与 optional
+converter symbol；不增加通用 `Try` trait 或 Monad abstraction。
 
 如果 `T` 是 object，`?` 继承 operand expression 的 mutability。直接 call result 与普通
 object-returning call 一样，可以绑定到 mutable local；readonly Result variable 解包后
@@ -553,13 +555,19 @@ const readonlyTensor = saved?;
 operand 只求值一次。Err 分支是真正的 function early return，同一个 expression 中位于
 `?` 后面的调用和其它副作用不会执行。`?` 可以出现在普通 expression、match expression
 arm 和 loop body 中；它与显式 `return` 不同，Ok path 仍会产生当前 expression 所需的
-value。需要保留 structured loop 给 Tensor bufferization 的 stdlib 代码，会在 loop 内
-使用显式 `match` 传播错误，而不是把 `?` 放进 loop body。
+value。`?` 也允许出现在 loop body 中。为满足 Tensor bufferization，lowering 会先在结构化
+loop 仍存在时完成 ownership 处理，再把包含 `ResultTryOp` 的 loop ancestor 转成 CFG；无关的
+structured loop 保持原状。
 
-高层 IR 用 `mulberry_core.result.try` 保留这一控制效果。`lower-result-try` 只把实际包含
-该 op 的 SCF 祖先转成 CFG：Ok payload 进入 continuation block，Err path 直接构造
-当前函数的 Result 并执行 `func.return`。同一函数中与 `?` 无关的 SCF loop/if
-保持 structured，因此 Tensor bufferization 和 ownership pass 仍可以分析它们。
+高层 IR 用 `mulberry_core.result.try` 保留这一控制效果。其 verifier 要求无 converter 的
+source/target error storage type 相同；有 converter 时其 `func.func` signature 必须精确为
+`SourceError -> TargetError`。`lower-result-try` 在 Err block 解包 source error，有 converter
+时发出一次 direct `func.call`，再构造 target `Err` 并执行 `func.return`；Ok path 不调用 converter。
+它只把实际包含该 op 的 SCF 祖先转成 CFG。同一函数中与 `?` 无关的 SCF loop/if 保持 structured；
+没有 `ResultTryOp` 的模块继续运行 ownership deallocation；含该 op 的模块则暂时依赖
+GC/manual-deallocation fallback。不能只按 function 隔离这个 fallback，因为 Tensor ownership
+可能跨函数传递；真实 NN workload 已证明这样做会产生 double free。恢复细粒度 deallocation
+需要 ResultTry 的 Err edge 显式携带 ownership，并在返回前经过统一 cleanup dispatcher。
 
 `io.open/read/readExact/write/seek/tell/close` 都返回 `Result<..., io.FileError>`。
 `read()` 的正常 EOF 短读是 `Ok(actualBytes)`；`readExact()` 把短读变成

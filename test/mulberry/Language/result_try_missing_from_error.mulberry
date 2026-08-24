@@ -1,0 +1,17 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+import safetensors;
+
+data LocalError = Failed;
+
+fn forward(result: Result<UInt64, LocalError>):
+    Result<UInt64, safetensors.SafetensorsError> {
+  return Ok(result?);
+}
+
+# CHECK: error: `?` cannot convert error type `LocalError` to `std.safetensors.SafetensorsError`. Add a conversion like:
+# CHECK-NEXT: impl From<LocalError> for std.safetensors.SafetensorsError {
+# CHECK-NEXT: fn from(value: LocalError): Self {
+# CHECK-NEXT: return /* construct std.safetensors.SafetensorsError from value */;
+# CHECK-NEXT: }
+# CHECK-NEXT: }

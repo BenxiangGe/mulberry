@@ -66,6 +66,11 @@ struct LowerMulberry : public impl::LowerMulberryBase<LowerMulberry> {
                            memref::MemRefDialect, scf::SCFDialect>();
     target.addLegalOp<UnrealizedConversionCastOp>();
     target.addLegalOp<TensorStorageAllocLoweredOp>();
+    // ResultTry is lowered after ownership-based buffer deallocation. Keeping
+    // it legal here lets that pass see structured loops instead of the CFG
+    // backedges introduced by result propagation.
+    target.addDynamicallyLegalOp<ResultTryOp>(
+        [&](ResultTryOp op) { return typeConverter.isLegal(op); });
     target.addIllegalDialect<MulberryDialect>();
     target.addIllegalDialect<bigint::BigIntDialect>();
     target.addDynamicallyLegalOp<func::FuncOp>(

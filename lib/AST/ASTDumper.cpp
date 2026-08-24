@@ -123,6 +123,9 @@ private:
     if (dyn_cast<UnitTypeNode>(node))
       return "()";
 
+    if (dyn_cast<SelfTypeNode>(node))
+      return "Self";
+
     if (dyn_cast<ComputedTypeNode>(node))
       return "<computed>";
 
@@ -368,6 +371,11 @@ auto Dumper::dump(const FunctionDecl *node) -> void {
 auto Dumper::dump(const TraitDecl *node) -> void {
   INDENT();
   errs() << "TraitDecl " << loc(node) << " name=" << node->name() << "\n";
+  if (node->isGeneric()) {
+    INDENT();
+    errs() << "Parameters " << formatComptimeParams(node->parameters())
+           << "\n";
+  }
   for (auto &method : node->methods())
     dump(method.get());
 }
@@ -375,9 +383,12 @@ auto Dumper::dump(const TraitDecl *node) -> void {
 auto Dumper::dump(const TraitMethodDecl *node) -> void {
   INDENT();
   errs() << "TraitMethodDecl " << loc(node) << " name=" << node->name()
-         << " receiver="
-         << (node->receiverCanMutateObject() ? "mut" : "readonly")
-         << " return=" << formatTypeNode(node->returnTypeNode()) << "\n";
+         << " receiver=";
+  if (!node->hasReceiver())
+    errs() << "none";
+  else
+    errs() << (node->receiverCanMutateObject() ? "mut" : "readonly");
+  errs() << " return=" << formatTypeNode(node->returnTypeNode()) << "\n";
   for (auto &parameter : node->parameters())
     dump(parameter.get());
   if (node->hasDefaultBody())
@@ -386,8 +397,21 @@ auto Dumper::dump(const TraitMethodDecl *node) -> void {
 
 auto Dumper::dump(const ImplDecl *node) -> void {
   INDENT();
-  errs() << "ImplDecl " << loc(node) << " trait=" << node->traitName()
-         << " target=" << formatTypeNode(node->targetTypeNode());
+  errs() << "ImplDecl " << loc(node) << " trait=" << node->traitName();
+  if (!node->traitArguments().empty()) {
+    errs() << "<";
+    std::string separator;
+    for (auto &argument : node->traitArguments()) {
+      errs() << separator;
+      if (argument.kind() == ComptimeArg::Kind::Type)
+        errs() << formatTypeNode(argument.typeNode());
+      else
+        errs() << argument.uint64Value();
+      separator = ", ";
+    }
+    errs() << ">";
+  }
+  errs() << " target=" << formatTypeNode(node->targetTypeNode());
   if (node->isGeneric())
     errs() << " parameter=" << formatComptimeParams(node->comptimeParameters());
   errs() << "\n";
@@ -522,7 +546,14 @@ auto Dumper::dump(const MatchExprArm *node) -> void {
 auto Dumper::dump(const TryExpr *node) -> void {
   INDENT();
   errs() << "TryExpr " << loc(node)
-         << " type=" << formatType(node->type()) << "\n";
+         << " type=" << formatType(node->type());
+  if (node->sourceErrorType())
+    errs() << " sourceError=" << formatType(node->sourceErrorType());
+  if (node->targetErrorType())
+    errs() << " targetError=" << formatType(node->targetErrorType());
+  if (!node->errorConverter().empty())
+    errs() << " converter=" << node->errorConverter();
+  errs() << "\n";
   dump(node->value().get());
 }
 

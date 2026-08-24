@@ -1,0 +1,15 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+trait Convert<T> {
+  fn convert(self, value: T): T;
+}
+
+struct Box {}
+
+impl Convert<1> for Box {
+  fn convert(self: Box, value: UInt64): UInt64 {
+    return value;
+  }
+}
+
+# CHECK: trait_generic_argument_non_type_error.mulberry:9:1: error: type mismatch

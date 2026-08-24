@@ -53,6 +53,7 @@ public:
   enum class Kind {
     Unit,
     Named,
+    Self,
     Computed,
     Array,
     Function,
@@ -95,6 +96,17 @@ public:
 
 private:
   std::string _name;
+};
+
+// `Self` is a trait/implementation-local type placeholder, not a named type.
+class SelfTypeNode final : public TypeNode {
+public:
+  explicit SelfTypeNode(llvm::SMLoc location)
+      : TypeNode(location, TypeNode::Kind::Self) {}
+
+  static auto classof(const TypeNode *node) -> bool {
+    return node->kind() == TypeNode::Kind::Self;
+  }
 };
 
 // A comptime expression whose result is used as a source type.

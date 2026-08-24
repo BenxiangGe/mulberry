@@ -1,0 +1,20 @@
+# RUN: not mulberry-driver -typecheck %s 2>&1 | FileCheck %s
+
+struct Box {}
+
+trait Convert<T> {
+  fn convert(self, value: T): T;
+}
+
+impl Convert<UInt64> for Box {
+  fn convert(self: Box, value: UInt64): UInt64 {
+    return value;
+  }
+}
+
+fn main(): UInt64 {
+  var box = Box {};
+  return box.convert(1);
+}
+
+# CHECK: trait_generic_receiver_lookup_error.mulberry:17:10: error: cannot find function `convert`

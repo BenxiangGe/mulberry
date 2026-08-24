@@ -12,6 +12,7 @@
 #include "mulberry/Basic/ScopeStack.h"
 #include "mulberry/Basic/Types.h"
 #include "llvm/Support/LogicalResult.h"
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <optional>
@@ -69,6 +70,20 @@ struct TraitSymbol {
 struct TraitImplementationSymbol {
   const ImplDecl *decl = nullptr;
   std::map<std::string, std::string, std::less<>> methodFunctionNames;
+};
+
+struct TraitImplementationKey {
+  const TraitDecl *trait = nullptr;
+  std::vector<const Type *> traitArguments;
+  const Type *targetType = nullptr;
+
+  auto operator<(const TraitImplementationKey &other) const -> bool {
+    if (trait != other.trait)
+      return trait < other.trait;
+    if (traitArguments != other.traitArguments)
+      return traitArguments < other.traitArguments;
+    return targetType < other.targetType;
+  }
 };
 
 template <typename T>
@@ -151,10 +166,12 @@ public:
   }
 
   auto declareTraitImplementation(
-      const TraitDecl *trait, const Type *type, const ImplDecl *decl,
+      const TraitDecl *trait, std::vector<const Type *> traitArguments,
+      const Type *targetType, const ImplDecl *decl,
       std::map<std::string, std::string, std::less<>> methodFunctionNames)
       -> llvm::LogicalResult {
-    auto key = std::make_pair(trait, type);
+    auto key = TraitImplementationKey{trait, std::move(traitArguments),
+                                      targetType};
     if (_traitImplementations.find(key) != _traitImplementations.end())
       return failure();
     _traitImplementations.insert(std::make_pair(
@@ -162,9 +179,12 @@ public:
     return success();
   }
 
-  auto lookupTraitImplementation(const TraitDecl *trait, const Type *type)
+  auto lookupTraitImplementation(const TraitDecl *trait,
+                                 const std::vector<const Type *> &traitArguments,
+                                 const Type *targetType)
       -> const TraitImplementationSymbol * {
-    auto symbol = _traitImplementations.find(std::make_pair(trait, type));
+    auto symbol = _traitImplementations.find(
+        TraitImplementationKey{trait, traitArguments, targetType});
     if (symbol == _traitImplementations.end())
       return nullptr;
     return &symbol->second;
@@ -184,13 +204,37 @@ public:
   auto lookupTraitMethod(const Type *type, std::string_view methodName)
       -> const std::string * {
     for (auto &implementation : _traitImplementations) {
-      if (implementation.first.second != type)
+      if (implementation.first.targetType != type)
+        continue;
+      // Receiver lookup has no Trait argument context. Generic Trait methods
+      // require the type-qualified lookup introduced by ER2.3.
+      if (implementation.first.trait->isGeneric())
         continue;
       auto method = implementation.second.methodFunctionNames.find(methodName);
       if (method != implementation.second.methodFunctionNames.end())
         return &method->second;
     }
     return nullptr;
+  }
+
+  auto lookupStaticTraitMethods(const Type *targetType,
+                                std::string_view methodName) const
+      -> std::vector<const TraitImplementationSymbol *> {
+    std::vector<const TraitImplementationSymbol *> matches;
+    for (auto &implementation : _traitImplementations) {
+      if (implementation.first.targetType != targetType)
+        continue;
+      auto *trait = implementation.first.trait;
+      auto contract = std::find_if(
+          trait->methods().begin(), trait->methods().end(),
+          [&](const auto &method) { return method->name() == methodName; });
+      if (contract == trait->methods().end() || (*contract)->hasReceiver())
+        continue;
+      if (implementation.second.methodFunctionNames.find(methodName) !=
+          implementation.second.methodFunctionNames.end())
+        matches.push_back(&implementation.second);
+    }
+    return matches;
   }
 
   auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult {
@@ -303,8 +347,7 @@ private:
   NameMap<DataDeclSymbol> _dataDeclsByName;
   NameMap<DataConstructorSymbol> _dataConstructorsByName;
   NameMap<TraitSymbol> _traitsByName;
-  std::map<std::pair<const TraitDecl *, const Type *>,
-           TraitImplementationSymbol>
+  std::map<TraitImplementationKey, TraitImplementationSymbol>
       _traitImplementations;
   std::vector<const ImplDecl *> _genericTraitImplementations;
   NameMap<const Type *> _typesByName;

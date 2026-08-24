@@ -23,6 +23,8 @@ auto formatNameSizeDiagnostic(const char *diagnostic, std::string_view name,
                               size_t size) -> std::string;
 auto formatTypeTraitDiagnostic(const char *diagnostic, const Type *type,
                                std::string_view traitName) -> std::string;
+auto formatMissingFromDiagnostic(const Type *sourceType,
+                                 const Type *targetType) -> std::string;
 auto declareName(NameSet &names, std::string_view name) -> bool;
 auto packageNameOf(std::string_view name) -> std::string;
 auto createMemberAccessChain(llvm::SMLoc location, std::string_view name)
@@ -52,6 +54,7 @@ auto substituteTypeNode(
     const TypeNode *node,
     const std::vector<TypeSubstitution> &substitutions)
     -> std::unique_ptr<TypeNode>;
+auto containsSelfType(const TypeNode *node) -> bool;
 auto containsComptimeParameter(
     const TypeNode *node, const std::vector<ComptimeParam> &parameters) -> bool;
 auto substituteBlockExpr(
@@ -71,9 +74,6 @@ auto instantiateFunctionDecl(
     const std::vector<ComptimeValue> &comptimeArguments = {},
     const std::vector<InferredComptimeArgument> *inferredArguments = nullptr)
     -> std::unique_ptr<FunctionDecl>;
-auto traitMethodSignatureMatches(const TraitMethodDecl *method,
-                                 const FunctionSymbol *signature,
-                                 const Type *targetType) -> bool;
 auto toComptimeValues(const std::vector<ComptimeArgument> &arguments)
     -> std::vector<ComptimeValue>;
 

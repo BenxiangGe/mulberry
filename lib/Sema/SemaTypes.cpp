@@ -29,6 +29,17 @@ auto SemaImpl::resolveType(const NamedTypeNode *typeNode) -> const Type * {
     return type;
   }
 
+auto SemaImpl::resolveType(const SelfTypeNode *typeNode) -> const Type * {
+    if (!_activeSelfType) {
+      (void)emitError(typeNode, diag::self_type_outside_trait_impl);
+      return nullptr;
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "resolve `Self` as `"
+                            << formatType(_activeSelfType) << "`\n");
+    return _activeSelfType;
+  }
+
 auto SemaImpl::resolveType(const UnitTypeNode *typeNode) -> const Type * {
     return _typeContext.getBuiltinType(BuiltinTypeKind::Unit);
   }
@@ -330,6 +341,9 @@ auto SemaImpl::resolveType(const GenericTypeNode *typeNode) -> const Type * {
 auto SemaImpl::resolveType(const TypeNode *typeNode) -> const Type * {
     if (auto *unitType = dyn_cast<UnitTypeNode>(typeNode))
       return resolveType(unitType);
+
+    if (auto *selfType = dyn_cast<SelfTypeNode>(typeNode))
+      return resolveType(selfType);
 
     if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
       return resolveType(arrayType);

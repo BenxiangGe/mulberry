@@ -1109,10 +1109,17 @@ auto MLIRGenImpl::gen(const TryExpr *node) -> mlir::Value {
   std::vector<mlir::Type> valueTypes;
   if (!mulberry::isUnitType(node->type()))
     valueTypes.push_back(getSourceMLIRType(node));
-  auto errorType = getStorageMLIRType(resultType->arguments()[1].type());
+  auto sourceErrorType = getStorageMLIRType(node->sourceErrorType());
+  auto targetErrorType = getStorageMLIRType(node->targetErrorType());
+  mlir::FlatSymbolRefAttr errorConverter;
+  if (!node->errorConverter().empty()) {
+    errorConverter = mlir::FlatSymbolRefAttr::get(
+        _builder.getContext(), node->errorConverter());
+  }
   DBG("generate Result propagation from `{0}`", formatType(resultType));
   auto tryOp = mulberry_core::ResultTryOp::create(
-      _builder, loc(node), valueTypes, input, errorType);
+      _builder, loc(node), valueTypes, input, sourceErrorType, targetErrorType,
+      errorConverter);
   if (valueTypes.empty())
     return nullptr;
   return tryOp.getResult(0);

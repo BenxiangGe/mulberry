@@ -1,0 +1,43 @@
+# RUN: mulberry-driver -typecheck %s
+# RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
+# RUN: mulberry-driver %s 2>&1 | FileCheck %s --check-prefix=JIT
+
+struct Source {
+  value: UInt64
+}
+
+struct Target {
+  value: UInt64
+}
+
+trait From<T> {
+  fn from(value: T): Self;
+}
+
+impl From<Source> for Target {
+  fn from(value: Source): Self {
+    return Target { value.value };
+  }
+}
+
+trait Identity<T> {
+  fn from(value: T): Self {
+    return value;
+  }
+}
+
+impl Identity<Target> for Target {}
+
+fn main(): UInt64 {
+  var source = Source { 21 };
+  var target = Target.from(source);
+  var copy = Target.from(target);
+  io.println(target.value + copy.value);
+  return 0;
+}
+
+# MLIR-DAG: func.func @From__Source__Target.from
+# MLIR-DAG: func.func @Identity__Target__Target.from
+# MLIR-DAG: call @From__Source__Target.from
+# MLIR-DAG: call @Identity__Target__Target.from
+# JIT: 42

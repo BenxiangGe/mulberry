@@ -11,6 +11,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/SymbolTable.h"
 
 using namespace mlir;
 using namespace mlir::mulberry_core;
@@ -31,6 +32,10 @@ static auto getTensorType(Type type) -> mulberry_core::TensorType {
 static auto isDataReference(Type type) -> bool {
   auto ptrType = llvm::dyn_cast<PtrType>(type);
   return ptrType && llvm::isa<DataType>(ptrType.getPointeeType());
+}
+
+static auto isLoweredDataReference(Type type) -> bool {
+  return llvm::isa<LLVM::LLVMPointerType>(type);
 }
 
 auto DataConstructOp::verify() -> LogicalResult {
@@ -56,7 +61,8 @@ auto DataUnpackOp::verify() -> LogicalResult {
 }
 
 auto ResultTryOp::verify() -> LogicalResult {
-  if (!isDataReference(getInput().getType()))
+  if (!isDataReference(getInput().getType()) &&
+      !isLoweredDataReference(getInput().getType()))
     return emitOpError("input must reference a Mulberry data type");
   if (getNumResults() > 1)
     return emitOpError("must produce zero or one payload value");
@@ -65,9 +71,34 @@ auto ResultTryOp::verify() -> LogicalResult {
 
   auto function = getOperation()->getParentOfType<func::FuncOp>();
   if (!function || function.getFunctionType().getNumResults() != 1 ||
-      !isDataReference(function.getFunctionType().getResult(0)))
+      (!isDataReference(function.getFunctionType().getResult(0)) &&
+       !isLoweredDataReference(function.getFunctionType().getResult(0))))
     return emitOpError(
         "enclosing function must return a Mulberry data reference");
+
+  auto sourceErrorType = getSourceErrorType();
+  auto targetErrorType = getTargetErrorType();
+  auto errorConverter = getErrorConverterAttr();
+  if (!errorConverter) {
+    if (sourceErrorType != targetErrorType)
+      return emitOpError(
+          "different source and target error types require a converter");
+    return success();
+  }
+
+  auto converter = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+      getOperation(), errorConverter);
+  if (!converter)
+    return emitOpError("converter must reference a function");
+  auto converterType = converter.getFunctionType();
+  auto expectedInputs = llvm::isa<NoneType>(sourceErrorType) ? 0u : 1u;
+  auto expectedResults = llvm::isa<NoneType>(targetErrorType) ? 0u : 1u;
+  if (converterType.getNumInputs() != expectedInputs ||
+      converterType.getNumResults() != expectedResults ||
+      (expectedInputs && converterType.getInput(0) != sourceErrorType) ||
+      (expectedResults && converterType.getResult(0) != targetErrorType))
+    return emitOpError(
+        "converter must have signature source error type -> target error type");
   return success();
 }
 
