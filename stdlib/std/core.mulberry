@@ -1,12 +1,12 @@
 package std.core;
 
-comptime Char = UInt8;
+pub comptime Char = UInt8;
 
-fn identity(value: UInt64): UInt64 {
+pub fn identity(value: UInt64): UInt64 {
   return value;
 }
 
-fn boolToUInt64(value: Bool): UInt64 {
+pub fn boolToUInt64(value: Bool): UInt64 {
   var result = 0;
   if value {
     result = 1;

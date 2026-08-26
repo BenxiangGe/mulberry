@@ -1,0 +1,31 @@
+# RUN: mkdir -p %t/a
+# RUN: printf 'package a.api;\npub fn publicAnswer(): UInt64 { return 42; }\nfn privateAnswer(): UInt64 { return 7; }\npub fn publicUsesPrivate(): UInt64 { return privateAnswer(); }\npub struct PublicBox { value: UInt64 }\nstruct PrivateBox { value: UInt64 }\npub data PublicChoice = PublicValue(UInt64) | PublicEmpty;\ndata PrivateChoice = PrivateValue(UInt64) | PrivateEmpty;\n' > %t/a/api.mulberry
+# RUN: printf 'package a.generic;\npub fn identity<T>(value: T): T { return value; }\n' > %t/a/generic.mulberry
+# RUN: printf 'package a.traits;\npub trait PublicSpeak { fn speak(self): UInt64; }\nimpl PublicSpeak for UInt64 { fn speak(self: UInt64): UInt64 { return self + 1; } }\ntrait PrivateSpeak { fn whisper(self): UInt64; }\nimpl PrivateSpeak for UInt64 { fn whisper(self: UInt64): UInt64 { return self + 2; } }\n' > %t/a/traits.mulberry
+# RUN: printf 'import a.api;\nimport a.generic;\nimport a.traits;\nstruct LocalSecret { value: UInt64 }\nfn consume(choice: api.PublicChoice): UInt64 { return 11; }\nfn main(): UInt64 {\n  const box: api.PublicBox = api.PublicBox { 9 };\n  const choice: api.PublicChoice = api.PublicValue(11);\n  const secret: LocalSecret = generic.identity(LocalSecret { 13 });\n  var number = 41;\n  return api.publicAnswer() + api.publicUsesPrivate() + box.value + consume(choice) + secret.value + number.speak();\n}\n' > %t/public.mulberry
+# RUN: mulberry-driver -typecheck %t/public.mulberry
+# RUN: printf 'package app;\nimport a.api;\nfn main(): UInt64 { return api.privateAnswer(); }\n' > %t/private-function.mulberry
+# RUN: not mulberry-driver -typecheck %t/private-function.mulberry 2>&1 | FileCheck %s --check-prefix=PRIVATE-FUNCTION
+# RUN: printf 'package app;\nimport a.api;\nfn main(): UInt64 { const value: api.PrivateBox = api.PrivateBox { 1 }; return 0; }\n' > %t/private-type.mulberry
+# RUN: not mulberry-driver -typecheck %t/private-type.mulberry 2>&1 | FileCheck %s --check-prefix=PRIVATE-TYPE
+# RUN: printf 'package app;\nimport a.api;\nfn main(): UInt64 { const value: api.PrivateChoice = api.PrivateValue(1); return 0; }\n' > %t/private-data.mulberry
+# RUN: not mulberry-driver -typecheck %t/private-data.mulberry 2>&1 | FileCheck %s --check-prefix=PRIVATE-DATA
+# RUN: printf 'package app;\nimport a.traits;\nfn main(): UInt64 { var number = 41; return number.whisper(); }\n' > %t/private-trait.mulberry
+# RUN: not mulberry-driver -typecheck %t/private-trait.mulberry 2>&1 | FileCheck %s --check-prefix=PRIVATE-TRAIT
+# RUN: printf 'package a.leaks;\nstruct Secret { value: UInt64 }\npub fn leak(value: Secret): UInt64 { return value.value; }\nfn main(): UInt64 { return 0; }\n' > %t/public-function-type.mulberry
+# RUN: not mulberry-driver -typecheck %t/public-function-type.mulberry 2>&1 | FileCheck %s --check-prefix=PUBLIC-FUNCTION-TYPE
+# RUN: printf 'package a.leaks;\nstruct Secret { value: UInt64 }\npub struct PublicBox { secret: Secret }\nfn main(): UInt64 { return 0; }\n' > %t/public-field-type.mulberry
+# RUN: not mulberry-driver -typecheck %t/public-field-type.mulberry 2>&1 | FileCheck %s --check-prefix=PUBLIC-FIELD-TYPE
+# RUN: printf 'package a.leaks;\nstruct Secret { value: UInt64 }\npub data PublicValue = Value(Secret);\nfn main(): UInt64 { return 0; }\n' > %t/public-data-type.mulberry
+# RUN: not mulberry-driver -typecheck %t/public-data-type.mulberry 2>&1 | FileCheck %s --check-prefix=PUBLIC-DATA-TYPE
+# RUN: printf 'package a.leaks;\nstruct Secret { value: UInt64 }\npub comptime PublicType = Secret;\nfn main(): UInt64 { return 0; }\n' > %t/public-alias-type.mulberry
+# RUN: not mulberry-driver -typecheck %t/public-alias-type.mulberry 2>&1 | FileCheck %s --check-prefix=PUBLIC-ALIAS-TYPE
+
+# PRIVATE-FUNCTION: error:
+# PRIVATE-TYPE: error:
+# PRIVATE-DATA: error:
+# PRIVATE-TRAIT: error:
+# PUBLIC-FUNCTION-TYPE: public declaration exposes private type `Secret`
+# PUBLIC-FIELD-TYPE: public declaration exposes private type `Secret`
+# PUBLIC-DATA-TYPE: public declaration exposes private type `Secret`
+# PUBLIC-ALIAS-TYPE: public declaration exposes private type `Secret`

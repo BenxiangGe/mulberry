@@ -94,8 +94,16 @@ public:
 
   auto name() const -> std::string_view { return _name; }
 
+  // Generic specialization may carry a type that was already resolved at the
+  // call site. Keep that semantic result when the generated type node is
+  // checked in the defining package of the generic declaration.
+  auto resolvedType() const -> const Type * { return _resolvedType; }
+
+  auto setResolvedType(const Type *type) -> void { _resolvedType = type; }
+
 private:
   std::string _name;
+  const Type *_resolvedType = nullptr;
 };
 
 // `Self` is a trait/implementation-local type placeholder, not a named type.

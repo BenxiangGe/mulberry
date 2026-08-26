@@ -1,7 +1,7 @@
 # RUN: mulberry-driver -dump=ast %s 2>&1 | FileCheck %s --check-prefix=AST
 # RUN: mulberry-driver -dump=mlir %s 2>&1 | FileCheck %s --check-prefix=MLIR
 
-fn std.print.echo(value: UInt64): UInt64 {
+pub fn std.print.echo(value: UInt64): UInt64 {
   return value;
 }
 

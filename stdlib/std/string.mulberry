@@ -3,7 +3,7 @@ package std.string;
 import core;
 import internal.ptr;
 
-struct String {
+pub struct String {
   length: UInt64,
   data: Ptr<UInt8>,
 
@@ -30,35 +30,35 @@ extern fn mulberry_bigint_to_string(value: Integer): String;
 extern fn mulberry_string_object_identity(typeName: String,
                                           object: Ptr<UInt8>): String;
 
-fn fromBool(value: Bool): String {
+pub fn fromBool(value: Bool): String {
   return mulberry_string_from_bool(value);
 }
 
-fn fromUInt8(value: UInt8): String {
+pub fn fromUInt8(value: UInt8): String {
   return mulberry_string_from_u8(value);
 }
 
-fn fromUInt64(value: UInt64): String {
+pub fn fromUInt64(value: UInt64): String {
   return mulberry_string_from_u64(value);
 }
 
-fn fromInt64(value: Int64): String {
+pub fn fromInt64(value: Int64): String {
   return mulberry_string_from_i64(value);
 }
 
-fn fromFloat32(value: Float32): String {
+pub fn fromFloat32(value: Float32): String {
   return mulberry_string_from_f32(value);
 }
 
-fn fromFloat64(value: Float64): String {
+pub fn fromFloat64(value: Float64): String {
   return mulberry_string_from_f64(value);
 }
 
-fn fromInteger(value: Integer): String {
+pub fn fromInteger(value: Integer): String {
   return mulberry_bigint_to_string(value);
 }
 
-trait Show {
+pub trait Show {
   fn toString(self): String;
 }
 
@@ -138,7 +138,7 @@ fn objectToString<T>(value: T): String {
   return __objectIdentity(value);
 }
 
-fn format<Args...: Show>(comptime pattern: String, args: Args...): String {
+pub fn format<Args...: Show>(comptime pattern: String, args: Args...): String {
   var cursor = 0;
   var argumentIndex = 0;
   var result: String = "";
@@ -187,7 +187,7 @@ fn format<Args...: Show>(comptime pattern: String, args: Args...): String {
   return result;
 }
 
-fn concat(left: String, right: String): String {
+pub fn concat(left: String, right: String): String {
   const length = left.length + right.length;
   var data = heap.alloc<UInt8>(length + 1);
 

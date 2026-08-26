@@ -14,6 +14,7 @@
 #include "SemaTraits.h"
 #include "mulberry/AST/AST.h"
 #include "mulberry/Basic/Builtins.h"
+#include "llvm/Support/Debug.h"
 #include <map>
 #include <memory>
 #include <optional>
@@ -22,6 +23,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#undef DEBUG_TYPE
+#define DEBUG_TYPE "Sema"
 
 namespace mulberry {
 using llvm::cast;
@@ -165,31 +169,47 @@ auto SemaImpl::completionMembers(std::string_view receiver) const
 }
 
 auto SemaImpl::addBuiltins() -> void {
-    for (auto kind : {BuiltinTypeKind::Unit, BuiltinTypeKind::Bool,
-                      BuiltinTypeKind::UInt8, BuiltinTypeKind::UInt64,
-                      BuiltinTypeKind::Int64, BuiltinTypeKind::Integer,
-                      BuiltinTypeKind::Float32, BuiltinTypeKind::Float64}) {
-      auto *type = _typeContext.getBuiltinType(kind);
-      (void)declareType(type->name(), type);
-    }
+  for (auto kind : {BuiltinTypeKind::Unit, BuiltinTypeKind::Bool,
+                    BuiltinTypeKind::UInt8, BuiltinTypeKind::UInt64,
+                    BuiltinTypeKind::Int64, BuiltinTypeKind::Integer,
+                    BuiltinTypeKind::Float32, BuiltinTypeKind::Float64}) {
+    auto *type = _typeContext.getBuiltinType(kind);
+    (void)declareType(type->name(), type, {}, Visibility::Public);
   }
+}
+
+auto SemaImpl::isAccessible(std::string_view packageName,
+                            Visibility visibility) const -> bool {
+  return visibility == Visibility::Public || packageName.empty() ||
+         packageName == _currentPackageName;
+}
 
 auto SemaImpl::lookupFunction(std::string_view name) -> const FunctionSymbol * {
-    if (auto *signature = _symbols.lookupFunction(name))
-      return signature;
+  auto lookup = [&](std::string_view candidate) -> const FunctionSymbol * {
+    auto *signature = _symbols.lookupFunction(candidate);
+    if (!signature ||
+        !isAccessible(signature->packageName, signature->visibility))
+      return nullptr;
+    return signature;
+  };
 
-    auto importedName = canonicalizeImportedName(name);
-    if (auto *signature = _symbols.lookupFunction(importedName))
-      return signature;
+  if (auto *signature = lookup(name))
+    return signature;
 
-  return _symbols.lookupFunction(qualifyCurrentPackageName(name));
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *signature = lookup(importedName))
+    return signature;
+
+  return lookup(qualifyCurrentPackageName(name));
 }
 
 auto SemaImpl::lookupFunctionDecl(std::string_view name)
     -> const FunctionDecl * {
   auto lookup = [&](std::string_view candidate) -> const FunctionDecl * {
     auto function = _functionDecls.find(std::string(candidate));
-    return function == _functionDecls.end() ? nullptr : function->second;
+    if (function == _functionDecls.end() || !lookupFunction(candidate))
+      return nullptr;
+    return function->second;
   };
 
   if (auto *decl = lookup(name))
@@ -208,126 +228,219 @@ auto SemaImpl::registerFunctionDecl(std::string_view name,
 }
 
 auto SemaImpl::lookupGenericFunction(std::string_view name)
+    -> const GenericFunctionSymbol * {
+  auto lookup = [&](std::string_view candidate)
       -> const GenericFunctionSymbol * {
-    if (auto *genericFunction = _symbols.lookupGenericFunction(name))
-      return genericFunction;
+    auto *genericFunction = _symbols.lookupGenericFunction(candidate);
+    if (!genericFunction ||
+        !isAccessible(genericFunction->packageName,
+                      genericFunction->visibility))
+      return nullptr;
+    return genericFunction;
+  };
 
-    auto importedName = canonicalizeImportedName(name);
-    if (auto *genericFunction = _symbols.lookupGenericFunction(importedName))
-      return genericFunction;
+  if (auto *genericFunction = lookup(name))
+    return genericFunction;
 
-    return _symbols.lookupGenericFunction(qualifyCurrentPackageName(name));
-  }
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *genericFunction = lookup(importedName))
+    return genericFunction;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
 
 auto SemaImpl::emptyImportAliases()
-      -> const std::map<std::string, std::string> & {
-    static const std::map<std::string, std::string> aliases;
-    return aliases;
-  }
+    -> const std::map<std::string, std::string> & {
+  static const std::map<std::string, std::string> aliases;
+  return aliases;
+}
 
-auto SemaImpl::canonicalizeImportedName(std::string_view name) const -> std::string {
-    auto importedName = _importAliases.find(std::string(name));
-    if (importedName != _importAliases.end())
-      return importedName->second;
+auto SemaImpl::canonicalizeImportedName(std::string_view name) const
+    -> std::string {
+  auto importedName = _importAliases.find(std::string(name));
+  if (importedName != _importAliases.end())
+    return importedName->second;
 
-    auto dot = name.find('.');
-    if (dot == std::string_view::npos)
-      return std::string(name);
+  auto dot = name.find('.');
+  if (dot == std::string_view::npos)
+    return std::string(name);
 
-    auto alias = _importAliases.find(std::string(name.substr(0, dot)));
-    if (alias == _importAliases.end())
-      return std::string(name);
+  auto alias = _importAliases.find(std::string(name.substr(0, dot)));
+  if (alias == _importAliases.end())
+    return std::string(name);
 
-    std::string fullName = alias->second;
-    fullName += ".";
-    fullName += name.substr(dot + 1);
-    return fullName;
-  }
+  std::string fullName = alias->second;
+  fullName += ".";
+  fullName += name.substr(dot + 1);
+  return fullName;
+}
 
-auto SemaImpl::qualifyCurrentPackageName(std::string_view name) const -> std::string {
-    if (_currentPackageName.empty() ||
-        name.find('.') != std::string_view::npos)
-      return std::string(name);
+auto SemaImpl::qualifyCurrentPackageName(std::string_view name) const
+    -> std::string {
+  if (_currentPackageName.empty() ||
+      name.find('.') != std::string_view::npos)
+    return std::string(name);
 
-    std::string fullName = _currentPackageName;
-    fullName += ".";
-    fullName += name;
-    return fullName;
-  }
+  std::string fullName = _currentPackageName;
+  fullName += ".";
+  fullName += name;
+  return fullName;
+}
 
 auto SemaImpl::lookupType(std::string_view name) -> const Type * {
-    if (auto *type = _symbols.lookupType(name))
-      return type;
+  auto lookup = [&](std::string_view candidate) -> const Type * {
+    auto *symbol = _symbols.lookupTypeSymbol(candidate);
+    if (!symbol)
+      return nullptr;
+    if (!isAccessible(symbol->packageName, symbol->visibility)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "type lookup rejected `" << candidate << "` from package `"
+                 << _currentPackageName << "`: declared in `"
+                 << symbol->packageName << "`, visibility="
+                 << static_cast<int>(symbol->visibility) << "\n");
+      return nullptr;
+    }
+    return symbol->type;
+  };
 
-    auto importedName = canonicalizeImportedName(name);
-    if (auto *type = _symbols.lookupType(importedName))
-      return type;
+  if (auto *type = lookup(name))
+    return type;
 
-    return _symbols.lookupType(qualifyCurrentPackageName(name));
-  }
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *type = lookup(importedName))
+    return type;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
+
+auto SemaImpl::lookupTypeSymbol(std::string_view name) -> const TypeSymbol * {
+  auto lookup = [&](std::string_view candidate) -> const TypeSymbol * {
+    return _symbols.lookupTypeSymbol(candidate);
+  };
+
+  if (auto *symbol = lookup(name))
+    return symbol;
+
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *symbol = lookup(importedName))
+    return symbol;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
+
+auto SemaImpl::lookupDataDeclSymbol(std::string_view name)
+    -> const DataDeclSymbol * {
+  auto lookup = [&](std::string_view candidate) -> const DataDeclSymbol * {
+    return _symbols.lookupDataDecl(candidate);
+  };
+
+  if (auto *symbol = lookup(name))
+    return symbol;
+
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *symbol = lookup(importedName))
+    return symbol;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
+
+auto SemaImpl::lookupComptimeTypeAliasSymbol(std::string_view name)
+    -> const ComptimeTypeAliasSymbol * {
+  auto lookup = [&](std::string_view candidate)
+      -> const ComptimeTypeAliasSymbol * {
+    return _symbols.lookupComptimeTypeAlias(candidate);
+  };
+
+  if (auto *symbol = lookup(name))
+    return symbol;
+
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *symbol = lookup(importedName))
+    return symbol;
+
+  return lookup(qualifyCurrentPackageName(name));
+}
 
 auto SemaImpl::comptimeTypeAliasName(std::string_view name) -> std::string {
-    if (_symbols.lookupComptimeTypeAlias(name))
-      return std::string(name);
+  auto isAliasAccessible = [&](std::string_view candidate) {
+    auto *alias = _symbols.lookupComptimeTypeAlias(candidate);
+    return alias &&
+           isAccessible(alias->packageName, alias->visibility);
+  };
+  if (isAliasAccessible(name))
+    return std::string(name);
 
-    auto importedName = canonicalizeImportedName(name);
-    if (_symbols.lookupComptimeTypeAlias(importedName))
-      return importedName;
+  auto importedName = canonicalizeImportedName(name);
+  if (isAliasAccessible(importedName))
+    return importedName;
 
-    auto packageName = qualifyCurrentPackageName(name);
-    if (_symbols.lookupComptimeTypeAlias(packageName))
-      return packageName;
+  auto packageName = qualifyCurrentPackageName(name);
+  if (isAliasAccessible(packageName))
+    return packageName;
 
-    return {};
-  }
+  return {};
+}
 
 auto SemaImpl::lookupComptimeTypeAlias(std::string_view name)
-      -> const ComptimeTypeAliasSymbol * {
-    auto aliasName = comptimeTypeAliasName(name);
-    if (aliasName.empty())
-      return nullptr;
-    return _symbols.lookupComptimeTypeAlias(aliasName);
-  }
+    -> const ComptimeTypeAliasSymbol * {
+  auto aliasName = comptimeTypeAliasName(name);
+  if (aliasName.empty())
+    return nullptr;
+  return _symbols.lookupComptimeTypeAlias(aliasName);
+}
 
 auto SemaImpl::dataDeclName(std::string_view name) -> std::string {
-    if (_symbols.lookupDataDecl(name))
-      return std::string(name);
+  auto isDataAccessible = [&](std::string_view candidate) {
+    auto *data = _symbols.lookupDataDecl(candidate);
+    return data && isAccessible(data->packageName, data->visibility);
+  };
+  if (isDataAccessible(name))
+    return std::string(name);
 
-    auto importedName = canonicalizeImportedName(name);
-    if (_symbols.lookupDataDecl(importedName))
-      return importedName;
+  auto importedName = canonicalizeImportedName(name);
+  if (isDataAccessible(importedName))
+    return importedName;
 
-    auto packageName = qualifyCurrentPackageName(name);
-    if (_symbols.lookupDataDecl(packageName))
-      return packageName;
+  auto packageName = qualifyCurrentPackageName(name);
+  if (isDataAccessible(packageName))
+    return packageName;
 
-    return {};
-  }
+  return {};
+}
 
 auto SemaImpl::lookupDataConstructor(std::string_view name,
-                             std::string &resolvedName)
-      -> const DataConstructorSymbol * {
-    if (auto *constructor = _symbols.lookupDataConstructor(name)) {
-      resolvedName = std::string(name);
-      return constructor;
-    }
-
-    auto importedName = canonicalizeImportedName(name);
-    if (auto *constructor =
-            _symbols.lookupDataConstructor(importedName)) {
-      resolvedName = importedName;
-      return constructor;
-    }
-
-    auto packageName = qualifyCurrentPackageName(name);
-    if (auto *constructor =
-            _symbols.lookupDataConstructor(packageName)) {
-      resolvedName = packageName;
-      return constructor;
-    }
-
-    return nullptr;
+                                     std::string &resolvedName)
+    -> const DataConstructorSymbol * {
+  auto isConstructorAccessible = [&](std::string_view candidate,
+                                     const DataConstructorSymbol *constructor) {
+    return constructor &&
+           this->isAccessible(
+               packageNameOf(candidate),
+               constructor->decl->isPublic() ? Visibility::Public
+                                             : Visibility::Private);
+  };
+  if (auto *constructor = _symbols.lookupDataConstructor(name);
+      isConstructorAccessible(name, constructor)) {
+    resolvedName = std::string(name);
+    return constructor;
   }
+
+  auto importedName = canonicalizeImportedName(name);
+  if (auto *constructor = _symbols.lookupDataConstructor(importedName);
+      isConstructorAccessible(importedName, constructor)) {
+    resolvedName = importedName;
+    return constructor;
+  }
+
+  auto packageName = qualifyCurrentPackageName(name);
+  if (auto *constructor = _symbols.lookupDataConstructor(packageName);
+      isConstructorAccessible(packageName, constructor)) {
+    resolvedName = packageName;
+    return constructor;
+  }
+
+  return nullptr;
+}
 
 auto SemaImpl::declareVariable(std::string_view name, const Type *type,
                                bool isConstBinding,
@@ -344,33 +457,40 @@ auto SemaImpl::declareVariable(std::string_view name, const Type *type,
                                   isComptimeOnly, replSlot);
 }
 
-auto SemaImpl::declareType(std::string_view name, const Type *type)
+auto SemaImpl::declareType(std::string_view name, const Type *type,
+                           std::string_view packageName,
+                           Visibility visibility)
     -> llvm::LogicalResult {
-  return _symbols.declareType(name, type);
+  return _symbols.declareType(name, type, packageName, visibility);
 }
 
-auto SemaImpl::declareStructType(const StructType *type)
+auto SemaImpl::declareStructType(const StructType *type,
+                                 std::string_view packageName,
+                                 Visibility visibility)
     -> llvm::LogicalResult {
-  return declareType(type->name(), type);
+  return declareType(type->name(), type, packageName, visibility);
 }
 
 auto SemaImpl::declareFunction(std::string_view name, const FunctionType *type,
-                               bool isExtern, std::string_view packageName)
+                               bool isExtern, std::string_view packageName,
+                               Visibility visibility)
     -> llvm::LogicalResult {
   if (packageName.empty())
     packageName = _currentPackageName;
   _functionPackages[std::string(name)] = std::string(packageName);
-  return _symbols.declareFunction(name, type, isExtern);
+  return _symbols.declareFunction(name, type, isExtern, packageName,
+                                  visibility);
 }
 
 auto SemaImpl::declareGenericFunction(std::string_view name,
                                       const FunctionDecl *decl,
-                                      std::string_view packageName)
+                                      std::string_view packageName,
+                                      Visibility visibility)
     -> llvm::LogicalResult {
   if (packageName.empty())
     packageName = _currentPackageName;
   _genericFunctionPackages[std::string(name)] = std::string(packageName);
-  return _symbols.declareGenericFunction(name, decl);
+  return _symbols.declareGenericFunction(name, decl, packageName, visibility);
 }
 
 auto SemaImpl::sema(Module &node, bool checkReplResult)
@@ -443,6 +563,11 @@ auto SemaImpl::restoreState(State state) -> void {
 
 auto SemaImpl::semaModule(Module &node, bool checkReplResult)
     -> llvm::LogicalResult {
+  // All declarations in a source module start in the module package. Each
+  // imported declaration temporarily switches to its defining package below.
+  SemaImpl::PackageScope modulePackageScope(_currentPackageName,
+                                            node.packageName());
+
   if (_persistent) {
     std::vector<ReplFunctionBinding> functions;
     for (const auto &[name, symbol] : _symbols.functions())

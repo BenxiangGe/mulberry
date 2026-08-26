@@ -130,9 +130,12 @@ private:
 
   auto parseImportDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
 
-  auto parseFunctionDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
+  auto parseFunctionDecl(std::unique_ptr<Decl> &decl,
+                         bool isPublic = false) -> llvm::LogicalResult;
 
-  auto parseExternFunctionDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
+  auto parseExternFunctionDecl(std::unique_ptr<Decl> &decl,
+                               bool isPublic = false)
+      -> llvm::LogicalResult;
 
   auto parsePrototype(std::unique_ptr<Prototype> &proto,
                       bool qualifyName = true) -> llvm::LogicalResult;
@@ -147,13 +150,18 @@ private:
   auto parseComptimeBlock(std::unique_ptr<ComptimeBlockExpr> &block)
       -> llvm::LogicalResult;
 
-  auto parseStructDecl(std::unique_ptr<Decl> &elem) -> llvm::LogicalResult;
-  auto parseTraitDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
+  auto parseStructDecl(std::unique_ptr<Decl> &elem,
+                       bool isPublic = false) -> llvm::LogicalResult;
+  auto parseTraitDecl(std::unique_ptr<Decl> &decl,
+                      bool isPublic = false) -> llvm::LogicalResult;
   auto parseTraitMethod(std::unique_ptr<TraitMethodDecl> &method)
       -> llvm::LogicalResult;
   auto parseImplDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
-  auto parseDataDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
-  auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl) -> llvm::LogicalResult;
+  auto parseDataDecl(std::unique_ptr<Decl> &decl,
+                     bool isPublic = false) -> llvm::LogicalResult;
+  auto parseComptimeTypeAliasDecl(std::unique_ptr<Decl> &decl,
+                                  bool isPublic = false)
+      -> llvm::LogicalResult;
   auto parseStructMembers(VectorUniquePtr<FieldDecl> &fields,
                           VectorUniquePtr<FunctionDecl> &methods)
       -> llvm::LogicalResult;

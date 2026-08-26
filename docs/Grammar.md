@@ -118,6 +118,20 @@ control-flow statement 仍按普通 statement 规则以分号或 block 结束。
 的 guard 可以省略大括号，例如 `where comptime #typeInfo(T).isObject()`；多行 guard
 继续使用 block 形式。两种形式都必须求值为 comptime `Bool`。
 
+### Package visibility
+
+顶层 `fn`、`extern fn`、`struct`、`data`、`trait`、comptime type alias 和 struct method
+都可以用 `pub` 标记；未标记 declaration 默认 private。private declaration 只允许在其
+package 内使用，跨 package lookup 必须显式 `pub`。`import` 只建立 package alias，不会把
+package 内的 private declaration 自动导出。`main` 仍作为特殊入口处理。
+
+public trait 的 method 通过该 trait 对外可用，即使对应 `impl` 中的 method 没有重复写 `pub`；
+public data 的 constructors 也随 data declaration 对外可用。public function/extern function
+signature、public struct field、data constructor payload 和 public comptime type alias body
+都会检查，不能暴露 private type。字段目前没有独立的 visibility 修饰；public struct 的字段
+属于其 public API，字段类型仍然必须通过这项检查。首版不引入 `pub(crate)`、protected、friend、
+file-level visibility 或复杂 re-export。具体实现记录见 `.todo.md` 的 `VIS` 项和设计文档第 57 节。
+
 `data` 只在 declaration 起始位置作为 contextual keyword；字段、参数和局部变量仍可
 使用 `data` 作为名字。data constructor 名必须以大写字母开头，Parser 据此把
 constructor expression 和普通 function call 区分开：

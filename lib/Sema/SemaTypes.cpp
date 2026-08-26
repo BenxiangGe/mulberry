@@ -18,8 +18,189 @@ namespace mulberry {
 using llvm::cast;
 using llvm::dyn_cast;
 
+auto SemaImpl::isTypePublic(const Type *type) -> bool {
+  if (!type)
+    return false;
+
+  if (getBuiltinType(type))
+    return true;
+
+  if (auto *arrayType = getArrayType(type))
+    return isTypePublic(arrayType->elementType());
+
+  if (auto *functionType = getFunctionType(type)) {
+    for (auto *parameterType : functionType->parameterTypes())
+      if (!isTypePublic(parameterType))
+        return false;
+    return isTypePublic(functionType->returnType());
+  }
+
+  if (auto *ptrType = getPtrType(type))
+    return isTypePublic(ptrType->pointeeType());
+
+  if (auto *structType = getStructType(type)) {
+    if (auto *origin = structType->origin()) {
+      auto *alias = lookupComptimeTypeAliasSymbol(origin->aliasName());
+      if (!alias || alias->visibility != Visibility::Public)
+        return false;
+      for (auto &argument : origin->arguments())
+        if (argument.kind() == ComptimeValue::Kind::Type &&
+            !isTypePublic(argument.type()))
+          return false;
+      return true;
+    }
+
+    if (auto *symbol = lookupTypeSymbol(structType->name()))
+      return symbol->visibility == Visibility::Public;
+
+    // Inline anonymous structs have no declaration symbol. Their fields are
+    // nevertheless part of the public type and must be checked recursively.
+    for (auto &field : structType->fields())
+      if (!isTypePublic(field.type()))
+        return false;
+    return true;
+  }
+
+  if (auto *dataType = getDataType(type)) {
+    auto *symbol = lookupDataDeclSymbol(dataType->declarationName());
+    if (!symbol || symbol->visibility != Visibility::Public)
+      return false;
+    for (auto &argument : dataType->arguments())
+      if (argument.kind() == ComptimeValue::Kind::Type &&
+          !isTypePublic(argument.type()))
+        return false;
+    return true;
+  }
+
+  return false;
+}
+
+auto SemaImpl::checkPublicTypeNode(
+    const TypeNode *typeNode,
+    const std::vector<ComptimeParam> &comptimeParameters, bool allowSelf)
+    -> llvm::LogicalResult {
+  auto rejectPrivateType = [&](const Node *node,
+                               std::string_view typeName) {
+    LLVM_DEBUG(llvm::dbgs() << "public type check rejected private type `"
+                            << typeName << "`\n");
+    auto diagnostic = formatNameDiagnostic(
+        diag::public_signature_private_type, typeName);
+    return emitError(node, diagnostic);
+  };
+
+  if (auto *namedType = dyn_cast<NamedTypeNode>(typeNode)) {
+    for (auto &parameter : comptimeParameters)
+      if (namedType->name() == parameter.name)
+        return success();
+
+    if (namedType->name() == "Self" && allowSelf)
+      return success();
+
+    if (auto *resolvedType = namedType->resolvedType()) {
+      if (isTypePublic(resolvedType))
+        return success();
+      auto typeName = formatType(resolvedType);
+      return rejectPrivateType(typeNode, typeName);
+    }
+
+    if (auto *symbol = lookupTypeSymbol(namedType->name())) {
+      if (symbol->visibility == Visibility::Public)
+        return success();
+      return rejectPrivateType(typeNode, namedType->name());
+    }
+
+    if (auto *symbol = lookupDataDeclSymbol(namedType->name())) {
+      if (symbol->visibility == Visibility::Public)
+        return success();
+      return rejectPrivateType(typeNode, namedType->name());
+    }
+
+    if (auto *symbol = lookupComptimeTypeAliasSymbol(namedType->name())) {
+      if (symbol->visibility == Visibility::Public)
+        return success();
+      return rejectPrivateType(typeNode, namedType->name());
+    }
+
+    // Undefined names are diagnosed by ordinary type resolution. This check
+    // only adds the visibility rule and must not replace that diagnostic.
+    return success();
+  }
+
+  if (dyn_cast<SelfTypeNode>(typeNode))
+    return success();
+
+  if (auto *computedType = dyn_cast<ComputedTypeNode>(typeNode)) {
+    if (containsComptimeParameter(computedType, comptimeParameters))
+      return success();
+    auto *type = resolveType(computedType);
+    if (!type)
+      return failure();
+    if (isTypePublic(type))
+      return success();
+    auto typeName = formatType(type);
+    return rejectPrivateType(typeNode, typeName);
+  }
+
+  if (auto *arrayType = dyn_cast<ArrayTypeNode>(typeNode))
+    return checkPublicTypeNode(arrayType->elementTypeNode(),
+                               comptimeParameters, allowSelf);
+
+  if (auto *ptrType = dyn_cast<PtrTypeNode>(typeNode))
+    return checkPublicTypeNode(ptrType->pointeeTypeNode(),
+                               comptimeParameters, allowSelf);
+
+  if (auto *functionType = dyn_cast<FunctionTypeNode>(typeNode)) {
+    for (auto &parameterType : functionType->parameterTypes())
+      if (llvm::failed(checkPublicTypeNode(parameterType.get(),
+                                           comptimeParameters, allowSelf)))
+        return failure();
+    return checkPublicTypeNode(functionType->returnTypeNode(),
+                               comptimeParameters, allowSelf);
+  }
+
+  if (auto *genericType = dyn_cast<GenericTypeNode>(typeNode)) {
+    if (genericType->name() != "Array") {
+      if (auto *data = lookupDataDeclSymbol(genericType->name())) {
+        if (data->visibility != Visibility::Public)
+          return rejectPrivateType(typeNode, genericType->name());
+      } else if (auto *alias =
+                     lookupComptimeTypeAliasSymbol(genericType->name())) {
+        if (alias->visibility != Visibility::Public)
+          return rejectPrivateType(typeNode, genericType->name());
+      } else if (auto *type = lookupTypeSymbol(genericType->name())) {
+        if (type->visibility != Visibility::Public)
+          return rejectPrivateType(typeNode, genericType->name());
+      }
+    }
+
+    for (auto &argument : genericType->arguments()) {
+      if (argument.kind() != ComptimeArg::Kind::Type)
+        continue;
+      if (llvm::failed(checkPublicTypeNode(argument.typeNode(),
+                                           comptimeParameters, allowSelf)))
+        return failure();
+    }
+    return success();
+  }
+
+  auto *structType = dyn_cast<StructTypeNode>(typeNode);
+  if (!structType)
+    return success();
+  for (auto &field : structType->fields())
+    if (llvm::failed(checkPublicTypeNode(field->typeNode(),
+                                         comptimeParameters, allowSelf)))
+      return failure();
+  return success();
+}
+
 
 auto SemaImpl::resolveType(const NamedTypeNode *typeNode) -> const Type * {
+    if (auto *resolvedType = typeNode->resolvedType()) {
+      LLVM_DEBUG(llvm::dbgs() << "reuse resolved type `" << typeNode->name()
+                              << "` as `" << formatType(resolvedType)
+                              << "`\n");
+      return resolvedType;
+    }
     auto *type = lookupType(typeNode->name());
     if (!type) {
       (void)emitError(typeNode, diag::undefined_type);

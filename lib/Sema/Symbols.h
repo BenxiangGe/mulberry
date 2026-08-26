@@ -8,7 +8,7 @@
 #ifndef MULBERRY_SYMBOLS_H
 #define MULBERRY_SYMBOLS_H
 
-#include "mulberry/AST/Type.h"
+#include "mulberry/AST/Decl.h"
 #include "mulberry/Basic/ScopeStack.h"
 #include "mulberry/Basic/Types.h"
 #include "llvm/Support/LogicalResult.h"
@@ -42,20 +42,27 @@ struct VariableSymbol {
 struct FunctionSymbol {
   const FunctionType *type = nullptr;
   bool isExtern = false;
+  std::string packageName;
+  Visibility visibility = Visibility::Private;
 };
 
 struct ComptimeTypeAliasSymbol {
   std::string packageName;
   std::vector<ComptimeParam> parameters;
   const TypeNode *bodyTypeNode = nullptr;
+  Visibility visibility = Visibility::Private;
 };
 
 struct GenericFunctionSymbol {
   const FunctionDecl *decl = nullptr;
+  std::string packageName;
+  Visibility visibility = Visibility::Private;
 };
 
 struct DataDeclSymbol {
   const DataDecl *decl = nullptr;
+  std::string packageName;
+  Visibility visibility = Visibility::Private;
 };
 
 struct DataConstructorSymbol {
@@ -65,6 +72,14 @@ struct DataConstructorSymbol {
 
 struct TraitSymbol {
   const TraitDecl *decl = nullptr;
+  std::string packageName;
+  Visibility visibility = Visibility::Private;
+};
+
+struct TypeSymbol {
+  const Type *type = nullptr;
+  std::string packageName;
+  Visibility visibility = Visibility::Private;
 };
 
 struct TraitImplementationSymbol {
@@ -92,10 +107,12 @@ using NameMap = std::map<std::string, T, std::less<>>;
 class Symbols {
 public:
   auto declareFunction(std::string_view name, const FunctionType *type,
-                       bool isExtern)
+                       bool isExtern, std::string_view packageName,
+                       Visibility visibility)
       -> llvm::LogicalResult {
     return declareSymbol(_functionsByName, name,
-                         FunctionSymbol{type, isExtern});
+                         FunctionSymbol{type, isExtern, std::string(packageName),
+                                        visibility});
   }
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * {
@@ -114,9 +131,12 @@ public:
   }
 
   auto declareGenericFunction(std::string_view name,
-                              const FunctionDecl *decl) -> llvm::LogicalResult {
+                              const FunctionDecl *decl,
+                              std::string_view packageName,
+                              Visibility visibility) -> llvm::LogicalResult {
     return declareSymbol(_genericFunctionsByName, name,
-                         GenericFunctionSymbol{decl});
+                         GenericFunctionSymbol{decl, std::string(packageName),
+                                               visibility});
   }
 
   auto lookupGenericFunction(std::string_view name)
@@ -127,9 +147,12 @@ public:
     return &symbol->second;
   }
 
-  auto declareDataDecl(std::string_view name, const DataDecl *decl)
+  auto declareDataDecl(std::string_view name, const DataDecl *decl,
+                       std::string_view packageName, Visibility visibility)
       -> llvm::LogicalResult {
-    return declareSymbol(_dataDeclsByName, name, DataDeclSymbol{decl});
+    return declareSymbol(_dataDeclsByName, name,
+                         DataDeclSymbol{decl, std::string(packageName),
+                                        visibility});
   }
 
   auto lookupDataDecl(std::string_view name) -> const DataDeclSymbol * {
@@ -153,9 +176,11 @@ public:
     return &symbol->second;
   }
 
-  auto declareTrait(std::string_view name, const TraitDecl *decl)
+  auto declareTrait(std::string_view name, const TraitDecl *decl,
+                    std::string_view packageName, Visibility visibility)
       -> llvm::LogicalResult {
-    return declareSymbol(_traitsByName, name, TraitSymbol{decl});
+    return declareSymbol(_traitsByName, name,
+                         TraitSymbol{decl, std::string(packageName), visibility});
   }
 
   auto lookupTrait(std::string_view name) -> const TraitSymbol * {
@@ -237,26 +262,37 @@ public:
     return matches;
   }
 
-  auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult {
-    return declareSymbol(_typesByName, name, type);
+  auto declareType(std::string_view name, const Type *type,
+                   std::string_view packageName, Visibility visibility)
+      -> llvm::LogicalResult {
+    return declareSymbol(_typesByName, name,
+                         TypeSymbol{type, std::string(packageName), visibility});
   }
 
   auto lookupType(std::string_view name) -> const Type * {
     auto type = _typesByName.find(name);
     if (type == _typesByName.end())
       return nullptr;
-    return type->second;
+    return type->second.type;
+  }
+
+  auto lookupTypeSymbol(std::string_view name) -> const TypeSymbol * {
+    auto type = _typesByName.find(name);
+    if (type == _typesByName.end())
+      return nullptr;
+    return &type->second;
   }
 
   auto declareComptimeTypeAlias(std::string_view name,
                                 std::string_view packageName,
                                 std::vector<ComptimeParam> parameters,
-                                const TypeNode *bodyTypeNode)
+                                const TypeNode *bodyTypeNode,
+                                Visibility visibility)
       -> llvm::LogicalResult {
     return declareSymbol(_comptimeTypeAliasesByName, name,
                          ComptimeTypeAliasSymbol{
                              std::string(packageName), std::move(parameters),
-                             bodyTypeNode});
+                             bodyTypeNode, visibility});
   }
 
   auto lookupComptimeTypeAlias(std::string_view name)
@@ -350,7 +386,7 @@ private:
   std::map<TraitImplementationKey, TraitImplementationSymbol>
       _traitImplementations;
   std::vector<const ImplDecl *> _genericTraitImplementations;
-  NameMap<const Type *> _typesByName;
+  NameMap<TypeSymbol> _typesByName;
   NameMap<ComptimeTypeAliasSymbol> _comptimeTypeAliasesByName;
   ScopeStack<NameMap<VariableSymbol>> _variableScopes;
 };

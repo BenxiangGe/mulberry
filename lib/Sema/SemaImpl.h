@@ -166,6 +166,9 @@ private:
   auto lookupVariable(std::string_view name) const
       -> const VariableSymbol * ;
 
+  auto isAccessible(std::string_view packageName,
+                    Visibility visibility) const -> bool;
+
   auto addBuiltins() -> void ;
 
   auto lookupFunction(std::string_view name) -> const FunctionSymbol * ;
@@ -186,6 +189,21 @@ private:
   auto qualifyCurrentPackageName(std::string_view name) const -> std::string ;
 
   auto lookupType(std::string_view name) -> const Type * ;
+
+  auto lookupTypeSymbol(std::string_view name) -> const TypeSymbol * ;
+
+  auto lookupDataDeclSymbol(std::string_view name)
+      -> const DataDeclSymbol * ;
+
+  auto lookupComptimeTypeAliasSymbol(std::string_view name)
+      -> const ComptimeTypeAliasSymbol * ;
+
+  auto isTypePublic(const Type *type) -> bool ;
+
+  auto checkPublicTypeNode(
+      const TypeNode *typeNode,
+      const std::vector<ComptimeParam> &comptimeParameters,
+      bool allowSelf = false) -> llvm::LogicalResult ;
 
   auto comptimeTypeAliasName(std::string_view name) -> std::string ;
 
@@ -359,17 +377,25 @@ private:
 
   auto declareFunction(std::string_view name, const FunctionType *type,
                        bool isExtern,
-                       std::string_view packageName = {})
+                       std::string_view packageName = {},
+                       Visibility visibility = Visibility::Private)
       -> llvm::LogicalResult;
 
   auto declareGenericFunction(std::string_view name,
                               const FunctionDecl *decl,
-                              std::string_view packageName = {})
+                              std::string_view packageName = {},
+                              Visibility visibility = Visibility::Private)
       -> llvm::LogicalResult;
 
-  auto declareType(std::string_view name, const Type *type) -> llvm::LogicalResult ;
+  auto declareType(std::string_view name, const Type *type,
+                   std::string_view packageName = {},
+                   Visibility visibility = Visibility::Private)
+      -> llvm::LogicalResult;
 
-  auto declareStructType(const StructType *type) -> llvm::LogicalResult ;
+  auto declareStructType(const StructType *type,
+                         std::string_view packageName = {},
+                         Visibility visibility = Visibility::Private)
+      -> llvm::LogicalResult;
 
   auto resolveType(const ArrayTypeNode *typeNode) -> const Type * ;
 

@@ -42,18 +42,23 @@ auto isCanonicalFromTrait(const TraitDecl *trait) -> bool {
 } // namespace
 
 auto TraitSema::lookupTrait(std::string_view name) -> const TraitDecl * {
-  if (auto *trait = _sema._symbols.lookupTrait(name))
+  auto lookup = [&](std::string_view candidate) -> const TraitDecl * {
+    auto *trait = _sema._symbols.lookupTrait(candidate);
+    if (!trait ||
+        !_sema.isAccessible(trait->packageName, trait->visibility))
+      return nullptr;
     return trait->decl;
+  };
+
+  if (auto *trait = lookup(name))
+    return trait;
 
   auto importedName = _sema.canonicalizeImportedName(name);
-  if (auto *trait = _sema._symbols.lookupTrait(importedName))
-    return trait->decl;
+  if (auto *trait = lookup(importedName))
+    return trait;
 
   auto qualifiedName = _sema.qualifyCurrentPackageName(name);
-  if (auto *trait = _sema._symbols.lookupTrait(qualifiedName))
-    return trait->decl;
-
-  return nullptr;
+  return lookup(qualifiedName);
 }
 
 auto TraitSema::resolveConstraints(
@@ -82,7 +87,9 @@ auto TraitSema::sema(TraitDecl *node) -> llvm::LogicalResult {
                                            node->name());
     return _sema.emitError(node, diagnostic);
   }
-  if (llvm::failed(_sema._symbols.declareTrait(node->name(), node))) {
+  if (llvm::failed(_sema._symbols.declareTrait(
+          node->name(), node, packageNameOf(node->name()),
+          node->visibility()))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_trait,
                                            node->name());
     return _sema.emitError(node, diagnostic);
@@ -108,6 +115,9 @@ auto TraitSema::sema(TraitDecl *node) -> llvm::LogicalResult {
 
     NameSet parameterNames;
     for (auto &parameter : method->parameters()) {
+      if (node->isPublic() && llvm::failed(_sema.checkPublicTypeNode(
+              parameter->typeNode(), node->parameters(), /*allowSelf=*/true)))
+        return failure();
       if (!containsSelfType(parameter->typeNode()) &&
           !containsComptimeParameter(parameter->typeNode(),
                                      node->parameters())) {
@@ -120,6 +130,10 @@ auto TraitSema::sema(TraitDecl *node) -> llvm::LogicalResult {
       if (!declareName(parameterNames, parameter->variable()->name()))
         return _sema.emitError(parameter->variable().get(), diag::redefinition_var);
     }
+
+    if (node->isPublic() && llvm::failed(_sema.checkPublicTypeNode(
+            method->returnTypeNode(), node->parameters(), /*allowSelf=*/true)))
+      return failure();
 
     if (!containsSelfType(method->returnTypeNode()) &&
         !containsComptimeParameter(method->returnTypeNode(),
@@ -176,10 +190,29 @@ auto TraitSema::methodSignatureMatches(
                                              argumentTypeNodes.back().get(),
                                              std::nullopt});
   }
+  LLVM_DEBUG({
+    llvm::dbgs() << "match trait method `" << method->name() << "` for `"
+                 << trait->name() << "` with " << traitArguments.size()
+                 << " trait arguments\n";
+    for (auto &substitution : substitutions)
+      llvm::dbgs() << "  substitute `" << substitution.parameterName
+                   << "`\n";
+  });
   SemaImpl::PackageScope packageScope(_sema._currentPackageName,
                                       packageNameOf(trait->name()));
   auto resolveContractType = [&](const TypeNode *typeNode) {
     auto concreteTypeNode = substituteTypeNode(typeNode, substitutions);
+    LLVM_DEBUG({
+      auto *originalName = dyn_cast<NamedTypeNode>(typeNode);
+      auto *concreteName = dyn_cast<NamedTypeNode>(concreteTypeNode.get());
+      if (originalName || concreteName) {
+        llvm::dbgs() << "  contract type `"
+                     << (originalName ? originalName->name() : "<compound>")
+                     << "` -> `"
+                     << (concreteName ? concreteName->name() : "<compound>")
+                     << "`\n";
+      }
+    });
     return _sema.resolveType(concreteTypeNode.get());
   };
 
@@ -282,12 +315,14 @@ auto TraitSema::instantiateDefaultMethod(
   auto function = std::make_unique<FunctionDecl>(
       method->location(), std::move(prototype),
       substituteBlockExpr(method->body().get(), substitutions));
+  function->setVisibility(trait->visibility());
 
   // The body belongs to the trait's package, not to the concrete impl site.
   SemaImpl::VariableScope signatureScope(_sema._symbols);
   SemaImpl::PackageScope packageScope(_sema._currentPackageName, packageNameOf(trait->name()));
   if (llvm::failed(DeclarationSema(_sema).semaFunctionSignature(
-          function->proto().get())))
+          function->proto().get(), false, packageNameOf(trait->name()),
+          function->visibility())))
     return failure();
 
   LLVM_DEBUG(llvm::dbgs() << "instantiate default trait method `"
@@ -316,12 +351,14 @@ auto TraitSema::instantiateGenericMethod(
                            argumentTypeNode.get(), std::nullopt},
           TypeSubstitution{"Self", selfTypeNode.get(), std::nullopt}});
   function->proto()->setIsMethod(true);
+  function->setVisibility(impl->trait()->visibility());
   _sema._instantiatedFunctionPackages[functionName] = impl->packageName();
 
   SemaImpl::VariableScope signatureScope(_sema._symbols);
   SemaImpl::PackageScope packageScope(_sema._currentPackageName, impl->packageName());
   if (llvm::failed(DeclarationSema(_sema).semaFunctionSignature(
-          function->proto().get())))
+          function->proto().get(), false, impl->packageName(),
+          function->visibility())))
     return failure();
   auto *signature = _sema.lookupFunction(functionName);
   if (!signature)
@@ -427,6 +464,11 @@ auto TraitSema::sema(ImplDecl *node) -> llvm::LogicalResult {
 
     auto fullName = methodFunctionName(trait, targetType, traitArguments,
                                        methodName);
+    // A public trait is the package boundary for its methods. An impl method
+    // must therefore remain callable through that public trait even when the
+    // source method omitted an explicit `pub`.
+    if (trait->isPublic())
+      method->setVisibility(Visibility::Public);
     prototype->id()->setName(fullName);
     prototype->setIsMethod(contract->second->hasReceiver());
     _sema._functionPackages[fullName] = std::string(node->packageName());

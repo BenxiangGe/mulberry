@@ -275,9 +275,12 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
   if (auto *selfType = dyn_cast<SelfTypeNode>(node))
     return std::make_unique<SelfTypeNode>(selfType->location());
 
-  if (auto *namedType = dyn_cast<NamedTypeNode>(node))
-    return std::make_unique<NamedTypeNode>(namedType->location(),
-                                           namedType->name());
+  if (auto *namedType = dyn_cast<NamedTypeNode>(node)) {
+    auto result = std::make_unique<NamedTypeNode>(namedType->location(),
+                                                  namedType->name());
+    result->setResolvedType(namedType->resolvedType());
+    return result;
+  }
 
   if (auto *computedType = dyn_cast<ComputedTypeNode>(node)) {
     return std::make_unique<ComputedTypeNode>(
@@ -357,8 +360,11 @@ auto cloneTypeNode(const TypeNode *node) -> std::unique_ptr<TypeNode> {
 
 auto typeToTypeNode(const Type *type, llvm::SMLoc location)
     -> std::unique_ptr<TypeNode> {
-  if (auto *builtinType = getBuiltinType(type))
-    return std::make_unique<NamedTypeNode>(location, builtinType->name());
+  if (auto *builtinType = getBuiltinType(type)) {
+    auto result = std::make_unique<NamedTypeNode>(location, builtinType->name());
+    result->setResolvedType(type);
+    return result;
+  }
 
   if (auto *structType = getStructType(type)) {
     if (auto *origin = structType->origin()) {
@@ -378,13 +384,18 @@ auto typeToTypeNode(const Type *type, llvm::SMLoc location)
           location, origin->aliasName(), std::move(arguments));
     }
 
-    return std::make_unique<NamedTypeNode>(location, structType->name());
+    auto result = std::make_unique<NamedTypeNode>(location, structType->name());
+    result->setResolvedType(type);
+    return result;
   }
 
   if (auto *dataType = getDataType(type)) {
-    if (dataType->arguments().empty())
-      return std::make_unique<NamedTypeNode>(
+    if (dataType->arguments().empty()) {
+      auto result = std::make_unique<NamedTypeNode>(
           location, dataType->declarationName());
+      result->setResolvedType(type);
+      return result;
+    }
 
     std::vector<ComptimeArg> arguments;
     for (auto &argument : dataType->arguments()) {
@@ -992,9 +1003,11 @@ auto instantiateFunctionDecl(const FunctionDecl *node,
   if (!concretePackName.empty())
     prototype->setConcretePack(std::move(concretePackName),
                                std::move(concretePackElements));
-  return std::make_unique<FunctionDecl>(
+  auto function = std::make_unique<FunctionDecl>(
       node->location(), std::move(prototype),
       substituteBlockExpr(node->body().get(), substitutions));
+  function->setVisibility(node->visibility());
+  return function;
 }
 
 } // namespace mulberry

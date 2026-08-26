@@ -66,7 +66,8 @@ auto Parser::parseReplModule(unique_ptr<Module> &module,
   VectorUniquePtr<Decl> declarations;
   VectorUniquePtr<Stat> statements;
   while (!tokenIs(Token::eof)) {
-    if (tokenIs(Token::kw_import) || tokenIs(Token::kw_extern) ||
+    if (tokenIs(Token::kw_pub) || tokenIs(Token::kw_import) ||
+        tokenIs(Token::kw_extern) ||
         tokenIs(Token::kw_fn) || tokenIs(Token::kw_struct) ||
         tokenIs(Token::kw_trait) || tokenIs(Token::kw_impl) ||
         tokenIs(Token::kw_comptime) ||
@@ -402,25 +403,30 @@ auto Parser::qualifyPackageName(std::string_view name) const -> std::string {
 // Parse Declarations
 
 auto Parser::parseDeclaration(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+  auto isPublic = consumeIf(Token::kw_pub);
   switch (tokenKind()) {
   case Token::kw_import:
+    if (isPublic)
+      return emitError(diag::expected_fun_struct);
     return parseImportDecl(decl);
   case Token::kw_extern:
-    return parseExternFunctionDecl(decl);
+    return parseExternFunctionDecl(decl, isPublic);
   case Token::kw_fn:
-    return parseFunctionDecl(decl);
+    return parseFunctionDecl(decl, isPublic);
   case Token::kw_struct:
-    return parseStructDecl(decl);
+    return parseStructDecl(decl, isPublic);
   case Token::kw_trait:
-    return parseTraitDecl(decl);
+    return parseTraitDecl(decl, isPublic);
   case Token::kw_impl:
+    if (isPublic)
+      return emitError(diag::expected_fun_struct);
     return parseImplDecl(decl);
   case Token::identifier:
     if (spelling() == "data")
-      return parseDataDecl(decl);
+      return parseDataDecl(decl, isPublic);
     return emitError(diag::expected_fun_struct);
   case Token::kw_comptime:
-    return parseComptimeTypeAliasDecl(decl);
+    return parseComptimeTypeAliasDecl(decl, isPublic);
   default:
     return emitError(diag::expected_fun_struct);
   }
@@ -444,7 +450,8 @@ auto Parser::parseImportDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   return success();
 }
 
-auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl, bool isPublic)
+    -> llvm::LogicalResult {
   auto loc = tokenLoc();
   unique_ptr<Prototype> proto;
   unique_ptr<FunctionDecl> functionDecl;
@@ -452,11 +459,14 @@ auto Parser::parseFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
       llvm::failed(parseFunctionDeclBody(loc, std::move(proto), functionDecl)))
     return failure();
 
+  functionDecl->setVisibility(isPublic ? Visibility::Public
+                                       : Visibility::Private);
   decl = std::move(functionDecl);
   return success();
 }
 
-auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl, bool isPublic)
+    -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_extern);
 
@@ -465,8 +475,11 @@ auto Parser::parseExternFunctionDecl(unique_ptr<Decl> &decl) -> llvm::LogicalRes
       llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
 
-  decl = make_unique<FunctionDecl>(loc, std::move(proto), nullptr,
-                                   /*isExtern=*/true);
+  auto functionDecl = make_unique<FunctionDecl>(
+      loc, std::move(proto), nullptr, /*isExtern=*/true);
+  functionDecl->setVisibility(isPublic ? Visibility::Public
+                                       : Visibility::Private);
+  decl = std::move(functionDecl);
   return success();
 }
 
@@ -563,13 +576,14 @@ auto Parser::parseFunctionDeclBody(llvm::SMLoc location,
 auto Parser::parseStructMethod(unique_ptr<FunctionDecl> &method)
     -> llvm::LogicalResult {
   auto loc = tokenLoc();
-  consumeIf(Token::kw_pub);
+  auto isPublic = consumeIf(Token::kw_pub);
 
   unique_ptr<Prototype> proto;
   if (llvm::failed(parsePrototype(proto, /*qualifyName=*/false)) ||
       llvm::failed(parseFunctionDeclBody(loc, std::move(proto), method)))
     return failure();
 
+  method->setVisibility(isPublic ? Visibility::Public : Visibility::Private);
   return success();
 }
 
@@ -649,7 +663,8 @@ auto Parser::parseComptimeBlock(unique_ptr<ComptimeBlockExpr> &block)
   return success();
 }
 
-auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+auto Parser::parseStructDecl(unique_ptr<Decl> &decl, bool isPublic)
+    -> llvm::LogicalResult {
   auto loc = tokenLoc();
   consume(Token::kw_struct);
 
@@ -664,12 +679,16 @@ auto Parser::parseStructDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   if (llvm::failed(parseStructMembers(fields, methods)))
     return failure();
 
-  decl = make_unique<StructDecl>(
+  auto structDecl = make_unique<StructDecl>(
       loc, std::move(name), std::move(fields), std::move(methods));
+  structDecl->setVisibility(isPublic ? Visibility::Public
+                                     : Visibility::Private);
+  decl = std::move(structDecl);
   return success();
 }
 
-auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+auto Parser::parseTraitDecl(unique_ptr<Decl> &decl, bool isPublic)
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_trait);
 
@@ -694,8 +713,11 @@ auto Parser::parseTraitDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
   if (llvm::failed(parseToken(Token::r_brace, diag::expected_r_brace)))
     return failure();
 
-  decl = make_unique<TraitDecl>(location, name, std::move(parameters),
-                                std::move(methods));
+  auto traitDecl = make_unique<TraitDecl>(location, name, std::move(parameters),
+                                          std::move(methods));
+  traitDecl->setVisibility(isPublic ? Visibility::Public
+                                    : Visibility::Private);
+  decl = std::move(traitDecl);
   return success();
 }
 
@@ -863,7 +885,8 @@ auto Parser::parseComptimeAliasBody(unique_ptr<TypeNode> &typeNode)
   return success();
 }
 
-auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
+auto Parser::parseDataDecl(unique_ptr<Decl> &decl, bool isPublic)
+    -> llvm::LogicalResult {
   auto location = tokenLoc();
   // `data` is contextual so existing fields and parameters named data remain
   // ordinary identifiers outside declaration position.
@@ -909,12 +932,15 @@ auto Parser::parseDataDecl(unique_ptr<Decl> &decl) -> llvm::LogicalResult {
 
   if (llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
-  decl = std::make_unique<DataDecl>(location, name, std::move(parameters),
-                                    std::move(constructors));
+  auto dataDecl = std::make_unique<DataDecl>(
+      location, name, std::move(parameters), std::move(constructors));
+  dataDecl->setVisibility(isPublic ? Visibility::Public
+                                   : Visibility::Private);
+  decl = std::move(dataDecl);
   return success();
 }
 
-auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
+auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl, bool isPublic)
     -> llvm::LogicalResult {
   auto location = tokenLoc();
   consume(Token::kw_comptime);
@@ -938,8 +964,11 @@ auto Parser::parseComptimeTypeAliasDecl(unique_ptr<Decl> &decl)
       llvm::failed(parseToken(Token::semi, diag::expected_semi)))
     return failure();
 
-  decl = make_unique<ComptimeTypeAliasDecl>(
+  auto aliasDecl = make_unique<ComptimeTypeAliasDecl>(
       location, name, std::move(parameters), std::move(bodyTypeNode));
+  aliasDecl->setVisibility(isPublic ? Visibility::Public
+                                    : Visibility::Private);
+  decl = std::move(aliasDecl);
   return success();
 }
 

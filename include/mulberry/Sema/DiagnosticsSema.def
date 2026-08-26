@@ -107,6 +107,8 @@ ERROR(missing_trait_method,
       "trait implementation is missing method `%s`")
 ERROR(trait_constraint,
       "type `%t` does not satisfy trait `%s`")
+ERROR(public_signature_private_type,
+      "public declaration exposes private type `%s`")
 
 // ___________________________________________________________________________
 #undef ERROR

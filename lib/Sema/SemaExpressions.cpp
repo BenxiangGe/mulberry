@@ -489,7 +489,8 @@ auto ExpressionSema::instantiateGenericFunction(
   SemaImpl::PackageScope packageScope(
       _sema._currentPackageName, genericFunctionPackageName(name));
   if (llvm::failed(DeclarationSema(_sema).semaFunctionSignature(
-          concreteFunction->proto().get())))
+          concreteFunction->proto().get(), /*isExtern=*/false,
+          genericFunctionPackageName(name), concreteFunction->visibility())))
     return failure();
   auto *signature = _sema.lookupFunction(concreteName);
   if (!signature)
@@ -512,7 +513,18 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
   auto name = genericProto->id()->name();
   auto callerPackageName = _sema._currentPackageName;
   SemaImpl::PackageScope packageScope(_sema._currentPackageName,
-                            genericFunctionPackageName(name));
+                                      genericFunctionPackageName(name));
+  auto semaCallerArgument = [&](std::unique_ptr<Expr> &argument) {
+    SemaImpl::PackageScope callerScope(_sema._currentPackageName,
+                                       callerPackageName);
+    return sema(argument.get());
+  };
+  auto semaCallerExpected = [&](std::unique_ptr<Expr> &argument,
+                                const Type *type) {
+    SemaImpl::PackageScope callerScope(_sema._currentPackageName,
+                                       callerPackageName);
+    return semaExpected(argument, type);
+  };
   auto &expressions = node->expressions();
   auto &parameters = genericProto->parameters();
   auto valuePackIndex = parameters.size();
@@ -578,26 +590,26 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
       LLVM_DEBUG(llvm::dbgs()
                  << "target Array literal leaf from computed return of `"
                  << name << "`: " << formatType(arrayType) << "\n");
-      return sema(literal, arrayType);
+      return semaCallerExpected(argument, arrayType);
     }
 
     if (parameterIndex &&
         comptimeParameters[*parameterIndex].kind ==
             ComptimeParam::Kind::TypePack)
-      return sema(argument.get());
+      return semaCallerArgument(argument);
 
     auto knownArguments = true;
     for (auto &inferredArgument : inferredArguments)
       knownArguments = knownArguments && inferredArgument.isResolved();
     if (!knownArguments)
-      return sema(argument.get());
+      return semaCallerArgument(argument);
 
     auto *parameterType = resolveSubstitutedType(
         parameterTypeNode,
         comptimeSubstitutions(comptimeParameters, inferredArguments));
     if (!parameterType)
       return failure();
-    return semaExpected(argument, parameterType);
+    return semaCallerExpected(argument, parameterType);
   };
 
   // Sibling arguments often determine a lambda's generic parameter types.
@@ -614,7 +626,7 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
       if (!parameterType || !stringType ||
           !sameType(parameterType, stringType))
         return _sema.emitError(expressions[i].get(), diag::mismatch_type);
-      if (llvm::failed(semaExpected(expressions[i], parameterType)))
+      if (llvm::failed(semaCallerExpected(expressions[i], parameterType)))
         return failure();
 
       auto evaluation = ComptimeSema(_sema).evaluateComptime(
@@ -731,9 +743,9 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
 
     auto &argument = expressions[index];
     if (node->isLoweredMethodCall() && index == 0) {
-      if (llvm::failed(sema(argument.get())))
+      if (llvm::failed(semaCallerArgument(argument)))
         return failure();
-    } else if (llvm::failed(semaExpected(argument, parameterType))) {
+    } else if (llvm::failed(semaCallerExpected(argument, parameterType))) {
       return failure();
     }
   }
@@ -759,7 +771,8 @@ auto ExpressionSema::semaGenericCall(CallExpr *node,
 
     SemaImpl::VariableScope signatureScope(_sema._symbols);
     if (llvm::failed(DeclarationSema(_sema).semaFunctionSignature(
-            concreteFunction->proto().get())))
+            concreteFunction->proto().get(), /*isExtern=*/false,
+            genericFunctionPackageName(name), concreteFunction->visibility())))
       return failure();
     auto *signature = _sema.lookupFunction(concreteName);
     if (!signature)

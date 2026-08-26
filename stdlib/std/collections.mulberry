@@ -3,4 +3,4 @@ package std.collections;
 import list;
 import list.List;
 
-comptime List<T> = list.List<T>;
+pub comptime List<T> = list.List<T>;

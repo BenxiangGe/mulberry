@@ -23,6 +23,11 @@ class Expr;
 class Type;
 class VariableExpr;
 
+enum class Visibility {
+  Private,
+  Public,
+};
+
 // _____________________________________________________________________________
 // Declaration
 
@@ -38,13 +43,37 @@ public:
     Decl_Impl,
   };
 
-  explicit Decl(DeclarationKind kind, llvm::SMLoc location)
-      : Node{location}, _kind{kind} {};
+  explicit Decl(DeclarationKind kind, llvm::SMLoc location,
+                Visibility visibility = Visibility::Private)
+      : Node{location}, _kind{kind}, _visibility{visibility} {};
 
   auto getKind() const -> DeclarationKind { return _kind; }
 
+  auto visibility() const -> Visibility { return _visibility; }
+
+  auto setVisibility(Visibility visibility) -> void {
+    _visibility = visibility;
+  }
+
+  auto isPublic() const -> bool {
+    return _visibility == Visibility::Public;
+  }
+
+  // Imported declarations are merged into the root module. Preserve their
+  // source package for declarations such as unqualified `extern fn` symbols,
+  // whose runtime name must remain unqualified.
+  auto sourcePackageName() const -> std::string_view {
+    return _sourcePackageName;
+  }
+
+  auto setSourcePackageName(std::string_view packageName) -> void {
+    _sourcePackageName = packageName;
+  }
+
 private:
   const DeclarationKind _kind;
+  Visibility _visibility = Visibility::Private;
+  std::string _sourcePackageName;
 };
 
 // _____________________________________________________________________________

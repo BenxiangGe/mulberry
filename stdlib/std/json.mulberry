@@ -11,7 +11,7 @@ import string;
 import string.String;
 import tensor.Tensor;
 
-data JsonError =
+pub data JsonError =
     UnexpectedEnd(UInt64)
   | ExpectedChar(Char, UInt64)
   | ExpectedDigit(UInt64)
@@ -65,7 +65,7 @@ fn isValueTerminator(char: Char): Bool {
 
 // Cursor only owns source text and its current position. Length is derived
 // from the Tensor so the two values cannot diverge.
-struct Cursor {
+pub struct Cursor {
   text: Tensor<UInt8>,
   position: UInt64,
 
@@ -477,7 +477,7 @@ struct Cursor {
 
 // This emits the exact string subset consumed by Cursor: short escapes and
 // \u00XX for the remaining ASCII control bytes.
-fn appendQuotedString(mut bytes: List<UInt8>, value: String): () {
+pub fn appendQuotedString(mut bytes: List<UInt8>, value: String): () {
   bytes.push('"');
   var index = 0;
   while index < value.length {

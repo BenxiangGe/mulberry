@@ -1,5 +1,5 @@
 # RUN: mkdir -p %t/a/b
-# RUN: printf 'package a.b.c;\nfn answer(): UInt64 { return 42; }\n' > %t/a/b/c.mulberry
+# RUN: printf 'package a.b.c;\npub fn answer(): UInt64 { return 42; }\n' > %t/a/b/c.mulberry
 # RUN: (cd %t && printf 'import a.b.c\nc.answer()\n:quit\n' | env -u HOME stdbuf -o0 -e0 imb 2>&1) | FileCheck %s
 
 # CHECK: 42

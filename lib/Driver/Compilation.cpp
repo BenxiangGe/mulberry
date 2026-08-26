@@ -837,8 +837,11 @@ auto Compilation::loadImports(Module &module) -> llvm::LogicalResult {
         if (llvm::failed(loadImports(*importedModule)))
           return failure();
 
-        for (auto &importedDecl : importedModule->takeDeclarations())
+        for (auto &importedDecl : importedModule->takeDeclarations()) {
+          if (importedDecl->sourcePackageName().empty())
+            importedDecl->setSourcePackageName(importedModule->packageName());
           mergedDeclarations.push_back(std::move(importedDecl));
+        }
       }
 
       continue;

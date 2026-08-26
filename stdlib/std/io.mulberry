@@ -9,11 +9,11 @@ import string;
 import string.String;
 import tensor.Tensor;
 
-struct File {
+pub struct File {
   handle: Ptr<UInt8>
 }
 
-data FileError =
+pub data FileError =
     OpenFailed(String, String)
   | ReadFailed(UInt64, UInt64)
   | UnexpectedEnd(UInt64, UInt64)
@@ -27,7 +27,7 @@ data FileError =
 
 // RawBytes uses the current process's native layout, endianness, and ABI.
 // Portable file formats must use an explicit encoding instead.
-trait RawBytes {}
+pub trait RawBytes {}
 
 impl RawBytes for Bool {}
 impl RawBytes for UInt8 {}
@@ -74,21 +74,21 @@ extern fn writeString(value: String): ();
 // `imb` enables this hook; batch programs keep `print` without a newline.
 extern fn mulberry_repl_print_end(): ();
 
-fn writeText(value: String): () {
+pub fn writeText(value: String): () {
   writeString(value);
 }
 
-fn print<T: Show>(value: T): () {
+pub fn print<T: Show>(value: T): () {
   writeText(value.toString());
   mulberry_repl_print_end();
 }
 
-fn println<T: Show>(value: T): () {
+pub fn println<T: Show>(value: T): () {
   writeText(value.toString());
   writeText("\n");
 }
 
-fn open(path: String, mode: String): Result<File, FileError> {
+pub fn open(path: String, mode: String): Result<File, FileError> {
   const handle = mulberry_file_open(path, mode);
   if mulberry_file_is_valid(handle) {
     return Ok(File { handle });
@@ -106,7 +106,7 @@ fn ensureOpen(file: File): Result<(), FileError> {
   return Err(UseAfterClose());
 }
 
-fn close(file: File): Result<(), FileError> {
+pub fn close(file: File): Result<(), FileError> {
   if mulberry_file_is_valid(file.handle) {
     if mulberry_file_is_closed(file.handle) {
       return Err(AlreadyClosed());
@@ -120,7 +120,7 @@ fn close(file: File): Result<(), FileError> {
   return Err(CloseFailed());
 }
 
-fn seek(file: File, offset: UInt64): Result<UInt64, FileError> {
+pub fn seek(file: File, offset: UInt64): Result<UInt64, FileError> {
   ensureOpen(file)?;
   if mulberry_file_seek(file.handle, offset) {
     return Ok(offset);
@@ -128,7 +128,7 @@ fn seek(file: File, offset: UInt64): Result<UInt64, FileError> {
   return Err(SeekFailed(offset));
 }
 
-fn tell(file: File): Result<UInt64, FileError> {
+pub fn tell(file: File): Result<UInt64, FileError> {
   ensureOpen(file)?;
   const position = mulberry_file_tell(file.handle);
   if mulberry_file_tell_is_valid(position) {
@@ -137,7 +137,7 @@ fn tell(file: File): Result<UInt64, FileError> {
   return Err(TellFailed());
 }
 
-fn fileSize(file: File): Result<UInt64, FileError> {
+pub fn fileSize(file: File): Result<UInt64, FileError> {
   ensureOpen(file)?;
   const size = mulberry_file_size(file.handle);
   if mulberry_file_size_is_valid(size) {
@@ -146,7 +146,7 @@ fn fileSize(file: File): Result<UInt64, FileError> {
   return Err(SizeFailed());
 }
 
-fn read<T: RawBytes>(file: File, mut buffer: Tensor<T>):
+pub fn read<T: RawBytes>(file: File, mut buffer: Tensor<T>):
     Result<UInt64, FileError> {
   ensureOpen(file)?;
   const expected = buffer.numel * #sizeof(T);
@@ -158,7 +158,7 @@ fn read<T: RawBytes>(file: File, mut buffer: Tensor<T>):
   return Ok(actual);
 }
 
-fn readExact<T: RawBytes>(file: File, mut buffer: Tensor<T>):
+pub fn readExact<T: RawBytes>(file: File, mut buffer: Tensor<T>):
     Result<UInt64, FileError> {
   const expected = buffer.numel * #sizeof(T);
   const actual = read(file, buffer)?;
@@ -168,7 +168,7 @@ fn readExact<T: RawBytes>(file: File, mut buffer: Tensor<T>):
   return Ok(actual);
 }
 
-fn write<T: RawBytes>(file: File, buffer: Tensor<T>):
+pub fn write<T: RawBytes>(file: File, buffer: Tensor<T>):
     Result<UInt64, FileError> {
   ensureOpen(file)?;
   const expected = buffer.numel * #sizeof(T);
@@ -180,7 +180,7 @@ fn write<T: RawBytes>(file: File, buffer: Tensor<T>):
   return Ok(actual);
 }
 
-fn writeBytes(file: File, bytes: List<UInt8>): Result<UInt64, FileError> {
+pub fn writeBytes(file: File, bytes: List<UInt8>): Result<UInt64, FileError> {
   ensureOpen(file)?;
   const expected = bytes.length;
   const actual =

@@ -8,34 +8,34 @@ import tensor.Tensor;
 
 // mulberry.nn is a package boundary. These declarations keep Sema/MLIRGen on
 // ordinary function calls; the NN package plugin rewrites and lowers them.
-extern fn mulberry.nn.matmul(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matadd(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matsub(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.hadamard(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.matscale(value: Tensor<Float32>, scale: Float32): Tensor<Float32>;
-extern fn mulberry.nn.transpose(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.relu(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.softmax(value: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.softmaxCrossEntropy(
+pub extern fn mulberry.nn.matmul(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.matadd(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.matsub(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.hadamard(left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.matscale(value: Tensor<Float32>, scale: Float32): Tensor<Float32>;
+pub extern fn mulberry.nn.transpose(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.exp(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.sigmoid(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.sigmoidPrime(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.relu(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.softmax(value: Tensor<Float32>): Tensor<Float32>;
+pub extern fn mulberry.nn.softmaxCrossEntropy(
     logits: Tensor<Float32>, expected: Tensor<Float32>): Float32;
-extern fn mulberry.nn.conv2d(input: Tensor<Float32>,
+pub extern fn mulberry.nn.conv2d(input: Tensor<Float32>,
                             weight: Tensor<Float32>,
                             bias: Tensor<Float32>): Tensor<Float32>;
-extern fn mulberry.nn.maxPool2d(input: Tensor<Float32>,
+pub extern fn mulberry.nn.maxPool2d(input: Tensor<Float32>,
                                height: UInt64,
                                width: UInt64): Tensor<Float32>;
-extern fn mulberry.nn.reluBackwardInto(input: Tensor<Float32>,
+pub extern fn mulberry.nn.reluBackwardInto(input: Tensor<Float32>,
                                       outputGradient: Tensor<Float32>,
                                       mut inputGradient: Tensor<Float32>): ();
-extern fn mulberry.nn.conv2dBackwardInto(
+pub extern fn mulberry.nn.conv2dBackwardInto(
     input: Tensor<Float32>, weight: Tensor<Float32>,
     outputGradient: Tensor<Float32>, mut inputGradient: Tensor<Float32>,
     mut weightGradient: Tensor<Float32>,
     mut biasGradient: Tensor<Float32>): ();
-extern fn mulberry.nn.maxPool2dBackwardInto(
+pub extern fn mulberry.nn.maxPool2dBackwardInto(
     input: Tensor<Float32>, outputGradient: Tensor<Float32>,
     height: UInt64, width: UInt64,
     mut inputGradient: Tensor<Float32>): ();
@@ -53,42 +53,42 @@ extern fn mulberry.nn.__tensorSubtract4d(
     left: Tensor<Float32>, right: Tensor<Float32>): Tensor<Float32>;
 extern fn mulberry.nn.__tensorScale4d(value: Tensor<Float32>,
                                      scale: Float32): Tensor<Float32>;
-extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;
+pub extern fn mulberry.nn.argmax(value: Tensor<Float32>): UInt64;
 
-struct Evaluation {
+pub struct Evaluation {
   correct: UInt64,
   total: UInt64,
   accuracyBasisPoints: UInt64
 }
 
-struct TwoLayerGradient {
+pub struct TwoLayerGradient {
   w1: Tensor<Float32>,
   b1: Tensor<Float32>,
   w2: Tensor<Float32>,
   b2: Tensor<Float32>
 }
 
-struct Conv2DGradient {
+pub struct Conv2DGradient {
   input: Tensor<Float32>,
   weight: Tensor<Float32>,
   bias: Tensor<Float32>
 }
 
-struct CnnParameters {
+pub struct CnnParameters {
   convWeight: Tensor<Float32>,
   convBias: Tensor<Float32>,
   classifierWeight: Tensor<Float32>,
   classifierBias: Tensor<Float32>
 }
 
-struct CnnGradient {
+pub struct CnnGradient {
   convWeight: Tensor<Float32>,
   convBias: Tensor<Float32>,
   classifierWeight: Tensor<Float32>,
   classifierBias: Tensor<Float32>
 }
 
-struct TensorDataset {
+pub struct TensorDataset {
   xs: List<Tensor<Float32>>,
   ys: List<Tensor<Float32>>,
 
@@ -109,17 +109,17 @@ struct TensorDataset {
   }
 }
 
-fn datasetFromLists(xs: List<Tensor<Float32>>,
+pub fn datasetFromLists(xs: List<Tensor<Float32>>,
                     ys: List<Tensor<Float32>>): TensorDataset {
   return TensorDataset { xs, ys };
 }
 
-fn datasetFromBatches(inputs: Tensor<Float32>,
+pub fn datasetFromBatches(inputs: Tensor<Float32>,
                       labels: Tensor<Float32>): TensorDataset {
   return datasetFromLists(tensor.slicesFirst(inputs), tensor.slicesFirst(labels));
 }
 
-fn forward(weights: List<Tensor<Float32>>,
+pub fn forward(weights: List<Tensor<Float32>>,
            biases: List<Tensor<Float32>>,
            input: Tensor<Float32>): Tensor<Float32> {
   if weights.size() == 0 {
@@ -135,13 +135,13 @@ fn forward(weights: List<Tensor<Float32>>,
   return activation;
 }
 
-fn predict(weights: List<Tensor<Float32>>,
+pub fn predict(weights: List<Tensor<Float32>>,
            biases: List<Tensor<Float32>>,
            input: Tensor<Float32>): UInt64 {
   return argmax(forward(weights, biases, input));
 }
 
-fn countCorrect(weights: List<Tensor<Float32>>,
+pub fn countCorrect(weights: List<Tensor<Float32>>,
                 biases: List<Tensor<Float32>>,
                 xs: List<Tensor<Float32>>,
                 ys: List<Tensor<Float32>>): UInt64 {
@@ -154,7 +154,7 @@ fn countCorrect(weights: List<Tensor<Float32>>,
   return correct;
 }
 
-fn accuracyBasisPoints(correct: UInt64, total: UInt64): UInt64 {
+pub fn accuracyBasisPoints(correct: UInt64, total: UInt64): UInt64 {
   var result = 0;
   if total > 0 {
     const scaled = correct * 10000;
@@ -163,7 +163,7 @@ fn accuracyBasisPoints(correct: UInt64, total: UInt64): UInt64 {
   return result;
 }
 
-fn evaluate(weights: List<Tensor<Float32>>,
+pub fn evaluate(weights: List<Tensor<Float32>>,
             biases: List<Tensor<Float32>>,
             xs: List<Tensor<Float32>>,
             ys: List<Tensor<Float32>>): Evaluation {
@@ -172,13 +172,13 @@ fn evaluate(weights: List<Tensor<Float32>>,
   return Evaluation { correct, total, accuracyBasisPoints(correct, total) };
 }
 
-fn evaluateDataset(weights: List<Tensor<Float32>>,
+pub fn evaluateDataset(weights: List<Tensor<Float32>>,
                    biases: List<Tensor<Float32>>,
                    dataset: TensorDataset): Evaluation {
   return evaluate(weights, biases, dataset.xs, dataset.ys);
 }
 
-fn batchCount(sampleCount: UInt64, batchSize: UInt64): UInt64 {
+pub fn batchCount(sampleCount: UInt64, batchSize: UInt64): UInt64 {
   var result = 0;
   if batchSize > 0 {
     const adjustedSampleCount = sampleCount + batchSize - 1;
@@ -187,7 +187,7 @@ fn batchCount(sampleCount: UInt64, batchSize: UInt64): UInt64 {
   return result;
 }
 
-fn batchEnd(batchStart: UInt64, batchSize: UInt64,
+pub fn batchEnd(batchStart: UInt64, batchSize: UInt64,
             sampleCount: UInt64): UInt64 {
   var result = batchStart + batchSize;
   if result > sampleCount {
@@ -196,7 +196,7 @@ fn batchEnd(batchStart: UInt64, batchSize: UInt64,
   return result;
 }
 
-fn twoLayerGradient(weights: List<Tensor<Float32>>,
+pub fn twoLayerGradient(weights: List<Tensor<Float32>>,
                    biases: List<Tensor<Float32>>,
                    input: Tensor<Float32>,
                    expected: Tensor<Float32>): TwoLayerGradient {
@@ -215,7 +215,7 @@ fn twoLayerGradient(weights: List<Tensor<Float32>>,
   return TwoLayerGradient { nablaW1, delta1, nablaW2, delta2 };
 }
 
-fn reluGradient(input: Tensor<Float32>,
+pub fn reluGradient(input: Tensor<Float32>,
                 outputGradient: Tensor<Float32>): Tensor<Float32> {
   var inputGradient: Tensor<Float32> =
       tensor.zerosDynamic(input.shape());
@@ -223,7 +223,7 @@ fn reluGradient(input: Tensor<Float32>,
   return inputGradient;
 }
 
-fn conv2dGradient(input: Tensor<Float32>, weight: Tensor<Float32>,
+pub fn conv2dGradient(input: Tensor<Float32>, weight: Tensor<Float32>,
                   outputGradient: Tensor<Float32>): Conv2DGradient {
   var inputGradient: Tensor<Float32> =
       tensor.zerosDynamic(input.shape());
@@ -235,7 +235,7 @@ fn conv2dGradient(input: Tensor<Float32>, weight: Tensor<Float32>,
   return Conv2DGradient { inputGradient, weightGradient, biasGradient };
 }
 
-fn maxPool2d2x2Gradient(input: Tensor<Float32>,
+pub fn maxPool2d2x2Gradient(input: Tensor<Float32>,
                        outputGradient: Tensor<Float32>): Tensor<Float32> {
   var inputGradient: Tensor<Float32> =
       tensor.zerosDynamic(input.shape());
@@ -245,12 +245,12 @@ fn maxPool2d2x2Gradient(input: Tensor<Float32>,
 
 // Nielsen network2 L2 update: w = (1 - eta * lambda / n) * w - scale * grad.
 // See http://neuralnetworksanddeeplearning.com/chap3.html#overfitting_and_regularization
-fn l2WeightScale(eta: Float32, regularization: Float32,
+pub fn l2WeightScale(eta: Float32, regularization: Float32,
                  trainingSize: UInt64): Float32 {
   return 1.0 - eta * regularization / core.toFloat32(trainingSize);
 }
 
-fn updateWeight(weight: Tensor<Float32>, gradient: Tensor<Float32>,
+pub fn updateWeight(weight: Tensor<Float32>, gradient: Tensor<Float32>,
                 gradientScale: Float32, weightScale: Float32): Tensor<Float32> {
   return matsub(matscale(weight, weightScale), matscale(gradient, gradientScale));
 }
@@ -260,7 +260,7 @@ fn __cnnBatchInput(input: Tensor<Float32>): Tensor<Float32> {
       input, [1, input.dim(0), input.dim(1), input.dim(2)]);
 }
 
-fn cnnLogits(parameters: CnnParameters,
+pub fn cnnLogits(parameters: CnnParameters,
              input: Tensor<Float32>): Tensor<Float32> {
   var convolved =
       conv2d(input, parameters.convWeight, parameters.convBias);
@@ -274,17 +274,17 @@ fn cnnLogits(parameters: CnnParameters,
       parameters.classifierBias);
 }
 
-fn cnnForward(parameters: CnnParameters,
+pub fn cnnForward(parameters: CnnParameters,
               input: Tensor<Float32>): Tensor<Float32> {
   return softmax(cnnLogits(parameters, input));
 }
 
-fn cnnPredict(parameters: CnnParameters,
+pub fn cnnPredict(parameters: CnnParameters,
               input: Tensor<Float32>): UInt64 {
   return argmax(cnnForward(parameters, __cnnBatchInput(input)));
 }
 
-fn cnnCountCorrect(parameters: CnnParameters,
+pub fn cnnCountCorrect(parameters: CnnParameters,
                    dataset: TensorDataset): UInt64 {
   var correct = 0;
   for sample in 0 .. dataset.size() {
@@ -296,14 +296,14 @@ fn cnnCountCorrect(parameters: CnnParameters,
   return correct;
 }
 
-fn cnnEvaluateDataset(parameters: CnnParameters,
+pub fn cnnEvaluateDataset(parameters: CnnParameters,
                       dataset: TensorDataset): Evaluation {
   const correct = cnnCountCorrect(parameters, dataset);
   const total = dataset.size();
   return Evaluation { correct, total, accuracyBasisPoints(correct, total) };
 }
 
-fn cnnMeanCrossEntropy(parameters: CnnParameters,
+pub fn cnnMeanCrossEntropy(parameters: CnnParameters,
                        dataset: TensorDataset): Float32 {
   const sampleCount = dataset.size();
   if sampleCount == 0 {
@@ -321,7 +321,7 @@ fn cnnMeanCrossEntropy(parameters: CnnParameters,
 
 // One-example softmax cross-entropy gradient. Mini-batch SGD sums these
 // gradients and applies one scaled update after the batch.
-fn cnnGradient(parameters: CnnParameters, input: Tensor<Float32>,
+pub fn cnnGradient(parameters: CnnParameters, input: Tensor<Float32>,
                expected: Tensor<Float32>): CnnGradient {
   var convolved =
       conv2d(input, parameters.convWeight, parameters.convBias);
@@ -358,7 +358,7 @@ fn cnnGradient(parameters: CnnParameters, input: Tensor<Float32>,
   };
 }
 
-fn addCnnGradient(left: CnnGradient,
+pub fn addCnnGradient(left: CnnGradient,
                   right: CnnGradient): CnnGradient {
   return CnnGradient {
     __tensorAdd4d(left.convWeight, right.convWeight),
@@ -368,7 +368,7 @@ fn addCnnGradient(left: CnnGradient,
   };
 }
 
-fn zeroCnnGradient(parameters: CnnParameters): CnnGradient {
+pub fn zeroCnnGradient(parameters: CnnParameters): CnnGradient {
   return CnnGradient {
     tensor.zerosDynamic(parameters.convWeight.shape()),
     tensor.zerosDynamic(parameters.convBias.shape()),
@@ -377,7 +377,7 @@ fn zeroCnnGradient(parameters: CnnParameters): CnnGradient {
   };
 }
 
-fn cnnBatchGradient(parameters: CnnParameters, dataset: TensorDataset,
+pub fn cnnBatchGradient(parameters: CnnParameters, dataset: TensorDataset,
                     batchStart: UInt64,
                     batchEnd: UInt64): CnnGradient {
   var result = zeroCnnGradient(parameters);
@@ -391,7 +391,7 @@ fn cnnBatchGradient(parameters: CnnParameters, dataset: TensorDataset,
   return result;
 }
 
-fn updateCnn(parameters: CnnParameters, gradient: CnnGradient,
+pub fn updateCnn(parameters: CnnParameters, gradient: CnnGradient,
              gradientScale: Float32, weightScale: Float32): CnnParameters {
   return CnnParameters {
     __tensorSubtract4d(
@@ -407,14 +407,14 @@ fn updateCnn(parameters: CnnParameters, gradient: CnnGradient,
   };
 }
 
-fn cnnSgdStep(parameters: CnnParameters, input: Tensor<Float32>,
+pub fn cnnSgdStep(parameters: CnnParameters, input: Tensor<Float32>,
               expected: Tensor<Float32>, gradientScale: Float32,
               weightScale: Float32): CnnParameters {
   const gradient = cnnGradient(parameters, input, expected);
   return updateCnn(parameters, gradient, gradientScale, weightScale);
 }
 
-fn cnnMiniBatchStep(parameters: CnnParameters, dataset: TensorDataset,
+pub fn cnnMiniBatchStep(parameters: CnnParameters, dataset: TensorDataset,
                     batchStart: UInt64, batchEnd: UInt64,
                     eta: Float32,
                     weightScale: Float32): CnnParameters {
@@ -426,7 +426,7 @@ fn cnnMiniBatchStep(parameters: CnnParameters, dataset: TensorDataset,
   return updateCnn(parameters, gradient, gradientScale, weightScale);
 }
 
-fn cnnTrainEpoch(parameters: CnnParameters, mut dataset: TensorDataset,
+pub fn cnnTrainEpoch(parameters: CnnParameters, mut dataset: TensorDataset,
                  batchSize: UInt64, eta: Float32,
                  regularization: Float32,
                  shuffleSeed: UInt64): CnnParameters {

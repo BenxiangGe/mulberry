@@ -8,13 +8,13 @@ import string.String;
 
 extern fn mulberry_zero_memory(data: Ptr<UInt8>, byteSize: UInt64): ();
 
-comptime TensorStorage<T> = struct {
+pub comptime TensorStorage<T> = struct {
   allocated: Ptr<T>,
   data: Ptr<T>,
   disposed: Bool
 };
 
-comptime Tensor<T> = struct {
+pub comptime Tensor<T> = struct {
   _storage: TensorStorage<T>,
   data: Ptr<T>,
   rank: UInt64,
@@ -78,7 +78,7 @@ comptime Tensor<T> = struct {
   }
 };
 
-fn numel(shape: List<UInt64>): UInt64 {
+pub fn numel(shape: List<UInt64>): UInt64 {
   return shape.reduce(1, |count, dimension| count * dimension);
 }
 
@@ -126,7 +126,7 @@ fn flattenInto<A, T>(value: A, mut data: Ptr<T>, offset: UInt64): UInt64 {
   }
 }
 
-fn from<A>(value: A): Tensor<#typeInfo(A).arrayLeafElementType()> {
+pub fn from<A>(value: A): Tensor<#typeInfo(A).arrayLeafElementType()> {
   const info = #typeInfo(A);
   const rank = info.arrayRank();
   var sizes: List<UInt64> = list.withCapacity(rank);
@@ -143,7 +143,7 @@ fn from<A>(value: A): Tensor<#typeInfo(A).arrayLeafElementType()> {
   };
 }
 
-fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
+pub fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   const count = numel(shape);
   var storage: TensorStorage<T> = std.tensor.__allocate(count);
   var data = storage.data;
@@ -153,11 +153,11 @@ fn zerosDynamic<T>(shape: List<UInt64>): Tensor<T> {
   };
 }
 
-fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
+pub fn zeros<T, N: UInt64>(shape: Array<UInt64, N>): Tensor<T> {
   return zerosDynamic(list.from(shape));
 }
 
-fn reshape<T, N: UInt64>(value: Tensor<T>,
+pub fn reshape<T, N: UInt64>(value: Tensor<T>,
                          shape: Array<UInt64, N>): Tensor<T> {
   var sizes = list.from(shape);
   return Tensor<T> {
@@ -165,7 +165,7 @@ fn reshape<T, N: UInt64>(value: Tensor<T>,
   };
 }
 
-fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
+pub fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
   var sizes: List<UInt64> = list.withCapacity(0);
   var strides: List<UInt64> = list.withCapacity(0);
 
@@ -184,7 +184,7 @@ fn sliceFirst<T>(value: Tensor<T>, index: UInt64): Tensor<T> {
   };
 }
 
-fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {
+pub fn slicesFirst<T>(value: Tensor<T>): List<Tensor<T>> {
   var result: List<Tensor<T>> = list.withCapacity(value.sizes[0]);
   var index = 0;
   while index < value.sizes[0] {

@@ -15,7 +15,7 @@ import string.String;
 import tensor;
 import tensor.Tensor;
 
-data SafetensorsError =
+pub data SafetensorsError =
     IoFailure(io.FileError)
   | JsonFailure(json.JsonError)
   | TensorNotFound(String)
@@ -88,7 +88,7 @@ fn stringsEqual(left: String, right: String): Bool {
   return true;
 }
 
-struct TensorInfo {
+pub struct TensorInfo {
   headerLength: UInt64,
   begin: UInt64,
   end: UInt64,
@@ -102,14 +102,14 @@ struct TensorMetadata {
   hasOffsets: Bool
 }
 
-struct TensorFile {
+pub struct TensorFile {
   file: File,
   headerLength: UInt64,
   headerBytes: Tensor<UInt8>,
   fileSize: UInt64
 }
 
-struct NamedTensor {
+pub struct NamedTensor {
   name: String,
   value: Tensor<Float32>
 }
@@ -351,7 +351,7 @@ fn loadTensorFile(file: File): Result<TensorFile, SafetensorsError> {
   return Ok(TensorFile { file, headerLength, headerBytes, fileSize });
 }
 
-fn open(path: String): Result<TensorFile, SafetensorsError> {
+pub fn open(path: String): Result<TensorFile, SafetensorsError> {
   const file = io.open(path, "rb")?;
   match loadTensorFile(file) {
     Ok(tensorFile) => return Ok(tensorFile);
@@ -362,18 +362,18 @@ fn open(path: String): Result<TensorFile, SafetensorsError> {
   }
 }
 
-fn close(tensorFile: TensorFile): Result<(), SafetensorsError> {
+pub fn close(tensorFile: TensorFile): Result<(), SafetensorsError> {
   io.close(tensorFile.file)?;
   return Ok(());
 }
 
-fn find(tensorFile: TensorFile, name: String):
+pub fn find(tensorFile: TensorFile, name: String):
     Result<TensorInfo, SafetensorsError> {
   var parser = Cursor { tensorFile.headerBytes, 0 };
   return findTensorInHeader(parser, name, tensorFile.headerLength);
 }
 
-fn read(tensorFile: TensorFile, name: String):
+pub fn read(tensorFile: TensorFile, name: String):
     Result<Tensor<Float32>, SafetensorsError> {
   const info = find(tensorFile, name)?;
   var numel: UInt64 = 1;
@@ -439,7 +439,7 @@ fn writeContents(file: File, header: ByteBuffer,
   return Ok(byteCount);
 }
 
-fn write(path: String, entries: List<NamedTensor>):
+pub fn write(path: String, entries: List<NamedTensor>):
     Result<UInt64, SafetensorsError> {
   validateEntries(entries)?;
   var header = makeByteBuffer();

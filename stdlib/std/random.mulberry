@@ -1,6 +1,6 @@
 package std.random;
 
-struct Rng {
+pub struct Rng {
   state: UInt64,
 
   pub fn next(mut self: Rng): UInt64 {
@@ -20,6 +20,6 @@ struct Rng {
   }
 }
 
-fn seed(value: UInt64): Rng {
+pub fn seed(value: UInt64): Rng {
   return Rng { value };
 }

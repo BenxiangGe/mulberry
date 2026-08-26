@@ -79,6 +79,17 @@ auto DeclarationSema::semaFunctionParameters(
   return success();
 }
 
+auto DeclarationSema::checkPublicFunctionSignature(
+    Prototype *node, const std::vector<ComptimeParam> &comptimeParameters,
+    bool allowSelf) -> llvm::LogicalResult {
+  for (auto &parameter : node->parameters())
+    if (llvm::failed(_sema.checkPublicTypeNode(
+            parameter->typeNode(), comptimeParameters, allowSelf)))
+      return failure();
+  return _sema.checkPublicTypeNode(node->returnTypeNode(), comptimeParameters,
+                                  allowSelf);
+}
+
 auto DeclarationSema::checkFunctionPacks(Prototype *node)
     -> llvm::LogicalResult {
   const ComptimeParam *typePack = nullptr;
@@ -149,7 +160,9 @@ auto DeclarationSema::bindFunctionParameters(
   return success();
 }
 
-auto DeclarationSema::semaFunctionSignature(Prototype *node, bool isExtern)
+auto DeclarationSema::semaFunctionSignature(
+    Prototype *node, bool isExtern, std::string_view packageName,
+    Visibility visibility)
     -> llvm::LogicalResult {
   std::vector<const Type *> parameterTypes;
   std::vector<bool> parameterCanMutateObject;
@@ -166,7 +179,8 @@ auto DeclarationSema::semaFunctionSignature(Prototype *node, bool isExtern)
   auto *functionType = _sema._typeContext.createFunctionType(
       std::move(parameterTypes), std::move(parameterCanMutateObject),
       returnType);
-  if (llvm::failed(_sema.declareFunction(name, functionType, isExtern))) {
+  if (llvm::failed(_sema.declareFunction(name, functionType, isExtern,
+                                         packageName, visibility))) {
     auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
     return _sema.emitError(node->id().get(), diagnostic);
   }
@@ -174,18 +188,33 @@ auto DeclarationSema::semaFunctionSignature(Prototype *node, bool isExtern)
 }
 
 auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
-  auto functionPackage = node->isExtern()
-                             ? _sema._currentPackageName
-                             : functionPackageName(node->proto()->id()->name());
+  auto functionName = node->proto()->id()->name();
+  std::string functionPackage;
+  if (node->isExtern()) {
+    if (functionName.find('.') != std::string_view::npos)
+      functionPackage = packageNameOf(functionName);
+    else if (!node->sourcePackageName().empty())
+      functionPackage = std::string(node->sourcePackageName());
+    else
+      functionPackage = _sema._currentPackageName;
+  } else {
+    functionPackage = functionPackageName(functionName);
+  }
   SemaImpl::PackageScope packageScope(_sema._currentPackageName,
                                       functionPackage);
   if (llvm::failed(checkFunctionPacks(node->proto().get())))
+    return failure();
+  if (node->isPublic() && !node->proto()->isMethod() &&
+      !node->specializationOrigin() &&
+      llvm::failed(checkPublicFunctionSignature(
+          node->proto().get(), node->proto()->comptimeParameters())))
     return failure();
   if (node->isExtern()) {
     if (node->proto()->isGeneric())
       return _sema.emitError(node->proto()->id().get(), diag::mismatch_type);
     SemaImpl::FunctionScope functionScope(_sema);
-    return semaFunctionSignature(node->proto().get(), true);
+    return semaFunctionSignature(node->proto().get(), true, functionPackage,
+                                 node->visibility());
   }
 
   if (node->proto()->isGeneric()) {
@@ -197,8 +226,8 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
       auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
       return _sema.emitError(node->proto()->id().get(), diagnostic);
     }
-    if (llvm::failed(
-            _sema.declareGenericFunction(name, node))) {
+    if (llvm::failed(_sema.declareGenericFunction(
+            name, node, functionPackage, node->visibility()))) {
       auto diagnostic = formatNameDiagnostic(diag::redefinition_func, name);
       return _sema.emitError(node->proto()->id().get(), diagnostic);
     }
@@ -252,7 +281,9 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
       if (llvm::failed(bindFunctionParameters(node->proto().get(), signature)))
         return failure();
     } else {
-      if (llvm::failed(sema(node->proto().get())))
+      if (llvm::failed(semaFunctionSignature(
+              node->proto().get(), /*isExtern=*/false, functionPackage,
+              node->visibility())))
         return failure();
       signature = _sema.lookupFunction(node->proto()->id()->name());
       if (!signature)
@@ -313,7 +344,8 @@ auto DeclarationSema::sema(FunctionDecl *node) -> llvm::LogicalResult {
 auto DeclarationSema::declareStructMethods(
     std::string_view ownerName, const VectorUniquePtr<FunctionDecl> &methods,
     const std::vector<ComptimeParam> &typeParameters,
-    std::string_view packageName) -> llvm::LogicalResult {
+    std::string_view packageName, Visibility ownerVisibility)
+    -> llvm::LogicalResult {
   NameSet methodNames;
   for (auto &method : methods) {
     auto *prototype = method->proto().get();
@@ -336,12 +368,17 @@ auto DeclarationSema::declareStructMethods(
       prototype->setComptimeParameters(std::move(parameters));
     }
 
+    if (ownerVisibility == Visibility::Public && method->isPublic() &&
+        llvm::failed(checkPublicFunctionSignature(
+            prototype, prototype->comptimeParameters())))
+      return failure();
+
     if (prototype->isGeneric()) {
       if (llvm::failed(TraitSema(_sema).resolveConstraints(
               prototype, prototype->comptimeParameters())))
         return failure();
-      if (llvm::failed(_sema.declareGenericFunction(fullName, method.get(),
-                                                    packageName))) {
+      if (llvm::failed(_sema.declareGenericFunction(
+              fullName, method.get(), packageName, method->visibility()))) {
         auto diagnostic = formatNameDiagnostic(diag::redefinition_func,
                                                fullName);
         return _sema.emitError(prototype->id().get(), diagnostic);
@@ -364,6 +401,9 @@ auto DeclarationSema::sema(StructDecl *node) -> llvm::LogicalResult {
   unsigned fieldIndex = 0;
   for (auto &varDecl : *node) {
     auto var = varDecl->variable().get();
+    if (node->isPublic() && llvm::failed(_sema.checkPublicTypeNode(
+            varDecl->typeNode(), {}, /*allowSelf=*/false)))
+      return failure();
     auto *fieldType =
         _sema.checkType(varDecl->typeNode(), SemaImpl::UnitPolicy::Reject);
     if (!fieldType)
@@ -381,21 +421,34 @@ auto DeclarationSema::sema(StructDecl *node) -> llvm::LogicalResult {
   auto *structType =
       _sema._typeContext.createStructType(id->name(), std::move(fields));
   id->setType(structType);
-  if (llvm::failed(_sema.declareStructType(structType)))
+  if (llvm::failed(_sema.declareStructType(
+          structType, packageNameOf(id->name()), node->visibility())))
     return _sema.emitError(id, diag::redefinition_type);
   if (llvm::failed(declareStructMethods(
-          id->name(), node->methods(), {}, packageNameOf(id->name()))))
+          id->name(), node->methods(), {}, packageNameOf(id->name()),
+          node->visibility())))
     return failure();
   return success();
 }
 
 auto DeclarationSema::sema(DataDecl *node) -> llvm::LogicalResult {
+  auto dataPackage = packageNameOf(node->name());
+  SemaImpl::PackageScope packageScope(_sema._currentPackageName, dataPackage);
+  if (node->isPublic()) {
+    for (auto &constructor : node->constructors())
+      for (auto &payloadType : constructor->payloadTypes())
+        if (llvm::failed(_sema.checkPublicTypeNode(
+                payloadType.get(), node->parameters(), /*allowSelf=*/false)))
+          return failure();
+  }
+
   if (_sema._symbols.lookupType(node->name()) ||
       _sema._symbols.lookupComptimeTypeAlias(node->name()) ||
       _sema._symbols.lookupDataDecl(node->name()))
     return _sema.emitError(node, diag::redefinition_type);
 
-  if (llvm::failed(_sema._symbols.declareDataDecl(node->name(), node)))
+  if (llvm::failed(_sema._symbols.declareDataDecl(
+          node->name(), node, dataPackage, node->visibility())))
     return _sema.emitError(node, diag::redefinition_type);
 
   for (const auto &indexedConstructor :
@@ -418,10 +471,9 @@ auto DeclarationSema::sema(DataDecl *node) -> llvm::LogicalResult {
 
   // Publish a non-generic shell before resolving its constructors so direct
   // self-reference can resolve through the ordinary type symbol table.
-  if (llvm::failed(_sema.declareType(node->name(), dataType)))
+  if (llvm::failed(_sema.declareType(node->name(), dataType, dataPackage,
+                                     node->visibility())))
     return _sema.emitError(node, diag::redefinition_type);
-  SemaImpl::PackageScope packageScope(
-      _sema._currentPackageName, packageNameOf(node->name()));
   return _sema.completeDataType(node, dataType, {});
 }
 
@@ -433,16 +485,21 @@ auto DeclarationSema::sema(ComptimeTypeAliasDecl *node)
       _sema._symbols.lookupComptimeTypeAlias(node->name()))
     return _sema.emitError(node, diag::redefinition_type);
 
+  if (node->isPublic() && llvm::failed(_sema.checkPublicTypeNode(
+          node->bodyTypeNode(), node->parameters(), /*allowSelf=*/false)))
+    return failure();
+
   if (!node->isGeneric()) {
     auto *bodyType =
         _sema.checkType(node->bodyTypeNode(), SemaImpl::UnitPolicy::Reject);
     if (!bodyType)
       return failure();
-    if (llvm::failed(_sema._symbols.declareType(node->name(), bodyType)))
+    if (llvm::failed(_sema._symbols.declareType(
+            node->name(), bodyType, packageName, node->visibility())))
       return _sema.emitError(node, diag::redefinition_type);
     if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode()))
       return declareStructMethods(node->name(), structTypeNode->methods(), {},
-                                  packageName);
+                                  packageName, node->visibility());
     return success();
   }
 
@@ -450,12 +507,13 @@ auto DeclarationSema::sema(ComptimeTypeAliasDecl *node)
           node->name(), packageName,
           std::vector<ComptimeParam>(node->parameters().begin(),
                                      node->parameters().end()),
-          node->bodyTypeNode())))
+          node->bodyTypeNode(), node->visibility())))
     return _sema.emitError(node, diag::redefinition_type);
   if (auto *structTypeNode = dyn_cast<StructTypeNode>(node->bodyTypeNode())) {
     if (llvm::failed(declareStructMethods(node->name(),
                                           structTypeNode->methods(),
-                                          node->parameters(), packageName)))
+                                          node->parameters(), packageName,
+                                          node->visibility())))
       return failure();
   }
   return success();

@@ -1,5 +1,5 @@
 package std.result;
 
-data Result<T, E> =
+pub data Result<T, E> =
     Ok(T)
   | Err(E);

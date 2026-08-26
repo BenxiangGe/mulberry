@@ -2,4 +2,4 @@ package std.types;
 
 import list.List;
 
-comptime Vector<T> = List<T>;
+pub comptime Vector<T> = List<T>;

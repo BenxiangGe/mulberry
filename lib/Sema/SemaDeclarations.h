@@ -26,7 +26,10 @@ public:
   auto sema(StructDecl *node) -> llvm::LogicalResult;
   auto sema(DataDecl *node) -> llvm::LogicalResult;
   auto sema(ComptimeTypeAliasDecl *node) -> llvm::LogicalResult;
-  auto semaFunctionSignature(Prototype *node, bool isExtern = false)
+  auto semaFunctionSignature(
+      Prototype *node, bool isExtern = false,
+      std::string_view packageName = {},
+      Visibility visibility = Visibility::Private)
       -> llvm::LogicalResult;
 
 private:
@@ -35,13 +38,18 @@ private:
   auto semaFunctionParameters(
       Prototype *node, std::vector<const Type *> &parameterTypes,
       std::vector<bool> &parameterCanMutateObject) -> llvm::LogicalResult;
+  auto checkPublicFunctionSignature(
+      Prototype *node,
+      const std::vector<ComptimeParam> &comptimeParameters,
+      bool allowSelf = false) -> llvm::LogicalResult;
   auto bindFunctionParameters(Prototype *node,
                               const FunctionSymbol *signature)
       -> llvm::LogicalResult;
   auto declareStructMethods(
       std::string_view ownerName, const VectorUniquePtr<FunctionDecl> &methods,
       const std::vector<ComptimeParam> &typeParameters,
-      std::string_view packageName) -> llvm::LogicalResult;
+      std::string_view packageName, Visibility ownerVisibility)
+      -> llvm::LogicalResult;
 
   SemaImpl &_sema;
 };
